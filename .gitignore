@@ -1,0 +1,22 @@
+# ホワイトリスト形式: 明示的に許可したものだけ追跡する
+*
+
+# ソースコード
+!.gitignore
+!README.md
+!LICENSE
+!go.mod
+!main.go
+!server.go
+!api/
+!api/**
+!graph/
+!graph/**
+!search/
+!search/**
+!static/
+!static/index.html
+!static/css/
+!static/css/**
+!static/js/
+!static/js/**
