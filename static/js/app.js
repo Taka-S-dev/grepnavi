@@ -6,7 +6,9 @@ window.addEventListener('unhandledrejection', e => {
 // ===== STATE =====
 let graph = { nodes:{}, edges:[] };
 let selNode = null;
-let sse = null, batchTimer = null;
+let sse = null, batchTimer = null, spinnerTimer = null;
+const SPINNER_FRAMES = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+let spinnerFrame = 0;
 let pending = [], allMatches = [];
 let fileGroupMap = {};
 const LIMIT = 1000, BATCH_MS = 80, DRAG_STEP = 30;
@@ -15,6 +17,7 @@ let dragDepth  = 0;
 let dragStartX = 0;
 let lastDragX  = 0;
 let dropHandled = false; // ondrop 済みフラグ（ondragend との二重処理防止）
+let dragSeq = 0; // ドラッグ操作ごとに増加。再レンダリング後の古い ondragend を無視するため。
 let viewMode = 'tree'; // 'tree' | 'graph'
 let d3sim = null;
 let showMemos = false;
@@ -86,6 +89,7 @@ addEventListener('DOMContentLoaded', async () => {
   const btnLmt = id('btn-line-memo-toggle');
   if(btnLmt) {
     btnLmt.onclick = toggleLineMemoInline;
+    btnLmt.classList.toggle('on', showLineMemoInline);
     btnLmt.style.background = showLineMemoInline ? '#094771' : '';
   }
   document.addEventListener('keydown', e => {
@@ -150,11 +154,16 @@ addEventListener('DOMContentLoaded', async () => {
           const currentX = nodeRect.left - paneRect.left;
           const effectiveDelta = effectiveDepth - dragDepth;
           const guideX = Math.max(0, currentX + effectiveDelta * INDENT_W);
-          // 上端: 親ノードの下端（親なし=ペイン上端）
-          let guideTop = 0;
+          // 上端: 親ノードの下端（ルートの場合はツリーコンテンツ上端）
+          const treeContentTop = id('tree').getBoundingClientRect().top - paneRect.top;
+          let guideTop;
           if(targetParentId) {
             const parentEl = paneEl.querySelector(`.node-row[data-id="${targetParentId}"]`);
-            if(parentEl) guideTop = parentEl.getBoundingClientRect().bottom - paneRect.top;
+            guideTop = parentEl
+              ? parentEl.getBoundingClientRect().bottom - paneRect.top
+              : treeContentTop;
+          } else {
+            guideTop = treeContentTop;
           }
           // 下端: 挿入ターゲットの位置（なければドラッグ中ノード）
           let guideBottom = nodeRect.bottom - paneRect.top;
@@ -237,6 +246,7 @@ function applyGraphResponse(g) {
   if(!graph.nodes) graph.nodes = {};
   if(!graph.edges) graph.edges = [];
   graph.root_dir = savedRoot; // 検索ルートは保持
+  graph._rootOrder = g.root_order || [];
   if(g.root_dir && !projectRoot) {
     projectRoot = g.root_dir;
     const parts = g.root_dir.replace(/\\/g,'/').split('/');
@@ -983,6 +993,7 @@ function makeNodeEl(node, depth, visited = new Set()) {
     row.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
     id('drop-root').style.display = '';
+    row._dragSeq = ++dragSeq; // このドラッグ操作の識別子
   };
   // ---- 設計原則 ----
   // レベル変更モード (delta !== 0): ondragend のみが reparent を実行。
@@ -992,15 +1003,36 @@ function makeNodeEl(node, depth, visited = new Set()) {
   // -----------------------------------------------------------------------
 
   row.ondragend = _e => {
+    // 再レンダリングで切り離された古い row の ondragend が遅延発火した場合は無視する。
+    // これがないと新しいドラッグ中に dragNodeId が null にリセットされてドロップ不能になる。
+    if(row._dragSeq !== dragSeq) return;
     row.classList.remove('dragging');
     id('drop-root').style.display = 'none';
     id('level-badge').style.display = 'none';
     const g = id('indent-guide'); if(g) g.style.display = 'none';
-    document.querySelectorAll('.drag-over,.indent-target,.insert-before,.insert-after').forEach(el => {
-      el.classList.remove('drag-over','indent-target','insert-before','insert-after');
+    // drag-over と indent-target はすぐクリア。insert-before/after はギャップ判定後にクリア
+    document.querySelectorAll('.drag-over,.indent-target').forEach(el => {
+      el.classList.remove('drag-over','indent-target');
     });
     if(!dropHandled) {
-      // 挿入モードで処理済みでなければレベル変更を適用
+      // ノード間ギャップにドロップされた場合: 残っているインジケーターで処理
+      const insertBefore = document.querySelector('.node.insert-before');
+      const insertAfter  = document.querySelector('.node.insert-after');
+      const targetWrap   = insertBefore || insertAfter;
+      if(targetWrap && targetWrap.dataset.id && targetWrap.dataset.id !== node.id) {
+        const targetId = targetWrap.dataset.id;
+        document.querySelectorAll('.node.insert-before,.node.insert-after').forEach(el => {
+          el.classList.remove('insert-before','insert-after');
+        });
+        reorderNode(node.id, targetId, insertBefore ? 'before' : 'after');
+        dragNodeId = null;
+        dropHandled = false;
+        return;
+      }
+      document.querySelectorAll('.node.insert-before,.node.insert-after').forEach(el => {
+        el.classList.remove('insert-before','insert-after');
+      });
+      // インジケーターなし → レベル変更を適用
       const dx = lastDragX - dragStartX;
       const delta = Math.round(dx / DRAG_STEP);
       if(delta !== 0) {
@@ -1008,6 +1040,10 @@ function makeNodeEl(node, depth, visited = new Set()) {
         const targetParentId = calcDragTarget(node.id, depth, newDepth);
         if(targetParentId !== undefined) reparent(node.id, targetParentId);
       }
+    } else {
+      document.querySelectorAll('.node.insert-before,.node.insert-after').forEach(el => {
+        el.classList.remove('insert-before','insert-after');
+      });
     }
     dropHandled = false;
     dragNodeId = null;
@@ -1034,7 +1070,8 @@ function makeNodeEl(node, depth, visited = new Set()) {
   row.ondragleave = e => {
     if(!row.contains(e.relatedTarget)) {
       row.classList.remove('drag-over');
-      wrap.classList.remove('insert-before','insert-after');
+      // insert-before/after はギャップ通過時も保持し、
+      // 次のノードの ondragover または ondragend でクリアする
     }
   };
   row.ondrop = e => {
@@ -1154,9 +1191,13 @@ async function reorderNode(nodeId, refNodeId, position, reorderOnly = false) {
   const parent = parentId ? graph.nodes[parentId] : null;
   const siblings = parent
     ? (parent.children || [])
-    : Object.values(graph.nodes)
-        .filter(n => !Object.values(graph.nodes).some(p => (p.children||[]).includes(n.id)))
-        .map(n => n.id);
+    : (() => {
+        const hasParent = new Set((graph.edges||[]).filter(e=>e.label!=='seq').map(e=>e.to));
+        const rootIds = Object.values(graph.nodes).filter(n => !hasParent.has(n.id)).map(n => n.id);
+        const existing = (graph._rootOrder || []).filter(id => graph.nodes[id]);
+        const missing = rootIds.filter(id => !existing.includes(id));
+        return [...existing, ...missing];
+      })();
 
   const arr = [...siblings];
   const fromIdx = arr.indexOf(nodeId);
@@ -1189,9 +1230,11 @@ async function saveChildrenOrder(parentId, children) {
   stGraph();
 }
 
-async function saveRootOrder(_order) {
-  // ルートの並び順はgraph自体のメタとして保存
-  // 既存APIで対応できないため、ローカル状態のみ保持してrenderで反映
+async function saveRootOrder(order) {
+  await fetch('/api/graph/rootorder', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({order})
+  });
   renderCurrent();
 }
 
@@ -1368,7 +1411,16 @@ function doSearch() {
   id('sh-title').textContent='検索中... "'+q+'"';
   id('sh-over').textContent='';
   id('btn-stop').style.display='';
-  st('検索中...');
+  spinnerFrame = 0;
+  spinnerTimer = setInterval(() => {
+    spinnerFrame = (spinnerFrame + 1) % SPINNER_FRAMES.length;
+    st(SPINNER_FRAMES[spinnerFrame] + ' 検索中... ' + allMatches.length + ' 件');
+  }, 80);
+  st(SPINNER_FRAMES[0] + ' 検索中... 0 件');
+  // 検索開始フラッシュ
+  const qWrap = id('q-wrap');
+  qWrap.classList.remove('search-flash');
+  requestAnimationFrame(() => requestAnimationFrame(() => qWrap.classList.add('search-flash')));
 
   batchTimer = setInterval(()=>flushBatch(q), BATCH_MS);
   sse = new EventSource('/api/search/stream?'+params);
@@ -1393,6 +1445,7 @@ function doSearch() {
 function stopSearch() {
   if(sse){sse.close();sse=null;}
   if(batchTimer){clearInterval(batchTimer);batchTimer=null;}
+  if(spinnerTimer){clearInterval(spinnerTimer);spinnerTimer=null;}
   id('btn-stop').style.display='none';
 }
 
@@ -1660,6 +1713,7 @@ function initDirPicker() {
   }
 
   let suppressOpen = false;
+  let opening = false;
   function closeDrop() {
     drop.classList.remove('open');
     activeIdx = -1;
@@ -1689,10 +1743,12 @@ function initDirPicker() {
   inp.addEventListener('change', () => { clearBtn.style.display = inp.value ? '' : 'none'; updateRootChip(); });
 
   async function tryOpen() {
-    if(suppressOpen) return;
+    if(suppressOpen || opening || drop.classList.contains('open')) return;
+    opening = true;
     await fetchDirs();
+    opening = false;
     if(!dirList || dirList.length === 0) { showRootDialog(); return; }
-    openDrop();
+    if(!drop.classList.contains('open')) openDrop();
   }
   inp.addEventListener('focus', tryOpen);
   inp.addEventListener('click', () => { if(!drop.classList.contains('open')) tryOpen(); });
@@ -2186,7 +2242,7 @@ function renderLineMemoOverlay() {
 function toggleLineMemoInline() {
   showLineMemoInline = !showLineMemoInline;
   const btn = id('btn-line-memo-toggle');
-  if(btn) btn.style.background = showLineMemoInline ? '#094771' : '';
+  if(btn) { btn.classList.toggle('on', showLineMemoInline); btn.style.background = showLineMemoInline ? '#094771' : ''; }
   refreshLineMemoDecorations();
 }
 function showLineMemoInput(file, line) {
@@ -2303,14 +2359,16 @@ async function ensureEditor() {
   const HOVER_LANGS = ['c','cpp','go','python','javascript','typescript','rust','java'];
   HOVER_LANGS.forEach(lang => {
     monaco.languages.registerHoverProvider(lang, {
-      provideHover: async (model, position) => {
+      provideHover: async (model, position, token) => {
         const word = model.getWordAtPosition(position);
         if(!word || word.word.length < 2) return null;
+        const controller = new AbortController();
+        token.onCancellationRequested(() => controller.abort());
         const dir = id('dir').value.trim();
         const p = new URLSearchParams({q: word.word, regex:'0', case:'0', limit:'50'});
         if(dir) p.set('dir', dir);
         try {
-          const r = await fetch('/api/search?' + p);
+          const r = await fetch('/api/search?' + p, {signal: controller.signal});
           const d = await r.json();
           const currentFile = tabs[activeTabIdx]?.file || '';
           const contents = [];
@@ -2335,7 +2393,7 @@ async function ensureEditor() {
           const dp = new URLSearchParams({word: word.word});
           if(dir2)  dp.set('dir',  dir2);
           if(glob2) dp.set('glob', glob2);
-          const dr = await fetch('/api/definition?' + dp);
+          const dr = await fetch('/api/definition?' + dp, {signal: controller.signal});
           const defs = await dr.json();
           if(Array.isArray(defs) && defs.length) {
             const kindIcon = {define:'#️⃣', struct:'🏗', enum:'🔢', union:'🔀', typedef:'🔤'};
@@ -2420,6 +2478,22 @@ async function ensureEditor() {
     }
   });
 
+  // 右クリック → 選択テキストを検索
+  monacoEditor.addAction({
+    id: 'grepnavi-grep-selection', label: '選択テキストを検索',
+    contextMenuGroupId: 'grepnavi',
+    contextMenuOrder: 0,
+    run: ed => {
+      const sel = ed.getSelection();
+      const model = ed.getModel();
+      if(!sel || !model) return;
+      const text = model.getValueInRange(sel).trim();
+      if(!text) return;
+      id('q').value = text;
+      doSearch();
+    }
+  });
+
   // Alt+G / 右クリック → 選択行をノードに追加
   monacoEditor.addAction({
     id: 'grepnavi-add-node', label: 'ノードに追加 (Alt+G)',
@@ -2434,7 +2508,7 @@ async function ensureEditor() {
       const line = sel.startLineNumber;
       const selectedText = model.getValueInRange(sel).split('\n')[0].trim();
       const text = selectedText || model.getLineContent(line).trim();
-      const id = crypto.randomUUID().replace(/-/g, '');
+      const id = (crypto.randomUUID?.() ?? Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b=>b.toString(16).padStart(2,'0')).join(''));
       addToGraph({id, file, line, text}, selNode||'', 'ref', text);
     }
   });
@@ -2702,7 +2776,9 @@ function closePeek() {
 // ===== 定義ジャンプ (grep ベース) =====
 async function jumpToDefinition(word) {
   if(!word || word.length < 2) return;
-  st('定義を検索中: ' + word);
+  let sf = 0;
+  const stimer = setInterval(() => { sf=(sf+1)%SPINNER_FRAMES.length; st(SPINNER_FRAMES[sf]+' 定義を検索中: '+word); }, 80);
+  st(SPINNER_FRAMES[0]+' 定義を検索中: '+word);
   const currentFile = tabs[activeTabIdx]?.file || '';
   const dir = id('dir').value.trim();
   const glob = id('glob').value.trim();
@@ -2712,6 +2788,7 @@ async function jumpToDefinition(word) {
   if(dir)  p.set('dir', dir);
   if(glob) p.set('glob', glob);
   const r = await fetch('/api/search?' + p);
+  clearInterval(stimer);
   const d = await r.json();
   let hits = d.matches || [];
 
@@ -3103,6 +3180,10 @@ function attachIndentDrag(handle, nodeId, depth) {
       el.classList.remove('insert-before','insert-after');
     });
 
+    // 移動先の親を一度だけ計算（undefined = 移動不可、'' = ルートへ昇格）
+    const targetParent = newDepth !== depth ? calcDragTarget(nodeId, depth, newDepth) : undefined;
+    id('drop-root').classList.toggle('drag-over', targetParent === '');
+
     // レベルガイド縦線
     const guide = id('indent-guide');
     if(!guide) return;
@@ -3110,16 +3191,20 @@ function attachIndentDrag(handle, nodeId, depth) {
     const paneEl = id('pane-tree');
     const paneRect = paneEl.getBoundingClientRect();
     const nodeEl = paneEl.querySelector(`.node-row[data-id="${nodeId}"]`);
-    if(nodeEl && newDepth !== depth) {
+    if(nodeEl && newDepth !== depth && targetParent !== undefined) {
       const nodeRect = nodeEl.getBoundingClientRect();
       const currentX = nodeRect.left - paneRect.left;
       const guideX = Math.max(0, currentX + (newDepth - depth) * INDENT_W);
-      // 上端: 移動先の親ノード下端（親なし=ペイン上端）
-      const targetParent = calcDragTarget(nodeId, depth, newDepth);
-      let guideTop = 0;
+      // 上端: 移動先の親ノード下端（ルートの場合はツリーコンテンツ上端）
+      const treeContentTop = id('tree').getBoundingClientRect().top - paneRect.top;
+      let guideTop;
       if(targetParent) {
         const parentEl = paneEl.querySelector(`.node-row[data-id="${targetParent}"]`);
-        if(parentEl) guideTop = parentEl.getBoundingClientRect().bottom - paneRect.top;
+        guideTop = parentEl
+          ? parentEl.getBoundingClientRect().bottom - paneRect.top
+          : treeContentTop;
+      } else {
+        guideTop = treeContentTop;
       }
       const nodeBottom = nodeRect.bottom - paneRect.top;
       guide.style.left   = guideX + 'px';
@@ -3130,9 +3215,6 @@ function attachIndentDrag(handle, nodeId, depth) {
     } else {
       guide.style.display = 'none';
     }
-
-    const targetParent = newDepth !== depth ? calcDragTarget(nodeId, depth, newDepth) : undefined;
-    id('drop-root').classList.toggle('drag-over', targetParent === '');
 
     if (targetParent === undefined) return;
 

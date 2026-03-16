@@ -8,15 +8,16 @@ import (
 	"grepnavi/graph"
 )
 
-func newServer(root, graphFile, addr string) *http.Server {
+func newServer(root string, rootExplicit bool, graphFile, addr string) *http.Server {
 	store := graph.NewStore(graphFile, root)
 
-	// プロジェクトファイルに root_dir が保存されていればそちらを使う
-	// (-root フラグが明示された場合はフラグを優先)
+	// -root フラグが明示されていない場合のみ、保存済みの root_dir を優先する
 	effectiveRoot := root
-	if savedRoot := store.GetRootDir(); savedRoot != "" && root == effectiveRoot {
-		if info, err := os.Stat(savedRoot); err == nil && info.IsDir() {
-			effectiveRoot = savedRoot
+	if !rootExplicit {
+		if savedRoot := store.GetRootDir(); savedRoot != "" {
+			if info, err := os.Stat(savedRoot); err == nil && info.IsDir() {
+				effectiveRoot = savedRoot
+			}
 		}
 	}
 
