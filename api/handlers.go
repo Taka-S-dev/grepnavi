@@ -42,6 +42,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/graph/edge/delete", h.handleEdgeDelete)
 	mux.HandleFunc("/api/graph/expand", h.handleExpand)
 	mux.HandleFunc("/api/graph/reparent", h.handleReparent)
+	mux.HandleFunc("/api/graph/rootorder", h.handleRootOrder)
 	mux.HandleFunc("/api/graph/saveas", h.handleGraphSaveAs)
 	mux.HandleFunc("/api/graph/openfile", h.handleGraphOpenFile)
 	mux.HandleFunc("/api/trees", h.handleTrees)
@@ -109,12 +110,17 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, "word required", http.StatusBadRequest)
 		return
 	}
+	h.mu.RLock()
+	hroot := h.root
+	h.mu.RUnlock()
 	dir := q.Get("dir")
 	if dir == "" {
-		dir = h.root
+		dir = hroot
+	} else if !filepath.IsAbs(dir) {
+		dir = filepath.Join(hroot, dir)
 	}
 	glob := q.Get("glob")
-	hits, err := search.FindDefinitions(word, dir, glob)
+	hits, err := search.FindDefinitions(r.Context(), word, dir, glob)
 	if err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -203,25 +209,19 @@ func (h *Handler) handleSearchStream(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	count := 0
+	const streamLimit = 1000
 
-	err := search.SearchStream(opts, func(m graph.Match) error {
+	err := search.SearchStream(ctx, opts, func(m graph.Match) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
-
-		// #ifdef スタック付加
-		if isCLike(m.File) {
-			stack, _ := search.ExtractIfdefStack(m.File, m.Line)
-			if stack != nil {
-				m.IfdefStack = stack
-			} else {
-				m.IfdefStack = []graph.IfdefFrame{}
-			}
-		} else {
-			m.IfdefStack = []graph.IfdefFrame{}
+		if count >= streamLimit {
+			return fmt.Errorf("limit")
 		}
+
+		m.IfdefStack = []graph.IfdefFrame{}
 
 		data, err := json.Marshal(m)
 		if err != nil {
@@ -279,7 +279,7 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 		MaxResults:    limit,
 	}
 
-	matches, err := search.Search(opts)
+	matches, err := search.Search(r.Context(), opts)
 	if err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -380,6 +380,7 @@ func (h *Handler) handleNodeByID(w http.ResponseWriter, r *http.Request) {
 			PosX     *float64 `json:"pos_x"`
 			PosY     *float64 `json:"pos_y"`
 			Expanded *bool    `json:"expanded"`
+		Children []string `json:"children"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			jsonErr(w, err.Error(), http.StatusBadRequest)
@@ -403,6 +404,21 @@ func (h *Handler) handleNodeByID(w http.ResponseWriter, r *http.Request) {
 			}
 			if req.Expanded != nil {
 				n.Expanded = *req.Expanded
+			}
+			if req.Children != nil {
+				// reparent と saveChildrenOrder の競合で孤立ノードが増殖するのを防ぐため、
+				// 現在の children に存在する ID のみ許可（reorder のみ、追加は不可）。
+				current := make(map[string]bool, len(n.Children))
+				for _, c := range n.Children {
+					current[c] = true
+				}
+				filtered := make([]string, 0, len(req.Children))
+				for _, childID := range req.Children {
+					if current[childID] {
+						filtered = append(filtered, childID)
+					}
+				}
+				n.Children = filtered
 			}
 		})
 		if err != nil {
@@ -491,8 +507,13 @@ func (h *Handler) handleExpand(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, "query is required", http.StatusBadRequest)
 		return
 	}
+	h.mu.RLock()
+	hroot := h.root
+	h.mu.RUnlock()
 	if req.Dir == "" {
-		req.Dir = h.root
+		req.Dir = hroot
+	} else if !filepath.IsAbs(req.Dir) {
+		req.Dir = filepath.Join(hroot, req.Dir)
 	}
 	if req.EdgeLabel == "" {
 		req.EdgeLabel = "ref"
@@ -505,7 +526,7 @@ func (h *Handler) handleExpand(w http.ResponseWriter, r *http.Request) {
 		Regex:        req.Regex,
 		ContextLines: 3,
 	}
-	matches, err := search.Search(opts)
+	matches, err := search.Search(r.Context(), opts)
 	if err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -575,6 +596,27 @@ func (h *Handler) handleReparent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonOK(w, h.store.GetGraphResponse())
+}
+
+// --- /api/graph/rootorder ---
+
+func (h *Handler) handleRootOrder(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Order []string `json:"order"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonErr(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := h.store.ReorderRoot(req.Order); err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, map[string]string{"status": "ok"})
 }
 
 // --- /api/trees ---
@@ -802,7 +844,7 @@ func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {
 			jsonErr(w, "root is required", http.StatusBadRequest)
 			return
 		}
-		abs := body.Root
+		abs := filepath.Clean(body.Root)
 		if !filepath.IsAbs(abs) {
 			jsonErr(w, "absolute path required", http.StatusBadRequest)
 			return

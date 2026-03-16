@@ -3,9 +3,11 @@ package search
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/sha1"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -26,18 +28,22 @@ type Options struct {
 }
 
 // Search は ripgrep を呼び出してマッチ一覧を返す。
-func Search(opts Options) ([]graph.Match, error) {
+// ctx がキャンセルされると rg プロセスも即座に kill される。
+func Search(ctx context.Context, opts Options) ([]graph.Match, error) {
 	if opts.ContextLines == 0 {
 		opts.ContextLines = 3
 	}
 
 	args := buildArgs(opts)
-	cmd := exec.Command("rg", args...)
+	cmd := exec.CommandContext(ctx, "rg", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return nil, nil // クライアント切断による中断は正常扱い
+		}
 		// exit code 1 = no matches (not an error)
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
 			return nil, nil
@@ -208,14 +214,21 @@ func matchID(file string, line, col int) string {
 }
 
 // SearchStream は ripgrep の出力をストリーミングしながら1件ずつ callback に渡す。
-// callback が error を返すと中断する（http.ErrBodyReadAfterClose など）。
-func SearchStream(opts Options, callback func(graph.Match) error) error {
+// callback が error を返すと中断する（上限到達・クライアント切断など）。
+//
+// スキャナーgoroutine が rg の stdout を読んで matchCh に push し、
+// 呼び出し元goroutine が matchCh から pop して callback を呼ぶ。
+// 二つを分離することで、HTTP書き込みが詰まっても rg のパイプが満杯にならない。
+func SearchStream(ctx context.Context, opts Options, callback func(graph.Match) error) error {
 	if opts.ContextLines == 0 {
 		opts.ContextLines = 3
 	}
 
-	args := buildArgs(opts)
-	cmd := exec.Command("rg", args...)
+	innerCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	cmd := exec.CommandContext(innerCtx, "rg", buildArgs(opts)...)
+	cmd.Stderr = io.Discard
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
@@ -224,18 +237,58 @@ func SearchStream(opts Options, callback func(graph.Match) error) error {
 		return fmt.Errorf("rg start failed: %v", err)
 	}
 
+	const chanBuf = 512
+	matchCh := make(chan graph.Match, chanBuf)
+	errCh := make(chan error, 1) // スキャナーgoroutineのエラーをここで受け取る
+
+	go func() {
+		defer close(matchCh)
+		errCh <- scanRgOutput(innerCtx, stdout, matchCh, opts.Pattern)
+	}()
+
+	var cbErr error
+	for m := range matchCh {
+		if cbErr != nil {
+			continue // goroutine が matchCh を close するまで読み捨て
+		}
+		if err := callback(m); err != nil {
+			cbErr = err
+			cancel() // scanRgOutput に中断を通知
+		}
+	}
+
+	_ = cmd.Wait()
+
+	if cbErr != nil {
+		return nil // 上限到達・クライアント切断は正常終了扱い
+	}
+	return <-errCh
+}
+
+// scanRgOutput は rg の stdout を JSON パースして matchCh に送る。
+// ctx がキャンセルされたら残りの stdout を読み捨てて終了する（rg のパイプ詰まり防止）。
+func scanRgOutput(ctx context.Context, stdout io.Reader, matchCh chan<- graph.Match, pattern string) error {
 	var snippetBuf []graph.SnippetLine
 	var currentMatch *graph.Match
-	var cbErr error
+	var cancelled bool
+
+	send := func(m graph.Match) {
+		if cancelled {
+			return
+		}
+		select {
+		case matchCh <- m:
+		case <-ctx.Done():
+			cancelled = true
+		}
+	}
 
 	flush := func() {
-		if currentMatch == nil || cbErr != nil {
+		if currentMatch == nil || cancelled {
 			return
 		}
 		currentMatch.Snippet = snippetBuf
-		if err := callback(*currentMatch); err != nil {
-			cbErr = err
-		}
+		send(*currentMatch)
 		currentMatch = nil
 		snippetBuf = nil
 	}
@@ -243,7 +296,7 @@ func SearchStream(opts Options, callback func(graph.Match) error) error {
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 
-	for scanner.Scan() && cbErr == nil {
+	for scanner.Scan() && !cancelled {
 		line := scanner.Bytes()
 		if len(bytes.TrimSpace(line)) == 0 {
 			continue
@@ -273,8 +326,10 @@ func SearchStream(opts Options, callback func(graph.Match) error) error {
 			if err := json.Unmarshal(ev.Data, &d); err != nil {
 				continue
 			}
-			// 直前の pending match を先に flush
 			flush()
+			if cancelled {
+				break
+			}
 			col := 1
 			if len(d.Submatches) > 0 {
 				col = d.Submatches[0].Start + 1
@@ -286,7 +341,7 @@ func SearchStream(opts Options, callback func(graph.Match) error) error {
 				Line:  d.LineNumber,
 				Col:   col,
 				Text:  strings.TrimRight(d.Lines.Text, "\n"),
-				Query: opts.Pattern,
+				Query: pattern,
 			}
 			snip := make([]graph.SnippetLine, len(snippetBuf))
 			copy(snip, snippetBuf)
@@ -304,10 +359,9 @@ func SearchStream(opts Options, callback func(graph.Match) error) error {
 	}
 	flush()
 
-	_ = cmd.Wait()
-
-	if cbErr != nil {
-		return nil // クライアント切断は正常終了扱い
-	}
+	// 残りの stdout を読み捨てる。
+	// cancel() 後も rg がパイプへの書き込みでブロックしている可能性があるため、
+	// ここで読み捨てることで rg を終了させ、cmd.Wait() が即座に返るようにする。
+	io.Copy(io.Discard, stdout)
 	return scanner.Err()
 }

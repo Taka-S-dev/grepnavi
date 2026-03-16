@@ -15,6 +15,7 @@ func main() {
 	port := flag.Int("port", 8080, "HTTP server port")
 	flag.Parse()
 
+	rootExplicit := *root != "."
 	absRoot, err := absPath(*root)
 	if err != nil {
 		log.Fatalf("invalid root: %v", err)
@@ -22,7 +23,7 @@ func main() {
 
 	addr := fmt.Sprintf(":%d", *port)
 	url := fmt.Sprintf("http://localhost:%d", *port)
-	srv := newServer(absRoot, *graphFile, addr)
+	srv := newServer(absRoot, rootExplicit, *graphFile, addr)
 
 	log.Printf("grepnavi: root=%s graph=%s", absRoot, *graphFile)
 	log.Printf("Listening on %s", url)

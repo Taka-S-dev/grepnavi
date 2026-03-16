@@ -60,6 +60,7 @@ type Tree struct {
 	Name      string           `json:"name"`
 	Nodes     map[string]*Node `json:"nodes"`
 	Edges     []*Edge          `json:"edges"`
+	RootOrder []string         `json:"root_order,omitempty"`
 	CreatedAt time.Time        `json:"created_at"`
 	UpdatedAt time.Time        `json:"updated_at"`
 }
@@ -91,6 +92,7 @@ type GraphResponse struct {
 	Trees        []TreeMeta        `json:"trees"`
 	ActiveTreeID string            `json:"active_tree_id"`
 	LineMemos    map[string]string `json:"line_memos,omitempty"`
+	RootOrder    []string          `json:"root_order,omitempty"`
 }
 
 func NewProjectFile(rootDir string) *ProjectFile {

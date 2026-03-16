@@ -1,6 +1,7 @@
 package search
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
@@ -16,7 +17,7 @@ type DefHit struct {
 
 // FindDefinitions は word の定義候補を ripgrep で検索して返す。
 // glob が空なら全ファイルが対象。
-func FindDefinitions(word, dir, glob string) ([]DefHit, error) {
+func FindDefinitions(ctx context.Context, word, dir, glob string) ([]DefHit, error) {
 	if word == "" || dir == "" {
 		return nil, nil
 	}
@@ -45,7 +46,7 @@ func FindDefinitions(word, dir, glob string) ([]DefHit, error) {
 			CaseSensitive: true,
 			ContextLines:  0,
 		}
-		matches, err := Search(opts)
+		matches, err := Search(ctx, opts)
 		if err != nil {
 			continue
 		}

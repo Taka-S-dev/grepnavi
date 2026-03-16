@@ -13,16 +13,33 @@ type Store struct {
 	mu       sync.RWMutex
 	pf       *ProjectFile
 	filePath string
+	saveCh   chan []byte // バックグラウンド書き込みキュー（最新1件のみ保持）
 }
 
 func NewStore(filePath, rootDir string) *Store {
-	s := &Store{filePath: filePath}
+	s := &Store{
+		filePath: filePath,
+		saveCh:   make(chan []byte, 1),
+	}
 	if pf, err := loadProjectFile(filePath); err == nil {
 		s.pf = pf
 	} else {
 		s.pf = NewProjectFile(rootDir)
 	}
+	go s.saveLoop()
 	return s
+}
+
+// saveLoop はバックグラウンドでディスク書き込みを処理する。
+// ミューテックスを保持せずに I/O を行うことで、書き込み競合によるロック詰まりを防ぐ。
+func (s *Store) saveLoop() {
+	for data := range s.saveCh {
+		tmp := s.filePath + ".tmp"
+		if err := os.WriteFile(tmp, data, 0644); err != nil {
+			continue
+		}
+		_ = os.Rename(tmp, s.filePath)
+	}
 }
 
 func loadProjectFile(path string) (*ProjectFile, error) {
@@ -48,17 +65,24 @@ func loadProjectFile(path string) (*ProjectFile, error) {
 	return &pf, nil
 }
 
+// save はインメモリ状態を JSON にシリアライズして saveCh に送る。
+// ミューテックス保持中に呼ぶこと（s.pf への安全なアクセスのため）。
+// 実際のディスク書き込みは saveLoop で行われるため、この関数はブロックしない。
+// 連続して呼ばれた場合は最新の1件のみが書き込まれる（中間状態は破棄）。
 func (s *Store) save() error {
 	s.pf.UpdatedAt = time.Now()
 	data, err := json.MarshalIndent(s.pf, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp := s.filePath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
-		return err
+	// 古い pending データを捨てて最新を送る（ノンブロッキング）
+	select {
+	case s.saveCh <- data:
+	default:
+		<-s.saveCh
+		s.saveCh <- data
 	}
-	return os.Rename(tmp, s.filePath)
+	return nil
 }
 
 // activeTree は現在アクティブなツリーを返す（ロック保持中に呼ぶこと）。
@@ -97,7 +121,17 @@ func (s *Store) buildResponse(t *Tree) *GraphResponse {
 		Trees:        s.treeMetas(),
 		ActiveTreeID: s.pf.ActiveTreeID,
 		LineMemos:    s.pf.LineMemos,
+		RootOrder:    t.RootOrder,
 	}
+}
+
+func (s *Store) ReorderRoot(order []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t := s.activeTree()
+	t.RootOrder = order
+	t.UpdatedAt = time.Now()
+	return s.save()
 }
 
 // GetGraphResponse はアクティブツリーの GraphResponse を返す。
@@ -346,6 +380,15 @@ func (s *Store) Reparent(nodeID, newParentID, edgeLabel string) error {
 }
 
 func isDescendantInTree(t *Tree, target, root string) bool {
+	visited := make(map[string]bool)
+	return isDescendantRec(t, target, root, visited)
+}
+
+func isDescendantRec(t *Tree, target, root string, visited map[string]bool) bool {
+	if visited[root] {
+		return false
+	}
+	visited[root] = true
 	n, ok := t.Nodes[root]
 	if !ok {
 		return false
@@ -354,7 +397,7 @@ func isDescendantInTree(t *Tree, target, root string) bool {
 		if c == target {
 			return true
 		}
-		if isDescendantInTree(t, target, c) {
+		if isDescendantRec(t, target, c, visited) {
 			return true
 		}
 	}
