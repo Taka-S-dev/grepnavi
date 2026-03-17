@@ -22,10 +22,12 @@
           <button class="srch-btn" id="btn-wb" title="単語単位で検索 (Alt+W)">ab</button>
           <button class="srch-btn" id="btn-re" title="正規表現 (Alt+R)">.*</button>
         </div>
-        <span id="root-chip" title="検索ルートを変更"><i class="codicon codicon-folder"></i><span id="root-chip-text">…</span><i class="codicon codicon-chevron-down"></i></span>
-        <button id="btn-toggle-sub" title="フィルター (ディレクトリ・glob)"><i class="codicon codicon-filter"></i></button>
         <button id="btn-s">検索</button>
         <button class="sec" id="btn-stop" style="display:none">■</button>
+      </div>
+      <div id="bar-loc">
+        <span id="root-chip" title="検索ルートを変更"><i class="codicon codicon-folder"></i><span id="root-chip-text">…</span><i class="codicon codicon-chevron-down"></i></span>
+        <button id="btn-toggle-sub" title="フィルター (ディレクトリ・glob)"><i class="codicon codicon-filter"></i></button>
       </div>
       <div id="bar-sub">
         <div class="bar-field">
@@ -47,6 +49,8 @@
       <div id="search-hdr">
         <span id="sh-title">検索結果</span>
         <span id="sh-over" style="color:#f08"></span>
+        <button id="btn-search-hist" title="検索履歴 (Alt+H)" style="display:none"></button>
+        <div id="search-tab-bar"></div>
       </div>
       <div id="filter-bar">
         <input id="filter-input" type="text" placeholder="絞り込み: AND=スペース  OR=|  除外=-word" spellcheck="false">
@@ -89,6 +93,7 @@
         <div id="tree-tab-list"></div>
         <button id="btn-tree-add" title="ツリーを追加"><i class="codicon codicon-add"></i></button>
         <div id="tree-tab-actions">
+          <button class="sec" id="btn-tree-memo" title="メモを常時表示 (Alt+N)"><i class="codicon codicon-note"></i></button>
           <button class="sec" id="btn-view">グラフ</button>
           <button id="btn-clr">消去</button>
         </div>
@@ -166,6 +171,12 @@
 </div>
 <div id="sb"><span id="st">準備完了</span></div>
 
+<script src="/js/state.js"></script>
+<script src="/js/utils.js"></script>
+<script src="/js/search.js"></script>
+<script src="/js/graph.js"></script>
+<script src="/js/editor.js"></script>
+<script src="/js/project.js"></script>
 <script src="/js/app.js"></script>
 </body>
 </html>
