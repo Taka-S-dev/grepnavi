@@ -197,22 +197,28 @@ async function ensureEditor() {
 
   // Hover プロバイダー
   const HOVER_LANGS = ['c','cpp','go','python','javascript','typescript','rust','java'];
+  // C/C++ キーワードはホバー検索をスキップ
+  const HOVER_SKIP = new Set([
+    'if','else','while','for','switch','case','do','return','break','continue','goto',
+    'struct','union','enum','typedef','static','extern','const','volatile','inline',
+    'void','int','char','short','long','float','double','unsigned','signed','size_t',
+    'bool','true','false','NULL','nullptr','auto','register','sizeof','typeof',
+  ]);
   HOVER_LANGS.forEach(lang => {
     monaco.languages.registerHoverProvider(lang, {
       provideHover: async (model, position, token) => {
         const word = model.getWordAtPosition(position);
         if(!word || word.word.length < 2) return null;
+        if(HOVER_SKIP.has(word.word)) return null;
         const controller = new AbortController();
         token.onCancellationRequested(() => controller.abort());
-        const dir = id('dir').value.trim();
-        const p = new URLSearchParams({q: word.word, regex:'0', case:'0', limit:'50'});
-        if(dir) p.set('dir', dir);
         try {
-          const r = await fetch('/api/search?' + p, {signal: controller.signal});
-          const d = await r.json();
           const currentFile = tabs[activeTabIdx]?.file || '';
+          const dir  = id('dir').value.trim();
+          const glob = id('glob').value.trim();
           const contents = [];
 
+          // 1. グラフノードのメモ
           const memoNodes = Object.values(graph.nodes).filter(n => n.memo && (
             (n.match?.file === currentFile && n.match?.line === position.lineNumber) ||
             (n.match?.file === currentFile && (n.match?.text||'').includes(word.word))
@@ -226,27 +232,34 @@ async function ensureEditor() {
             contents.push({value: '---'});
           }
 
-          const dir2 = id('dir').value.trim();
-          const glob2 = id('glob').value.trim();
-          const dp = new URLSearchParams({word: word.word});
-          if(dir2)  dp.set('dir',  dir2);
-          if(glob2) dp.set('glob', glob2);
-          const dr = await fetch('/api/definition?' + dp, {signal: controller.signal});
-          const defs = await dr.json();
-          if(Array.isArray(defs) && defs.length) {
-            const kindIcon = {define:'#️⃣', struct:'🏗', enum:'🔢', union:'🔀', typedef:'🔤'};
-            const lines = defs.slice(0,5).map(d =>
-              `${kindIcon[d.kind]||'·'} \`${d.text}\`  \n*${shortPath(d.file)}:${d.line}*`
-            );
-            contents.push({value: lines.join('\n\n')});
+          // 2. /api/hover — struct/union/enum/define のブロック本体
+          const hp = new URLSearchParams({word: word.word});
+          if(dir)  hp.set('dir',  dir);
+          if(glob) hp.set('glob', glob);
+          const hr = await fetch('/api/hover?' + hp, {signal: controller.signal});
+          const hoverHits = await hr.json();
+          if(Array.isArray(hoverHits) && hoverHits.length) {
+            const kindLabel = {define:'#define', struct:'struct', enum:'enum', union:'union', typedef:'typedef'};
+            for(const h of hoverHits.slice(0, 3)) {
+              const header = `**${kindLabel[h.kind]||h.kind} \`${word.word}\`** — *${shortPath(h.file)}:${h.line}*`;
+              const body = h.body.length > 2000 ? h.body.slice(0, 2000) + '\n// ...' : h.body;
+              contents.push({value: header + '\n```c\n' + body + '\n```'});
+            }
             contents.push({value: '---'});
           }
 
-          if(d.matches?.length) {
-            const count = d.count;
-            const files = [...new Set(d.matches.map(m => shortPath(m.file)))].slice(0, 5);
-            contents.push({value: `**\`${word.word}\`** — ${count} 件ヒット`});
-            contents.push({value: files.map(f=>`- ${f}`).join('\n') + (count > 5 ? `\n- ...他` : '')});
+          // 3. 出現ファイル一覧（軽量検索）
+          const sp = new URLSearchParams({q: word.word, regex:'0', case:'0', limit:'50'});
+          if(dir) sp.set('dir', dir);
+          const sr = await fetch('/api/search?' + sp, {signal: controller.signal});
+          const sd = await sr.json();
+          if(sd.matches?.length) {
+            const files = [...new Set(sd.matches.map(m => shortPath(m.file)))].slice(0, 5);
+            contents.push({value:
+              `**\`${word.word}\`** — ${sd.count} 件ヒット\n` +
+              files.map(f => `- ${f}`).join('\n') +
+              (sd.count > 5 ? '\n- …他' : '')
+            });
           }
 
           if(!contents.length) return null;

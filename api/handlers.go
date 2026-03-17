@@ -53,6 +53,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/symbols", h.handleSymbols)
 	mux.HandleFunc("/api/ifdef", h.handleIfdef)
 	mux.HandleFunc("/api/definition", h.handleDefinition)
+	mux.HandleFunc("/api/hover", h.handleHover)
 	mux.HandleFunc("/api/dirs", h.handleDirs)
 	mux.HandleFunc("/api/root", h.handleRoot)
 	mux.HandleFunc("/api/files", h.handleFiles)
@@ -127,6 +128,36 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 	}
 	if hits == nil {
 		hits = []search.DefHit{}
+	}
+	jsonOK(w, hits)
+}
+
+// --- /api/hover ---
+
+func (h *Handler) handleHover(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	word := q.Get("word")
+	if word == "" {
+		jsonErr(w, "word required", http.StatusBadRequest)
+		return
+	}
+	h.mu.RLock()
+	hroot := h.root
+	h.mu.RUnlock()
+	dir := q.Get("dir")
+	if dir == "" {
+		dir = hroot
+	} else if !filepath.IsAbs(dir) {
+		dir = filepath.Join(hroot, dir)
+	}
+	glob := q.Get("glob")
+	hits, err := search.FindHover(r.Context(), word, dir, glob)
+	if err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if hits == nil {
+		hits = []search.HoverHit{}
 	}
 	jsonOK(w, hits)
 }
