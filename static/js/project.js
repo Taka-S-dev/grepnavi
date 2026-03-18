@@ -358,3 +358,80 @@ async function openProject(path) {
   setProjectPath(path);
   st('読み込みました: ' + path);
 }
+
+// ===== ファイルピッカー（OS ネイティブダイアログ） =====
+
+let _fileHandle = null;
+
+const _pickerOpts = {
+  types: [{ description: 'GrepNavi Project', accept: { 'application/json': ['.json'] } }],
+};
+
+async function openProjectFilePicker() {
+  if (!window.showOpenFilePicker) { showProjectModal('open'); return; }
+  let handle;
+  try {
+    [handle] = await window.showOpenFilePicker(_pickerOpts);
+  } catch(e) {
+    if(e.name !== 'AbortError') st('ファイルを開けませんでした');
+    return;
+  }
+  const text = await (await handle.getFile()).text();
+  const r = await fetch('/api/graph/import', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: text,
+  });
+  const d = await r.json();
+  if(d.error) { st('読み込みエラー: ' + d.error); return; }
+  _fileHandle = handle;
+  selNode = null; showDetail(null);
+  tabs.forEach(t => t.model.dispose());
+  tabs = []; activeTabIdx = -1;
+  renderTabs();
+  fzfFiles = null;
+  projectRoot = '';
+  applyGraphResponse(d.graph);
+  _updateFileHandleUI(handle.name);
+  st('読み込みました: ' + handle.name);
+}
+
+async function saveAsProjectFilePicker() {
+  if (!window.showSaveFilePicker) { showProjectModal('save'); return; }
+  let handle;
+  try {
+    handle = await window.showSaveFilePicker({
+      ..._pickerOpts,
+      suggestedName: _fileHandle?.name || 'project.json',
+    });
+  } catch(e) {
+    if(e.name !== 'AbortError') st('保存できませんでした');
+    return;
+  }
+  await _writeToHandle(handle);
+  _fileHandle = handle;
+  _updateFileHandleUI(handle.name);
+  st('保存しました: ' + handle.name);
+}
+
+async function saveProjectFileCurrent() {
+  if(!_fileHandle) { await saveAsProjectFilePicker(); return; }
+  await _writeToHandle(_fileHandle);
+  st('保存しました: ' + _fileHandle.name);
+}
+
+async function _writeToHandle(handle) {
+  const r = await fetch('/api/graph/export', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ line_memos: getLineMemos() }),
+  });
+  const text = await r.text();
+  const writable = await handle.createWritable();
+  await writable.write(text);
+  await writable.close();
+}
+
+function _updateFileHandleUI(name) {
+  const el = id('project-name');
+  if(el) { el.textContent = name; el.title = name; }
+  const saveItem = id('pmenu-save');
+  if(saveItem) saveItem.style.color = '';
+}

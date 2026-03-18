@@ -8,12 +8,23 @@ import (
 	"time"
 )
 
+const maxUndoDepth = 50
+
+// undoSnapshot はツリーの構造スナップショット（アンドゥ用）。
+type undoSnapshot struct {
+	treeID    string
+	nodes     map[string]*Node
+	edges     []*Edge
+	rootOrder []string
+}
+
 // Store はプロジェクトファイルのインメモリストアと JSON 永続化を担う。
 type Store struct {
-	mu       sync.RWMutex
-	pf       *ProjectFile
-	filePath string
-	saveCh   chan []byte // バックグラウンド書き込みキュー（最新1件のみ保持）
+	mu        sync.RWMutex
+	pf        *ProjectFile
+	filePath  string
+	saveCh    chan []byte      // バックグラウンド書き込みキュー（最新1件のみ保持）
+	undoStack []undoSnapshot   // アンドゥ履歴（メモリのみ、永続化しない）
 }
 
 func NewStore(filePath, rootDir string) *Store {
@@ -125,10 +136,79 @@ func (s *Store) buildResponse(t *Tree) *GraphResponse {
 	}
 }
 
+// ===== アンドゥ =====
+
+// pushUndo はアクティブツリーの現在状態をスナップショットとして保存する。
+// ミューテックスを保持中に呼ぶこと（内部用）。
+func (s *Store) pushUndo(t *Tree) {
+	// JSON 経由でディープコピー
+	data, err := json.Marshal(struct {
+		Nodes     map[string]*Node `json:"nodes"`
+		Edges     []*Edge          `json:"edges"`
+		RootOrder []string         `json:"root_order"`
+	}{t.Nodes, t.Edges, t.RootOrder})
+	if err != nil {
+		return
+	}
+	var snap struct {
+		Nodes     map[string]*Node `json:"nodes"`
+		Edges     []*Edge          `json:"edges"`
+		RootOrder []string         `json:"root_order"`
+	}
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return
+	}
+	s.undoStack = append(s.undoStack, undoSnapshot{
+		treeID:    t.ID,
+		nodes:     snap.Nodes,
+		edges:     snap.Edges,
+		rootOrder: snap.RootOrder,
+	})
+	if len(s.undoStack) > maxUndoDepth {
+		s.undoStack = s.undoStack[1:]
+	}
+}
+
+// PushUndo はロックを取得してアクティブツリーのスナップショットを保存する（外部向け）。
+func (s *Store) PushUndo() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pushUndo(s.activeTree())
+}
+
+// Undo は最後のスナップショットに戻す。
+func (s *Store) Undo() (*GraphResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// アクティブツリーのエントリを末尾から探す
+	t := s.activeTree()
+	idx := -1
+	for i := len(s.undoStack) - 1; i >= 0; i-- {
+		if s.undoStack[i].treeID == t.ID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return nil, fmt.Errorf("これ以上戻れません")
+	}
+	snap := s.undoStack[idx]
+	s.undoStack = append(s.undoStack[:idx], s.undoStack[idx+1:]...)
+	t.Nodes = snap.nodes
+	t.Edges = snap.edges
+	t.RootOrder = snap.rootOrder
+	t.UpdatedAt = time.Now()
+	if err := s.save(); err != nil {
+		return nil, err
+	}
+	return s.buildResponse(t), nil
+}
+
 func (s *Store) ReorderRoot(order []string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	t := s.activeTree()
+	s.pushUndo(t)
 	t.RootOrder = order
 	t.UpdatedAt = time.Now()
 	return s.save()
@@ -339,6 +419,7 @@ func (s *Store) Reparent(nodeID, newParentID, edgeLabel string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	t := s.activeTree()
+	s.pushUndo(t)
 	if _, ok := t.Nodes[nodeID]; !ok {
 		return fmt.Errorf("node %s not found", nodeID)
 	}
@@ -361,6 +442,8 @@ func (s *Store) Reparent(nodeID, newParentID, edgeLabel string) error {
 	}
 	t.Edges = edges
 	if newParentID != "" {
+		// 子になるノードはルート順から除去する
+		t.RootOrder = removeStr(t.RootOrder, nodeID)
 		parent := t.Nodes[newParentID]
 		if !containsStr(parent.Children, nodeID) {
 			parent.Children = append(parent.Children, nodeID)
@@ -434,6 +517,31 @@ func (s *Store) OpenFile(path string) (*GraphResponse, error) {
 	s.mu.Lock()
 	s.pf = pf
 	s.filePath = path
+	resp := s.buildResponse(s.activeTree())
+	s.mu.Unlock()
+	return resp, nil
+}
+
+// ExportJSON は現在のプロジェクトを JSON バイト列として返す（ファイル書き込みなし）。
+func (s *Store) ExportJSON(lineMemos map[string]string) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	prev := s.pf.LineMemos
+	s.pf.LineMemos = lineMemos
+	s.pf.UpdatedAt = time.Now()
+	data, err := json.MarshalIndent(s.pf, "", "  ")
+	s.pf.LineMemos = prev
+	return data, err
+}
+
+// ImportJSON は JSON バイト列をパースしてプロジェクトとしてロードする（ファイル読み込みなし）。
+func (s *Store) ImportJSON(data []byte) (*GraphResponse, error) {
+	var pf ProjectFile
+	if err := json.Unmarshal(data, &pf); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	s.pf = &pf
 	resp := s.buildResponse(s.activeTree())
 	s.mu.Unlock()
 	return resp, nil

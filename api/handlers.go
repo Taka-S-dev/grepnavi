@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -42,9 +43,12 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/graph/edge/delete", h.handleEdgeDelete)
 	mux.HandleFunc("/api/graph/expand", h.handleExpand)
 	mux.HandleFunc("/api/graph/reparent", h.handleReparent)
+	mux.HandleFunc("/api/graph/undo", h.handleUndo)
 	mux.HandleFunc("/api/graph/rootorder", h.handleRootOrder)
 	mux.HandleFunc("/api/graph/saveas", h.handleGraphSaveAs)
 	mux.HandleFunc("/api/graph/openfile", h.handleGraphOpenFile)
+	mux.HandleFunc("/api/graph/export", h.handleGraphExport)
+	mux.HandleFunc("/api/graph/import", h.handleGraphImport)
 	mux.HandleFunc("/api/trees", h.handleTrees)
 	mux.HandleFunc("/api/trees/", h.handleTreeByID)
 	mux.HandleFunc("/api/open", h.handleOpen)
@@ -150,8 +154,8 @@ func (h *Handler) handleHover(w http.ResponseWriter, r *http.Request) {
 	} else if !filepath.IsAbs(dir) {
 		dir = filepath.Join(hroot, dir)
 	}
-	glob := q.Get("glob")
-	hits, err := search.FindHover(r.Context(), word, dir, glob)
+	// ホバーは定義検索なので glob フィルターを無視して全ファイルを対象にする
+	hits, err := search.FindHover(r.Context(), word, dir, "")
 	if err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -417,6 +421,9 @@ func (h *Handler) handleNodeByID(w http.ResponseWriter, r *http.Request) {
 			jsonErr(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		if req.Children != nil {
+			h.store.PushUndo()
+		}
 		node, err := h.store.UpdateNode(id, func(n *graph.Node) {
 			if req.Label != nil {
 				n.Label = *req.Label
@@ -629,6 +636,21 @@ func (h *Handler) handleReparent(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, h.store.GetGraphResponse())
 }
 
+// --- /api/graph/undo ---
+
+func (h *Handler) handleUndo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	g, err := h.store.Undo()
+	if err != nil {
+		jsonErr(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	jsonOK(w, g)
+}
+
 // --- /api/graph/rootorder ---
 
 func (h *Handler) handleRootOrder(w http.ResponseWriter, r *http.Request) {
@@ -732,6 +754,55 @@ func (h *Handler) handleTreeByID(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// --- /api/graph/saveas ---
+
+// --- /api/graph/export ---
+
+func (h *Handler) handleGraphExport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		LineMemos map[string]string `json:"line_memos"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+	data, err := h.store.ExportJSON(req.LineMemos)
+	if err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(data)
+}
+
+// --- /api/graph/import ---
+
+func (h *Handler) handleGraphImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		jsonErr(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	g, err := h.store.ImportJSON(data)
+	if err != nil {
+		jsonErr(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if g.RootDir != "" {
+		if info, statErr := os.Stat(g.RootDir); statErr == nil && info.IsDir() {
+			h.mu.Lock()
+			h.root = g.RootDir
+			h.mu.Unlock()
+		}
+	}
+	jsonOK(w, map[string]interface{}{"graph": g})
 }
 
 // --- /api/graph/saveas ---

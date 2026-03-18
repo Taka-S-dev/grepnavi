@@ -189,11 +189,17 @@ async function ensureEditor() {
     occurrencesHighlight: 'singleFile',
     selectionHighlight: true,
     renderLineHighlight: 'line',
-    stickyScroll: {enabled: true, defaultModel: 'outlineModel', maxLineCount: 3},
+    stickyScroll: {enabled: true, maxLineCount: 3},
     breadcrumbs: {enabled: true},
     glyphMargin: true,
   });
   new ResizeObserver(() => monacoEditor.layout()).observe(id('monaco-container'));
+
+
+  // ホバー内リンクからファイルを開くコマンド
+  monaco.editor.registerCommand('grepnavi.openFile', (_accessor, file, line) => {
+    openPeek(file, Number(line));
+  });
 
   // Hover プロバイダー
   const HOVER_LANGS = ['c','cpp','go','python','javascript','typescript','rust','java'];
@@ -239,11 +245,13 @@ async function ensureEditor() {
           const hr = await fetch('/api/hover?' + hp, {signal: controller.signal});
           const hoverHits = await hr.json();
           if(Array.isArray(hoverHits) && hoverHits.length) {
-            const kindLabel = {define:'#define', struct:'struct', enum:'enum', union:'union', typedef:'typedef'};
+            const kindLabel = {define:'#define', struct:'struct', enum:'enum', union:'union', typedef:'typedef', func:'function'};
             for(const h of hoverHits.slice(0, 3)) {
-              const header = `**${kindLabel[h.kind]||h.kind} \`${word.word}\`** — *${shortPath(h.file)}:${h.line}*`;
+              const args = encodeURIComponent(JSON.stringify([h.file, h.line]));
+              const fileLink = `[${shortPath(h.file)}:${h.line}](command:grepnavi.openFile?${args})`;
+              const header = `**${kindLabel[h.kind]||h.kind} \`${word.word}\`** — *${fileLink}*`;
               const body = h.body.length > 2000 ? h.body.slice(0, 2000) + '\n// ...' : h.body;
-              contents.push({value: header + '\n```c\n' + body + '\n```'});
+              contents.push({value: header + '\n```c\n' + body + '\n```', isTrusted: true});
             }
             contents.push({value: '---'});
           }
@@ -265,7 +273,7 @@ async function ensureEditor() {
           if(!contents.length) return null;
           return {
             range: new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn),
-            contents
+            contents: contents.map(c => typeof c === 'string' ? {value: c, isTrusted: true} : {...c, isTrusted: true})
           };
         } catch { return null; }
       }
@@ -378,7 +386,7 @@ async function ensureEditor() {
       const selectedText = model.getValueInRange(sel).split('\n')[0].trim();
       const text = selectedText || model.getLineContent(line).trim();
       const nodeId = (crypto.randomUUID?.() ?? Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b=>b.toString(16).padStart(2,'0')).join(''));
-      addToGraph({id: nodeId, file, line, text}, selNode||'', 'ref', text);
+      addToGraph({id: nodeId, file, line, text}, '', 'ref', text);
     }
   });
 }

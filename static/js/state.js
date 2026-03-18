@@ -53,6 +53,11 @@ let dirList = null;
 let _projectModalMode = 'save';
 
 // Search history tabs
-let searchTabs = []; // [{query, count, title, overText, filterValue, allMatches}]
+let searchTabs = []; // [{query, count, title, overText, filterValue, allMatches, pinned}]
 let activeSearchTab = -1;
 const MAX_SEARCH_TABS = 10;
+const LS_PINNED_TABS = 'grepnavi-pinned-tabs';
+
+// Search stack
+let searchStack = []; // [{query, count, title, overText, filterValue, allMatches}]
+const LS_SEARCH_STACK = 'grepnavi-search-stack';

@@ -136,7 +136,8 @@ function renderTree() {
   const el = id('tree');
   const hasParent = new Set((graph.edges||[]).filter(e=>e.label!=='seq').map(e=>e.to));
   const rootSet = Object.values(graph.nodes).filter(n => !hasParent.has(n.id));
-  const rootOrder = graph._rootOrder?.filter(id => graph.nodes[id]) || [];
+  // hasParent に含まれるノード（子になったノード）は rootOrder から除外する
+  const rootOrder = (graph._rootOrder || []).filter(id => graph.nodes[id] && !hasParent.has(id));
   const roots = rootOrder.length
     ? [...rootOrder.map(id => graph.nodes[id]), ...rootSet.filter(n => !rootOrder.includes(n.id))]
     : rootSet;
@@ -146,11 +147,18 @@ function renderTree() {
   roots.forEach(n => frag.appendChild(makeNodeEl(n, 0)));
   el.appendChild(frag);
 
-  // 親が削除されて孤立したノードを追加（折りたたまれた子は除外）
+  // 親が削除されて孤立したノードを追加（折りたたまれた子孫は除外）
   const collapsedChildren = new Set();
+  function collectCollapsed(nodeId, visited = new Set()) {
+    if(visited.has(nodeId)) return;
+    visited.add(nodeId);
+    (graph.nodes[nodeId]?.children || []).forEach(cid => {
+      collapsedChildren.add(cid);
+      collectCollapsed(cid, visited);
+    });
+  }
   Object.values(graph.nodes).forEach(n => {
-    if(n.expanded === false)
-      (n.children||[]).forEach(cid => collapsedChildren.add(cid));
+    if(n.expanded === false) collectCollapsed(n.id);
   });
   Object.values(graph.nodes).forEach(n => {
     if(hasParent.has(n.id) && !collapsedChildren.has(n.id) && !el.querySelector(`[data-id="${n.id}"]`))

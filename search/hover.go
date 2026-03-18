@@ -3,6 +3,7 @@ package search
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
 )
@@ -24,7 +25,15 @@ func FindHover(ctx context.Context, word, dir, glob string) ([]HoverHit, error) 
 
 	var result []HoverHit
 	seen := map[string]bool{}
+	funcCount := 0
 	for _, h := range hits {
+		// 関数定義は最大2件（大量マッチ防止）
+		if h.Kind == "func" {
+			if funcCount >= 2 {
+				continue
+			}
+			funcCount++
+		}
 		key := fmt.Sprintf("%s:%d", h.File, h.Line)
 		if seen[key] {
 			continue
@@ -39,9 +48,19 @@ func FindHover(ctx context.Context, word, dir, glob string) ([]HoverHit, error) 
 		}
 
 		var body string
-		if h.Kind == "define" {
+		switch h.Kind {
+		case "define":
 			body = extractDefineBlock(lines, h.Line)
-		} else {
+		case "typedef_close":
+			body = extractBraceBlockBackward(lines, h.Line)
+			h.Kind = "typedef"
+		case "func":
+			body = extractBraceBlock(lines, h.Line)
+			// { を含まない場合は定義でなく呼び出し・宣言なので除外
+			if !strings.Contains(body, "{") {
+				continue
+			}
+		default:
 			body = extractBraceBlock(lines, h.Line)
 		}
 		if body == "" {
@@ -49,6 +68,35 @@ func FindHover(ctx context.Context, word, dir, glob string) ([]HoverHit, error) 
 		}
 		result = append(result, HoverHit{File: h.File, Line: h.Line, Kind: h.Kind, Body: body})
 	}
+
+	// typedef エイリアス（typedef struct foo_st Bar;）で本体が取れなかった場合、
+	// 参照先の struct/union/enum を追いかける。
+	reAlias := regexp.MustCompile(`typedef\s+(struct|union|enum)\s+(\w+)`)
+	var extra []HoverHit
+	for _, h := range result {
+		if h.Kind != "typedef" || strings.Contains(h.Body, "{") {
+			continue
+		}
+		m := reAlias.FindStringSubmatch(h.Body)
+		if m == nil {
+			continue
+		}
+		refHits, _ := FindDefinitions(ctx, m[2], dir, glob)
+		for _, rh := range refHits {
+			if rh.Kind != "struct" && rh.Kind != "enum" {
+				continue
+			}
+			lines, err := CachedLines(rh.File)
+			if err != nil {
+				continue
+			}
+			body := extractBraceBlock(lines, rh.Line)
+			if body != "" {
+				extra = append(extra, HoverHit{File: rh.File, Line: rh.Line, Kind: rh.Kind, Body: body})
+			}
+		}
+	}
+	result = append(extra, result...)
 	return result, nil
 }
 
@@ -107,6 +155,32 @@ func extractBraceBlock(lines []string, startLine int) string {
 	}
 
 	return stripCommonIndent(buf)
+}
+
+// extractBraceBlockBackward は } TypedefName; の行から逆方向に { を探してブロックを返す。
+func extractBraceBlockBackward(lines []string, endLine int) string {
+	idx := endLine - 1 // 0-indexed
+	if idx < 0 || idx >= len(lines) {
+		return ""
+	}
+	depth := 0
+	startIdx := idx
+	for i := idx; i >= 0 && i > idx-500; i-- {
+		line := lines[i]
+		for j := len(line) - 1; j >= 0; j-- {
+			ch := line[j]
+			if ch == '}' {
+				depth++
+			} else if ch == '{' {
+				depth--
+			}
+		}
+		if depth <= 0 {
+			startIdx = i
+			break
+		}
+	}
+	return stripCommonIndent(lines[startIdx : idx+1])
 }
 
 // extractDefineBlock は #define の継続行（末尾 \）を含めて抽出する。

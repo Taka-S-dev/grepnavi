@@ -38,21 +38,27 @@ addEventListener('DOMContentLoaded', async () => {
     id('project-menu').classList.toggle('open');
   };
   document.addEventListener('click', () => id('project-menu').classList.remove('open'));
-  id('pmenu-open').onclick   = () => { id('project-menu').classList.remove('open'); showProjectModal('open'); };
-  id('pmenu-saveas').onclick = () => { id('project-menu').classList.remove('open'); showProjectModal('save'); };
-  id('pmenu-save').onclick   = async () => {
-    id('project-menu').classList.remove('open');
-    const p = getProjectPath();
-    if(p) await saveProject(p);
-    else showProjectModal('save');
-  };
+  id('pmenu-open').onclick   = () => { id('project-menu').classList.remove('open'); openProjectFilePicker(); };
+  id('pmenu-saveas').onclick = () => { id('project-menu').classList.remove('open'); saveAsProjectFilePicker(); };
+  id('pmenu-save').onclick   = () => { id('project-menu').classList.remove('open'); saveProjectFileCurrent(); };
 
   document.addEventListener('keydown', async e => {
+    if((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+      // Monaco がフォーカスを持っているときはエディタ側のアンドゥに任せる
+      if(monacoEditor && monacoEditor.hasTextFocus()) return;
+      e.preventDefault();
+      const r = await fetch('/api/graph/undo', {method: 'POST'});
+      const d = await r.json();
+      if(d.error) { st('元に戻せません: ' + d.error); return; }
+      applyGraphResponse(d);
+      st('元に戻した');
+    }
+  });
+
+  document.addEventListener('keydown', e => {
     if(e.ctrlKey && e.key === 's') {
       e.preventDefault();
-      const p = getProjectPath();
-      if(p) await saveProject(p);
-      else showProjectModal('save');
+      saveProjectFileCurrent();
     }
   });
 
@@ -77,6 +83,22 @@ addEventListener('DOMContentLoaded', async () => {
   }
   document.addEventListener('keydown', e => {
     if(e.altKey && e.key === 'm') { e.preventDefault(); toggleLineMemoInline(); }
+  });
+
+  const btnNs = id('btn-node-sub');
+  if(btnNs) {
+    // デフォルト非表示（コンパクト）
+    id('tree').classList.add('hide-sub');
+    btnNs.classList.remove('on');
+    btnNs.style.background = '';
+    btnNs.onclick = () => {
+      const hidden = id('tree').classList.toggle('hide-sub');
+      btnNs.classList.toggle('on', !hidden);
+      btnNs.style.background = !hidden ? '#094771' : '';
+    };
+  }
+  document.addEventListener('keydown', e => {
+    if(e.altKey && e.key === 'p') { e.preventDefault(); id('btn-node-sub')?.click(); }
   });
 
   const btnTm = id('btn-tree-memo');

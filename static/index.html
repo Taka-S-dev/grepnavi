@@ -49,8 +49,14 @@
       <div id="search-hdr">
         <span id="sh-title">検索結果</span>
         <span id="sh-over" style="color:#f08"></span>
-        <button id="btn-search-hist" title="検索履歴 (Alt+H)" style="display:none"></button>
-        <div id="search-tab-bar"></div>
+        <span style="display:flex;gap:4px;align-items:center;position:relative">
+          <span id="search-stack-wrap" style="display:none">
+            <button id="btn-stack-add" title="現在の検索をスタックに追加">+</button><button id="btn-search-stack" title="検索スタック">スタック ▾</button>
+          </span>
+          <div id="search-stack-bar"></div>
+          <button id="btn-search-hist" title="検索履歴 (Alt+H)" style="display:none"></button>
+          <div id="search-tab-bar"></div>
+        </span>
       </div>
       <div id="filter-bar">
         <input id="filter-input" type="text" placeholder="絞り込み: AND=スペース  OR=|  除外=-word" spellcheck="false">
@@ -93,6 +99,7 @@
         <div id="tree-tab-list"></div>
         <button id="btn-tree-add" title="ツリーを追加"><i class="codicon codicon-add"></i></button>
         <div id="tree-tab-actions">
+          <button class="sec" id="btn-node-sub" title="ファイルパス表示切り替え (Alt+P)"><i class="codicon codicon-file"></i></button>
           <button class="sec" id="btn-tree-memo" title="メモを常時表示 (Alt+N)"><i class="codicon codicon-note"></i></button>
           <button class="sec" id="btn-view">グラフ</button>
           <button id="btn-clr">消去</button>

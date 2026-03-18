@@ -31,7 +31,7 @@ type Options struct {
 // ctx がキャンセルされると rg プロセスも即座に kill される。
 func Search(ctx context.Context, opts Options) ([]graph.Match, error) {
 	if opts.ContextLines == 0 {
-		opts.ContextLines = 3
+		opts.ContextLines = 6
 	}
 
 	args := buildArgs(opts)
@@ -221,7 +221,7 @@ func matchID(file string, line, col int) string {
 // 二つを分離することで、HTTP書き込みが詰まっても rg のパイプが満杯にならない。
 func SearchStream(ctx context.Context, opts Options, callback func(graph.Match) error) error {
 	if opts.ContextLines == 0 {
-		opts.ContextLines = 3
+		opts.ContextLines = 6
 	}
 
 	innerCtx, cancel := context.WithCancel(ctx)

@@ -289,22 +289,53 @@ function jumpResult(delta) {
 // ===== 検索履歴タブ =====
 function saveSearchTab(query, count, title, overText) {
   const filterValue = id('filter-input').value;
-  const tab = { query, count, title, overText, filterValue, allMatches: [...allMatches] };
 
-  // 同じクエリのタブが既にあれば上書き（再検索ケース）
+  // 同じクエリのタブが既にあれば上書き（ピン状態は維持）
   const existing = searchTabs.findIndex(t => t.query === query);
   if(existing >= 0) {
-    searchTabs[existing] = tab;
+    searchTabs[existing] = { ...searchTabs[existing], count, title, overText, filterValue, allMatches: [...allMatches] };
     activeSearchTab = existing;
   } else {
-    searchTabs.push(tab);
+    searchTabs.push({ query, count, title, overText, filterValue, allMatches: [...allMatches], pinned: false });
     activeSearchTab = searchTabs.length - 1;
     if(searchTabs.length > MAX_SEARCH_TABS) {
-      searchTabs.shift();
-      activeSearchTab = searchTabs.length - 1;
+      // ピン留めされていない最古のタブを削除
+      const unpinnedIdx = searchTabs.findIndex(t => !t.pinned);
+      if(unpinnedIdx >= 0) {
+        searchTabs.splice(unpinnedIdx, 1);
+        activeSearchTab = searchTabs.length - 1;
+      }
     }
   }
   renderSearchTabs();
+  // スタックラッパーを表示（検索結果がある状態）
+  const wrap = id('search-stack-wrap');
+  if(wrap) wrap.style.display = '';
+}
+
+function pinSearchTab(idx) {
+  if(idx < 0 || idx >= searchTabs.length) return;
+  searchTabs[idx].pinned = !searchTabs[idx].pinned;
+  _savePinnedTabs();
+  renderSearchTabs();
+}
+
+function _savePinnedTabs() {
+  const pinned = searchTabs.filter(t => t.pinned).map(t => ({
+    query: t.query, count: t.count, title: t.title,
+    overText: t.overText, filterValue: t.filterValue,
+    allMatches: t.allMatches, pinned: true,
+  }));
+  try { localStorage.setItem(LS_PINNED_TABS, JSON.stringify(pinned)); } catch {}
+}
+
+function _loadPinnedTabs() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LS_PINNED_TABS) || '[]');
+    saved.forEach(t => {
+      if(!searchTabs.find(s => s.query === t.query)) searchTabs.push(t);
+    });
+  } catch {}
 }
 
 function switchSearchTab(idx) {
@@ -337,7 +368,9 @@ function switchSearchTab(idx) {
 }
 
 function closeSearchTab(idx) {
+  if(searchTabs[idx]?.pinned) _savePinnedTabs();
   searchTabs.splice(idx, 1);
+  _savePinnedTabs();
   if(!searchTabs.length) {
     activeSearchTab = -1;
     id('results').innerHTML = '';
@@ -365,12 +398,14 @@ function renderSearchTabs() {
   btn.style.display = '';
   btn.textContent = `履歴 ${searchTabs.length} ▾`;
 
-  // ドロップダウン内容を再構築（新しい順に表示）
+  // ピン留め済みを上、それ以外を新しい順に並べる
+  const pinnedIdxs   = searchTabs.map((t,i)=>({t,i})).filter(x=>x.t.pinned);
+  const unpinnedIdxs = searchTabs.map((t,i)=>({t,i})).filter(x=>!x.t.pinned).reverse();
+
   bar.innerHTML = '';
-  for(let i = searchTabs.length - 1; i >= 0; i--) {
-    const tab = searchTabs[i];
+  const makeItem = ({t: tab, i}) => {
     const el = document.createElement('div');
-    el.className = 'stab' + (i === activeSearchTab ? ' active' : '');
+    el.className = 'stab' + (i === activeSearchTab ? ' active' : '') + (tab.pinned ? ' pinned' : '');
 
     const lbl = document.createElement('span');
     lbl.className = 'stab-lbl';
@@ -381,22 +416,200 @@ function renderSearchTabs() {
     cnt.className = 'stab-cnt';
     cnt.textContent = tab.count + '件';
 
+    const dot = document.createElement('span');
+    dot.className = 'stab-dot';
+    dot.title = tab.pinned ? 'ピン留め解除' : 'ピン留め';
+    dot.onclick = e => { e.stopPropagation(); pinSearchTab(i); };
+
     const cls = document.createElement('span');
     cls.className = 'stab-close';
     cls.textContent = '×';
     cls.onclick = e => { e.stopPropagation(); closeSearchTab(i); };
 
-    el.append(lbl, cnt, cls);
+    el.append(dot, lbl, cnt, cls);
     el.onclick = () => { switchSearchTab(i); bar.classList.remove('open'); };
     bar.appendChild(el);
+  };
+
+  pinnedIdxs.forEach(makeItem);
+  if(pinnedIdxs.length && unpinnedIdxs.length) {
+    const sep = document.createElement('div');
+    sep.className = 'stab-sep';
+    bar.appendChild(sep);
   }
+  unpinnedIdxs.forEach(makeItem);
+}
+
+// ===== 検索スタック =====
+
+function addToSearchStack() {
+  if(activeSearchTab < 0 || !searchTabs[activeSearchTab]) return;
+  const tab = searchTabs[activeSearchTab];
+  if(searchStack.find(s => s.query === tab.query)) {
+    st('既にスタックに追加済みです');
+    return;
+  }
+  searchStack.push({ query: tab.query, count: tab.count, title: tab.title,
+    overText: tab.overText, filterValue: tab.filterValue, allMatches: [...tab.allMatches] });
+  _saveSearchStack();
+  renderSearchStack();
+  st('スタックに追加: ' + tab.query);
+}
+
+function removeFromSearchStack(idx) {
+  searchStack.splice(idx, 1);
+  _saveSearchStack();
+  renderSearchStack();
+}
+
+function switchSearchStack(idx) {
+  if(idx < 0 || idx >= searchStack.length) return;
+  const entry = searchStack[idx];
+  allMatches = [...entry.allMatches];
+  pending = [...entry.allMatches];
+  fileGroupMap = {};
+  id('results').innerHTML = '';
+  flushBatch(entry.query);
+  id('sh-title').textContent = entry.title;
+  id('sh-over').textContent = entry.overText || '';
+  st(`${entry.count} 件ヒット`);
+  const filterVal = entry.filterValue || '';
+  id('filter-input').value = filterVal;
+  filterTokens = [];
+  if(filterVal) applyFilter();
+  else { id('filter-input').classList.remove('active'); id('filter-clear').style.display = 'none'; }
+  id('search-stack-bar').classList.remove('open');
+}
+
+let _stackDragIdx = null;
+
+function renderSearchStack() {
+  const btn = id('btn-search-stack');
+  const bar = id('search-stack-bar');
+  if(!btn || !bar) return;
+  btn.textContent = searchStack.length ? `スタック ${searchStack.length} ▾` : 'スタック ▾';
+  if(searchStack.length === 0) {
+    bar.classList.remove('open');
+    return;
+  }
+  bar.innerHTML = '';
+  searchStack.forEach((entry, i) => {
+    const el = document.createElement('div');
+    el.className = 'stab sstack';
+    el.draggable = true;
+
+    el.addEventListener('dragstart', e => {
+      _stackDragIdx = i;
+      el.classList.add('sstack-dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    el.addEventListener('dragend', () => {
+      _stackDragIdx = null;
+      bar.querySelectorAll('.sstack-drag-over').forEach(n => n.classList.remove('sstack-drag-over'));
+      bar.querySelectorAll('.sstack-dragging').forEach(n => n.classList.remove('sstack-dragging'));
+    });
+    el.addEventListener('dragover', e => {
+      if(_stackDragIdx === null || _stackDragIdx === i) return;
+      e.preventDefault();
+      bar.querySelectorAll('.sstack-drag-over').forEach(n => n.classList.remove('sstack-drag-over'));
+      el.classList.add('sstack-drag-over');
+    });
+    el.addEventListener('drop', e => {
+      e.preventDefault();
+      if(_stackDragIdx === null || _stackDragIdx === i) return;
+      const moved = searchStack.splice(_stackDragIdx, 1)[0];
+      searchStack.splice(i, 0, moved);
+      _saveSearchStack();
+      renderSearchStack();
+    });
+
+    const handle = document.createElement('span');
+    handle.className = 'sstack-handle';
+    handle.textContent = '⠿';
+    handle.title = 'ドラッグで並び替え';
+
+    const body = document.createElement('span');
+    body.className = 'sstack-body';
+
+    const lbl = document.createElement('span');
+    lbl.className = 'stab-lbl';
+    lbl.textContent = entry.query;
+    lbl.title = entry.title;
+
+    const labelEl = document.createElement('span');
+    labelEl.className = 'sstack-label' + (entry.label ? ' has-label' : '');
+    labelEl.textContent = entry.label || '+ ラベル';
+    labelEl.title = 'クリックで編集';
+    labelEl.onclick = e => {
+      e.stopPropagation();
+      const input = document.createElement('input');
+      input.className = 'sstack-label-input';
+      input.value = entry.label || '';
+      input.placeholder = 'ラベルを入力…';
+      labelEl.replaceWith(input);
+      input.focus();
+      input.select();
+      const commit = () => {
+        const val = input.value.trim();
+        searchStack[i].label = val;
+        _saveSearchStack();
+        renderSearchStack();
+      };
+      input.onblur = commit;
+      input.onkeydown = e2 => {
+        if(e2.key === 'Enter') { e2.preventDefault(); input.blur(); }
+        if(e2.key === 'Escape') { input.onblur = null; renderSearchStack(); }
+      };
+    };
+
+    const cnt = document.createElement('span');
+    cnt.className = 'stab-cnt';
+    cnt.textContent = entry.count + '件';
+
+    const cls = document.createElement('span');
+    cls.className = 'stab-close';
+    cls.textContent = '×';
+    cls.onclick = e => { e.stopPropagation(); removeFromSearchStack(i); };
+
+    body.append(lbl, labelEl);
+    el.append(handle, body, cnt, cls);
+    el.onclick = () => switchSearchStack(i);
+    bar.appendChild(el);
+  });
+}
+
+function _saveSearchStack() {
+  try { localStorage.setItem(LS_SEARCH_STACK, JSON.stringify(searchStack)); } catch {}
+}
+
+function _loadSearchStack() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LS_SEARCH_STACK) || '[]');
+    searchStack = saved;
+  } catch {}
 }
 
 // ===== 検索バー初期化 =====
 function initSearchBar() {
+  _loadPinnedTabs();
+  renderSearchTabs();
+  _loadSearchStack();
+  renderSearchStack();
+  if(searchStack.length) { const w = id('search-stack-wrap'); if(w) w.style.display = ''; }
+
   id('btn-cs').onclick = () => id('btn-cs').classList.toggle('on');
   id('btn-wb').onclick = () => id('btn-wb').classList.toggle('on');
   id('btn-re').onclick = () => id('btn-re').classList.toggle('on');
+
+  // スタック
+  id('btn-stack-add').onclick = e => { e.stopPropagation(); addToSearchStack(); };
+  id('btn-search-stack').onclick = e => {
+    e.stopPropagation();
+    if(!searchStack.length) return;
+    renderSearchStack();
+    id('search-stack-bar').classList.toggle('open');
+  };
+  document.addEventListener('click', () => id('search-stack-bar')?.classList.remove('open'));
 
   // 検索履歴ドロップダウン
   const toggleSearchHist = () => {

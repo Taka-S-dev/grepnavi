@@ -28,10 +28,12 @@ func FindDefinitions(ctx context.Context, word, dir, glob string) ([]DefHit, err
 	}
 	esc := regexp.QuoteMeta(word)
 	queries := []query{
-		{`#\s*define\s+` + esc + `(\s|\(|$)`, "define"},
-		{`\b(struct|union)\s+` + esc + `\b`, "struct"},
-		{`\benum\s+` + esc + `\b`, "enum"},
+		{`#\s*define\s+` + esc + `\b`, "define"},
+		{`^\s*(typedef\s+)?(struct|union)\s+` + esc + `\s*(\{|$)`, "struct"},
+		{`^\s*(typedef\s+)?enum\s+` + esc + `\s*(\{|$)`, "enum"},
 		{`\btypedef\b.+\b` + esc + `\b`, "typedef"},
+		{`^\s*\}\s*` + esc + `\s*;`, "typedef_close"},
+		{`^[^\s#/*].*\b` + esc + `\s*\(`, "func"},
 	}
 
 	seen := map[string]bool{}
