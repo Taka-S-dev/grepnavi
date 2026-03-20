@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -58,9 +59,13 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/ifdef", h.handleIfdef)
 	mux.HandleFunc("/api/definition", h.handleDefinition)
 	mux.HandleFunc("/api/hover", h.handleHover)
+	mux.HandleFunc("/api/browse", h.handleBrowse)
 	mux.HandleFunc("/api/dirs", h.handleDirs)
 	mux.HandleFunc("/api/root", h.handleRoot)
 	mux.HandleFunc("/api/files", h.handleFiles)
+	// call tree
+	mux.HandleFunc("/api/callers", h.handleCallers)
+	mux.HandleFunc("/api/callees", h.handleCallees)
 	// [C言語アドオン] 以下の3行を削除するとインクルードグラフAPIが無効になります
 	mux.HandleFunc("/api/include-graph", h.handleIncludeGraph)
 	mux.HandleFunc("/api/include-file", h.handleIncludeFile)
@@ -170,6 +175,61 @@ func (h *Handler) handleHover(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, hits)
 }
 
+// --- /api/callers ---
+
+func (h *Handler) handleCallers(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	word := q.Get("word")
+	if word == "" {
+		jsonErr(w, "word required", http.StatusBadRequest)
+		return
+	}
+	h.mu.RLock()
+	hroot := h.root
+	h.mu.RUnlock()
+	dir := q.Get("dir")
+	if dir == "" {
+		dir = hroot
+	} else if !filepath.IsAbs(dir) {
+		dir = filepath.Join(hroot, dir)
+	}
+	hits, err := search.FindCallers(r.Context(), word, dir, q.Get("glob"))
+	if err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if hits == nil {
+		hits = []search.CallSite{}
+	}
+	jsonOK(w, hits)
+}
+
+// --- /api/callees ---
+
+func (h *Handler) handleCallees(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	file := q.Get("file")
+	lineStr := q.Get("line")
+	if file == "" || lineStr == "" {
+		jsonErr(w, "file and line required", http.StatusBadRequest)
+		return
+	}
+	line, err := strconv.Atoi(lineStr)
+	if err != nil {
+		jsonErr(w, "invalid line", http.StatusBadRequest)
+		return
+	}
+	names, err := search.FindCallees(r.Context(), file, line)
+	if err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if names == nil {
+		names = []string{}
+	}
+	jsonOK(w, names)
+}
+
 // --- /api/ifdef ---
 
 func (h *Handler) handleIfdef(w http.ResponseWriter, r *http.Request) {
@@ -232,7 +292,7 @@ func (h *Handler) handleSearchStream(w http.ResponseWriter, r *http.Request) {
 		WordRegexp:    q.Get("word") == "1",
 		Regex:         q.Get("regex") == "1",
 		FileGlob:      q.Get("glob"),
-		ContextLines:  3,
+		ContextLines:  8,
 	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -314,7 +374,7 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 		WordRegexp:    q.Get("word") == "1",
 		Regex:         q.Get("regex") == "1",
 		FileGlob:      q.Get("glob"),
-		ContextLines:  3,
+		ContextLines:  8,
 		MaxResults:    limit,
 	}
 
@@ -970,6 +1030,7 @@ func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleFiles は rg --files でプロジェクト内のファイル一覧を返す。
+// ?glob=*.c,*.h のように指定すると対象ファイルを絞れる。
 func (h *Handler) handleFiles(w http.ResponseWriter, r *http.Request) {
 	h.mu.RLock()
 	root := h.root
@@ -977,7 +1038,12 @@ func (h *Handler) handleFiles(w http.ResponseWriter, r *http.Request) {
 	if root == "" {
 		root = "."
 	}
-	cmd := exec.Command("rg", "--files", root)
+	args := []string{"--files"}
+	for _, g := range strings.FieldsFunc(r.URL.Query().Get("glob"), func(r rune) bool { return r == ',' || r == ' ' }) {
+		args = append(args, "--glob", g)
+	}
+	args = append(args, root)
+	cmd := exec.Command("rg", args...)
 	out, err := cmd.Output()
 	if err != nil {
 		// rg が使えない場合は filepath.Walk でフォールバック
@@ -1010,6 +1076,54 @@ func (h *Handler) handleFiles(w http.ResponseWriter, r *http.Request) {
 		files = append(files, filepath.ToSlash(rel))
 	}
 	jsonOK(w, files)
+}
+
+// handleBrowse はディレクトリ内容を返す。
+// ?path=<dir>&ext=.json でファイルを拡張子フィルタリングできる。
+func (h *Handler) handleBrowse(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	dir := q.Get("path")
+	ext := q.Get("ext") // e.g. ".json"
+
+	if dir == "" {
+		var err error
+		dir, err = os.UserHomeDir()
+		if err != nil {
+			dir = "."
+		}
+	}
+	dir = filepath.Clean(dir)
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		jsonErr(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var dirs, files []string
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+		if e.IsDir() {
+			dirs = append(dirs, name)
+		} else if ext == "" || strings.EqualFold(filepath.Ext(name), ext) {
+			files = append(files, name)
+		}
+	}
+
+	parent := filepath.Dir(dir)
+	if parent == dir {
+		parent = "" // ドライブルート等、これ以上上がれない
+	}
+
+	jsonOK(w, map[string]any{
+		"path":   filepath.ToSlash(dir),
+		"parent": filepath.ToSlash(parent),
+		"dirs":   dirs,
+		"files":  files,
+	})
 }
 
 func (h *Handler) handleDirs(w http.ResponseWriter, r *http.Request) {

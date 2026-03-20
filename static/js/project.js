@@ -359,79 +359,110 @@ async function openProject(path) {
   st('読み込みました: ' + path);
 }
 
-// ===== ファイルピッカー（OS ネイティブダイアログ） =====
+// ===== ファイルブラウザ =====
 
-let _fileHandle = null;
+let _fbMode = 'save'; // 'save' | 'open'
+let _fbCurrentPath = '';
 
-const _pickerOpts = {
-  types: [{ description: 'GrepNavi Project', accept: { 'application/json': ['.json'] } }],
-};
-
-async function openProjectFilePicker() {
-  if (!window.showOpenFilePicker) { showProjectModal('open'); return; }
-  let handle;
-  try {
-    [handle] = await window.showOpenFilePicker(_pickerOpts);
-  } catch(e) {
-    if(e.name !== 'AbortError') st('ファイルを開けませんでした');
-    return;
-  }
-  const text = await (await handle.getFile()).text();
-  const r = await fetch('/api/graph/import', {
-    method: 'POST', headers: {'Content-Type': 'application/json'}, body: text,
-  });
-  const d = await r.json();
-  if(d.error) { st('読み込みエラー: ' + d.error); return; }
-  _fileHandle = handle;
-  selNode = null; showDetail(null);
-  tabs.forEach(t => t.model.dispose());
-  tabs = []; activeTabIdx = -1;
-  renderTabs();
-  fzfFiles = null;
-  projectRoot = '';
-  applyGraphResponse(d.graph);
-  _updateFileHandleUI(handle.name);
-  st('読み込みました: ' + handle.name);
-}
-
-async function saveAsProjectFilePicker() {
-  if (!window.showSaveFilePicker) { showProjectModal('save'); return; }
-  let handle;
-  try {
-    handle = await window.showSaveFilePicker({
-      ..._pickerOpts,
-      suggestedName: _fileHandle?.name || 'project.json',
-    });
-  } catch(e) {
-    if(e.name !== 'AbortError') st('保存できませんでした');
-    return;
-  }
-  await _writeToHandle(handle);
-  _fileHandle = handle;
-  _updateFileHandleUI(handle.name);
-  st('保存しました: ' + handle.name);
-}
+function openProjectFilePicker()   { showFileBrowser('open'); }
+function saveAsProjectFilePicker() { showFileBrowser('save'); }
 
 async function saveProjectFileCurrent() {
-  if(!_fileHandle) { await saveAsProjectFilePicker(); return; }
-  await _writeToHandle(_fileHandle);
-  st('保存しました: ' + _fileHandle.name);
+  const p = getProjectPath();
+  if(!p) { showFileBrowser('save'); return; }
+  await saveProject(p);
 }
 
-async function _writeToHandle(handle) {
-  const r = await fetch('/api/graph/export', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ line_memos: getLineMemos() }),
+async function showFileBrowser(mode) {
+  _fbMode = mode;
+  id('fb-title').textContent = mode === 'save' ? '名前を付けて保存' : 'プロジェクトを開く';
+  id('fb-ok').textContent    = mode === 'save' ? '保存' : '開く';
+  id('fb-overlay').classList.add('open');
+
+  // 初期ディレクトリ: 前回パス → プロジェクトルート → ホーム
+  const cur = getProjectPath();
+  const startDir = cur
+    ? cur.replace(/\\/g, '/').split('/').slice(0, -1).join('/')
+    : '';
+  await fbNavigate(startDir);
+
+  // 保存モードは前回ファイル名を引き継ぐ
+  if(mode === 'save') {
+    const name = cur ? cur.replace(/\\/g, '/').split('/').pop() : 'project.json';
+    id('fb-filename').value = name;
+  } else {
+    id('fb-filename').value = '';
+  }
+}
+
+async function fbNavigate(dir) {
+  const params = new URLSearchParams({ ext: '.json' });
+  if(dir) params.set('path', dir);
+  const res = await fetch('/api/browse?' + params).catch(() => null);
+  if(!res || !res.ok) { st('ディレクトリを開けませんでした'); return; }
+  const data = await res.json();
+
+  _fbCurrentPath = data.path;
+  id('fb-path-input').value = data.path;
+  id('fb-up').disabled = !data.parent;
+
+  const list = id('fb-list');
+  list.innerHTML = '';
+
+  (data.dirs || []).forEach(name => {
+    const row = document.createElement('div');
+    row.className = 'fb-item fb-dir';
+    row.innerHTML = `<i class="codicon codicon-folder"></i><span>${esc(name)}</span>`;
+    row.ondblclick = () => fbNavigate(data.path + '/' + name);
+    row.onclick    = () => fbSelectDir(row);
+    list.appendChild(row);
   });
-  const text = await r.text();
-  const writable = await handle.createWritable();
-  await writable.write(text);
-  await writable.close();
+
+  (data.files || []).forEach(name => {
+    const row = document.createElement('div');
+    row.className = 'fb-item fb-file';
+    row.innerHTML = `<i class="codicon codicon-json"></i><span>${esc(name)}</span>`;
+    row.onclick = () => {
+      list.querySelectorAll('.fb-item').forEach(r => r.classList.remove('selected'));
+      row.classList.add('selected');
+      id('fb-filename').value = name;
+    };
+    row.ondblclick = () => { id('fb-filename').value = name; fbOk(); };
+    list.appendChild(row);
+  });
 }
 
-function _updateFileHandleUI(name) {
-  const el = id('project-name');
-  if(el) { el.textContent = name; el.title = name; }
-  const saveItem = id('pmenu-save');
-  if(saveItem) saveItem.style.color = '';
+function fbSelectDir(row) {
+  id('fb-list').querySelectorAll('.fb-item').forEach(r => r.classList.remove('selected'));
+  row.classList.add('selected');
 }
+
+async function fbOk() {
+  const filename = id('fb-filename').value.trim();
+  if(!filename) return;
+  let fullPath = _fbCurrentPath.replace(/\\/g, '/');
+  if(!fullPath.endsWith('/')) fullPath += '/';
+  fullPath += filename.endsWith('.json') ? filename : filename + '.json';
+
+  closeFb();
+  if(_fbMode === 'save') await saveProject(fullPath);
+  else                   await openProject(fullPath);
+}
+
+function closeFb() {
+  id('fb-overlay').classList.remove('open');
+}
+
+addEventListener('DOMContentLoaded', () => {
+  id('fb-close').onclick   = closeFb;
+  id('fb-cancel').onclick  = closeFb;
+  id('fb-ok').onclick      = fbOk;
+  id('fb-overlay').addEventListener('click', e => { if(e.target === id('fb-overlay')) closeFb(); });
+  id('fb-up').onclick      = () => {
+    const parent = id('fb-path-input').value.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
+    if(parent) fbNavigate(parent);
+  };
+  id('fb-path-go').onclick = () => fbNavigate(id('fb-path-input').value.trim());
+  id('fb-path-input').onkeydown = e => { if(e.key === 'Enter') fbNavigate(id('fb-path-input').value.trim()); };
+  id('fb-filename').onkeydown   = e => { if(e.key === 'Enter') fbOk(); };
+});

@@ -211,7 +211,7 @@ function defKind(text, snippet, matchLine) {
     if(Array.isArray(snippet)) {
       // Track open parens to avoid breaking inside string arguments
       let openParens = (t.match(/\(/g)||[]).length - (t.match(/\)/g)||[]).length;
-      const after = snippet.filter(s => s.line > matchLine).slice(0, 6);
+      const after = snippet.filter(s => s.line > matchLine).slice(0, 10);
       for(const s of after) {
         const st = (s.text||'').trim();
         if(!st) continue;

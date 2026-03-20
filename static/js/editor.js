@@ -192,6 +192,7 @@ async function ensureEditor() {
     stickyScroll: {enabled: true, maxLineCount: 3},
     breadcrumbs: {enabled: true},
     glyphMargin: true,
+    hover: { above: false },
   });
   new ResizeObserver(() => monacoEditor.layout()).observe(id('monaco-container'));
 
@@ -203,18 +204,23 @@ async function ensureEditor() {
 
   // Hover プロバイダー
   const HOVER_LANGS = ['c','cpp','go','python','javascript','typescript','rust','java'];
-  // C/C++ キーワードはホバー検索をスキップ
+  // スキップするキーワード（制御構文・基本型など）
   const HOVER_SKIP = new Set([
     'if','else','while','for','switch','case','do','return','break','continue','goto',
     'struct','union','enum','typedef','static','extern','const','volatile','inline',
     'void','int','char','short','long','float','double','unsigned','signed','size_t',
     'bool','true','false','NULL','nullptr','auto','register','sizeof','typeof',
   ]);
+  // ホバー結果キャッシュ（同じ単語は再検索しない）
+  const _hoverCache = new Map(); // "word:dir:glob" -> {result, time}
+  const HOVER_CACHE_TTL = 60_000; // 1分
+
   HOVER_LANGS.forEach(lang => {
     monaco.languages.registerHoverProvider(lang, {
       provideHover: async (model, position, token) => {
         const word = model.getWordAtPosition(position);
-        if(!word || word.word.length < 2) return null;
+        // B: 3文字未満・キーワードはスキップ
+        if(!word || word.word.length < 3) return null;
         if(HOVER_SKIP.has(word.word)) return null;
         const controller = new AbortController();
         token.onCancellationRequested(() => controller.abort());
@@ -224,7 +230,7 @@ async function ensureEditor() {
           const glob = id('glob').value.trim();
           const contents = [];
 
-          // 1. グラフノードのメモ
+          // 1. グラフノードのメモ（キャッシュ不要・ローカル処理）
           const memoNodes = Object.values(graph.nodes).filter(n => n.memo && (
             (n.match?.file === currentFile && n.match?.line === position.lineNumber) ||
             (n.match?.file === currentFile && (n.match?.text||'').includes(word.word))
@@ -238,42 +244,48 @@ async function ensureEditor() {
             contents.push({value: '---'});
           }
 
-          // 2. /api/hover — struct/union/enum/define のブロック本体
+          // A: キャッシュチェック（メモ以外の検索結果）
+          const cacheKey = `${word.word}:${dir}:${glob}`;
+          const cached = _hoverCache.get(cacheKey);
+          if(cached && Date.now() - cached.time < HOVER_CACHE_TTL) {
+            const allContents = [...contents, ...cached.contents];
+            if(!allContents.length) return null;
+            return {
+              range: new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn),
+              contents: allContents.map(c => ({...c, isTrusted: true}))
+            };
+          }
+
+          // 2. /api/hover — struct/union/enum/define のブロック本体（C: /api/search は廃止）
           const hp = new URLSearchParams({word: word.word});
           if(dir)  hp.set('dir',  dir);
           if(glob) hp.set('glob', glob);
           const hr = await fetch('/api/hover?' + hp, {signal: controller.signal});
           const hoverHits = await hr.json();
+          const apiContents = [];
           if(Array.isArray(hoverHits) && hoverHits.length) {
-            const kindLabel = {define:'#define', struct:'struct', enum:'enum', union:'union', typedef:'typedef', func:'function'};
+            const kindLabel = {define:'#define', struct:'struct', enum:'enum', union:'union', typedef:'typedef', func:'function', enum_member:'enum'};
             for(const h of hoverHits.slice(0, 3)) {
               const args = encodeURIComponent(JSON.stringify([h.file, h.line]));
               const fileLink = `[${shortPath(h.file)}:${h.line}](command:grepnavi.openFile?${args})`;
               const header = `**${kindLabel[h.kind]||h.kind} \`${word.word}\`** — *${fileLink}*`;
               const body = h.body.length > 2000 ? h.body.slice(0, 2000) + '\n// ...' : h.body;
-              contents.push({value: header + '\n```c\n' + body + '\n```', isTrusted: true});
+              apiContents.push({value: header + '\n```c\n' + body + '\n```', isTrusted: true});
             }
-            contents.push({value: '---'});
           }
 
-          // 3. 出現ファイル一覧（軽量検索）
-          const sp = new URLSearchParams({q: word.word, regex:'0', case:'0', limit:'50'});
-          if(dir) sp.set('dir', dir);
-          const sr = await fetch('/api/search?' + sp, {signal: controller.signal});
-          const sd = await sr.json();
-          if(sd.matches?.length) {
-            const files = [...new Set(sd.matches.map(m => shortPath(m.file)))].slice(0, 5);
-            contents.push({value:
-              `**\`${word.word}\`** — ${sd.count} 件ヒット\n` +
-              files.map(f => `- ${f}`).join('\n') +
-              (sd.count > 5 ? '\n- …他' : '')
-            });
+          // A: 結果をキャッシュ（最大200件、古いものを削除）
+          _hoverCache.set(cacheKey, {contents: apiContents, time: Date.now()});
+          if(_hoverCache.size > 200) {
+            const oldest = [..._hoverCache.entries()].sort((a,b) => a[1].time - b[1].time)[0];
+            _hoverCache.delete(oldest[0]);
           }
 
-          if(!contents.length) return null;
+          const allContents = [...contents, ...apiContents];
+          if(!allContents.length) return null;
           return {
             range: new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn),
-            contents: contents.map(c => typeof c === 'string' ? {value: c, isTrusted: true} : {...c, isTrusted: true})
+            contents: allContents.map(c => ({...c, isTrusted: true}))
           };
         } catch { return null; }
       }

@@ -33,6 +33,7 @@ func FindDefinitions(ctx context.Context, word, dir, glob string) ([]DefHit, err
 		{`^\s*(typedef\s+)?enum\s+` + esc + `\s*(\{|$)`, "enum"},
 		{`\btypedef\b.+\b` + esc + `\b`, "typedef"},
 		{`^\s*\}\s*` + esc + `\s*;`, "typedef_close"},
+		{`^\s+` + esc + `\b\s*[,=]`, "enum_member"},
 		{`^[^\s#/*].*\b` + esc + `\s*\(`, "func"},
 	}
 
@@ -46,7 +47,8 @@ func FindDefinitions(ctx context.Context, word, dir, glob string) ([]DefHit, err
 			FileGlob:      glob,
 			Regex:         true,
 			CaseSensitive: true,
-			ContextLines:  0,
+			ContextLines:  -1, // 定義行の特定のみ目的のためコンテキスト不要
+			MaxResults:    50, // 同名シンボルの過剰マッチを抑制
 		}
 		matches, err := Search(ctx, opts)
 		if err != nil {

@@ -54,6 +54,11 @@ func FindHover(ctx context.Context, word, dir, glob string) ([]HoverHit, error) 
 		case "typedef_close":
 			body = extractBraceBlockBackward(lines, h.Line)
 			h.Kind = "typedef"
+		case "enum_member":
+			body = extractContainingBlock(lines, h.Line)
+			if body == "" {
+				body = h.Text
+			}
 		case "func":
 			body = extractBraceBlock(lines, h.Line)
 			// { を含まない場合は定義でなく呼び出し・宣言なので除外
@@ -149,12 +154,49 @@ func extractBraceBlock(lines []string, startLine int) string {
 		}
 
 		// { が見つからないまま数行経過したら打ち切り（関数プロトタイプ等）
-		if !started && i > idx+10 {
+		if !started && i > idx+20 {
 			break
 		}
 	}
 
 	return stripCommonIndent(buf)
+}
+
+// extractContainingBlock はメンバー行（enum値等）から逆方向に { を探し、
+// そのブロック全体（enum { ... } Name; 等）を抽出する。
+func extractContainingBlock(lines []string, memberLine int) string {
+	idx := memberLine - 1 // 0-indexed
+	if idx < 0 || idx >= len(lines) {
+		return ""
+	}
+
+	// 逆方向に { を探す（ネスト深さを追跡）
+	depth := 0
+	openIdx := -1
+	for i := idx; i >= 0 && i > idx-500; i-- {
+		line := lines[i]
+		for j := len(line) - 1; j >= 0; j-- {
+			ch := line[j]
+			if ch == '}' {
+				depth++
+			} else if ch == '{' {
+				depth--
+				if depth < 0 {
+					openIdx = i
+					break
+				}
+			}
+		}
+		if openIdx >= 0 {
+			break
+		}
+	}
+	if openIdx < 0 {
+		return strings.TrimSpace(lines[idx])
+	}
+
+	// openIdx の行から前進して { ... } ブロックを抽出（1-indexed）
+	return extractBraceBlock(lines, openIdx+1)
 }
 
 // extractBraceBlockBackward は } TypedefName; の行から逆方向に { を探してブロックを返す。

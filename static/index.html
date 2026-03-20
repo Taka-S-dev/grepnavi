@@ -101,6 +101,7 @@
             </div>
           </div>
         </span>
+        <span id="addon-buttons"></span>
       </div>
       <div id="tree-tabs">
         <div id="tree-tab-list"></div>
@@ -161,6 +162,30 @@
     <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:8px">
       <button id="project-modal-ok">OK</button>
       <button class="sec" id="project-modal-cancel">キャンセル</button>
+    </div>
+  </div>
+</div>
+
+<!-- ファイルブラウザモーダル -->
+<div id="fb-overlay">
+  <div id="fb-box">
+    <div id="fb-header">
+      <span id="fb-title"></span>
+      <button id="fb-close" title="閉じる"><i class="codicon codicon-close"></i></button>
+    </div>
+    <div id="fb-path-row">
+      <button id="fb-up" title="上へ"><i class="codicon codicon-arrow-up"></i></button>
+      <input id="fb-path-input" type="text" spellcheck="false">
+      <button id="fb-path-go">移動</button>
+    </div>
+    <div id="fb-list"></div>
+    <div id="fb-filename-row">
+      <label>ファイル名</label>
+      <input id="fb-filename" type="text" spellcheck="false">
+    </div>
+    <div id="fb-actions">
+      <button id="fb-ok">OK</button>
+      <button class="sec" id="fb-cancel">キャンセル</button>
     </div>
   </div>
 </div>

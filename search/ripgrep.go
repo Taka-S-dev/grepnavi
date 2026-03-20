@@ -32,6 +32,8 @@ type Options struct {
 func Search(ctx context.Context, opts Options) ([]graph.Match, error) {
 	if opts.ContextLines == 0 {
 		opts.ContextLines = 6
+	} else if opts.ContextLines < 0 {
+		opts.ContextLines = 0 // -1 = コンテキスト行なし
 	}
 
 	args := buildArgs(opts)
