@@ -278,6 +278,7 @@ function initColResizer() {
 const LS_PROJECT_PATH    = 'grepnavi_project_path';
 const LS_PROJECT_HISTORY = 'grepnavi_project_history';
 const LS_DIR_HISTORY     = 'grepnavi_dir_history';
+const LS_GLOB_HISTORY    = 'grepnavi_glob_history';
 const HISTORY_MAX = 8;
 
 function getProjectPath() {
@@ -307,6 +308,78 @@ function addDirHistory(dir) {
   hist.unshift(dir);
   if(hist.length > HISTORY_MAX) hist = hist.slice(0, HISTORY_MAX);
   localStorage.setItem(LS_DIR_HISTORY, JSON.stringify(hist));
+}
+function getGlobHistory() {
+  try { return JSON.parse(localStorage.getItem(LS_GLOB_HISTORY) || '[]'); } catch { return []; }
+}
+function addGlobHistory(glob) {
+  if(!glob) return;
+  let hist = getGlobHistory().filter(h => h !== glob);
+  hist.unshift(glob);
+  if(hist.length > HISTORY_MAX) hist = hist.slice(0, HISTORY_MAX);
+  localStorage.setItem(LS_GLOB_HISTORY, JSON.stringify(hist));
+}
+
+function initGlobPicker() {
+  const inp = id('glob');
+  const drop = id('glob-drop');
+  if(!inp || !drop) return;
+  let activeIdx = -1;
+
+  function getItems() { return drop.querySelectorAll('.dir-item'); }
+  function setActive(idx) {
+    const items = getItems();
+    [...items].forEach((el, i) => el.classList.toggle('active', i === idx));
+    activeIdx = idx;
+    if(items[idx]) items[idx].scrollIntoView({block:'nearest'});
+  }
+
+  function renderDrop(filter = true) {
+    const q = filter ? inp.value.toLowerCase() : '';
+    const hist = getGlobHistory().filter(h => !q || h.toLowerCase().includes(q));
+    drop.innerHTML = '';
+    if(!hist.length) { drop.classList.remove('open'); return; }
+    hist.forEach(h => {
+      const el = document.createElement('div');
+      el.className = 'dir-item';
+      el.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:4px';
+      const txt = document.createElement('span');
+      txt.textContent = h;
+      txt.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis';
+      const del = document.createElement('span');
+      del.textContent = '✕';
+      del.style.cssText = 'color:#555;font-size:10px;padding:0 2px;flex-shrink:0;cursor:pointer';
+      del.onmouseenter = () => del.style.color = '#f88';
+      del.onmouseleave = () => del.style.color = '#555';
+      del.onmousedown = e => {
+        e.preventDefault(); e.stopPropagation();
+        const newHist = getGlobHistory().filter(x => x !== h);
+        localStorage.setItem(LS_GLOB_HISTORY, JSON.stringify(newHist));
+        renderDrop(filter);
+      };
+      el.onmousedown = e => { e.preventDefault(); inp.value = h; drop.classList.remove('open'); };
+      el.appendChild(txt);
+      el.appendChild(del);
+      drop.appendChild(el);
+    });
+    drop.classList.add('open');
+    activeIdx = -1;
+  }
+
+  inp.addEventListener('focus', () => renderDrop(true));
+  inp.addEventListener('input', () => renderDrop(true));
+  inp.addEventListener('blur', () => setTimeout(() => drop.classList.remove('open'), 150));
+  inp.addEventListener('keydown', e => {
+    if(e.key === 'ArrowDown' && !drop.classList.contains('open')) { e.preventDefault(); renderDrop(false); return; }
+    if(!drop.classList.contains('open')) return;
+    const items = getItems();
+    if(e.key === 'ArrowDown') { e.preventDefault(); setActive(Math.min(activeIdx+1, items.length-1)); }
+    else if(e.key === 'ArrowUp') { e.preventDefault(); setActive(Math.max(activeIdx-1, 0)); }
+    else if(e.key === 'Enter') {
+      if(activeIdx >= 0 && items[activeIdx]) { e.preventDefault(); inp.value = items[activeIdx].querySelector('span').textContent; drop.classList.remove('open'); }
+    }
+    else if(e.key === 'Escape') { drop.classList.remove('open'); }
+  });
 }
 function updateProjectUI() {
   const p = getProjectPath();

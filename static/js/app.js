@@ -1,3 +1,6 @@
+function toggleHelp() { id('help-overlay').classList.toggle('open'); }
+function closeHelp()  { id('help-overlay').classList.remove('open'); }
+
 // Monaco エディタ内部の非同期キャンセル（Canceled）を抑制
 window.addEventListener('unhandledrejection', e => {
   if(e.reason && e.reason.message === 'Canceled') e.preventDefault();
@@ -22,6 +25,11 @@ addEventListener('DOMContentLoaded', async () => {
       jumpResult(e.shiftKey ? -1 : 1);
     }
     if((e.ctrlKey || e.metaKey) && e.key === 'p') { e.preventDefault(); openFzf(); }
+    if(e.key === '?' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const tag = document.activeElement?.tagName;
+      if(tag !== 'INPUT' && tag !== 'TEXTAREA') { e.preventDefault(); toggleHelp(); }
+    }
+    if(e.key === 'Escape') closeHelp();
   });
 
   id('fzf-input').addEventListener('input', e => fzfRender(e.target.value));
@@ -32,6 +40,7 @@ addEventListener('DOMContentLoaded', async () => {
     if(e.key === 'Escape')     { closeFzf(); }
   });
   id('fzf-overlay').addEventListener('click', e => { if(e.target === id('fzf-overlay')) closeFzf(); });
+  id('help-overlay').addEventListener('click', e => { if(e.target === id('help-overlay')) closeHelp(); });
 
   id('btn-project-menu').onclick = e => {
     e.stopPropagation();
@@ -167,6 +176,7 @@ addEventListener('DOMContentLoaded', async () => {
   initSearchBar();
   initFilter();
   initDirPicker();
+  initGlobPicker();
   initColResizer();
 
   id('root-label').style.cursor = 'pointer';

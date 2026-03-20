@@ -1008,25 +1008,11 @@ function showDetail(n) {
 
   el.innerHTML = '';
 
-  const moveBtns = document.createElement('div');
-  moveBtns.className = 'node-move-btns';
-  [['↑','上に移動 (Shift+Alt+↑)', moveNodeUp],
-   ['↓','下に移動 (Shift+Alt+↓)', moveNodeDown],
-   ['←','レベルを上げる (Shift+Alt+←)', moveNodeLevelUp],
-   ['→','レベルを下げる (Shift+Alt+→)', moveNodeLevelDown],
-  ].forEach(([label, title, fn]) => {
-    const btn = document.createElement('button');
-    btn.className = 'sec'; btn.textContent = label; btn.title = title;
-    btn.onclick = fn;
-    moveBtns.appendChild(btn);
-  });
-  el.appendChild(moveBtns);
 
   const labelSec = makeAccSection('loc', 'ラベル', `
     <div style="display:flex;gap:4px;align-items:center">
       <input id="label-inp" type="text" value="${esc(n.label||'')}" placeholder="${esc((m.text||'').trim() || labelFrom(m))}"
         style="flex:1;background:#1a1a1a;border:1px solid #444;color:#e0e0e0;font:12px Consolas,monospace;padding:2px 5px;border-radius:2px">
-      <button id="btn-label" style="flex-shrink:0">保存</button>
     </div>
     <div style="color:#555;font-size:11px;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
          title="${esc((m.text||'').trim())}">元: ${esc((m.text||'').trim() || labelFrom(m))}</div>
@@ -1044,11 +1030,7 @@ function showDetail(n) {
   el.appendChild(snipSec);
 
   const memoSec = makeAccSection('memo', 'メモ', `
-    <textarea id="memo-ta">${esc(n.memo||'')}</textarea>
-    <div class="row" style="margin-top:4px">
-      <button id="btn-memo">保存</button>
-      <button class="sec" id="btn-del">削除</button>
-    </div>`, true);
+    <textarea id="memo-ta">${esc(n.memo||'')}</textarea>`, true);
   el.appendChild(memoSec);
 
   const expSec = makeAccSection('expand', '展開', `
@@ -1060,12 +1042,11 @@ function showDetail(n) {
     <div style="margin-top:4px"><button id="btn-expand">展開</button></div>`, false);
   el.appendChild(expSec);
 
-  id('btn-label').onclick = saveLabel;
-  id('btn-memo').onclick = saveMemo;
-  id('btn-del').onclick = deleteNode;
   id('btn-expand').onclick = doExpand;
   id('d-filelink').onclick = e => { if(e.ctrlKey || e.metaKey) openFile(m.file, m.line); };
   id('label-inp').onkeydown = e => { if(e.key === 'Enter') saveLabel(); };
+  id('label-inp').onblur = saveLabel;
+  id('memo-ta').onblur = saveMemo;
 }
 
 async function saveLabel() {

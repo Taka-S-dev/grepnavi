@@ -3,6 +3,7 @@ function doSearch() {
   const q = id('q').value.trim(); if(!q) return;
   const dir = id('dir').value.trim();
   const glob = id('glob').value.trim();
+  if(glob) addGlobHistory(glob);
   localStorage.setItem('grepnavi-settings', JSON.stringify({dir, glob,
     regex:id('btn-re').classList.contains('on'),
     cs:id('btn-cs').classList.contains('on'),

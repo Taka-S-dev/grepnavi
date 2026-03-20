@@ -33,7 +33,7 @@
         <button class="sec" id="btn-stop" style="display:none">■</button>
       </div>
       <div id="bar-loc">
-        <span id="root-chip" title="検索ルートを変更"><i class="codicon codicon-folder"></i><span id="root-chip-text">…</span><i class="codicon codicon-chevron-down"></i></span>
+        <span id="root-chip" title="クリックでプロジェクトルートを変更"><i class="codicon codicon-folder-opened"></i><span style="font-size:9px;color:#666;flex-shrink:0">ルート</span><span id="root-chip-text">…</span><i class="codicon codicon-chevron-down"></i></span>
         <button id="btn-toggle-sub" title="フィルター (ディレクトリ・glob)"><i class="codicon codicon-filter"></i></button>
       </div>
       <div id="bar-sub">
@@ -48,7 +48,10 @@
         </div>
         <div class="bar-field">
           <div class="bar-field-label">含めるファイル <span style="color:#555;font-size:10px">glob例: *.c,*.h</span></div>
-          <input id="glob" type="text" placeholder="*.c  /  *.c,*.h  /  空=全ファイル" style="width:100%;box-sizing:border-box">
+          <div style="position:relative">
+            <input id="glob" type="text" placeholder="*.c  /  *.c,*.h  /  空=全ファイル" style="width:100%;box-sizing:border-box" autocomplete="off" spellcheck="false">
+            <div id="glob-drop"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -211,7 +214,47 @@
   <div class="pp-header" id="pp-header"></div>
   <pre><code id="pp-code"></code></pre>
 </div>
-<div id="sb"><span id="st">準備完了</span></div>
+<div id="sb"><span id="st">準備完了</span><span id="sb-hint" style="margin-left:auto;opacity:0.5;cursor:pointer" onclick="toggleHelp()" title="ショートカット一覧">?</span></div>
+
+<!-- ショートカットヘルプモーダル -->
+<div id="help-overlay">
+  <div id="help-box">
+    <div id="help-hdr">
+      <span>キーボードショートカット</span>
+      <button onclick="toggleHelp()"><i class="codicon codicon-close"></i></button>
+    </div>
+    <div id="help-body">
+      <div class="help-group">
+        <div class="help-group-title">検索</div>
+        <div class="help-row"><kbd>Enter</kbd><span>検索実行</span></div>
+        <div class="help-row"><kbd>F3</kbd> / <kbd>Shift+F3</kbd><span>次 / 前の結果</span></div>
+        <div class="help-row"><kbd>Alt+C</kbd><span>大文字小文字を区別</span></div>
+        <div class="help-row"><kbd>Alt+W</kbd><span>単語単位で検索</span></div>
+        <div class="help-row"><kbd>Alt+R</kbd><span>正規表現</span></div>
+        <div class="help-row"><kbd>Alt+H</kbd><span>検索履歴</span></div>
+      </div>
+      <div class="help-group">
+        <div class="help-group-title">ノード操作</div>
+        <div class="help-row"><kbd>Shift+Alt+↑</kbd> / <kbd>↓</kbd><span>上 / 下に移動</span></div>
+        <div class="help-row"><kbd>Shift+Alt+←</kbd> / <kbd>→</kbd><span>レベルを上げる / 下げる</span></div>
+        <div class="help-row"><kbd>Alt+P</kbd><span>ファイルパス表示切り替え</span></div>
+        <div class="help-row"><kbd>Alt+N</kbd><span>メモ常時表示</span></div>
+      </div>
+      <div class="help-group">
+        <div class="help-group-title">ナビゲーション</div>
+        <div class="help-row"><kbd>Alt+←</kbd> / <kbd>Alt+→</kbd><span>戻る / 進む</span></div>
+        <div class="help-row"><kbd>Ctrl+P</kbd><span>ファイルをすばやく開く</span></div>
+        <div class="help-row"><kbd>Alt+M</kbd><span>行メモ表示切り替え</span></div>
+      </div>
+      <div class="help-group">
+        <div class="help-group-title">プロジェクト</div>
+        <div class="help-row"><kbd>Ctrl+S</kbd><span>プロジェクトを保存</span></div>
+        <div class="help-row"><kbd>Ctrl+Z</kbd><span>元に戻す</span></div>
+        <div class="help-row"><kbd>Ctrl+Shift+N</kbd><span>新しいウィンドウ</span></div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script src="/js/state.js"></script>
 <script src="/js/panel.js"></script>
