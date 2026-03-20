@@ -176,6 +176,39 @@ addEventListener('DOMContentLoaded', async () => {
   const rootOk = await fetch('/api/dirs').then(r=>r.json()).catch(()=>null);
   if(!rootOk || rootOk.length === 0) showRootDialog();
 
-  id('peek').classList.add('visible');
+  // URL モードに応じたレイアウト適用
+  if(pageMode === 'panel') {
+    document.body.classList.add('panel-mode');
+    id('pane-right').style.display = 'none';
+    id('col-resizer').style.display = 'none';
+    id('peek').classList.remove('visible');
+
+    // 検索タブ（組み込み）をタブバーに追加
+    const tabBar = document.createElement('div');
+    tabBar.id = 'panel-tabs';
+    const searchBtn = document.createElement('button');
+    searchBtn.className = 'panel-tab active';
+    searchBtn.dataset.panelTab = 'search';
+    searchBtn.textContent = '検索';
+    searchBtn.onclick = () => switchPanelTab('search');
+    tabBar.appendChild(searchBtn);
+    id('pane-left').insertBefore(tabBar, id('pane-left').firstChild);
+    // 登録済みパネルをタブに反映（app.js より先に registerPanel した分）
+    flushPanelRegistry();
+    // まだ登録されていない分は registerPanel 内で自動追加される
+  } else if(pageMode === 'search') {
+    id('pane-right')?.style.setProperty('display', 'none', 'important');
+    id('col-resizer')?.style.setProperty('display', 'none', 'important');
+    id('pane-left').style.width = '100%';
+    id('peek').classList.remove('visible');
+  } else if(pageMode === 'calltree') {
+    id('pane-left')?.style.setProperty('display', 'none', 'important');
+    id('col-resizer')?.style.setProperty('display', 'none', 'important');
+    id('peek').classList.remove('visible');
+    setTimeout(() => window.openCallTree?.(), 300);
+  } else {
+    id('peek').classList.add('visible');
+  }
+
   st('準備完了');
 });

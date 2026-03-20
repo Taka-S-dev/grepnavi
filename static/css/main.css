@@ -137,6 +137,8 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 #pane-search{flex:1;min-height:80px;display:flex;flex-direction:column}
 #search-hdr{padding:4px 8px;background:#2d2d2d;border-bottom:1px solid #444;display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#999;position:relative;flex-wrap:nowrap}
 #filter-bar{display:flex;align-items:center;gap:4px;padding:3px 6px;background:#1e1e1e;border-bottom:1px solid #333}
+#filter-scope{font-size:10px;padding:1px 6px;background:#3a3a3a;border:1px solid #555;border-radius:3px;color:#aaa;cursor:pointer;flex-shrink:0;white-space:nowrap}
+#filter-scope:hover{color:#ccc}
 #filter-input{flex:1;background:#3c3c3c;border:1px solid #555;color:#ccc;font-size:11px;padding:2px 6px;border-radius:3px;outline:none;font-family:Consolas,monospace}
 #filter-input:focus{border-color:#007acc}
 #filter-input.active{border-color:#4ec9b0;background:#1e3a3a}
@@ -430,10 +432,10 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 #search-tab-bar,#search-stack-bar{display:none;position:absolute;top:100%;right:0;min-width:280px;max-width:420px;max-height:320px;overflow-y:auto;z-index:300;background:#252526;border:1px solid #555;border-radius:4px;box-shadow:0 4px 16px rgba(0,0,0,0.6);padding:3px;flex-direction:column;gap:1px}
 #search-tab-bar.open,#search-stack-bar.open{display:flex}
 #search-stack-wrap{display:inline-flex}
-#btn-stack-add{font-size:10px;padding:1px 5px;background:none;border:1px solid #4ec9b0;border-right:none;color:#4ec9b0;border-radius:3px 0 0 3px;cursor:pointer;white-space:nowrap}
-#btn-stack-add:hover{background:#1a3a3a}
-#btn-search-stack{font-size:10px;padding:1px 6px;background:none;border:1px solid #4ec9b0;color:#4ec9b0;border-radius:0 3px 3px 0;cursor:pointer;white-space:nowrap}
-#btn-search-stack:hover{background:#1a3a3a}
+#btn-stack-add{font-size:10px;padding:1px 5px;background:#3a3a3a;border:1px solid #555;border-right:none;color:#aaa;border-radius:3px 0 0 3px;cursor:pointer;white-space:nowrap}
+#btn-stack-add:hover{background:#505050;color:#ccc}
+#btn-search-stack{font-size:10px;padding:1px 6px;background:#3a3a3a;border:1px solid #555;color:#aaa;border-radius:0 3px 3px 0;cursor:pointer;white-space:nowrap}
+#btn-search-stack:hover{background:#505050;color:#ccc}
 .sstack-handle{flex-shrink:0;color:#555;cursor:grab;font-size:12px;padding:0 3px;user-select:none}
 .sstack-handle:hover{color:#aaa}
 .sstack-dragging{opacity:0.4}
@@ -461,6 +463,22 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 .stab-sep{border-top:1px solid #333;margin:2px 0}
 
 /* インクルードグラフのスタイルは include-graph.css に分離されています。 */
+
+/* ===== panel mode (?mode=panel) ===== */
+#panel-tabs{display:none;flex-shrink:0;border-bottom:1px solid #333;background:#252526}
+.panel-tab{background:none;border:none;border-bottom:2px solid transparent;color:#888;cursor:pointer;padding:7px 18px;font:inherit;font-size:12px}
+.panel-tab:hover{color:#ccc}
+.panel-tab.active{color:#ccc;border-bottom-color:#007acc}
+body.panel-mode #panel-tabs{display:flex}
+body.panel-mode #pane-right{display:none!important}
+body.panel-mode #col-resizer{display:none!important}
+body.panel-mode #pane-left{width:100%!important;flex:1}
+body.panel-mode #pane-detail{display:none!important}
+body.panel-mode #left-resizer{display:none!important}
+body.panel-mode #pane-left{display:flex;flex-direction:column}
+body.panel-mode .ri-add{display:none!important}
+body.panel-mode #ct-sidebar{position:relative!important;transform:none!important;width:100%!important;flex:1;min-height:0;border:none!important;box-shadow:none!important;display:none;flex-direction:column;top:auto!important;right:auto!important}
+body.panel-mode #ct-sidebar.open{display:flex!important}
 
 /* statusbar */
 #sb{height:20px;background:#007acc;display:flex;align-items:center;padding:0 8px;font-size:11px;color:#fff;flex-shrink:0}

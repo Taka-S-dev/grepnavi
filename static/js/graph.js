@@ -97,11 +97,9 @@ async function switchTree(treeId) {
 }
 
 async function createTree() {
-  const name = prompt('ツリー名:', '新しいツリー');
-  if(name === null) return;
   const r = await fetch('/api/trees', {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({name: name.trim() || '新しいツリー'})
+    body: JSON.stringify({name: '新しいツリー'})
   });
   const d = await r.json();
   if(d.error) { st('エラー: ' + d.error); return; }

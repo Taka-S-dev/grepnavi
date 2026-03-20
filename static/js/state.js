@@ -1,5 +1,8 @@
 // ===== GLOBAL STATE =====
 
+// URL mode: 'search' | 'calltree' | '' (通常)
+const pageMode = new URLSearchParams(location.search).get('mode') || '';
+
 // Graph
 let graph = { nodes:{}, edges:[] };
 let selNode = null;

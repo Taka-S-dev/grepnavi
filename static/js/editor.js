@@ -544,6 +544,10 @@ function updateNavButtons() {
 // ===== タブ / Peek パネル =====
 async function openPeek(file, line) {
   if(!file) return;
+  if(pageMode) {
+    openFile(file, line);
+    return;
+  }
   navPush(file, line);
   await ensureEditor();
   id('peek').classList.add('visible');

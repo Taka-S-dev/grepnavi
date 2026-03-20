@@ -111,11 +111,13 @@ function applyFilter() {
   id('filter-input').classList.toggle('active', active);
   id('filter-clear').style.display = active ? '' : 'none';
 
+  const fileOnly = id('filter-scope')?.classList.contains('on');
+
   document.querySelectorAll('.rg-file-group').forEach(group => {
     let groupHasVisible = false;
     group.querySelectorAll('.ri').forEach(row => {
       const file = (row.title || '').toLowerCase();
-      const text = (row.querySelector('.ri-text')||{}).textContent?.toLowerCase() || '';
+      const text = fileOnly ? '' : (row.querySelector('.ri-text')||{}).textContent?.toLowerCase() || '';
       const haystack = file + ' ' + text;
       const match = matchFilter(haystack, groups);
       row.classList.toggle('fz-hidden', !match);
@@ -143,6 +145,21 @@ function initFilter() {
     }
   });
   btn.onclick = () => { inp.value=''; applyFilter(); inp.focus(); };
+
+  const scopeBtn = id('filter-scope');
+  if(scopeBtn) {
+    scopeBtn.onclick = () => {
+      const fileOnly = scopeBtn.classList.toggle('on');
+      scopeBtn.innerHTML = fileOnly
+        ? '<i class="codicon codicon-file"></i>'
+        : '<i class="codicon codicon-file"></i>';
+      scopeBtn.title = fileOnly
+        ? '絞り込み対象: ファイル名のみ (クリックで全体に戻す)'
+        : '絞り込み対象: 全体 (クリックでファイル名のみに切り替え)';
+      scopeBtn.style.background = fileOnly ? '#094771' : '';
+      applyFilter();
+    };
+  }
 }
 
 function getOrCreateFileGroup(file) {

@@ -2,10 +2,16 @@ package search
 
 import (
 	"bufio"
+	"bytes"
 	"os"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
+
+	"golang.org/x/text/encoding/japanese"
+	"golang.org/x/text/encoding/unicode"
+	"golang.org/x/text/transform"
 
 	"grepnavi/graph"
 )
@@ -159,17 +165,60 @@ func cachedLines(path string) ([]string, error) {
 }
 
 func readLines(path string) ([]string, error) {
-	f, err := os.Open(path)
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+
+	// BOM / エンコーディング判定して UTF-8 に変換
+	data := toUTF8(raw)
 
 	var lines []string
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(bytes.NewReader(data))
 	scanner.Buffer(make([]byte, 512*1024), 512*1024)
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 	}
 	return lines, scanner.Err()
+}
+
+// toUTF8 はバイト列のエンコーディングを判定して UTF-8 に変換する。
+// 対応: UTF-8 BOM, UTF-16 LE/BE BOM, Shift-JIS, EUC-JP。
+func toUTF8(b []byte) []byte {
+	// UTF-8 BOM
+	if bytes.HasPrefix(b, []byte{0xEF, 0xBB, 0xBF}) {
+		return b[3:]
+	}
+	// UTF-16 LE BOM
+	if bytes.HasPrefix(b, []byte{0xFF, 0xFE}) {
+		dec := unicode.UTF16(unicode.LittleEndian, unicode.UseBOM).NewDecoder()
+		out, _, err := transform.Bytes(dec, b)
+		if err == nil {
+			return out
+		}
+	}
+	// UTF-16 BE BOM
+	if bytes.HasPrefix(b, []byte{0xFE, 0xFF}) {
+		dec := unicode.UTF16(unicode.BigEndian, unicode.UseBOM).NewDecoder()
+		out, _, err := transform.Bytes(dec, b)
+		if err == nil {
+			return out
+		}
+	}
+	// 有効な UTF-8 ならそのまま
+	if utf8.Valid(b) {
+		return b
+	}
+	// Shift-JIS を試みる
+	out, _, err := transform.Bytes(japanese.ShiftJIS.NewDecoder(), b)
+	if err == nil {
+		return out
+	}
+	// EUC-JP を試みる
+	out, _, err = transform.Bytes(japanese.EUCJP.NewDecoder(), b)
+	if err == nil {
+		return out
+	}
+	// フォールバック: そのまま返す
+	return b
 }
