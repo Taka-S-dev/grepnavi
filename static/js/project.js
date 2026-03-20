@@ -1,3 +1,22 @@
+// ===== 新しいウィンドウ =====
+async function openNewWindow() {
+  st('新しいウィンドウを起動中...');
+  const res = await fetch('/api/new-window', {method: 'POST'}).catch(() => null);
+  if(!res || !res.ok) { st('起動に失敗しました'); return; }
+  const {url} = await res.json();
+
+  // サーバーが起動するまで待ってから開く
+  for(let i = 0; i < 20; i++) {
+    await new Promise(r => setTimeout(r, 300));
+    try {
+      const ok = await fetch(url, {mode: 'no-cors'});
+      break;
+    } catch(_) {}
+  }
+  window.open(url, '_blank');
+  st('新しいウィンドウを開きました');
+}
+
 // ===== ルートチップ =====
 function updateRootChip() {
   const chip = id('root-chip');
@@ -256,8 +275,9 @@ function initColResizer() {
 }
 
 // ===== プロジェクト保存/開く =====
-const LS_PROJECT_PATH = 'grepnavi_project_path';
+const LS_PROJECT_PATH    = 'grepnavi_project_path';
 const LS_PROJECT_HISTORY = 'grepnavi_project_history';
+const LS_DIR_HISTORY     = 'grepnavi_dir_history';
 const HISTORY_MAX = 8;
 
 function getProjectPath() {
@@ -277,6 +297,16 @@ function addProjectHistory(p) {
   hist.unshift(p);
   if(hist.length > HISTORY_MAX) hist = hist.slice(0, HISTORY_MAX);
   localStorage.setItem(LS_PROJECT_HISTORY, JSON.stringify(hist));
+}
+function getDirHistory() {
+  try { return JSON.parse(localStorage.getItem(LS_DIR_HISTORY) || '[]'); } catch { return []; }
+}
+function addDirHistory(dir) {
+  if(!dir) return;
+  let hist = getDirHistory().filter(h => h !== dir);
+  hist.unshift(dir);
+  if(hist.length > HISTORY_MAX) hist = hist.slice(0, HISTORY_MAX);
+  localStorage.setItem(LS_DIR_HISTORY, JSON.stringify(hist));
 }
 function updateProjectUI() {
   const p = getProjectPath();
@@ -405,9 +435,67 @@ async function fbNavigate(dir) {
   _fbCurrentPath = data.path;
   id('fb-path-input').value = data.path;
   id('fb-up').disabled = !data.parent;
+  addDirHistory(data.path);
 
   const list = id('fb-list');
   list.innerHTML = '';
+
+  // 最近使ったファイル（開くモード時のみ表示）
+  const hist = getProjectHistory();
+  if(hist.length) {
+    const label = document.createElement('div');
+    label.className = 'fb-section-label';
+    label.textContent = '最近使ったファイル';
+    list.appendChild(label);
+    hist.slice(0, 8).forEach(p => {
+      const name = p.replace(/\\/g, '/').split('/').pop();
+      const dir  = p.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
+      const row  = document.createElement('div');
+      row.className = 'fb-item fb-file fb-recent';
+      row.innerHTML = `<i class="codicon codicon-history"></i><span title="${esc(p)}">${esc(name)}</span><span class="fb-recent-dir">${esc(dir)}</span>`;
+      if(_fbMode === 'open') {
+        row.ondblclick = async () => { closeFb(); await openProject(p); };
+        row.onclick = () => {
+          list.querySelectorAll('.fb-item').forEach(r => r.classList.remove('selected'));
+          row.classList.add('selected');
+          id('fb-filename').value = name;
+          fbNavigate(dir);
+        };
+      } else {
+        row.onclick = () => {
+          list.querySelectorAll('.fb-item').forEach(r => r.classList.remove('selected'));
+          row.classList.add('selected');
+          id('fb-filename').value = name;
+          fbNavigate(dir);
+        };
+      }
+      list.appendChild(row);
+    });
+    const sep = document.createElement('div');
+    sep.className = 'fb-section-sep';
+    list.appendChild(sep);
+  }
+
+  // 最近使ったフォルダ
+  const dirHist = getDirHistory().filter(d => d !== data.path);
+  if(dirHist.length) {
+    const label = document.createElement('div');
+    label.className = 'fb-section-label';
+    label.textContent = '最近使ったフォルダ';
+    list.appendChild(label);
+    dirHist.slice(0, 5).forEach(dir => {
+      const name = dir.replace(/\\/g, '/').split('/').pop() || dir;
+      const row  = document.createElement('div');
+      row.className = 'fb-item fb-dir fb-recent';
+      row.innerHTML = `<i class="codicon codicon-folder"></i><span title="${esc(dir)}">${esc(name)}</span><span class="fb-recent-dir">${esc(dir)}</span>`;
+      row.ondblclick = () => fbNavigate(dir);
+      row.onclick    = () => fbSelectDir(row);
+      list.appendChild(row);
+    });
+    const sep2 = document.createElement('div');
+    sep2.className = 'fb-section-sep';
+    list.appendChild(sep2);
+  }
 
   (data.dirs || []).forEach(name => {
     const row = document.createElement('div');

@@ -10,9 +10,10 @@ import (
 )
 
 func main() {
-	root := flag.String("root", ".", "C source root directory to search")
+	root      := flag.String("root", ".", "C source root directory to search")
 	graphFile := flag.String("graph", "graph.json", "Path to graph JSON file")
-	port := flag.Int("port", 8080, "HTTP server port")
+	port      := flag.Int("port", 8080, "HTTP server port")
+	noBrowser := flag.Bool("no-browser", false, "suppress automatic browser launch")
 	flag.Parse()
 
 	rootExplicit := *root != "."
@@ -28,7 +29,9 @@ func main() {
 	log.Printf("grepnavi: root=%s graph=%s", absRoot, *graphFile)
 	log.Printf("Listening on %s", url)
 
-	go openBrowser(url)
+	if !*noBrowser {
+		go openBrowser(url)
+	}
 
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)

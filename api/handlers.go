@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -59,6 +60,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/ifdef", h.handleIfdef)
 	mux.HandleFunc("/api/definition", h.handleDefinition)
 	mux.HandleFunc("/api/hover", h.handleHover)
+	mux.HandleFunc("/api/new-window", h.handleNewWindow)
 	mux.HandleFunc("/api/browse", h.handleBrowse)
 	mux.HandleFunc("/api/dirs", h.handleDirs)
 	mux.HandleFunc("/api/root", h.handleRoot)
@@ -1080,15 +1082,56 @@ func (h *Handler) handleFiles(w http.ResponseWriter, r *http.Request) {
 
 // handleBrowse はディレクトリ内容を返す。
 // ?path=<dir>&ext=.json でファイルを拡張子フィルタリングできる。
+// handleNewWindow は空きポートで新しいプロセスを起動し URL を返す。
+func (h *Handler) handleNewWindow(w http.ResponseWriter, r *http.Request) {
+	port, err := findFreePort(8081)
+	if err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	exe, err := os.Executable()
+	if err != nil {
+		jsonErr(w, "executable not found: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.mu.RLock()
+	root := h.root
+	h.mu.RUnlock()
+
+	graphPath := filepath.Join(filepath.Dir(exe), fmt.Sprintf("graph-%d.json", port))
+	cmd := exec.Command(exe, "-port", strconv.Itoa(port), "-root", root, "-graph", graphPath, "-no-browser")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		jsonErr(w, "failed to launch: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	jsonOK(w, map[string]string{"url": fmt.Sprintf("http://localhost:%d", port)})
+}
+
+func findFreePort(start int) (int, error) {
+	for port := start; port < start+100; port++ {
+		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		if err == nil {
+			ln.Close()
+			return port, nil
+		}
+	}
+	return 0, fmt.Errorf("no available port found in range %d-%d", start, start+99)
+}
+
 func (h *Handler) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	dir := q.Get("path")
 	ext := q.Get("ext") // e.g. ".json"
 
 	if dir == "" {
-		var err error
-		dir, err = os.UserHomeDir()
-		if err != nil {
+		if exe, err := os.Executable(); err == nil {
+			dir = filepath.Dir(exe)
+		} else {
 			dir = "."
 		}
 	}

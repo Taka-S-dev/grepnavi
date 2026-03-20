@@ -38,9 +38,10 @@ addEventListener('DOMContentLoaded', async () => {
     id('project-menu').classList.toggle('open');
   };
   document.addEventListener('click', () => id('project-menu').classList.remove('open'));
-  id('pmenu-open').onclick   = () => { id('project-menu').classList.remove('open'); openProjectFilePicker(); };
-  id('pmenu-saveas').onclick = () => { id('project-menu').classList.remove('open'); saveAsProjectFilePicker(); };
-  id('pmenu-save').onclick   = () => { id('project-menu').classList.remove('open'); saveProjectFileCurrent(); };
+  id('pmenu-new-window').onclick = () => { id('project-menu').classList.remove('open'); openNewWindow(); };
+  id('pmenu-open').onclick       = () => { id('project-menu').classList.remove('open'); openProjectFilePicker(); };
+  id('pmenu-saveas').onclick     = () => { id('project-menu').classList.remove('open'); saveAsProjectFilePicker(); };
+  id('pmenu-save').onclick       = () => { id('project-menu').classList.remove('open'); saveProjectFileCurrent(); };
 
   document.addEventListener('keydown', async e => {
     if((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
@@ -59,6 +60,10 @@ addEventListener('DOMContentLoaded', async () => {
     if(e.ctrlKey && e.key === 's') {
       e.preventDefault();
       saveProjectFileCurrent();
+    }
+    if((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'N') {
+      e.preventDefault();
+      openNewWindow();
     }
   });
 

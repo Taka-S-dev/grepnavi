@@ -351,6 +351,7 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 .pmenu-item:hover{background:#094771;color:#fff}
 .pmenu-hint{color:#666;font-size:10px}
 .pmenu-item:hover .pmenu-hint{color:#aaa}
+.pmenu-separator{height:1px;background:#444;margin:3px 0}
 
 /* fzf ファイルクイックオープン */
 #fzf-overlay{display:none;position:fixed;inset:0;z-index:6000;background:rgba(0,0,0,0.5);align-items:flex-start;justify-content:center;padding-top:80px}
@@ -417,6 +418,11 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 #fb-filename{flex:1;background:#1e1e1e;border:1px solid #454545;border-radius:3px;color:#d4d4d4;padding:3px 7px;font:12px Consolas,monospace;outline:none}
 #fb-filename:focus{border-color:#007acc}
 #fb-actions{display:flex;gap:6px;justify-content:flex-end;padding:6px 8px;border-top:1px solid #333}
+.fb-section-label{padding:4px 12px 2px;font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.06em;user-select:none}
+.fb-section-sep{height:1px;background:#2a2a2a;margin:4px 0}
+.fb-recent{opacity:.85}
+.fb-recent .codicon{color:#888}
+.fb-recent-dir{margin-left:auto;font-size:10px;color:#555;overflow:hidden;text-overflow:ellipsis;max-width:160px;flex-shrink:0}
 
 /* ===== 検索履歴ドロップダウン ===== */
 #btn-search-hist{margin-left:auto;font-size:10px;padding:1px 6px;background:#3a3a3a;border:1px solid #555;border-radius:3px;color:#aaa;cursor:pointer;flex-shrink:0;white-space:nowrap}
