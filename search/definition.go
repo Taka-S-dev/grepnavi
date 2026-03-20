@@ -18,6 +18,11 @@ type DefHit struct {
 // FindDefinitions は word の定義候補を ripgrep で検索して返す。
 // glob が空なら全ファイルが対象。
 func FindDefinitions(ctx context.Context, word, dir, glob string) ([]DefHit, error) {
+	return FindDefinitionsN(ctx, word, dir, glob, 50)
+}
+
+// FindDefinitionsN は maxPerQuery で各クエリの上限を指定できる FindDefinitions。
+func FindDefinitionsN(ctx context.Context, word, dir, glob string, maxPerQuery int) ([]DefHit, error) {
 	if word == "" || dir == "" {
 		return nil, nil
 	}
@@ -31,7 +36,7 @@ func FindDefinitions(ctx context.Context, word, dir, glob string) ([]DefHit, err
 		{`#\s*define\s+` + esc + `\b`, "define"},
 		{`^\s*(typedef\s+)?(struct|union)\s+` + esc + `\s*(\{|$)`, "struct"},
 		{`^\s*(typedef\s+)?enum\s+` + esc + `\s*(\{|$)`, "enum"},
-		{`\btypedef\b.+\b` + esc + `\b`, "typedef"},
+		{`\btypedef\b.+\b` + esc + `\b\s*;`, "typedef"},
 		{`^\s*\}\s*` + esc + `\s*;`, "typedef_close"},
 		{`^\s+` + esc + `\b\s*[,=]`, "enum_member"},
 		{`^[^\s#/*].*\b` + esc + `\s*\(`, "func"},
@@ -41,14 +46,17 @@ func FindDefinitions(ctx context.Context, word, dir, glob string) ([]DefHit, err
 	var results []DefHit
 
 	for _, q := range queries {
+		if ctx.Err() != nil {
+			break
+		}
 		opts := Options{
 			Pattern:       q.pattern,
 			Dir:           dir,
 			FileGlob:      glob,
 			Regex:         true,
 			CaseSensitive: true,
-			ContextLines:  -1, // 定義行の特定のみ目的のためコンテキスト不要
-			MaxResults:    50, // 同名シンボルの過剰マッチを抑制
+			ContextLines:  -1,
+			MaxResults:    maxPerQuery,
 		}
 		matches, err := Search(ctx, opts)
 		if err != nil {

@@ -1,5 +1,7 @@
 # grepnavi
 
+[![CI](https://github.com/Taka-S-dev/grepnavi/actions/workflows/test.yml/badge.svg)](https://github.com/Taka-S-dev/grepnavi/actions/workflows/test.yml)
+
 コードベース調査ツール。ripgrep の高速検索 + Monaco エディタ + 調査グラフで、**「どこを調べたか」を記録しながらコードを読み解く**ためのツールです。
 
 大きなコードベース（Linux カーネル、OpenSSL、curl など）を読む際に、検索結果をグラフに積み上げながら構造を把握していくことを想定しています。
@@ -45,6 +47,30 @@
 - **ドラッグ&ドロップ** — ノードを別ノードにドロップして親子関係を変更。drop-before / drop-after のライン表示で挿入位置を確認
 - **⠿ ハンドル** — ノード行の左端ハンドルを左右にドラッグしてインデントレベル（階層）を変更
 - **キーボードでの移動** — Shift+Alt+Arrow キーで選択ノードを移動（↑↓ で兄弟間、← でレベルアップ、→ でレベルダウン）
+- **↑ / ↓ で選択変更** — ツリービュー上でフォーカス外（テキスト入力・エディタ以外）のとき、Up/Down 矢印キーで選択ノードを切り替え
+
+### アドオン
+
+アドオンは `static/addons/<name>/addon.js` + `addon.css` で実装されており、`static/addons/addons.js` の `ADDONS` 配列に名前を列挙するだけで有効化できます。
+
+#### コールツリー
+
+関数の呼び出し元（callers）/ 呼び出し先（callees）をツリー形式で表示します。
+
+- エディタ上の関数名を選択して右クリック or ツールバーの「Call Tree」ボタンで起動
+- 入力欄に関数名を入力して実行（Enter または Go）
+- `callers` / `callees` タブで方向を切り替え
+- ノードをクリックしてソースへジャンプ。`▶` で再帰的に展開
+- `?mode=panel` 時はサイドパネルのタブとして自己登録
+
+#### C インクルード依存グラフ
+
+`#include` の依存関係を D3.js フォースグラフで可視化します。
+
+- エディタで C/C++ ファイルを開くと起点ファイルが自動セット
+- ツールバーの「Include Graph」ボタンでパネルを開き「Analyze」で解析開始
+- ノードをクリックして上流・下流を展開。Ctrl+クリック or ダブルクリックでエディタに表示
+- 「Collapse All」でグラフを折りたたみ
 
 ### プロジェクト
 
@@ -64,11 +90,29 @@
 
 ## インストール・起動
 
+### バイナリをダウンロード（推奨）
+
+[GitHub Releases](https://github.com/Taka-S-dev/grepnavi/releases) からアーカイブをダウンロードして展開してください。Go のインストール不要です。
+
+```
+grepnavi/
+├── grepnavi.exe   ← 実行ファイル
+└── static/        ← 静的ファイル（exe と同じディレクトリに必須）
+```
+
+> **注意：** `static/` フォルダを相対パスで参照するため、exe 単体では動作しません。アーカイブを展開したディレクトリごと配置してください。
+
+### ソースからビルド
+
 ```bash
 # ビルド
 go build .
 # → Windows: grepnavi.exe  Mac/Linux: grepnavi が生成されます
+```
 
+### 起動
+
+```bash
 # 起動（カレントディレクトリを検索ルートとして使用）
 .\grepnavi.exe          # Windows
 ./grepnavi              # Mac/Linux
@@ -95,7 +139,12 @@ go build .
 
 ### Monaco Editor
 
-[Releases](https://github.com/microsoft/monaco-editor/releases) から `monaco-editor-x.x.x.tgz` をダウンロードし、`min/vs/` を `static/vs/` に配置。
+プロジェクトルートで以下を実行：
+
+```bash
+npm install monaco-editor@0.52.2
+cp -r node_modules/monaco-editor/min/vs static/vs/
+```
 
 `static/index.html` を変更：
 ```js
@@ -125,26 +174,44 @@ var require = {paths: {'vs': '/vs'}};
 
 ### キーボードショートカット
 
+#### 検索
+
 | キー | 動作 |
 |------|------|
 | `Enter` | 検索実行 |
-| `Ctrl+P` | ファイルクイックオープン（fzf スタイル） |
-| `F3` / `Shift+F3` | 検索結果を次/前へジャンプ |
-| `Alt+←` / `Alt+→` | 閲覧履歴を前後に移動 |
 | `Alt+C` | 大文字小文字を区別 |
 | `Alt+W` | 単語単位で検索 |
 | `Alt+R` | 正規表現モード |
 | `Alt+H` | 検索履歴を表示 |
+
+#### エディタ
+
+| キー | 動作 |
+|------|------|
+| `Ctrl+P` | ファイルクイックオープン（fzf スタイル） |
+| `F3` / `Shift+F3` | 検索結果を次 / 前へジャンプ |
+| `F12` / `Ctrl+クリック` | 定義ジャンプ |
+| `Alt+←` / `Alt+→` | 閲覧履歴を前後に移動 |
 | `Alt+M` | 行メモのインライン表示切り替え |
-| `Alt+N` | ツリーメモのインライン表示切り替え |
 | `Alt+P` | ファイルパス表示切り替え |
+
+#### ツリー
+
+| キー | 動作 |
+|------|------|
 | `Alt+G` | エディタの選択テキストをノードに追加 |
+| `Alt+N` | ツリーメモのインライン表示切り替え |
+| `↑` / `↓` | 選択ノードを変更 |
+| `Shift+Alt+↑` / `↓` | 選択ノードを上 / 下に移動 |
+| `Shift+Alt+←` / `→` | 選択ノードのレベルを上げる / 下げる |
+
+#### 全体
+
+| キー | 動作 |
+|------|------|
 | `Ctrl+S` | プロジェクトを保存 |
 | `Ctrl+Z` | 元に戻す |
 | `Ctrl+Shift+N` | 新しいウィンドウを開く |
-| `F12` / `Ctrl+クリック` | 定義ジャンプ |
-| `Shift+Alt+↑` / `↓` | 選択ノードを上 / 下に移動 |
-| `Shift+Alt+←` / `→` | 選択ノードのレベルを上げる / 下げる |
 | `?` | キーボードショートカット一覧を表示 |
 
 ### Ctrl+P ファイル検索
@@ -244,6 +311,9 @@ grepnavi/
 │   ├── ripgrep.go             # ripgrep 呼び出し・JSON パース・SSE ストリーミング
 │   ├── definition.go          # 定義ジャンプ（ctags 風シンボル解析）
 │   ├── symbols.go             # シンボル抽出
+│   ├── hover.go               # ホバープレビュー用スニペット取得
+│   ├── calltree.go            # callers / callees 解析
+│   ├── include.go             # C インクルード依存グラフ解析
 │   ├── ifdef.go               # #ifdef 条件コンパイル解析
 │   └── ifdef_eval.go          # #ifdef 条件評価
 └── static/
@@ -255,8 +325,13 @@ grepnavi/
     │   ├── search.js          # 検索・フィルタ・結果表示
     │   ├── graph.js           # グラフ/ツリー操作・D3.js・詳細パネル・D&D
     │   ├── editor.js          # Monaco エディタ・fzf・ナビ履歴・行メモ・#ifdef
+    │   ├── include-graph.js   # C インクルード依存グラフ（D3.js）
     │   ├── project.js         # プロジェクト保存/開く・ルート設定・glob履歴・リサイザー
     │   └── app.js             # ブートストラップ・グローバルイベント登録
+    ├── addons/
+    │   ├── addons.js          # アドオン設定（有効化リスト）
+    │   ├── c-include/         # C インクルード依存グラフ アドオン
+    │   └── call-tree/         # コールツリー アドオン
     └── css/
         └── main.css
 ```
@@ -284,6 +359,12 @@ grepnavi/
 | `GET` | `/api/open` | ファイルの内容取得 |
 | `GET` | `/api/snippet` | スニペット取得 |
 | `GET` | `/api/definition` | 定義ジャンプ先の検索 |
+| `GET` | `/api/hover` | ホバープレビュー用スニペット取得 |
+| `GET` | `/api/callers` | 関数の呼び出し元を検索 |
+| `GET` | `/api/callees` | 関数の呼び出し先を検索 |
+| `GET` | `/api/include-graph` | ファイルのインクルード依存グラフ取得 |
+| `GET` | `/api/include-file` | ファイルが `#include` しているファイル一覧 |
+| `GET` | `/api/include-by` | ファイルを `#include` しているファイル一覧 |
 
 ---
 

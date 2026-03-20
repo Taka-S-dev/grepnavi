@@ -651,6 +651,7 @@ function initSearchBar() {
     e.stopPropagation();
     if(!searchStack.length) return;
     renderSearchStack();
+    id('search-tab-bar')?.classList.remove('open');
     id('search-stack-bar').classList.toggle('open');
   };
   document.addEventListener('click', () => id('search-stack-bar')?.classList.remove('open'));
@@ -659,6 +660,7 @@ function initSearchBar() {
   const toggleSearchHist = () => {
     if(!searchTabs.length) return;
     renderSearchTabs();
+    id('search-stack-bar')?.classList.remove('open');
     id('search-tab-bar').classList.toggle('open');
   };
   id('btn-search-hist').onclick = e => { e.stopPropagation(); toggleSearchHist(); };
@@ -678,3 +680,5 @@ function initSearchBar() {
     id('btn-toggle-sub').classList.toggle('open', open);
   };
 }
+
+if (typeof module !== 'undefined') module.exports = { buildSearchParams, nextResultIndex, buildSearchSummary, upsertSearchTab };

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"unicode"
 )
@@ -14,14 +15,43 @@ type HoverHit struct {
 	Line int    `json:"line"`
 	Kind string `json:"kind"` // "define" / "struct" / "enum" / "union" / "typedef"
 	Body string `json:"body"` // 抽出したブロック全体
+	Decl bool   `json:"decl"` // true = 宣言のみ（本体なし）
 }
 
 // FindHover は word の定義を検索し、ブロック本体付きで返す。
-func FindHover(ctx context.Context, word, dir, glob string) ([]HoverHit, error) {
-	hits, err := FindDefinitions(ctx, word, dir, glob)
-	if err != nil {
+// 検索戦略:
+//  1. ヘッダ（*.h,*.hpp）のみ検索 → struct/enum/define/typedef はここで完結
+//  2. func の宣言しか見つからなかった場合、ソースファイルも追加検索して定義本体を取得
+func FindHover(ctx context.Context, word, dir, glob string, includeChain ...map[string]bool) ([]HoverHit, error) {
+	chain := map[string]bool{}
+	if len(includeChain) > 0 && includeChain[0] != nil {
+		chain = includeChain[0]
+	}
+	const maxPerQuery = 5
+	headerGlob := "*.h,*.hpp"
+
+	// Phase 1: ヘッダのみ
+	hits, err := FindDefinitionsN(ctx, word, dir, headerGlob, maxPerQuery)
+	if err != nil && ctx.Err() != nil {
 		return nil, err
 	}
+
+	// Phase 2: ソースファイルも検索してマージ（func の定義本体を取得するため常に実行）
+	if glob != headerGlob && ctx.Err() == nil {
+		srcHits, _ := FindDefinitionsN(ctx, word, dir, glob, maxPerQuery)
+		seen := map[string]bool{}
+		for _, h := range hits {
+			seen[fmt.Sprintf("%s:%d", h.File, h.Line)] = true
+		}
+		for _, h := range srcHits {
+			key := fmt.Sprintf("%s:%d", h.File, h.Line)
+			if !seen[key] {
+				hits = append(hits, h)
+				seen[key] = true
+			}
+		}
+	}
+
 
 	var result []HoverHit
 	seen := map[string]bool{}
@@ -48,6 +78,7 @@ func FindHover(ctx context.Context, word, dir, glob string) ([]HoverHit, error) 
 		}
 
 		var body string
+		isDecl := false
 		switch h.Kind {
 		case "define":
 			body = extractDefineBlock(lines, h.Line)
@@ -59,11 +90,20 @@ func FindHover(ctx context.Context, word, dir, glob string) ([]HoverHit, error) 
 			if body == "" {
 				body = h.Text
 			}
-		case "func":
-			body = extractBraceBlock(lines, h.Line)
-			// { を含まない場合は定義でなく呼び出し・宣言なので除外
-			if !strings.Contains(body, "{") {
+			// struct initializer の誤検知を除外（最初の行に enum がなければスキップ）
+			firstLine := body
+			if nl := strings.IndexByte(body, '\n'); nl >= 0 {
+				firstLine = body[:nl]
+			}
+			if !strings.Contains(firstLine, "enum") {
 				continue
+			}
+		case "func":
+			body = extractBraceBlock(lines, h.Line, 5)
+			// { がない場合は宣言（プロトタイプ）
+			if !strings.Contains(body, "{") {
+				body = h.Text
+				isDecl = true
 			}
 		default:
 			body = extractBraceBlock(lines, h.Line)
@@ -71,7 +111,10 @@ func FindHover(ctx context.Context, word, dir, glob string) ([]HoverHit, error) 
 		if body == "" {
 			body = h.Text
 		}
-		result = append(result, HoverHit{File: h.File, Line: h.Line, Kind: h.Kind, Body: body})
+		if comment := extractLeadingComment(lines, h.Line); comment != "" {
+			body = comment + "\n" + body
+		}
+		result = append(result, HoverHit{File: h.File, Line: h.Line, Kind: h.Kind, Body: body, Decl: isDecl})
 	}
 
 	// typedef エイリアス（typedef struct foo_st Bar;）で本体が取れなかった場合、
@@ -86,7 +129,7 @@ func FindHover(ctx context.Context, word, dir, glob string) ([]HoverHit, error) 
 		if m == nil {
 			continue
 		}
-		refHits, _ := FindDefinitions(ctx, m[2], dir, glob)
+		refHits, _ := FindDefinitionsN(ctx, m[2], dir, glob, 5)
 		for _, rh := range refHits {
 			if rh.Kind != "struct" && rh.Kind != "enum" {
 				continue
@@ -102,12 +145,26 @@ func FindHover(ctx context.Context, word, dir, glob string) ([]HoverHit, error) 
 		}
 	}
 	result = append(extra, result...)
+
+	// インクルードチェーン内のファイルを先頭に並べる
+	if len(chain) > 0 {
+		sort.SliceStable(result, func(i, j int) bool {
+			inI := chain[result[i].File]
+			inJ := chain[result[j].File]
+			return inI && !inJ
+		})
+	}
 	return result, nil
 }
 
 // extractBraceBlock は startLine（1-indexed）からブレースブロックを抽出する。
+// maxLookAhead: { が見つかるまで何行先まで探すか（0 = デフォルト20行）
 // 最大 200 行まで。
-func extractBraceBlock(lines []string, startLine int) string {
+func extractBraceBlock(lines []string, startLine int, maxLookAhead ...int) string {
+	lookAhead := 20
+	if len(maxLookAhead) > 0 && maxLookAhead[0] > 0 {
+		lookAhead = maxLookAhead[0]
+	}
 	idx := startLine - 1
 	if idx < 0 || idx >= len(lines) {
 		return ""
@@ -118,6 +175,11 @@ func extractBraceBlock(lines []string, startLine int) string {
 	var buf []string
 
 	for i := idx; i < len(lines) && i < idx+200; i++ {
+		// { が見つからないまま lookAhead 行経過したら打ち切り（関数プロトタイプ等）
+		if !started && i > idx+lookAhead {
+			break
+		}
+
 		line := lines[i]
 		buf = append(buf, line)
 
@@ -142,23 +204,24 @@ func extractBraceBlock(lines []string, startLine int) string {
 		}
 
 		if started && depth <= 0 {
-			// 閉じ } の次の行に ; が続くケース（typedef struct { ... } Name;）
+			// 閉じ } の次の行が識別子か ; で始まる場合のみ追加
+			// （typedef struct { ... } Name; パターン対応）
 			if i+1 < len(lines) {
 				next := strings.TrimLeftFunc(lines[i+1], unicode.IsSpace)
-				if strings.HasPrefix(next, ";") || (len(next) > 0 && next[0] != '\n') {
-					// typedef の閉じを含む行を追加
+				if len(next) > 0 && (next[0] == ';' || next[0] == '_' ||
+					(next[0] >= 'a' && next[0] <= 'z') ||
+					(next[0] >= 'A' && next[0] <= 'Z')) {
 					buf = append(buf, lines[i+1])
 				}
 			}
 			break
 		}
 
-		// { が見つからないまま数行経過したら打ち切り（関数プロトタイプ等）
-		if !started && i > idx+20 {
-			break
-		}
 	}
 
+	if !started {
+		return ""
+	}
 	return stripCommonIndent(buf)
 }
 
@@ -223,6 +286,26 @@ func extractBraceBlockBackward(lines []string, endLine int) string {
 		}
 	}
 	return stripCommonIndent(lines[startIdx : idx+1])
+}
+
+// extractLeadingComment は startLine（1-indexed）の直前にあるコメントブロックを返す。
+// C スタイル（// / /* */）に対応。空行またはコメント以外の行が来たら打ち切る。
+func extractLeadingComment(lines []string, startLine int) string {
+	var commentLines []string
+	for i := startLine - 2; i >= 0; i-- {
+		trimmed := strings.TrimSpace(lines[i])
+		if trimmed == "" {
+			break
+		}
+		if strings.HasPrefix(trimmed, "//") ||
+			strings.HasPrefix(trimmed, "*") ||
+			strings.HasPrefix(trimmed, "/*") {
+			commentLines = append([]string{lines[i]}, commentLines...)
+		} else {
+			break
+		}
+	}
+	return strings.Join(commentLines, "\n")
 }
 
 // extractDefineBlock は #define の継続行（末尾 \）を含めて抽出する。

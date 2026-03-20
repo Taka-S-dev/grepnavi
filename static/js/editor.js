@@ -193,6 +193,8 @@ async function ensureEditor() {
     breadcrumbs: {enabled: true},
     glyphMargin: true,
     hover: { above: false },
+    bracketPairColorization: { enabled: true },
+    guides: { bracketPairs: true },
   });
   new ResizeObserver(() => monacoEditor.layout()).observe(id('monaco-container'));
 
@@ -260,17 +262,33 @@ async function ensureEditor() {
           const hp = new URLSearchParams({word: word.word});
           if(dir)  hp.set('dir',  dir);
           if(glob) hp.set('glob', glob);
+          const hoverFile = tabs[activeTabIdx]?.file || '';
+          if(hoverFile) hp.set('file', hoverFile);
           const hr = await fetch('/api/hover?' + hp, {signal: controller.signal});
           const hoverHits = await hr.json();
           const apiContents = [];
           if(Array.isArray(hoverHits) && hoverHits.length) {
             const kindLabel = {define:'#define', struct:'struct', enum:'enum', union:'union', typedef:'typedef', func:'function', enum_member:'enum'};
-            for(const h of hoverHits.slice(0, 3)) {
+            const defs  = hoverHits.filter(h => !h.decl).slice(0, 3);
+            const decls = hoverHits.filter(h =>  h.decl);
+            const hits  = defs.length ? defs : decls.slice(0, 3);
+            const multi = hits.length > 1;
+            // 宣言ファイル一覧（定義がある場合のみ先頭に付記）
+            const declNote = defs.length && decls.length
+              ? '*declared in: ' + decls.map(d => {
+                  const a = encodeURIComponent(JSON.stringify([d.file, d.line]));
+                  return `[${shortPath(d.file)}:${d.line}](command:grepnavi.openFile?${a})`;
+                }).join(', ') + '*\n\n'
+              : '';
+            for(let i = 0; i < hits.length; i++) {
+              const h = hits[i];
               const args = encodeURIComponent(JSON.stringify([h.file, h.line]));
               const fileLink = `[${shortPath(h.file)}:${h.line}](command:grepnavi.openFile?${args})`;
-              const header = `**${kindLabel[h.kind]||h.kind} \`${word.word}\`** — *${fileLink}*`;
+              const counter = multi ? ` — **${i+1} / ${hits.length}**` : '';
+              const header = `**${kindLabel[h.kind]||h.kind} \`${word.word}\`${counter}** — *${fileLink}*`;
               const body = h.body.length > 2000 ? h.body.slice(0, 2000) + '\n// ...' : h.body;
-              apiContents.push({value: header + '\n```c\n' + body + '\n```', isTrusted: true});
+              const prefix = i === 0 ? declNote : '';
+              apiContents.push({value: prefix + header + '\n```c\n' + body + '\n```', isTrusted: true});
             }
           }
 
@@ -553,7 +571,7 @@ async function openPeek(file, line) {
   await ensureEditor();
   id('peek').classList.add('visible');
   id('peek-placeholder')?.classList.add('hidden');
-  id('peek-open').onclick = () => openFile(file, line);
+  id('peek-open').onclick = () => openFile(file, monacoEditor?.getPosition()?.lineNumber ?? line);
 
   const existIdx = tabs.findIndex(t => t.file === file);
   if(existIdx >= 0) {
@@ -800,3 +818,5 @@ addEventListener('DOMContentLoaded', () => {
     id('pane-search').style.height = savedLeftH + 'px';
   }
 });
+
+if (typeof module !== 'undefined') module.exports = { fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams };

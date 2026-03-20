@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,9 +10,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"grepnavi/graph"
@@ -63,6 +66,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/new-window", h.handleNewWindow)
 	mux.HandleFunc("/api/browse", h.handleBrowse)
 	mux.HandleFunc("/api/dirs", h.handleDirs)
+	mux.HandleFunc("/api/pick-dir", h.handlePickDir)
 	mux.HandleFunc("/api/root", h.handleRoot)
 	mux.HandleFunc("/api/files", h.handleFiles)
 	// call tree
@@ -165,9 +169,28 @@ func (h *Handler) handleHover(w http.ResponseWriter, r *http.Request) {
 	} else if !filepath.IsAbs(dir) {
 		dir = filepath.Join(hroot, dir)
 	}
-	// ホバーは定義検索なので glob フィルターを無視して全ファイルを対象にする
-	hits, err := search.FindHover(r.Context(), word, dir, "")
+	glob := q.Get("glob")
+	if glob == "" {
+		glob = "*.c,*.h,*.cpp,*.hpp,*.cc"
+	}
+	// 現在開いているファイルのインクルードチェーンを取得（優先ソート用）
+	var includeChain map[string]bool
+	if file := q.Get("file"); file != "" {
+		incs, _ := search.GetFileIncludes(file, hroot)
+		includeChain = make(map[string]bool, len(incs)+1)
+		for _, f := range incs {
+			includeChain[f.ID] = true
+		}
+		includeChain[file] = true
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 4000*time.Millisecond)
+	defer cancel()
+	hits, err := search.FindHover(ctx, word, dir, glob, includeChain)
 	if err != nil {
+		if ctx.Err() != nil {
+			jsonOK(w, []search.HoverHit{})
+			return
+		}
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1167,6 +1190,28 @@ func (h *Handler) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		"dirs":   dirs,
 		"files":  files,
 	})
+}
+
+func (h *Handler) handlePickDir(w http.ResponseWriter, r *http.Request) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("powershell", "-NoProfile", "-Command",
+			`Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'プロジェクトルートを選択'; if($d.ShowDialog() -eq 'OK'){$d.SelectedPath}`)
+	case "darwin":
+		cmd = exec.Command("osascript", "-e", "POSIX path of (choose folder with prompt \"プロジェクトルートを選択\")")
+	default:
+		// Linux: zenity を試みる
+		cmd = exec.Command("zenity", "--file-selection", "--directory", "--title=プロジェクトルートを選択")
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		// キャンセルまたはコマンドなし
+		jsonOK(w, map[string]string{"path": ""})
+		return
+	}
+	path := strings.TrimSpace(string(out))
+	jsonOK(w, map[string]string{"path": path})
 }
 
 func (h *Handler) handleDirs(w http.ResponseWriter, r *http.Request) {

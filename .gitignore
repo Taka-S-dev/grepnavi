@@ -4,8 +4,12 @@
 # ソースコード
 !.gitignore
 !README.md
+!.github/
+!.github/**
 !LICENSE
 !go.mod
+!go.sum
+!package.json
 !main.go
 !server.go
 !api/
@@ -20,3 +24,7 @@
 !static/css/**
 !static/js/
 !static/js/**
+!static/addons/
+!static/addons/**
+!test/
+!test/**

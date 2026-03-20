@@ -104,7 +104,10 @@ function showRootDialog() {
   box.innerHTML = `
     <div style="font-size:13px;color:#ccc;font-weight:600">プロジェクトルートを設定</div>
     <div style="font-size:11px;color:#888">検索対象のルートディレクトリの絶対パスを入力してください</div>
-    <input id="root-inp" type="text" value="${esc(projectRoot)}" placeholder="例: C:\\Users\\you\\project" style="width:100%;box-sizing:border-box;background:#3c3c3c;border:1px solid #555;color:#ccc;padding:6px 8px;border-radius:3px;font-size:12px;font-family:Consolas,monospace">
+    <div style="display:flex;gap:6px">
+      <input id="root-inp" type="text" value="${esc(projectRoot)}" placeholder="例: C:\\Users\\you\\project" style="flex:1;min-width:0;box-sizing:border-box;background:#3c3c3c;border:1px solid #555;color:#ccc;padding:6px 8px;border-radius:3px;font-size:12px;font-family:Consolas,monospace">
+      <button id="root-browse" class="sec" title="フォルダを選択"><span class="codicon codicon-folder"></span></button>
+    </div>
     <div style="display:flex;gap:6px;justify-content:flex-end">
       <button id="root-cancel" class="sec">キャンセル</button>
       <button id="root-ok">設定</button>
@@ -113,6 +116,11 @@ function showRootDialog() {
   document.body.appendChild(overlay);
   const inp = box.querySelector('#root-inp');
   inp.focus(); inp.select();
+  box.querySelector('#root-browse').onclick = async () => {
+    const res = await fetch('/api/pick-dir').then(r => r.json()).catch(() => null);
+    if(res?.path) inp.value = res.path;
+  };
+
   const close = () => document.body.removeChild(overlay);
   box.querySelector('#root-cancel').onclick = close;
   box.querySelector('#root-ok').onclick = async () => {
