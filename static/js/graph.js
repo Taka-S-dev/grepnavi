@@ -132,7 +132,8 @@ function renderCurrent() {
 
 function renderTree() {
   const el = id('tree');
-  const hasParent = new Set((graph.edges||[]).filter(e=>e.label!=='seq').map(e=>e.to));
+  const hasParent = new Set();
+  Object.values(graph.nodes).forEach(n => (n.children||[]).forEach(c => hasParent.add(c)));
   const rootSet = Object.values(graph.nodes).filter(n => !hasParent.has(n.id));
   // hasParent に含まれるノード（子になったノード）は rootOrder から除外する
   const rootOrder = (graph._rootOrder || []).filter(id => graph.nodes[id] && !hasParent.has(id));
@@ -179,15 +180,15 @@ function toggleView() {
 }
 
 // ===== D3 GRAPH VIEW =====
-function computeDepths() {
-  const depths = {}, hasParent = new Set((graph.edges||[]).filter(e=>e.label!=='seq').map(e=>e.to));
-  const roots = Object.values(graph.nodes).filter(n => !hasParent.has(n.id));
+function computeDepths(nodes, edges) {
+  const depths = {}, hasParent = new Set((edges||[]).filter(e=>e.label!=='seq').map(e=>e.to));
+  const roots = Object.values(nodes).filter(n => !hasParent.has(n.id));
   const visiting = new Set();
   function visit(nid, d) {
-    if(visiting.has(nid)) return; // 循環検出
+    if(visiting.has(nid)) return;
     visiting.add(nid);
     depths[nid] = d;
-    (graph.nodes[nid]?.children||[]).forEach(c => visit(c, d+1));
+    (nodes[nid]?.children||[]).forEach(c => visit(c, d+1));
     visiting.delete(nid);
   }
   roots.forEach(n => visit(n.id, 0));
@@ -242,7 +243,7 @@ async function renderGraph() {
   container.innerHTML = '';
   if(d3sim) { d3sim.stop(); d3sim = null; }
 
-  const depths = computeDepths();
+  const depths = computeDepths(graph.nodes, graph.edges);
   const nodeArr = Object.values(graph.nodes);
   if(!nodeArr.length) { container.innerHTML = '<div style="color:#555;padding:20px">ノードなし</div>'; return; }
   const edgeArr = (graph.edges||[]).map(e => ({source:e.from, target:e.to, label:e.label}));
@@ -597,6 +598,132 @@ function refreshGraphSel() {
   d3.selectAll('.gnode').classed('multi-sel', d => graphSel.has(d.id));
 }
 
+function makeNodeBody(node, m) {
+  const body = document.createElement('div');
+  body.className = 'node-body';
+  const matchText = (m.text || '').trim();
+  const lbl = document.createElement('div');
+  lbl.className = 'node-label';
+  lbl.textContent = node.label || matchText || labelFrom(m);
+  const sub = document.createElement('div');
+  sub.className = 'node-sub';
+  const subLink = document.createElement('span');
+  subLink.textContent = shortPath(m.file||'') + (m.line ? ':'+m.line : '');
+  subLink.title = 'Ctrl+クリックでエディタで開く';
+  subLink.style.cssText = 'cursor:pointer;text-decoration:underline';
+  subLink.onclick = e => { e.stopPropagation(); if(e.ctrlKey || e.metaKey) openFile(m.file, m.line); };
+  sub.appendChild(subLink);
+  const ifdefText = (m.ifdef_stack||[]).map(f=>'#'+f.directive+' '+f.condition).join(' > ');
+  if(ifdefText) {
+    const ifd = document.createElement('div');
+    ifd.className = 'node-ifdef';
+    ifd.textContent = ifdefText;
+    body.appendChild(lbl); body.appendChild(sub); body.appendChild(ifd);
+  } else {
+    body.appendChild(lbl); body.appendChild(sub);
+  }
+  return {body, lbl};
+}
+
+function attachLabelInlineEdit(lbl, node, m) {
+  const matchText = (m.text || '').trim();
+  lbl.ondblclick = e => {
+    e.stopPropagation();
+    const original = node.label || matchText || labelFrom(m);
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.value = original;
+    inp.style.cssText = 'width:100%;background:#1a1a1a;border:1px solid #555;color:#e0e0e0;font:12px Consolas,monospace;padding:1px 4px;border-radius:2px;box-sizing:border-box';
+    lbl.textContent = '';
+    lbl.appendChild(inp);
+    inp.focus(); inp.select();
+    const save = async () => {
+      const val = inp.value.trim() || original;
+      const r = await fetch('/api/graph/node/' + node.id, {
+        method: 'PUT', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({label: val})
+      });
+      const n = await r.json();
+      graph.nodes[node.id] = n;
+      renderCurrent();
+      if(selNode === node.id) showDetail(node.id);
+      st('ラベル保存');
+    };
+    const cancel = () => { lbl.textContent = original; };
+    inp.onblur = save;
+    inp.onkeydown = e2 => {
+      if(e2.key === 'Enter')  { e2.preventDefault(); inp.blur(); }
+      if(e2.key === 'Escape') { e2.stopPropagation(); inp.onblur = null; cancel(); }
+    };
+  };
+}
+
+function attachNodeDragDrop(row, wrap, node) {
+  row.draggable = true;
+  row.ondragstart = e => {
+    dragNodeId = node.id;
+    row.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    id('drop-root').style.display = '';
+    row._dragSeq = ++dragSeq;
+  };
+  row.ondragend = e => {
+    if(row._dragSeq !== dragSeq) return;
+    row.classList.remove('dragging');
+    id('drop-root').style.display = 'none';
+    const insertBefore = !dropHandled ? document.querySelector('.node.insert-before') : null;
+    const insertAfter  = !dropHandled ? document.querySelector('.node.insert-after')  : null;
+    document.querySelectorAll('.node-row.drag-over,.node-row.indent-target').forEach(el => {
+      el.classList.remove('drag-over','indent-target');
+    });
+    document.querySelectorAll('.node.insert-before,.node.insert-after').forEach(el => {
+      el.classList.remove('insert-before','insert-after');
+    });
+    if(!dropHandled && e.dataTransfer.dropEffect !== 'none') {
+      const targetWrap = insertBefore || insertAfter;
+      if(targetWrap && targetWrap.dataset.id && targetWrap.dataset.id !== node.id) {
+        reorderNode(node.id, targetWrap.dataset.id, insertBefore ? 'before' : 'after');
+      }
+    }
+    dropHandled = false;
+    dragNodeId = null;
+  };
+  row.ondragover = e => {
+    if(!dragNodeId || dragNodeId === node.id) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    document.querySelectorAll('.node-row.drag-over').forEach(el => el.classList.remove('drag-over'));
+    document.querySelectorAll('.node.insert-before,.node.insert-after').forEach(el => {
+      el.classList.remove('insert-before','insert-after');
+    });
+    const rect = row.getBoundingClientRect();
+    const ratio = (e.clientY - rect.top) / rect.height;
+    if(ratio < 0.3)      wrap.classList.add('insert-before');
+    else if(ratio > 0.7) wrap.classList.add('insert-after');
+    else                 row.classList.add('drag-over');
+  };
+  row.ondragleave = e => {
+    if(!row.contains(e.relatedTarget)) row.classList.remove('drag-over');
+  };
+  row.ondrop = e => {
+    e.preventDefault();
+    e.stopPropagation();
+    row.classList.remove('drag-over');
+    const isBefore = wrap.classList.contains('insert-before');
+    const isAfter  = wrap.classList.contains('insert-after');
+    wrap.classList.remove('insert-before','insert-after');
+    if(!dragNodeId || dragNodeId === node.id) return;
+    const movedId = dragNodeId;
+    dropHandled = true;
+    if(isBefore || isAfter) {
+      reorderNode(movedId, node.id, isBefore ? 'before' : 'after');
+    } else {
+      if(clientIsDescendant(node.id, movedId, graph.nodes)) { st('循環参照になるため移動できません'); dropHandled = false; return; }
+      reparent(movedId, node.id);
+    }
+  };
+}
+
 function makeNodeEl(node, depth, visited = new Set()) {
   if(visited.has(node.id) || depth > 30) return document.createElement('div');
   visited.add(node.id);
@@ -615,33 +742,7 @@ function makeNodeEl(node, depth, visited = new Set()) {
   tog.className = 'tog';
   tog.textContent = children.length ? (node.expanded===false ? '▶' : '▼') : ' ';
 
-  const body = document.createElement('div');
-  body.className = 'node-body';
-
-  const matchText = (m.text || '').trim();
-  const lbl = document.createElement('div');
-  lbl.className = 'node-label';
-  lbl.textContent = node.label || matchText || labelFrom(m);
-
-  const sub = document.createElement('div');
-  sub.className = 'node-sub';
-  const subLink = document.createElement('span');
-  subLink.textContent = shortPath(m.file||'') + (m.line ? ':'+m.line : '');
-  subLink.title = 'Ctrl+クリックでエディタで開く';
-  subLink.style.cssText = 'cursor:pointer;text-decoration:underline';
-  subLink.onclick = e => { e.stopPropagation(); if(e.ctrlKey || e.metaKey) openFile(m.file, m.line); };
-  sub.appendChild(subLink);
-
-  const ifdefText = (m.ifdef_stack||[]).map(f=>'#'+f.directive+' '+f.condition).join(' > ');
-  if(ifdefText) {
-    const ifd = document.createElement('div');
-    ifd.className = 'node-ifdef';
-    ifd.textContent = ifdefText;
-    body.appendChild(lbl); body.appendChild(sub); body.appendChild(ifd);
-  } else {
-    body.appendChild(lbl); body.appendChild(sub);
-  }
-
+  const {body, lbl} = makeNodeBody(node, m);
   row.appendChild(tog);
   row.appendChild(body);
 
@@ -667,139 +768,28 @@ function makeNodeEl(node, depth, visited = new Set()) {
   }
   row.appendChild(delBtn);
   row.onclick = e => { e.stopPropagation(); selectNode(node.id); };
-  lbl.ondblclick = e => {
-    e.stopPropagation();
-    const original = node.label || matchText || labelFrom(m);
-    const inp = document.createElement('input');
-    inp.type = 'text';
-    inp.value = original;
-    inp.style.cssText = 'width:100%;background:#1a1a1a;border:1px solid #555;color:#e0e0e0;font:12px Consolas,monospace;padding:1px 4px;border-radius:2px;box-sizing:border-box';
-    lbl.textContent = '';
-    lbl.appendChild(inp);
-    inp.focus(); inp.select();
-    const save = async () => {
-      const val = inp.value.trim() || original;
-      const r = await fetch('/api/graph/node/' + node.id, {
-        method: 'PUT', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({label: val})
-      });
-      const n = await r.json();
-      graph.nodes[node.id] = n;
-      renderCurrent();
-      if(selNode === node.id) showDetail(node.id);
-      st('ラベル保存');
-    };
-    const cancel = () => {
-      lbl.textContent = original;
-    };
-    inp.onblur = save;
-    inp.onkeydown = e2 => {
-      if(e2.key === 'Enter')  { e2.preventDefault(); inp.blur(); }
-      if(e2.key === 'Escape') { e2.stopPropagation(); inp.onblur = null; cancel(); }
-    };
-  };
   tog.onclick = e => { e.stopPropagation(); toggleNode(node.id); };
+  attachLabelInlineEdit(lbl, node, m);
   if(node.memo) {
     row.addEventListener('mouseenter', e => showMemoTip(e, node));
     row.addEventListener('mousemove',  e => moveMemoTip(e));
     row.addEventListener('mouseleave', hideMemoTip);
   }
-
-  // D&D
-  row.draggable = true;
-  row.ondragstart = e => {
-    dragNodeId = node.id;
-    row.classList.add('dragging');
-    e.dataTransfer.effectAllowed = 'move';
-    id('drop-root').style.display = '';
-    row._dragSeq = ++dragSeq;
-  };
-
-  row.ondragend = e => {
-    if(row._dragSeq !== dragSeq) return;
-    row.classList.remove('dragging');
-    id('drop-root').style.display = 'none';
-    // insert-before/after を読み取ってからクリーンアップ
-    const insertBefore = !dropHandled ? document.querySelector('.node.insert-before') : null;
-    const insertAfter  = !dropHandled ? document.querySelector('.node.insert-after')  : null;
-    document.querySelectorAll('.node-row.drag-over,.node-row.indent-target').forEach(el => {
-      el.classList.remove('drag-over','indent-target');
-    });
-    document.querySelectorAll('.node.insert-before,.node.insert-after').forEach(el => {
-      el.classList.remove('insert-before','insert-after');
-    });
-    // ドロップがどこにも処理されなかった場合、最後の insert 位置へ移動
-    // (ノード間の隙間でドロップした場合もここで処理)
-    // Escape キャンセル時は dropEffect='none' なので何もしない
-    if(!dropHandled && e.dataTransfer.dropEffect !== 'none') {
-      const targetWrap = insertBefore || insertAfter;
-      if(targetWrap && targetWrap.dataset.id && targetWrap.dataset.id !== node.id) {
-        reorderNode(node.id, targetWrap.dataset.id, insertBefore ? 'before' : 'after');
-      }
-    }
-    dropHandled = false;
-    dragNodeId = null;
-  };
-
-  row.ondragover = e => {
-    if(!dragNodeId || dragNodeId === node.id) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    document.querySelectorAll('.node-row.drag-over').forEach(el => el.classList.remove('drag-over'));
-    document.querySelectorAll('.node.insert-before,.node.insert-after').forEach(el => {
-      el.classList.remove('insert-before','insert-after');
-    });
-    const rect = row.getBoundingClientRect();
-    const ratio = (e.clientY - rect.top) / rect.height;
-    if(ratio < 0.3) {
-      wrap.classList.add('insert-before');
-    } else if(ratio > 0.7) {
-      wrap.classList.add('insert-after');
-    } else {
-      row.classList.add('drag-over');
-    }
-  };
-
-  row.ondragleave = e => {
-    if(!row.contains(e.relatedTarget)) {
-      row.classList.remove('drag-over');
-    }
-  };
-
-  row.ondrop = e => {
-    e.preventDefault();
-    e.stopPropagation();
-    row.classList.remove('drag-over');
-    const isBefore = wrap.classList.contains('insert-before');
-    const isAfter  = wrap.classList.contains('insert-after');
-    wrap.classList.remove('insert-before','insert-after');
-    if(!dragNodeId || dragNodeId === node.id) return;
-    const movedId = dragNodeId; // グローバルが ondragend で null になる前にキャプチャ
-    dropHandled = true;
-    if(isBefore || isAfter) {
-      reorderNode(movedId, node.id, isBefore ? 'before' : 'after');
-    } else {
-      if(clientIsDescendant(node.id, movedId)) { st('循環参照になるため移動できません'); dropHandled = false; return; }
-      reparent(movedId, node.id);
-    }
-  };
+  attachNodeDragDrop(row, wrap, node);
 
   wrap.appendChild(row);
-
   if(node.memo && showTreeMemos) {
     const memoInline = document.createElement('div');
     memoInline.className = 'node-memo-inline';
     memoInline.textContent = node.memo;
     wrap.appendChild(memoInline);
   }
-
   if(children.length && node.expanded !== false) {
     const ch = document.createElement('div');
     ch.className = 'children';
     children.forEach(c => ch.appendChild(makeNodeEl(c, depth + 1, new Set(visited))));
     wrap.appendChild(ch);
   }
-
   return wrap;
 }
 
@@ -813,24 +803,24 @@ function selectNode(id_) {
   if(n && n.match && n.match.file) openPeek(n.match.file, n.match.line);
 }
 
-function findParent(nodeId) {
-  for(const n of Object.values(graph.nodes)) {
+function findParent(nodeId, nodes) {
+  for(const n of Object.values(nodes)) {
     if((n.children||[]).includes(nodeId)) return n.id;
   }
   return '';
 }
 
-function findGrandparent(nodeId) {
-  return findParent(findParent(nodeId));
+function findGrandparent(nodeId, nodes) {
+  return findParent(findParent(nodeId, nodes), nodes);
 }
 
-function clientIsDescendant(ancestorId, nodeId) {
+function clientIsDescendant(ancestorId, nodeId, nodes) {
   if(!ancestorId || !nodeId) return false;
   const visited = new Set();
   function check(id) {
     if(visited.has(id)) return false;
     visited.add(id);
-    const n = graph.nodes[id];
+    const n = nodes[id];
     if(!n) return false;
     const children = n.children || [];
     if(children.includes(ancestorId)) return true;
@@ -839,19 +829,20 @@ function clientIsDescendant(ancestorId, nodeId) {
   return check(nodeId);
 }
 
-function getNodeSiblings(nodeId) {
-  const parentId = findParent(nodeId);
-  if(parentId) return graph.nodes[parentId]?.children || [];
-  const hasParent = new Set((graph.edges||[]).filter(e=>e.label!=='seq').map(e=>e.to));
-  const rootIds = Object.values(graph.nodes).filter(n => !hasParent.has(n.id)).map(n => n.id);
-  const existing = (graph._rootOrder || []).filter(id => graph.nodes[id]);
+function getNodeSiblings(nodeId, nodes, rootOrder) {
+  const parentId = findParent(nodeId, nodes);
+  if(parentId) return nodes[parentId]?.children || [];
+  const hasParent = new Set();
+  Object.values(nodes).forEach(n => (n.children||[]).forEach(c => hasParent.add(c)));
+  const rootIds = Object.values(nodes).filter(n => !hasParent.has(n.id)).map(n => n.id);
+  const existing = (rootOrder || []).filter(id => nodes[id]);
   const missing = rootIds.filter(id => !existing.includes(id));
   return [...existing, ...missing];
 }
 
 async function moveNodeUp() {
   if(!selNode) return;
-  const siblings = getNodeSiblings(selNode);
+  const siblings = getNodeSiblings(selNode, graph.nodes, graph._rootOrder);
   const idx = siblings.indexOf(selNode);
   if(idx <= 0) return;
   await reorderNode(selNode, siblings[idx-1], 'before', true);
@@ -859,7 +850,7 @@ async function moveNodeUp() {
 
 async function moveNodeDown() {
   if(!selNode) return;
-  const siblings = getNodeSiblings(selNode);
+  const siblings = getNodeSiblings(selNode, graph.nodes, graph._rootOrder);
   const idx = siblings.indexOf(selNode);
   if(idx < 0 || idx >= siblings.length - 1) return;
   await reorderNode(selNode, siblings[idx+1], 'after', true);
@@ -867,28 +858,28 @@ async function moveNodeDown() {
 
 async function moveNodeLevelUp() {
   if(!selNode) return;
-  const parentId = findParent(selNode);
+  const parentId = findParent(selNode, graph.nodes);
   if(!parentId) return;
-  await reparent(selNode, findParent(parentId));
+  await reparent(selNode, findParent(parentId, graph.nodes));
 }
 
 async function moveNodeLevelDown() {
   if(!selNode) return;
-  const siblings = getNodeSiblings(selNode);
+  const siblings = getNodeSiblings(selNode, graph.nodes, graph._rootOrder);
   const idx = siblings.indexOf(selNode);
   if(idx <= 0) return;
   const prevSibId = siblings[idx-1];
-  if(clientIsDescendant(selNode, prevSibId)) return;
+  if(clientIsDescendant(selNode, prevSibId, graph.nodes)) return;
   await reparent(selNode, prevSibId);
 }
 
 async function reorderNode(nodeId, refNodeId, position, reorderOnly = false) {
-  const parentId = findParent(refNodeId);
-  const nodeParentId = findParent(nodeId);
+  const parentId = findParent(refNodeId, graph.nodes);
+  const nodeParentId = findParent(nodeId, graph.nodes);
 
   if(parentId !== nodeParentId) {
     if(reorderOnly) return;
-    if(clientIsDescendant(parentId, nodeId)) { st('循環参照になるため移動できません'); return; }
+    if(clientIsDescendant(parentId, nodeId, graph.nodes)) { st('循環参照になるため移動できません'); return; }
     await reparent(nodeId, parentId);
     const parent = graph.nodes[parentId];
     if(!parent) return;
@@ -907,7 +898,8 @@ async function reorderNode(nodeId, refNodeId, position, reorderOnly = false) {
   const siblings = parent
     ? (parent.children || [])
     : (() => {
-        const hasParent = new Set((graph.edges||[]).filter(e=>e.label!=='seq').map(e=>e.to));
+        const hasParent = new Set();
+        Object.values(graph.nodes).forEach(n => (n.children||[]).forEach(c => hasParent.add(c)));
         const rootIds = Object.values(graph.nodes).filter(n => !hasParent.has(n.id)).map(n => n.id);
         const existing = (graph._rootOrder || []).filter(id => graph.nodes[id]);
         const missing = rootIds.filter(id => !existing.includes(id));
@@ -975,7 +967,6 @@ async function toggleNode(id_) {
 }
 
 // ===== DETAIL =====
-const accState = {loc:true, ifdef:false, snippet:false, memo:true, expand:false};
 
 function makeAccSection(key, title, bodyHTML, defaultOpen) {
   const open = accState[key] !== undefined ? accState[key] : defaultOpen;
@@ -1189,7 +1180,7 @@ function exportGraphDrawio() {
   const nodeArr = Object.values(graph.nodes);
   if(!nodeArr.length) { st('ノードがありません'); return; }
 
-  const depths = computeDepths();
+  const depths = computeDepths(graph.nodes, graph.edges);
   const NW = 180, NH = 48;
 
   function xe(s) {
@@ -1274,15 +1265,15 @@ function exportGraphDrawio() {
 function calcDragTarget(nodeId, fromDepth, toDepth) {
   if (toDepth < fromDepth) {
     const stepsUp = fromDepth - toDepth;
-    let pid = findParent(nodeId);
+    let pid = findParent(nodeId, graph.nodes);
     for (let i = 0; i < stepsUp; i++) {
-      const p = findParent(pid);
+      const p = findParent(pid, graph.nodes);
       if (p === '' && i < stepsUp - 1) { pid = ''; break; }
       pid = p;
     }
     return pid;
   } else {
-    const parent = findParent(nodeId);
+    const parent = findParent(nodeId, graph.nodes);
     const siblings = parent
       ? (graph.nodes[parent]?.children || [])
       : Object.values(graph.nodes).filter(n => !Object.values(graph.nodes).some(p => (p.children||[]).includes(n.id))).map(n => n.id);
@@ -1368,7 +1359,7 @@ function attachIndentDrag(handle, row, nodeId, depth) {
     if (targetParent === undefined) return;
 
     if (newDepth < depth) {
-      const currentParent = findParent(nodeId);
+      const currentParent = findParent(nodeId, graph.nodes);
       if (currentParent) {
         const parentWrap = id('tree').querySelector(`.node[data-id="${currentParent}"]`);
         if (parentWrap) parentWrap.classList.add('insert-after');

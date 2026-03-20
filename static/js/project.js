@@ -464,8 +464,6 @@ async function openProject(path) {
 
 // ===== ファイルブラウザ =====
 
-let _fbMode = 'save'; // 'save' | 'open'
-let _fbCurrentPath = '';
 
 function openProjectFilePicker()   { showFileBrowser('open'); }
 function saveAsProjectFilePicker() { showFileBrowser('save'); }

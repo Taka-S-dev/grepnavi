@@ -458,18 +458,19 @@ function fzfHighlight(path, query) {
   ).join('');
 }
 
+function fzfFilter(files, query, limit) {
+  if(!query.trim()) return files.slice(0, limit);
+  return files
+    .map(f => ({f, s: fzfScore(f, query)}))
+    .filter(x => x.s >= 0)
+    .sort((a, b) => b.s - a.s)
+    .slice(0, limit)
+    .map(x => x.f);
+}
+
 function fzfRender(query) {
   const list = id('fzf-list');
-  if(query.trim()) {
-    fzfFiltered = fzfFiles
-      .map(f => ({f, s: fzfScore(f, query)}))
-      .filter(x => x.s >= 0)
-      .sort((a, b) => b.s - a.s)
-      .slice(0, 100)
-      .map(x => x.f);
-  } else {
-    fzfFiltered = fzfFiles.slice(0, 100);
-  }
+  fzfFiltered = fzfFilter(fzfFiles, query, 100);
   id('fzf-count').textContent = `${fzfFiltered.length} / ${fzfFiles.length}`;
   fzfSelIdx = 0;
   list.innerHTML = '';
@@ -640,6 +641,14 @@ function closePeek() {
   renderTabs();
 }
 
+function buildDefinitionParams(word, dir, glob, caseSensitive) {
+  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const p = new URLSearchParams({q: `\\b${escaped}\\b`, regex: '1', case: caseSensitive ? '1' : '0'});
+  if(dir)  p.set('dir', dir);
+  if(glob) p.set('glob', glob);
+  return p;
+}
+
 // ===== 定義ジャンプ =====
 async function jumpToDefinition(word) {
   if(!word || word.length < 2) return;
@@ -650,10 +659,7 @@ async function jumpToDefinition(word) {
   const dir = id('dir').value.trim();
   const glob = id('glob').value.trim();
 
-  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const p = new URLSearchParams({q: `\\b${escaped}\\b`, regex: '1', case: id('btn-cs').classList.contains('on') ? '1' : '0'});
-  if(dir)  p.set('dir', dir);
-  if(glob) p.set('glob', glob);
+  const p = buildDefinitionParams(word, dir, glob, id('btn-cs').classList.contains('on'));
   const r = await fetch('/api/search?' + p);
   clearInterval(stimer);
   const d = await r.json();

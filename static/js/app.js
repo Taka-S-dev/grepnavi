@@ -129,12 +129,33 @@ addEventListener('DOMContentLoaded', async () => {
   });
 
   document.addEventListener('keydown', e => {
-    if(e.shiftKey && e.altKey) {
-      if(e.key === 'ArrowUp')    { e.preventDefault(); moveNodeUp(); }
-      if(e.key === 'ArrowDown')  { e.preventDefault(); moveNodeDown(); }
-      if(e.key === 'ArrowLeft')  { e.preventDefault(); moveNodeLevelUp(); }
-      if(e.key === 'ArrowRight') { e.preventDefault(); moveNodeLevelDown(); }
-    }
+    if(!e.shiftKey || !e.altKey) return;
+    if(e.key !== 'ArrowUp' && e.key !== 'ArrowDown' && e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    const tag = document.activeElement?.tagName;
+    if(tag === 'INPUT' || tag === 'TEXTAREA') return;
+    e.preventDefault();
+    e.stopPropagation();
+    if(e.key === 'ArrowUp')    moveNodeUp();
+    if(e.key === 'ArrowDown')  moveNodeDown();
+    if(e.key === 'ArrowLeft')  moveNodeLevelUp();
+    if(e.key === 'ArrowRight') moveNodeLevelDown();
+  }, true);
+
+  document.addEventListener('keydown', e => {
+    if(e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    if(e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+    const tag = document.activeElement?.tagName;
+    if(tag === 'INPUT' || tag === 'TEXTAREA') return;
+    if(monacoEditor && monacoEditor.hasTextFocus()) return;
+    if(viewMode !== 'tree') return;
+    e.preventDefault();
+    const rows = [...document.querySelectorAll('#tree .node-row')];
+    if(!rows.length) return;
+    const curIdx = rows.findIndex(r => r.dataset.id === selNode);
+    const next = e.key === 'ArrowUp'
+      ? rows[Math.max(0, curIdx <= 0 ? 0 : curIdx - 1)]
+      : rows[Math.min(rows.length - 1, curIdx < 0 ? 0 : curIdx + 1)];
+    if(next) { selectNode(next.dataset.id); next.scrollIntoView({block: 'nearest'}); }
   });
 
   // ツリー内の隙間でも "禁止" カーソルを出さない

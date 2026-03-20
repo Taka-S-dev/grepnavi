@@ -64,3 +64,13 @@ const LS_PINNED_TABS = 'grepnavi-pinned-tabs';
 // Search stack
 let searchStack = []; // [{query, count, title, overText, filterValue, allMatches}]
 const LS_SEARCH_STACK = 'grepnavi-search-stack';
+
+// Search stack drag
+let _stackDragIdx = null;
+
+// Detail panel accordion open/close state
+const accState = {loc:true, ifdef:false, snippet:false, memo:true, expand:false};
+
+// File browser
+let _fbMode = 'save'; // 'save' | 'open'
+let _fbCurrentPath = '';

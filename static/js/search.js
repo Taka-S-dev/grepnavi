@@ -1,20 +1,66 @@
+// ===== 純粋関数 (Pure functions) =====
+
+// 検索パラメータを構築して返す（DOM・副作用なし）
+function buildSearchParams(q, dir, glob, isRegex, isCaseSensitive, isWord) {
+  const params = new URLSearchParams({
+    q,
+    regex: isRegex ? '1' : '0',
+    case:  isCaseSensitive ? '1' : '0',
+    word:  isWord ? '1' : '0',
+  });
+  if(dir)  params.set('dir', dir);
+  if(glob) params.set('glob', glob);
+  return params;
+}
+
+// F3 ジャンプ先インデックスを計算（DOM・副作用なし）
+function nextResultIndex(cur, delta, total) {
+  if(total === 0) return -1;
+  if(cur === -1) return delta > 0 ? 0 : total - 1;
+  return (cur + delta + total) % total;
+}
+
+// 検索完了時のタイトル・overText を生成（DOM・副作用なし）
+function buildSearchSummary(count, fcount, q, limit) {
+  return {
+    title:    `${fcount} ファイル · ${count} 件  "${q}"`,
+    overText: count > limit ? `先頭${limit}件のみ表示` : '',
+  };
+}
+
+// タブ配列へのupsert（DOM・副作用なし）
+// 既存タブがあれば上書き、なければ追加。maxTabs を超えた場合は古い未ピンタブを削除。
+function upsertSearchTab(tabs, query, data, maxTabs) {
+  const next = [...tabs];
+  const existing = next.findIndex(t => t.query === query);
+  if(existing >= 0) {
+    next[existing] = { ...next[existing], ...data };
+    return { tabs: next, activeIdx: existing };
+  }
+  next.push({ query, ...data, pinned: false });
+  let activeIdx = next.length - 1;
+  if(next.length > maxTabs) {
+    const unpinnedIdx = next.findIndex(t => !t.pinned);
+    if(unpinnedIdx >= 0) {
+      next.splice(unpinnedIdx, 1);
+      activeIdx = next.length - 1;
+    }
+  }
+  return { tabs: next, activeIdx };
+}
+
 // ===== SEARCH =====
 function doSearch() {
   const q = id('q').value.trim(); if(!q) return;
   const dir = id('dir').value.trim();
   const glob = id('glob').value.trim();
   if(glob) addGlobHistory(glob);
-  localStorage.setItem('grepnavi-settings', JSON.stringify({dir, glob,
-    regex:id('btn-re').classList.contains('on'),
-    cs:id('btn-cs').classList.contains('on'),
-    word:id('btn-wb').classList.contains('on')}));
+  const isRegex = id('btn-re').classList.contains('on');
+  const isCaseSensitive = id('btn-cs').classList.contains('on');
+  const isWord = id('btn-wb').classList.contains('on');
+  localStorage.setItem('grepnavi-settings', JSON.stringify({dir, glob, regex: isRegex, cs: isCaseSensitive, word: isWord}));
 
-  const params = new URLSearchParams({q,
-    regex:id('btn-re').classList.contains('on')?'1':'0',
-    case:id('btn-cs').classList.contains('on')?'1':'0',
-    word:id('btn-wb').classList.contains('on')?'1':'0'});
-  if(dir) params.set('dir',dir);
-  if(glob) params.set('glob',glob);
+  const params = buildSearchParams(q, dir, glob, isRegex, isCaseSensitive, isWord);
 
   stopSearch();
   allMatches=[]; pending=[]; fileGroupMap={};
@@ -44,10 +90,8 @@ function doSearch() {
     const d = JSON.parse(e.data);
     stopSearch();
     flushBatch(q);
-    const over = d.count - LIMIT;
     const fcount = Object.keys(fileGroupMap).length;
-    const title = `${fcount} ファイル · ${d.count} 件  "${q}"`;
-    const overText = over>0 ? `先頭${LIMIT}件のみ表示` : '';
+    const { title, overText } = buildSearchSummary(d.count, fcount, q, LIMIT);
     id('sh-title').textContent = title;
     id('sh-over').textContent = overText;
     st(`${d.count} 件ヒット  F3: 次へ  Shift+F3: 前へ`);
@@ -297,9 +341,8 @@ function jumpResult(delta) {
   const rows = getVisibleResultRows();
   if(!rows.length) return;
   const cur = rows.findIndex(r => r.classList.contains('sel'));
-  const next = cur === -1
-    ? (delta > 0 ? 0 : rows.length - 1)
-    : (cur + delta + rows.length) % rows.length;
+  const next = nextResultIndex(cur, delta, rows.length);
+  if(next < 0) return;
   rows[next].click();
   rows[next].scrollIntoView({block:'nearest'});
 }
@@ -307,26 +350,11 @@ function jumpResult(delta) {
 // ===== 検索履歴タブ =====
 function saveSearchTab(query, count, title, overText) {
   const filterValue = id('filter-input').value;
-
-  // 同じクエリのタブが既にあれば上書き（ピン状態は維持）
-  const existing = searchTabs.findIndex(t => t.query === query);
-  if(existing >= 0) {
-    searchTabs[existing] = { ...searchTabs[existing], count, title, overText, filterValue, allMatches: [...allMatches] };
-    activeSearchTab = existing;
-  } else {
-    searchTabs.push({ query, count, title, overText, filterValue, allMatches: [...allMatches], pinned: false });
-    activeSearchTab = searchTabs.length - 1;
-    if(searchTabs.length > MAX_SEARCH_TABS) {
-      // ピン留めされていない最古のタブを削除
-      const unpinnedIdx = searchTabs.findIndex(t => !t.pinned);
-      if(unpinnedIdx >= 0) {
-        searchTabs.splice(unpinnedIdx, 1);
-        activeSearchTab = searchTabs.length - 1;
-      }
-    }
-  }
+  const data = { count, title, overText, filterValue, allMatches: [...allMatches] };
+  const result = upsertSearchTab(searchTabs, query, data, MAX_SEARCH_TABS);
+  searchTabs = result.tabs;
+  activeSearchTab = result.activeIdx;
   renderSearchTabs();
-  // スタックラッパーを表示（検索結果がある状態）
   const wrap = id('search-stack-wrap');
   if(wrap) wrap.style.display = '';
 }
@@ -498,8 +526,6 @@ function switchSearchStack(idx) {
   else { id('filter-input').classList.remove('active'); id('filter-clear').style.display = 'none'; }
   id('search-stack-bar').classList.remove('open');
 }
-
-let _stackDragIdx = null;
 
 function renderSearchStack() {
   const btn = id('btn-search-stack');
