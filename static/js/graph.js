@@ -1427,3 +1427,5 @@ function attachIndentDrag(handle, row, nodeId, depth) {
     if (targetParentId !== undefined) reparent(nodeId, targetParentId);
   }
 }
+
+// インクルード依存グラフ機能は static/js/include-graph.js に分離されています。

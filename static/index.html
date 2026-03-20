@@ -9,6 +9,13 @@
 <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
 <link rel="stylesheet" href="/css/codicon.css">
 <link rel="stylesheet" href="/css/main.css">
+<!-- アドオン CSS/JS ローダー（addons/addons.js でアドオンを管理） -->
+<script src="/addons/addons.js"></script>
+<script>
+  (ADDONS||[]).forEach(name => {
+    document.write('<link rel="stylesheet" href="/addons/'+name+'/addon.css">');
+  });
+</script>
 </head>
 <body>
 <div id="workspace">
@@ -185,5 +192,11 @@
 <script src="/js/editor.js"></script>
 <script src="/js/project.js"></script>
 <script src="/js/app.js"></script>
+<!-- アドオン JS（DOMContentLoaded 内で HTML 注入・イベント登録を自己完結） -->
+<script>
+  (ADDONS||[]).forEach(name => {
+    document.write('<script src="/addons/'+name+'/addon.js"><\/script>');
+  });
+</script>
 </body>
 </html>

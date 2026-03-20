@@ -424,5 +424,7 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 .stab.pinned .stab-dot::before{background:#4ec9b0}
 .stab-sep{border-top:1px solid #333;margin:2px 0}
 
+/* インクルードグラフのスタイルは include-graph.css に分離されています。 */
+
 /* statusbar */
 #sb{height:20px;background:#007acc;display:flex;align-items:center;padding:0 8px;font-size:11px;color:#fff;flex-shrink:0}

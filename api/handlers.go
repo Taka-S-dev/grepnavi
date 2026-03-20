@@ -61,6 +61,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/dirs", h.handleDirs)
 	mux.HandleFunc("/api/root", h.handleRoot)
 	mux.HandleFunc("/api/files", h.handleFiles)
+	// [C言語アドオン] 以下の3行を削除するとインクルードグラフAPIが無効になります
+	mux.HandleFunc("/api/include-graph", h.handleIncludeGraph)
+	mux.HandleFunc("/api/include-file", h.handleIncludeFile)
+	mux.HandleFunc("/api/include-by", h.handleIncludeBy)
 }
 
 // --- /api/file ---
@@ -1063,6 +1067,89 @@ func sanitizeUTF8(s string) string {
 		b = b[size:]
 	}
 	return out.String()
+}
+
+// --- /api/include-graph ---
+
+// --- /api/include-by ---
+
+func (h *Handler) handleIncludeBy(w http.ResponseWriter, r *http.Request) {
+	file := r.URL.Query().Get("file")
+	if file == "" {
+		jsonErr(w, "file required", http.StatusBadRequest)
+		return
+	}
+	h.mu.RLock()
+	root := h.root
+	h.mu.RUnlock()
+
+	if !filepath.IsAbs(file) {
+		file = filepath.Join(root, file)
+	}
+
+	nodes, err := search.GetIncludedBy(file, root, "")
+	if err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if nodes == nil {
+		nodes = []search.IncludeNode{}
+	}
+	jsonOK(w, nodes)
+}
+
+// --- /api/include-file ---
+
+func (h *Handler) handleIncludeFile(w http.ResponseWriter, r *http.Request) {
+	file := r.URL.Query().Get("file")
+	if file == "" {
+		jsonErr(w, "file required", http.StatusBadRequest)
+		return
+	}
+	h.mu.RLock()
+	root := h.root
+	h.mu.RUnlock()
+
+	if !filepath.IsAbs(file) {
+		file = filepath.Join(root, file)
+	}
+
+	nodes, err := search.GetFileIncludes(file, root)
+	if err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if nodes == nil {
+		nodes = []search.IncludeNode{}
+	}
+	jsonOK(w, nodes)
+}
+
+// --- /api/include-graph ---
+
+func (h *Handler) handleIncludeGraph(w http.ResponseWriter, r *http.Request) {
+	h.mu.RLock()
+	root := h.root
+	h.mu.RUnlock()
+
+	dir := r.URL.Query().Get("dir")
+	if dir == "" {
+		dir = root
+	} else if !filepath.IsAbs(dir) {
+		dir = filepath.Join(root, dir)
+	}
+	glob := r.URL.Query().Get("glob")
+
+	g, err := search.BuildIncludeGraph(r.Context(), dir, glob)
+	if err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if g == nil {
+		jsonOK(w, map[string]interface{}{"nodes": []struct{}{}, "edges": []struct{}{}})
+		return
+	}
+	jsonOK(w, g)
 }
 
 func jsonOK(w http.ResponseWriter, v interface{}) {
