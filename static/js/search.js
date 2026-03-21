@@ -251,47 +251,9 @@ function flushBatch(q) {
   id('sh-title').textContent = `検索中... ${allMatches.length}件 "${q}"`;
 }
 
-function defKind(text, snippet, matchLine) {
-  const t = (text||'').trim();
-  if (/^#\s*define\s+\w/.test(t)) return 'define';
-  if (/^(struct|union)\s+\w+\s*(\{|$)/.test(t)) return 'struct';
-  if (/^enum\s+\w+\s*\{/.test(t)) return 'enum';
-  if (/\btypedef\b/.test(t)) return 'typedef';
-  const parenIdx = t.indexOf('(');
-  if (!/^(if|else|while|for|switch|return|case|do)\b/.test(t) &&
-      !t.startsWith('{') &&
-      !t.startsWith('!') &&
-      !t.startsWith('/*') &&
-      !t.startsWith('//') &&
-      !t.startsWith('*') &&
-      !/;\s*$/.test(t) &&
-      !/[&|]\s*$/.test(t) &&
-      parenIdx > 0 && !/=/.test(t.slice(0, parenIdx)) &&
-      !/[->.:]/.test(t.slice(0, parenIdx)) &&
-      /\w+\s*\(/.test(t)) {
-    if (/\{\s*$/.test(t)) return 'func';
-    if(Array.isArray(snippet)) {
-      // Track open parens to avoid breaking inside string arguments
-      let openParens = (t.match(/\(/g)||[]).length - (t.match(/\)/g)||[]).length;
-      const after = snippet.filter(s => s.line > matchLine).slice(0, 10);
-      for(const s of after) {
-        const st = (s.text||'').trim();
-        if(!st) continue;
-        openParens += (st.match(/\(/g)||[]).length - (st.match(/\)/g)||[]).length;
-        if (/^\{/.test(st) || /\{\s*$/.test(st)) return 'func';
-        // If parens balanced and line ends with semicolon, it's a call not a definition
-        if(openParens <= 0 && /;\s*$/.test(st)) break;
-        // Only break on unexpected characters when not inside an argument list
-        if(openParens <= 0 && st && !/^[a-zA-Z0-9_\s,*(){}]/.test(st)) break;
-      }
-    }
-  }
-  return null;
-}
-
 function makeRI(m, compact=false) {
   const ifd = (m.ifdef_stack||[]).map(f=>'#'+f.directive+' '+f.condition).join(' > ');
-  const kind = defKind(m.text, m.snippet, m.line);
+  const kind = m.kind || null;
   const badge = kind
     ? `<span style="background:${KIND_COLOR[kind]};color:#fff;font-size:10px;padding:1px 4px;border-radius:3px;flex-shrink:0">${KIND_LABEL[kind]}</span>`
     : '';

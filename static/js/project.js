@@ -247,7 +247,7 @@ function initDirPicker() {
 
   document.addEventListener('mousedown', e => {
     if(!id('dir-wrap').contains(e.target) && !drop.contains(e.target)) closeDrop();
-  });
+  }, true);
   document.addEventListener('keydown', e => {
     if(e.key === 'Escape' && drop.classList.contains('open')) {
       e.stopPropagation();

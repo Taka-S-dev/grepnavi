@@ -21,6 +21,7 @@ type Match struct {
 	Line       int           `json:"line"`
 	Col        int           `json:"col"`
 	Text       string        `json:"text"`
+	Kind       string        `json:"kind"` // "func" / "define" / "struct" / "enum" / "typedef" / ""
 	Snippet    []SnippetLine `json:"snippet"`
 	IfdefStack []IfdefFrame  `json:"ifdef_stack"`
 	Query      string        `json:"query"`
