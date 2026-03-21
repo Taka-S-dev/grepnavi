@@ -132,6 +132,7 @@ func parseOutput(data []byte, query string, ctxLines int) ([]graph.Match, error)
 	flush := func() {
 		if currentMatch != nil {
 			currentMatch.Snippet = snippetBuf
+			currentMatch.Kind = ClassifyKind(currentMatch.Text, snippetBuf, currentMatch.Line)
 			results = append(results, *currentMatch)
 			currentMatch = nil
 			snippetBuf = nil
@@ -290,6 +291,7 @@ func scanRgOutput(ctx context.Context, stdout io.Reader, matchCh chan<- graph.Ma
 			return
 		}
 		currentMatch.Snippet = snippetBuf
+		currentMatch.Kind = ClassifyKind(currentMatch.Text, snippetBuf, currentMatch.Line)
 		send(*currentMatch)
 		currentMatch = nil
 		snippetBuf = nil

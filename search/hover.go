@@ -101,6 +101,8 @@ func FindHover(ctx context.Context, word, dir, glob string, includeChain ...map[
 		case "func":
 			body = extractBraceBlock(lines, h.Line, 5)
 			// { がない場合は宣言（プロトタイプ）
+			// NOTE: 宣言/定義の判定ロジックは search/classify.go の ClassifyKind と対になっています。
+			// 片方を変更した場合はもう片方も確認してください。
 			if !strings.Contains(body, "{") {
 				body = h.Text
 				isDecl = true

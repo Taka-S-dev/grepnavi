@@ -22,7 +22,7 @@ body{font:13px/1.4 'Consolas','Courier New',monospace;background:#1e1e1e;color:#
 #search-panel{display:flex;flex-direction:column;background:#252526;border-bottom:1px solid #333;flex-shrink:0;padding:6px 8px;gap:4px}
 #bar-main{display:flex;align-items:center;gap:4px}
 #bar-loc{display:flex;align-items:center;gap:4px}
-#bar-sub{display:none;flex-direction:column;gap:4px;padding:6px 8px;background:#1a1c1e;border-top:1px solid #3a3a3a;margin:-6px -8px 0;width:calc(100% + 16px)}
+#bar-sub{display:none;flex-direction:column;gap:4px;padding:6px 8px;background:#1a1c1e;border-top:1px solid #3a3a3a;margin:0 -8px;width:calc(100% + 16px)}
 #bar-sub.open{display:flex}
 #q-wrap{flex:1;display:flex;align-items:center;background:#3c3c3c;border:1px solid #555;border-radius:3px;padding:0 4px;min-width:0}
 #q-wrap:focus-within{border-color:#007acc}
