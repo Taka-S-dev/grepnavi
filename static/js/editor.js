@@ -1,3 +1,98 @@
+// ===== 単語ハイライト固定 =====
+const PINNED_HL_COLORS = [
+  { chip: '#00dcff', rgba: 'rgba(0,220,255,0.25)',   border: 'rgba(0,180,255,0.9)'  },
+  { chip: '#50ff78', rgba: 'rgba(80,255,120,0.25)',  border: 'rgba(50,200,80,0.9)'  },
+  { chip: '#ff6464', rgba: 'rgba(255,100,100,0.25)', border: 'rgba(255,60,60,0.9)'  },
+  { chip: '#c864ff', rgba: 'rgba(200,100,255,0.25)', border: 'rgba(160,60,255,0.9)' },
+  { chip: '#ffa03c', rgba: 'rgba(255,160,60,0.25)',  border: 'rgba(255,120,20,0.9)' },
+  { chip: '#3cc8c8', rgba: 'rgba(60,200,200,0.25)',  border: 'rgba(20,160,160,0.9)' },
+  { chip: '#ffb8d0', rgba: 'rgba(255,184,208,0.25)', border: 'rgba(255,140,180,0.9)'},
+  { chip: '#ffdc00', rgba: 'rgba(255,220,0,0.35)',   border: 'rgba(255,180,0,0.9)'  },
+];
+
+const WORD_SEPARATORS = '`~!@#$%^&*()-=+[{]}\\|;:\'",.<>/?';
+
+function applyPinnedHighlightToModel(ph, model) {
+  if(!model) return;
+  const uriStr = model.uri.toString();
+  if(ph.modelDecos.has(uriStr)) return;
+  // wholeWord=true → 単語一致、false → 部分一致
+  const wordSeps = ph.wholeWord ? WORD_SEPARATORS : null;
+  const matches = model.findMatches(ph.word, false, false, true, wordSeps, false);
+  const decos = matches.map(m => ({
+    range: m.range,
+    options: { inlineClassName: `pinned-hl-${ph.colorIdx}` }
+  }));
+  const ids = model.deltaDecorations([], decos);
+  ph.modelDecos.set(uriStr, ids);
+}
+
+function togglePinnedHighlight(word, wholeWord = true) {
+  const idx = pinnedHighlights.findIndex(p => p.word === word);
+  if(idx >= 0) {
+    const ph = pinnedHighlights[idx];
+    ph.modelDecos.forEach((ids, uriStr) => {
+      const m = monaco.editor.getModels().find(m => m.uri.toString() === uriStr);
+      if(m) m.deltaDecorations(ids, []);
+    });
+    pinnedHighlights.splice(idx, 1);
+  } else {
+    const usedColors = new Set(pinnedHighlights.map(p => p.colorIdx));
+    let colorIdx = 0;
+    for(let i = 0; i < PINNED_HL_COLORS.length; i++) {
+      if(!usedColors.has(i)) { colorIdx = i; break; }
+    }
+    const originFile = tabs[activeTabIdx]?.file ?? null;
+    const originLine = monacoEditor?.getPosition()?.lineNumber ?? null;
+    const ph = { word, wholeWord, colorIdx, modelDecos: new Map(), originFile, originLine };
+    pinnedHighlights.push(ph);
+    applyPinnedHighlightToModel(ph, monacoEditor?.getModel());
+  }
+  renderPinnedChips();
+}
+
+function jumpPinnedHighlight(ph, dir) {
+  const model = monacoEditor?.getModel();
+  if(!model) return;
+  const wordSeps = ph.wholeWord ? WORD_SEPARATORS : null;
+  const matches = model.findMatches(ph.word, false, false, true, wordSeps, false);
+  if(!matches.length) return;
+  const curLine = monacoEditor.getPosition()?.lineNumber ?? 0;
+  let idx;
+  if(dir > 0) {
+    idx = matches.findIndex(m => m.range.startLineNumber > curLine);
+    if(idx < 0) idx = 0; // wrap
+  } else {
+    idx = matches.slice().reverse().findIndex(m => m.range.startLineNumber < curLine);
+    idx = idx < 0 ? matches.length - 1 : matches.length - 1 - idx; // wrap
+  }
+  const target = matches[idx];
+  monacoEditor.revealLineInCenter(target.range.startLineNumber);
+  monacoEditor.setPosition({ lineNumber: target.range.startLineNumber, column: target.range.startColumn });
+}
+
+function renderPinnedChips() {
+  const panel = id('pinned-hl-panel');
+  if(!panel) return;
+  panel.innerHTML = '';
+  panel.style.display = pinnedHighlights.length ? 'flex' : 'none';
+  pinnedHighlights.forEach(ph => {
+    const c = PINNED_HL_COLORS[ph.colorIdx];
+    const chip = document.createElement('span');
+    chip.className = 'pinned-chip';
+    chip.style.cssText = `--chip-color:${c.chip};border-color:${c.border};background:${c.rgba}`;
+    chip.innerHTML = `<span class="pinned-chip-nav" title="前の出現箇所">&#8249;</span><span class="pinned-chip-word">${ph.word}</span><span class="pinned-chip-nav" title="次の出現箇所">&#8250;</span><span class="pinned-chip-x">×</span>`;
+    const [btnPrev, btnNext] = chip.querySelectorAll('.pinned-chip-nav');
+    btnPrev.onclick = () => jumpPinnedHighlight(ph, -1);
+    btnNext.onclick = () => jumpPinnedHighlight(ph, +1);
+    chip.querySelector('.pinned-chip-word').onclick = () => {
+      if(ph.originFile) openPeek(ph.originFile, ph.originLine);
+    };
+    chip.querySelector('.pinned-chip-x').onclick = () => togglePinnedHighlight(ph.word);
+    panel.appendChild(chip);
+  });
+}
+
 // ===== 行メモ (localStorage) =====
 function getLineMemos() {
   try { return JSON.parse(localStorage.getItem('grepnavi-line-memos') || '{}'); } catch { return {}; }
@@ -401,6 +496,23 @@ async function ensureEditor() {
     }
   });
 
+  // Alt+H / 右クリック → 単語ハイライト固定/解除
+  monacoEditor.addAction({
+    id: 'grepnavi-pin-highlight', label: '単語ハイライトを固定/解除 (Alt+H)',
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyH],
+    contextMenuGroupId: 'grepnavi',
+    contextMenuOrder: 0.5,
+    run: ed => {
+      const model = ed.getModel();
+      const pos = ed.getPosition();
+      if(!model || !pos) return;
+      const sel = ed.getSelection();
+      const selText = sel && !sel.isEmpty() ? model.getValueInRange(sel).trim() : '';
+      const word = selText || model.getWordAtPosition(pos)?.word;
+      if(word) togglePinnedHighlight(word, !selText);
+    }
+  });
+
   // Alt+G → 選択行をノードに追加
   monacoEditor.addAction({
     id: 'grepnavi-add-node', label: 'ノードに追加 (Alt+G)',
@@ -615,6 +727,7 @@ async function switchTab(idx) {
   id('peek-file').textContent = tab.file + ':' + tab.line;
   refreshGraphDecorations();
   refreshLineMemoDecorations();
+  pinnedHighlights.forEach(ph => applyPinnedHighlightToModel(ph, tab.model));
   const isC = /\.(c|h|cpp|cc|cxx|hpp)$/i.test(tab.file);
   id('ifdef-ui').style.display = isC ? 'flex' : 'none';
   if(!isC) clearIfdefHighlight();

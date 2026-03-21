@@ -759,6 +759,13 @@ function makeNodeEl(node, depth, visited = new Set()) {
   delBtn.onclick = e => { e.stopPropagation(); removeNode(node.id); };
 
   row.insertBefore(handle, row.firstChild);
+  if(node.badge_color) {
+    const badge = document.createElement('span');
+    badge.className = 'node-badge';
+    badge.style.background = node.badge_color;
+    badge.textContent = node.badge_text || '';
+    row.appendChild(badge);
+  }
   if(node.memo) {
     const memoIcon = document.createElement('span');
     memoIcon.className = 'node-memo-dot';
@@ -798,6 +805,19 @@ function selectNode(id_) {
   document.querySelectorAll('.node-row').forEach(el => {
     el.classList.toggle('sel', el.dataset.id === id_);
   });
+  // 選択ノードの補助線強調: 以前のハイライトをクリアして付け直す
+  document.querySelectorAll('.children.guide-sel').forEach(el => el.classList.remove('guide-sel'));
+  if(id_) {
+    const wrap = document.querySelector(`.node[data-id="${id_}"]`);
+    if(wrap) {
+      // 選択ノードから子へ伸びる縦線
+      const childrenEl = wrap.querySelector(':scope > .children');
+      if(childrenEl) childrenEl.classList.add('guide-sel');
+      // 選択ノードが属する親の縦線
+      const parentChildren = wrap.parentElement?.closest('.children');
+      if(parentChildren) parentChildren.classList.add('guide-sel');
+    }
+  }
   const n = graph.nodes[id_];
   showDetail(n);
   if(n && n.match && n.match.file) openPeek(n.match.file, n.match.line);
@@ -1000,6 +1020,20 @@ function showDetail(n) {
   el.innerHTML = '';
 
 
+  const BADGE_COLORS = [
+    {color:'', label:'なし'},
+    {color:'#e05252', label:'赤'},
+    {color:'#e09a30', label:'橙'},
+    {color:'#c8c825', label:'黄'},
+    {color:'#4caf50', label:'緑'},
+    {color:'#4a9edd', label:'青'},
+    {color:'#9c6fe4', label:'紫'},
+    {color:'#888',    label:'灰'},
+  ];
+  const badgeSwatches = BADGE_COLORS.map(b =>
+    `<span class="badge-swatch${(n.badge_color||'')===b.color?' sel':''}" data-color="${esc(b.color)}" title="${b.label}"
+      style="background:${b.color||'transparent'};${!b.color?'border:1px dashed #555;':''}">${!b.color?'✕':''}</span>`
+  ).join('');
   const labelSec = makeAccSection('loc', 'ラベル', `
     <div style="display:flex;gap:4px;align-items:center">
       <input id="label-inp" type="text" value="${esc(n.label||'')}" placeholder="${esc((m.text||'').trim() || labelFrom(m))}"
@@ -1007,7 +1041,13 @@ function showDetail(n) {
     </div>
     <div style="color:#555;font-size:11px;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
          title="${esc((m.text||'').trim())}">元: ${esc((m.text||'').trim() || labelFrom(m))}</div>
-    <div class="dv" id="d-filelink" title="Ctrl+クリックでエディタで開く" style="cursor:pointer;color:#569cd6;text-decoration:underline;font-size:11px;margin-top:2px">${esc(m.file||'')}:${m.line||''}</div>`, true);
+    <div class="dv" id="d-filelink" title="Ctrl+クリックでエディタで開く" style="cursor:pointer;color:#569cd6;text-decoration:underline;font-size:11px;margin-top:2px">${esc(m.file||'')}:${m.line||''}</div>
+    <div style="margin-top:6px">
+      <div style="font-size:11px;color:#888;margin-bottom:3px">バッジ</div>
+      <div id="badge-swatches" style="display:flex;gap:4px;margin-bottom:4px">${badgeSwatches}</div>
+      <input id="badge-text-inp" type="text" value="${esc(n.badge_text||'')}" placeholder="テキスト（省略可）"
+        style="width:100%;box-sizing:border-box;background:#1a1a1a;border:1px solid #444;color:#e0e0e0;font:11px Consolas,monospace;padding:2px 4px;border-radius:2px">
+    </div>`, true);
   el.appendChild(labelSec);
 
   if(stack.length) {
@@ -1038,6 +1078,19 @@ function showDetail(n) {
   id('label-inp').onkeydown = e => { if(e.key === 'Enter') saveLabel(); };
   id('label-inp').onblur = saveLabel;
   id('memo-ta').onblur = saveMemo;
+  // バッジ: スウォッチクリックで色を選択→即保存
+  id('badge-swatches').querySelectorAll('.badge-swatch').forEach(sw => {
+    sw.onclick = () => {
+      id('badge-swatches').querySelectorAll('.badge-swatch').forEach(s => s.classList.remove('sel'));
+      sw.classList.add('sel');
+      saveBadge(sw.dataset.color, id('badge-text-inp').value.trim());
+    };
+  });
+  id('badge-text-inp').onblur = () => {
+    const sel = id('badge-swatches').querySelector('.badge-swatch.sel');
+    saveBadge(sel ? sel.dataset.color : (n.badge_color||''), id('badge-text-inp').value.trim());
+  };
+  id('badge-text-inp').onkeydown = e => { if(e.key === 'Enter') e.target.blur(); };
 }
 
 async function saveLabel() {
@@ -1052,6 +1105,17 @@ async function saveLabel() {
   renderCurrent();
   showDetail(graph.nodes[selNode]);
   st('ラベル保存');
+}
+
+async function saveBadge(color, text) {
+  if(!selNode) return;
+  const r = await fetch('/api/graph/node/'+selNode, {
+    method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({badge_color: color, badge_text: text})
+  });
+  const n = await r.json();
+  graph.nodes[selNode] = n;
+  renderCurrent();
 }
 
 async function saveMemo() {
@@ -1099,6 +1163,16 @@ async function addToGraph(match, parentId, edgeLabel, label) {
     const p = graph.nodes[parentId];
     p.children = p.children||[];
     if(!p.children.includes(d.node.id)) p.children.push(d.node.id);
+  } else if(!parentId) {
+    // ルートノードとして追加された場合、既存ルートノードを含む完全な順序リストを再構築して末尾に追加
+    const hp = new Set();
+    Object.values(graph.nodes).forEach(n => (n.children||[]).forEach(c => hp.add(c)));
+    const ordered = (graph._rootOrder || []).filter(id => graph.nodes[id] && !hp.has(id));
+    const unordered = Object.values(graph.nodes).filter(n => !hp.has(n.id) && !ordered.includes(n.id)).map(n => n.id);
+    const full = [...ordered, ...unordered];
+    if(!full.includes(d.node.id)) full.push(d.node.id);
+    graph._rootOrder = full;
+    await saveRootOrder(graph._rootOrder);
   }
   renderCurrent();
   selectNode(d.node.id);

@@ -54,6 +54,8 @@ func ClassifyKind(text string, snippet []graph.SnippetLine, matchLine int) strin
 		strings.HasPrefix(t, "/*") ||
 		strings.HasPrefix(t, "//") ||
 		strings.HasPrefix(t, "*") ||
+		strings.HasPrefix(t, "||") ||
+		strings.HasPrefix(t, "&&") ||
 		reSemiEnd.MatchString(t) ||
 		reLogicEnd.MatchString(t) ||
 		parenIdx <= 0 ||

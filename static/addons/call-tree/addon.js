@@ -71,7 +71,20 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('ct-go').onclick = ctSearch;
   document.getElementById('ct-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') ctSearch();
-    if (e.key === 'Escape') closeCallTree();
+    if (e.key === 'Escape') {
+      const input = document.getElementById('ct-input');
+      if (input.value.trim() || _ctRootFunc) {
+        // 入力あり or 結果表示中 → クリア
+        input.value = '';
+        _ctRootFunc = '';
+        _ctTree = null;
+        _ctTrees.callers = null;
+        _ctTrees.callees = null;
+        document.getElementById('ct-body').innerHTML = '';
+      } else {
+        closeCallTree();
+      }
+    }
   });
   document.querySelectorAll('.ct-tab').forEach(tab => {
     tab.onclick = () => {
@@ -95,6 +108,17 @@ document.addEventListener('DOMContentLoaded', () => {
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'T') {
       e.preventDefault();
       openCallTree();
+    }
+    // コールツリーがアクティブな状態で Esc → 入力欄にフォーカスして結果クリア
+    if (e.key === 'Escape' && document.getElementById('ct-sidebar').classList.contains('open')) {
+      const input = document.getElementById('ct-input');
+      // 入力欄以外にフォーカスがある場合は入力欄にフォーカスするだけ
+      if (document.activeElement !== input) {
+        e.preventDefault();
+        input.focus();
+        input.select();
+        return;
+      }
     }
   });
 
@@ -355,7 +379,7 @@ async function ctToggle(node, el) {
     const res = await fetch('/api/callers?' + params).catch(() => null);
     if (res && res.ok) {
       const hits = await res.json();
-      node.children = hits.map(h => ({ func: h.func, file: h.file, line: h.line, callLine: h.call_line, children: null, expanded: false }));
+      node.children = hits.map(h => ({ func: h.func, file: h.file, line: h.line, callLine: h.call_line, children: null, expanded: false, _callerCached: true }));
     } else {
       node.children = [];
     }
@@ -371,6 +395,10 @@ async function ctToggle(node, el) {
         const anyHit = funcHit || hHits[0];
         // 表示用（定義場所）はどの種別でもセット
         if (anyHit) { node.file = anyHit.file; node.line = anyHit.line; }
+        // ジャンプ用: decl:false（実装）が見つかった場合だけ _defFile/_defLine にキャッシュ
+        // decl しか見つからない場合はキャッシュしない（ctJumpToFunc で hover API を再呼び出し）
+        const defHit = hHits.find(h => h.kind === 'func' && !h.decl);
+        if (defHit) { node._defFile = defHit.file; node._defLine = defHit.line; }
         // callees API は関数本体が必要なので func のみ使用
         node._funcFile = funcHit ? funcHit.file : '';
         node._funcLine = funcHit ? funcHit.line : 0;
@@ -401,12 +429,18 @@ function ctJumpToLine(file, line) {
 }
 
 async function ctJumpToFunc(node) {
+  // _defFile/_defLine: ctToggle で decl:false と確認済みの実装場所
+  if (node._defFile && node._defLine) {
+    ctJumpToLine(node._defFile, node._defLine);
+    return;
+  }
   // callers の子ノードは findContainingFunc が返した実装行をキャッシュ済みなのでそのまま使う
-  if (node.file && node.line) {
+  // （callers では node.file/line は実装行が入る）
+  if (node.file && node.line && node._callerCached) {
     ctJumpToLine(node.file, node.line);
     return;
   }
-  // 未設定の場合は hover API で定義（decl:false 優先）を検索
+  // hover API で定義（decl:false 優先）を検索
   const dir = (document.getElementById('dir') || {}).value || '';
   const params = new URLSearchParams({ word: node.func });
   if (dir) params.set('dir', dir);
@@ -415,8 +449,8 @@ async function ctJumpToFunc(node) {
     const hits = await res.json();
     const h = hits.find(h => h.kind === 'func' && !h.decl) || hits.find(h => h.kind === 'func') || hits[0];
     if (h) {
-      node.file = h.file;
-      node.line = h.line;
+      node._defFile = h.file;
+      node._defLine = h.line;
       ctJumpToLine(h.file, h.line);
       return;
     }

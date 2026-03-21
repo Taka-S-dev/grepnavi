@@ -55,15 +55,7 @@ func FindHover(ctx context.Context, word, dir, glob string, includeChain ...map[
 
 	var result []HoverHit
 	seen := map[string]bool{}
-	funcCount := 0
 	for _, h := range hits {
-		// 関数定義は最大2件（大量マッチ防止）
-		if h.Kind == "func" {
-			if funcCount >= 2 {
-				continue
-			}
-			funcCount++
-		}
 		key := fmt.Sprintf("%s:%d", h.File, h.Line)
 		if seen[key] {
 			continue
@@ -79,6 +71,7 @@ func FindHover(ctx context.Context, word, dir, glob string, includeChain ...map[
 
 		var body string
 		isDecl := false
+		commentLine := h.Line // コメント抽出基準行（通常はヒット行、enum_member はブロック開始行）
 		switch h.Kind {
 		case "define":
 			body = extractDefineBlock(lines, h.Line)
@@ -98,8 +91,10 @@ func FindHover(ctx context.Context, word, dir, glob string, includeChain ...map[
 			if !strings.Contains(firstLine, "enum") {
 				continue
 			}
+			// コメントはenumブロック開始行（typedef enum { の行）基準で抽出
+			commentLine = findContainingBlockStart(lines, h.Line)
 		case "func":
-			body = extractBraceBlock(lines, h.Line, 5)
+			body = extractBraceBlock(lines, h.Line, 20)
 			// { がない場合は宣言（プロトタイプ）
 			// NOTE: 宣言/定義の判定ロジックは search/classify.go の ClassifyKind と対になっています。
 			// 片方を変更した場合はもう片方も確認してください。
@@ -113,11 +108,38 @@ func FindHover(ctx context.Context, word, dir, glob string, includeChain ...map[
 		if body == "" {
 			body = h.Text
 		}
-		if comment := extractLeadingComment(lines, h.Line); comment != "" {
+		if comment := extractLeadingComment(lines, commentLine); comment != "" {
 			body = comment + "\n" + body
 		}
 		result = append(result, HoverHit{File: h.File, Line: h.Line, Kind: h.Kind, Body: body, Decl: isDecl})
 	}
+
+	// func 結果を実装（decl:false）優先・上限2件でフィルタ
+	// 宣言（decl:true）は実装が見つからない場合のみ最大2件補完
+	// ※ 以前の funcCount >= 2 制限は宣言2件で実装がスキップされるバグがあったため廃止
+	var funcDefs, funcDecls []HoverHit
+	var nonFunc []HoverHit
+	for _, h := range result {
+		if h.Kind != "func" {
+			nonFunc = append(nonFunc, h)
+		} else if !h.Decl {
+			funcDefs = append(funcDefs, h)
+		} else {
+			funcDecls = append(funcDecls, h)
+		}
+	}
+	if len(funcDefs) > 2 {
+		funcDefs = funcDefs[:2]
+	}
+	var funcResult []HoverHit
+	funcResult = append(funcResult, funcDefs...)
+	if len(funcDefs) == 0 && len(funcDecls) > 0 {
+		if len(funcDecls) > 2 {
+			funcDecls = funcDecls[:2]
+		}
+		funcResult = append(funcResult, funcDecls...)
+	}
+	result = append(nonFunc, funcResult...)
 
 	// typedef エイリアス（typedef struct foo_st Bar;）で本体が取れなかった場合、
 	// 参照先の struct/union/enum を追いかける。
@@ -183,6 +205,12 @@ func extractBraceBlock(lines []string, startLine int, maxLookAhead ...int) strin
 		}
 
 		line := lines[i]
+
+		// { より前に ; が来たらプロトタイプ宣言（別の構造体等の { を誤検知しないよう打ち切る）
+		if !started && strings.ContainsRune(line, ';') {
+			return ""
+		}
+
 		buf = append(buf, line)
 
 		// ブレースをカウント（文字列・コメント内は近似処理）
@@ -225,6 +253,27 @@ func extractBraceBlock(lines []string, startLine int, maxLookAhead ...int) strin
 		return ""
 	}
 	return stripCommonIndent(buf)
+}
+
+// findContainingBlockStart はメンバー行から逆方向に { を探し、その行の1-indexed行番号を返す。
+func findContainingBlockStart(lines []string, memberLine int) int {
+	idx := memberLine - 1
+	depth := 0
+	for i := idx; i >= 0 && i > idx-500; i-- {
+		line := lines[i]
+		for j := len(line) - 1; j >= 0; j-- {
+			ch := line[j]
+			if ch == '}' {
+				depth++
+			} else if ch == '{' {
+				depth--
+				if depth < 0 {
+					return i + 1 // 1-indexed
+				}
+			}
+		}
+	}
+	return memberLine
 }
 
 // extractContainingBlock はメンバー行（enum値等）から逆方向に { を探し、
@@ -291,21 +340,48 @@ func extractBraceBlockBackward(lines []string, endLine int) string {
 }
 
 // extractLeadingComment は startLine（1-indexed）の直前にあるコメントブロックを返す。
-// C スタイル（// / /* */）に対応。空行またはコメント以外の行が来たら打ち切る。
+// C スタイル（// / /* */）に対応。/* */ ブロックは内部フォーマットを問わず丸ごと取得。
+// 空行は関数直前に1行まで許容。
 func extractLeadingComment(lines []string, startLine int) string {
 	var commentLines []string
-	for i := startLine - 2; i >= 0; i-- {
+	skippedBlank := false
+	i := startLine - 2
+	for i >= 0 {
 		trimmed := strings.TrimSpace(lines[i])
 		if trimmed == "" {
+			// 空行は関数直前に1行まで許容（コメント収集開始後は打ち切り）
+			if skippedBlank || len(commentLines) > 0 {
+				break
+			}
+			skippedBlank = true
+			i--
+			continue
+		}
+		// /* */ ブロックコメントの末尾を検出 → 開始 /* まで逆方向に一括収集
+		if strings.HasSuffix(trimmed, "*/") {
+			commentLines = append([]string{lines[i]}, commentLines...)
+			if strings.HasPrefix(trimmed, "/*") {
+				// 1行完結コメント: /* ... */ → 前の行も続けて確認
+				i--
+				continue
+			}
+			// 複数行ブロックコメント → /* まで一括収集してループ終了
+			i--
+			for i >= 0 {
+				commentLines = append([]string{lines[i]}, commentLines...)
+				if strings.HasPrefix(strings.TrimSpace(lines[i]), "/*") {
+					break
+				}
+				i--
+			}
 			break
 		}
-		if strings.HasPrefix(trimmed, "//") ||
-			strings.HasPrefix(trimmed, "*") ||
-			strings.HasPrefix(trimmed, "/*") {
+		if strings.HasPrefix(trimmed, "//") {
 			commentLines = append([]string{lines[i]}, commentLines...)
 		} else {
 			break
 		}
+		i--
 	}
 	return strings.Join(commentLines, "\n")
 }

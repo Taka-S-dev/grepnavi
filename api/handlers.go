@@ -498,13 +498,15 @@ func (h *Handler) handleNodeByID(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPut:
 		var req struct {
-			Label    *string  `json:"label"`
-			Memo     *string  `json:"memo"`
-			Tags     []string `json:"tags"`
-			PosX     *float64 `json:"pos_x"`
-			PosY     *float64 `json:"pos_y"`
-			Expanded *bool    `json:"expanded"`
-		Children []string `json:"children"`
+			Label      *string  `json:"label"`
+			Memo       *string  `json:"memo"`
+			Tags       []string `json:"tags"`
+			PosX       *float64 `json:"pos_x"`
+			PosY       *float64 `json:"pos_y"`
+			Expanded   *bool    `json:"expanded"`
+			Children   []string `json:"children"`
+			BadgeColor *string  `json:"badge_color"`
+			BadgeText  *string  `json:"badge_text"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			jsonErr(w, err.Error(), http.StatusBadRequest)
@@ -546,6 +548,12 @@ func (h *Handler) handleNodeByID(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 				n.Children = filtered
+			}
+			if req.BadgeColor != nil {
+				n.BadgeColor = *req.BadgeColor
+			}
+			if req.BadgeText != nil {
+				n.BadgeText = *req.BadgeText
 			}
 		})
 		if err != nil {

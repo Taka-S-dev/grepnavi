@@ -36,15 +36,17 @@ type SnippetLine struct {
 
 // Node はグラフ上の1ノード。
 type Node struct {
-	ID       string   `json:"id"`
-	Match    Match    `json:"match"`
-	Label    string   `json:"label"`
-	Memo     string   `json:"memo"`
-	Tags     []string `json:"tags"`
-	PosX     float64  `json:"pos_x"`
-	PosY     float64  `json:"pos_y"`
-	Expanded bool     `json:"expanded"`
-	Children []string `json:"children"`
+	ID         string   `json:"id"`
+	Match      Match    `json:"match"`
+	Label      string   `json:"label"`
+	Memo       string   `json:"memo"`
+	Tags       []string `json:"tags"`
+	PosX       float64  `json:"pos_x"`
+	PosY       float64  `json:"pos_y"`
+	Expanded   bool     `json:"expanded"`
+	Children   []string `json:"children"`
+	BadgeColor string   `json:"badge_color,omitempty"` // バッジの色（例: "#e05252"）
+	BadgeText  string   `json:"badge_text,omitempty"`  // バッジのテキスト（省略可）
 }
 
 // Edge はノード間の有向エッジ。

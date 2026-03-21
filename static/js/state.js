@@ -41,6 +41,7 @@ let lineMemoDecoIds = [];
 let showLineMemoInline = true;
 let _lineMemoScrollDispose = null;
 let ifdefDecoIds = [];
+let pinnedHighlights = []; // [{word, colorIdx, modelDecos: Map<uriStr, decoIds[]>}]
 
 // Resize
 let peekResizing = false, peekStartY = 0, peekStartH = 0;
