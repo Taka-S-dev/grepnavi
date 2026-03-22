@@ -19,7 +19,8 @@ type HoverHit struct {
 }
 
 // FindHover は word の定義を検索し、ブロック本体付きで返す。
-// 検索戦略:
+// GNU Global が利用可能な場合はそちらを優先し、なければ ripgrep にフォールバックする。
+// 検索戦略（ripgrep 時）:
 //  1. ヘッダ（*.h,*.hpp）のみ検索 → struct/enum/define/typedef はここで完結
 //  2. func の宣言しか見つからなかった場合、ソースファイルも追加検索して定義本体を取得
 func FindHover(ctx context.Context, word, dir, glob string, includeChain ...map[string]bool) ([]HoverHit, error) {
@@ -27,27 +28,42 @@ func FindHover(ctx context.Context, word, dir, glob string, includeChain ...map[
 	if len(includeChain) > 0 && includeChain[0] != nil {
 		chain = includeChain[0]
 	}
-	const maxPerQuery = 5
-	headerGlob := "*.h,*.hpp"
 
-	// Phase 1: ヘッダのみ
-	hits, err := FindDefinitionsN(ctx, word, dir, headerGlob, maxPerQuery)
-	if err != nil && ctx.Err() != nil {
-		return nil, err
+	var hits []DefHit
+
+	// GNU Global が使えるなら定義位置をインデックスから直接取得
+	if GtagsAvailable(dir) {
+		gHits, err := GtagsFindHoverHits(ctx, word, dir)
+		if err == nil && len(gHits) > 0 {
+			hits = gHits
+		}
 	}
 
-	// Phase 2: ソースファイルも検索してマージ（func の定義本体を取得するため常に実行）
-	if glob != headerGlob && ctx.Err() == nil {
-		srcHits, _ := FindDefinitionsN(ctx, word, dir, glob, maxPerQuery)
-		seen := map[string]bool{}
-		for _, h := range hits {
-			seen[fmt.Sprintf("%s:%d", h.File, h.Line)] = true
+	// GNU Global が使えない or 結果なし → ripgrep にフォールバック
+	if len(hits) == 0 {
+		const maxPerQuery = 5
+		headerGlob := "*.h,*.hpp"
+
+		// Phase 1: ヘッダのみ
+		var err error
+		hits, err = FindDefinitionsN(ctx, word, dir, headerGlob, maxPerQuery)
+		if err != nil && ctx.Err() != nil {
+			return nil, err
 		}
-		for _, h := range srcHits {
-			key := fmt.Sprintf("%s:%d", h.File, h.Line)
-			if !seen[key] {
-				hits = append(hits, h)
-				seen[key] = true
+
+		// Phase 2: ソースファイルも検索してマージ
+		if glob != headerGlob && ctx.Err() == nil {
+			srcHits, _ := FindDefinitionsN(ctx, word, dir, glob, maxPerQuery)
+			seen := map[string]bool{}
+			for _, h := range hits {
+				seen[fmt.Sprintf("%s:%d", h.File, h.Line)] = true
+			}
+			for _, h := range srcHits {
+				key := fmt.Sprintf("%s:%d", h.File, h.Line)
+				if !seen[key] {
+					hits = append(hits, h)
+					seen[key] = true
+				}
 			}
 		}
 	}

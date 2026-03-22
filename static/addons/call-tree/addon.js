@@ -30,6 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
       <div id="ct-tabs">
         <button class="ct-tab active" data-mode="callers">Callers</button>
         <button class="ct-tab" data-mode="callees">Callees</button>
+        <span id="ct-engine-label"></span>
       </div>
       <div id="ct-body"></div>
     </div>
@@ -90,6 +91,7 @@ document.addEventListener('DOMContentLoaded', () => {
     tab.onclick = () => {
       _ctMode = tab.dataset.mode;
       document.querySelectorAll('.ct-tab').forEach(t => t.classList.toggle('active', t === tab));
+      updateCtEngineLabel(_ctMode);
       if (_ctRootFunc) {
         // 同じルート関数のツリーが保持済みなら再検索せず表示を切り替えるだけ
         const cached = _ctTrees[_ctMode];
@@ -133,6 +135,13 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
+function updateCtEngineLabel(mode) {
+  const label = document.getElementById('ct-engine-label');
+  if (!label) return;
+  const useGtags = mode === 'callers' && typeof gtagsEnabled === 'function' && gtagsEnabled();
+  label.textContent = useGtags ? 'GNU Global' : 'ripgrep';
+}
+
 // ----- open / close -----
 function openCallTree(funcName) {
   document.getElementById('ct-sidebar').classList.add('open');
@@ -175,11 +184,15 @@ async function ctSearch() {
   const dir  = (document.getElementById('dir')  || {}).value || '';
   const glob = (document.getElementById('glob') || {}).value || '';
 
+  const useGtags = typeof gtagsEnabled === 'function' && gtagsEnabled();
+  updateCtEngineLabel(_ctMode);
+
   try {
     if (_ctMode === 'callers') {
       const params = new URLSearchParams({ word });
       if (dir)  params.set('dir', dir);
       if (glob) params.set('glob', glob);
+      if (!useGtags) params.set('gtags', '0');
       const res = await fetch('/api/callers?' + params, { signal });
       if (!res.ok) { body.innerHTML = '<div class="ct-empty">エラー</div>'; return; }
       const hits = await res.json();
@@ -195,7 +208,8 @@ async function ctSearch() {
       };
       _ctTrees.callers = _ctTree;
     } else {
-      // callees: まず定義を探して file:line を取得
+      // callees: ripgrep固定（updateCtEngineLabel は ctSearch 冒頭で呼び済み）
+      // まず定義を探して file:line を取得
       const hoverParams = new URLSearchParams({ word });
       if (dir) hoverParams.set('dir', dir);
       const hRes = await fetch('/api/hover?' + hoverParams, { signal });
@@ -376,6 +390,7 @@ async function ctToggle(node, el) {
     const params = new URLSearchParams({ word: node.func });
     if (dir)  params.set('dir', dir);
     if (glob) params.set('glob', glob);
+    if (typeof gtagsEnabled === 'function' && !gtagsEnabled()) params.set('gtags', '0');
     const res = await fetch('/api/callers?' + params).catch(() => null);
     if (res && res.ok) {
       const hits = await res.json();

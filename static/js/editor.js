@@ -80,6 +80,7 @@ function renderPinnedChips() {
     const c = PINNED_HL_COLORS[ph.colorIdx];
     const chip = document.createElement('span');
     chip.className = 'pinned-chip';
+    chip.title = ph.wholeWord ? '単語一致' : '部分一致';
     chip.style.cssText = `--chip-color:${c.chip};border-color:${c.border};background:${c.rgba}`;
     chip.innerHTML = `<span class="pinned-chip-nav" title="前の出現箇所">&#8249;</span><span class="pinned-chip-word">${ph.word}</span><span class="pinned-chip-nav" title="次の出現箇所">&#8250;</span><span class="pinned-chip-x">×</span>`;
     const [btnPrev, btnNext] = chip.querySelectorAll('.pinned-chip-nav');
@@ -430,11 +431,12 @@ async function ensureEditor() {
 
   // Ctrl+クリック → 定義ジャンプ
   monacoEditor.onMouseDown(e => {
-    if(!e.event.ctrlKey) return;
     const pos = e.target.position;
     if(!pos) return;
     const word = monacoEditor.getModel()?.getWordAtPosition(pos);
-    if(word) { e.event.preventDefault(); jumpToDefinition(word.word); }
+    if(!word) return;
+    if(e.event.ctrlKey) { e.event.preventDefault(); jumpToDefinition(word.word); }
+    else if(e.event.altKey) { e.event.preventDefault(); grepSearchWord(word.word); }
   });
 
   // F12 → 定義ジャンプ
@@ -480,19 +482,29 @@ async function ensureEditor() {
     }
   });
 
-  // 右クリック → 選択テキストを検索
+  // 右クリック → grep 検索（カーソル単語）
   monacoEditor.addAction({
-    id: 'grepnavi-grep-selection', label: '選択テキストを検索',
+    id: 'grepnavi-grep-word', label: 'grep 検索（カーソル単語）',
     contextMenuGroupId: 'grepnavi',
     contextMenuOrder: 0,
     run: ed => {
       const sel = ed.getSelection();
       const model = ed.getModel();
-      if(!sel || !model) return;
-      const text = model.getValueInRange(sel).trim();
-      if(!text) return;
-      id('q').value = text;
-      doSearch();
+      if(!model) return;
+      const selText = sel && !sel.isEmpty() ? model.getValueInRange(sel).trim() : '';
+      const word = selText || model.getWordAtPosition(ed.getPosition())?.word;
+      if(word) grepSearchWord(word);
+    }
+  });
+
+  // 右クリック → 定義へジャンプ
+  monacoEditor.addAction({
+    id: 'grepnavi-goto-def-menu', label: '定義へジャンプ',
+    contextMenuGroupId: 'grepnavi',
+    contextMenuOrder: 0.2,
+    run: ed => {
+      const word = ed.getModel()?.getWordAtPosition(ed.getPosition())?.word;
+      if(word) jumpToDefinition(word);
     }
   });
 
@@ -694,6 +706,7 @@ async function openPeek(file, line) {
       range: new monaco.Range(matchLine, 1, matchLine, 1),
       options: {isWholeLine: true, className: 'peek-match-decoration'}
     }]);
+    monacoEditor.setPosition({lineNumber: matchLine, column: 1});
     monacoEditor.revealLineInCenter(matchLine);
     return;
   }
@@ -713,6 +726,7 @@ async function openPeek(file, line) {
     range: new monaco.Range(matchLine, 1, matchLine, 1),
     options: {isWholeLine: true, className: 'peek-match-decoration'}
   }]);
+  monacoEditor.setPosition({lineNumber: matchLine, column: 1});
   monacoEditor.revealLineInCenter(matchLine);
 }
 
@@ -780,9 +794,82 @@ function buildDefinitionParams(word, dir, glob, caseSensitive) {
   return p;
 }
 
+// ===== grep 検索（検索欄に表示） =====
+async function grepSearchWord(word) {
+  if(!word || word.length < 2) return;
+  id('q').value = word;
+  doSearch();
+}
+
+// ===== 定義ピークウィジェット（固定位置フローティング） =====
+let _defDom = null;
+let _defKeyHandler = null;
+
+function closeDefPeek() {
+  if (_defKeyHandler) { document.removeEventListener('keydown', _defKeyHandler); _defKeyHandler = null; }
+  if (_defDom) { _defDom.remove(); _defDom = null; }
+}
+
+function showDefPeek(hits, word, pixelPos) {
+  closeDefPeek();
+  const ROW_H = 24;
+  const HDR_H = 30;
+  const MAX_ROWS = 8;
+  const visRows = Math.min(hits.length, MAX_ROWS);
+
+  const dom = document.createElement('div');
+  dom.className = 'def-peek-zone';
+  // エディタコンテナ基準で固定位置に配置
+  dom.style.cssText = `position:absolute;z-index:100;top:${pixelPos.top}px;left:${pixelPos.left}px;min-width:400px;max-width:700px`;
+
+  const hdr = document.createElement('div');
+  hdr.className = 'def-peek-hdr';
+  hdr.innerHTML = `<span>定義: <b>${esc(word)}</b>（${hits.length}件）</span><span class="def-peek-close">✕</span>`;
+  dom.appendChild(hdr);
+
+  const list = document.createElement('div');
+  list.className = 'def-peek-list';
+  list.style.height = (visRows * ROW_H) + 'px';
+  list.tabIndex = 0;
+  dom.appendChild(list);
+
+  let sel = 0;
+  const rows = hits.map((h, i) => {
+    const row = document.createElement('div');
+    row.className = 'def-peek-row' + (i === 0 ? ' def-peek-sel' : '');
+    row.innerHTML = `<span class="def-peek-loc">${esc(shortPath(h.file))}:${h.line}</span><span class="def-peek-txt">${esc((h.text || '').trim())}</span>`;
+    row.onclick = async () => { closeDefPeek(); await openPeek(h.file, h.line); monacoEditor.focus(); };
+    row.onmouseenter = () => { rows[sel].classList.remove('def-peek-sel'); sel = i; rows[sel].classList.add('def-peek-sel'); };
+    list.appendChild(row);
+    return row;
+  });
+
+  hdr.querySelector('.def-peek-close').onclick = () => { closeDefPeek(); monacoEditor.focus(); };
+
+  _defKeyHandler = async e => {
+    if (!_defDom) return;
+    if (e.key === 'Escape')    { e.preventDefault(); e.stopPropagation(); closeDefPeek(); monacoEditor.focus(); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); rows[sel].classList.remove('def-peek-sel'); sel = (sel + 1) % hits.length; rows[sel].classList.add('def-peek-sel'); rows[sel].scrollIntoView({block:'nearest'}); return; }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); e.stopPropagation(); rows[sel].classList.remove('def-peek-sel'); sel = (sel - 1 + hits.length) % hits.length; rows[sel].classList.add('def-peek-sel'); rows[sel].scrollIntoView({block:'nearest'}); return; }
+    if (e.key === 'Enter')     { e.preventDefault(); e.stopPropagation(); const h = hits[sel]; closeDefPeek(); await openPeek(h.file, h.line); monacoEditor.focus(); return; }
+  };
+  document.addEventListener('keydown', _defKeyHandler);
+
+  // エディタコンテナに追加（position:relative が必要）
+  const container = monacoEditor.getDomNode().parentElement;
+  container.style.position = 'relative';
+  container.appendChild(dom);
+  _defDom = dom;
+  setTimeout(() => list.focus(), 0);
+}
+
 // ===== 定義ジャンプ =====
 async function jumpToDefinition(word) {
   if(!word || word.length < 2) return;
+  // ジャンプ前の現在位置を履歴に記録（Alt+← で戻れるように）
+  const curFile = tabs[activeTabIdx]?.file;
+  const curLine = monacoEditor?.getPosition()?.lineNumber;
+  if(curFile && curLine) navPush(curFile, curLine);
   let sf = 0;
   const stimer = setInterval(() => { sf=(sf+1)%SPINNER_FRAMES.length; st(SPINNER_FRAMES[sf]+' 定義を検索中: '+word); }, 80);
   st(SPINNER_FRAMES[0]+' 定義を検索中: '+word);
@@ -790,38 +877,54 @@ async function jumpToDefinition(word) {
   const dir = id('dir').value.trim();
   const glob = id('glob').value.trim();
 
-  const p = buildDefinitionParams(word, dir, glob, id('btn-cs').classList.contains('on'));
-  const r = await fetch('/api/search?' + p);
-  clearInterval(stimer);
-  const d = await r.json();
-  let hits = d.matches || [];
+  let hits = [];
+  let totalCount = 0;
 
+  // GNU Global が有効なら /api/definition を優先
+  if (typeof gtagsEnabled === 'function' && gtagsEnabled()) {
+    const p = new URLSearchParams({word});
+    if (dir) p.set('dir', dir);
+    try {
+      const r = await fetch('/api/definition?' + p);
+      if (r.ok) { hits = await r.json(); totalCount = hits.length; }
+    } catch {}
+  }
+
+  // gtags が無効 or 結果なしは ripgrep /api/definition にフォールバック
+  if (hits.length === 0) {
+    const p = new URLSearchParams({word});
+    if (dir)  p.set('dir', dir);
+    if (glob) p.set('glob', glob);
+    p.set('gtags', '0');
+    try {
+      const r = await fetch('/api/definition?' + p);
+      if (r.ok) { hits = await r.json(); totalCount = hits.length; }
+    } catch {}
+  }
+
+  clearInterval(stimer);
   if(hits.length === 0) { st('見つかりません: ' + word); return; }
 
+  // 現在ファイルを先頭に
   if(currentFile) {
     const inCurrent = hits.filter(m => m.file === currentFile);
     if(inCurrent.length) hits = [...inCurrent, ...hits.filter(m => m.file !== currentFile)];
   }
 
-  // 検索欄に反映
-  id('q').value = word;
+  // 1件なら直接ジャンプ
+  if(hits.length === 1) {
+    st(`定義: ${shortPath(hits[0].file)}:${hits[0].line}`);
+    await openPeek(hits[0].file, hits[0].line);
+    return;
+  }
 
-  allMatches = hits.slice(0, LIMIT);
-  fileGroupMap = {};
-  id('results').innerHTML = '';
-  allMatches.forEach(m => {
-    const fg = getOrCreateFileGroup(m.file);
-    fg.items.appendChild(makeRI(m, true));
-    fg.count++;
-    fg.fcount.textContent = fg.count + '件';
-  });
-  const fcount = Object.keys(fileGroupMap).length;
-  const title = `${fcount} ファイル · ${d.count}件  "${word}"`;
-  const overText = d.count > LIMIT ? `先頭${LIMIT}件` : '';
-  id('sh-title').textContent = title;
-  id('sh-over').textContent = overText;
-  st(`${d.count}件ヒット`);
-  saveSearchTab(word, d.count, title, overText);
+  // 複数件はピークウィジェットで表示（検索欄を汚染しない）
+  st(`定義 ${hits.length}件`);
+  const monacoPos = monacoEditor.getPosition() || { lineNumber: 1, column: 1 };
+  const pixelPos = monacoEditor.getScrolledVisiblePosition(monacoPos) || { top: 40, left: 40 };
+  // 1行分下にずらして表示
+  const lineH = monacoEditor.getOption(monaco.editor.EditorOption.lineHeight) || 20;
+  showDefPeek(hits, word, { top: pixelPos.top + lineH, left: Math.max(0, pixelPos.left) });
 }
 
 // ===== #ifdef ハイライト =====

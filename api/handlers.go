@@ -29,7 +29,11 @@ type Handler struct {
 }
 
 func NewHandler(store *graph.Store, root string) *Handler {
-	return &Handler{store: store, root: root}
+	h := &Handler{store: store, root: root}
+	if search.GtagsAvailable(root) {
+		search.GtagsCheckStaleAsync(root)
+	}
+	return h
 }
 
 func (h *Handler) Register(mux *http.ServeMux) {
@@ -72,6 +76,11 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	// call tree
 	mux.HandleFunc("/api/callers", h.handleCallers)
 	mux.HandleFunc("/api/callees", h.handleCallees)
+	// [GNU Global] 以下の4行を削除し、definition/hover/callersの分岐を除去で取り外し可能
+	mux.HandleFunc("/api/gtags/status", h.handleGtagsStatus)
+	mux.HandleFunc("/api/gtags/index", h.handleGtagsIndex)
+	mux.HandleFunc("/api/gtags/update", h.handleGtagsUpdate)
+	mux.HandleFunc("/api/gtags/rebuild", h.handleGtagsRebuild)
 	// [C言語アドオン] 以下の3行を削除するとインクルードグラフAPIが無効になります
 	mux.HandleFunc("/api/include-graph", h.handleIncludeGraph)
 	mux.HandleFunc("/api/include-file", h.handleIncludeFile)
@@ -140,7 +149,14 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 		dir = filepath.Join(hroot, dir)
 	}
 	glob := q.Get("glob")
-	hits, err := search.FindDefinitions(r.Context(), word, dir, glob)
+	useGtags := q.Get("gtags") != "0" && search.GtagsAvailable(dir)
+	var hits []search.DefHit
+	var err error
+	if useGtags {
+		hits, err = search.GtagsFindDefinitions(r.Context(), word, dir)
+	} else {
+		hits, err = search.FindDefinitions(r.Context(), word, dir, glob)
+	}
 	if err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -218,7 +234,14 @@ func (h *Handler) handleCallers(w http.ResponseWriter, r *http.Request) {
 	} else if !filepath.IsAbs(dir) {
 		dir = filepath.Join(hroot, dir)
 	}
-	hits, err := search.FindCallers(r.Context(), word, dir, q.Get("glob"))
+	useGtags := q.Get("gtags") != "0" && search.GtagsAvailable(dir)
+	var hits []search.CallSite
+	var err error
+	if useGtags {
+		hits, err = search.GtagsFindRefs(r.Context(), word, dir)
+	} else {
+		hits, err = search.FindCallers(r.Context(), word, dir, q.Get("glob"))
+	}
 	if err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -253,6 +276,67 @@ func (h *Handler) handleCallees(w http.ResponseWriter, r *http.Request) {
 		names = []string{}
 	}
 	jsonOK(w, names)
+}
+
+// --- /api/gtags/* ---
+
+func (h *Handler) handleGtagsStatus(w http.ResponseWriter, r *http.Request) {
+	h.mu.RLock()
+	root := h.root
+	h.mu.RUnlock()
+	jsonOK(w, map[string]interface{}{
+		"installed": search.GtagsInPath(),
+		"indexed":   search.GtagsIndexed(root),
+		"stale":     search.GtagsIsStale(),
+	})
+}
+
+func (h *Handler) handleGtagsIndex(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	h.mu.RLock()
+	root := h.root
+	h.mu.RUnlock()
+	if err := search.GtagsBuildIndex(r.Context(), root); err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	search.GtagsResetStale()
+	jsonOK(w, map[string]bool{"ok": true})
+}
+
+func (h *Handler) handleGtagsUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	h.mu.RLock()
+	root := h.root
+	h.mu.RUnlock()
+	if err := search.GtagsUpdateIndex(r.Context(), root); err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	search.GtagsResetStale()
+	jsonOK(w, map[string]bool{"ok": true})
+}
+
+func (h *Handler) handleGtagsRebuild(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	h.mu.RLock()
+	root := h.root
+	h.mu.RUnlock()
+	if err := search.GtagsRebuildIndex(r.Context(), root); err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	search.GtagsResetStale()
+	jsonOK(w, map[string]bool{"ok": true})
 }
 
 // --- /api/ifdef ---

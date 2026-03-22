@@ -144,9 +144,7 @@ addEventListener('DOMContentLoaded', async () => {
   document.addEventListener('keydown', e => {
     if(e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
     if(e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
-    const tag = document.activeElement?.tagName;
-    if(tag === 'INPUT' || tag === 'TEXTAREA') return;
-    if(monacoEditor && monacoEditor.hasTextFocus()) return;
+    if(document.activeElement?.id !== 'tree') return;
     if(viewMode !== 'tree') return;
     e.preventDefault();
     const rows = [...document.querySelectorAll('#tree .node-row')];

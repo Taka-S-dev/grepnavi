@@ -105,8 +105,15 @@ body.panel-mode #ct-close { display: none; }
 
 #ct-tabs {
   display: flex;
+  align-items: center;
   border-bottom: 1px solid #2a2a2a;
   flex-shrink: 0;
+}
+#ct-engine-label {
+  margin-left: auto;
+  padding: 0 8px;
+  font-size: 10px;
+  color: #666;
 }
 .ct-tab {
   background: none;

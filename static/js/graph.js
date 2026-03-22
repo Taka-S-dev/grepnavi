@@ -774,7 +774,7 @@ function makeNodeEl(node, depth, visited = new Set()) {
     row.appendChild(memoIcon);
   }
   row.appendChild(delBtn);
-  row.onclick = e => { e.stopPropagation(); selectNode(node.id); };
+  row.onclick = e => { e.stopPropagation(); selectNode(node.id); document.getElementById('tree')?.focus({preventScroll:true}); };
   tog.onclick = e => { e.stopPropagation(); toggleNode(node.id); };
   attachLabelInlineEdit(lbl, node, m);
   if(node.memo) {
