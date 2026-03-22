@@ -341,7 +341,14 @@ grepnavi/
 ├── main.go                    # エントリーポイント・フラグ解析
 ├── server.go                  # HTTP サーバー初期化
 ├── api/
-│   └── handlers.go            # REST API ハンドラ
+│   ├── handlers.go            # 構造体・Register・共通ヘルパー
+│   ├── handlers_search.go     # 検索
+│   ├── handlers_graph.go      # グラフ操作
+│   ├── handlers_tree.go       # ツリー管理
+│   ├── handlers_analysis.go   # コード解析（定義・ホバー・コールツリー等）
+│   ├── handlers_gtags.go      # GNU Global
+│   ├── handlers_fileops.go    # ファイル操作・ルート管理
+│   └── handlers_include.go    # インクルード依存グラフ
 ├── graph/
 │   ├── model.go               # データ構造（Node, Edge, Tree, ProjectFile）
 │   ├── store.go               # プロジェクトファイルの読み書き・ノード/エッジ操作
