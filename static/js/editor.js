@@ -300,6 +300,23 @@ async function ensureEditor() {
     openPeek(file, Number(line));
   });
 
+  // 右クリック → Jump Map に追加
+  monacoEditor.addAction({
+    id: 'grepnavi.addToJumpMap',
+    label: 'Add to Jump Map',
+    contextMenuGroupId: 'navigation',
+    contextMenuOrder: 1.5,
+    run(ed) {
+      const file = tabs[activeTabIdx]?.file;
+      if(!file) return;
+      const line = ed.getPosition()?.lineNumber ?? 1;
+      const sel = ed.getSelection();
+      const selectedText = sel && !sel.isEmpty() ? ed.getModel()?.getValueInRange(sel)?.trim() : null;
+      const word = selectedText || ed.getModel()?.getWordAtPosition(ed.getPosition())?.word || `L${line}`;
+      if(typeof window.addToJumpMap === 'function') window.addToJumpMap(word, file, line);
+    }
+  });
+
   // Hover プロバイダー
   const HOVER_LANGS = ['c','cpp','go','python','javascript','typescript','rust','java'];
   // スキップするキーワード（制御構文・基本型など）
@@ -838,7 +855,7 @@ function showDefPeek(hits, word, pixelPos) {
     const row = document.createElement('div');
     row.className = 'def-peek-row' + (i === 0 ? ' def-peek-sel' : '');
     row.innerHTML = `<span class="def-peek-loc">${esc(shortPath(h.file))}:${h.line}</span><span class="def-peek-txt">${esc((h.text || '').trim())}</span>`;
-    row.onclick = async () => { closeDefPeek(); await openPeek(h.file, h.line); monacoEditor.focus(); };
+    row.onclick = async () => { closeDefPeek(); if(typeof window.recordJump === 'function') window.recordJump(word, null, null, h.file, h.line); await openPeek(h.file, h.line); monacoEditor.focus(); };
     row.onmouseenter = () => { rows[sel].classList.remove('def-peek-sel'); sel = i; rows[sel].classList.add('def-peek-sel'); };
     list.appendChild(row);
     return row;
@@ -851,7 +868,7 @@ function showDefPeek(hits, word, pixelPos) {
     if (e.key === 'Escape')    { e.preventDefault(); e.stopPropagation(); closeDefPeek(); monacoEditor.focus(); return; }
     if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); rows[sel].classList.remove('def-peek-sel'); sel = (sel + 1) % hits.length; rows[sel].classList.add('def-peek-sel'); rows[sel].scrollIntoView({block:'nearest'}); return; }
     if (e.key === 'ArrowUp')   { e.preventDefault(); e.stopPropagation(); rows[sel].classList.remove('def-peek-sel'); sel = (sel - 1 + hits.length) % hits.length; rows[sel].classList.add('def-peek-sel'); rows[sel].scrollIntoView({block:'nearest'}); return; }
-    if (e.key === 'Enter')     { e.preventDefault(); e.stopPropagation(); const h = hits[sel]; closeDefPeek(); await openPeek(h.file, h.line); monacoEditor.focus(); return; }
+    if (e.key === 'Enter')     { e.preventDefault(); e.stopPropagation(); const h = hits[sel]; closeDefPeek(); if(typeof window.recordJump === 'function') window.recordJump(word, null, null, h.file, h.line); await openPeek(h.file, h.line); monacoEditor.focus(); return; }
   };
   document.addEventListener('keydown', _defKeyHandler);
 
@@ -914,6 +931,7 @@ async function jumpToDefinition(word) {
   // 1件なら直接ジャンプ
   if(hits.length === 1) {
     st(`定義: ${shortPath(hits[0].file)}:${hits[0].line}`);
+    if(typeof window.recordJump === 'function') window.recordJump(word, curFile, curLine, hits[0].file, hits[0].line);
     await openPeek(hits[0].file, hits[0].line);
     return;
   }

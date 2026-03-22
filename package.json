@@ -1,14 +1,31 @@
 {
-  "name": "ripgrep",
-  "version": "1.0.0",
-  "description": "",
+  "name": "grepnavi",
+  "version": "0.2.0",
+  "description": "Code reading tool combining ripgrep search, Monaco editor, and investigation graph",
   "main": "index.js",
   "scripts": {
     "test": "node --test test/*.test.js"
   },
-  "keywords": [],
+  "keywords": [
+    "code-search",
+    "ripgrep",
+    "monaco-editor",
+    "code-reading",
+    "graph",
+    "static-analysis",
+    "c-cpp",
+    "developer-tools"
+  ],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Taka-S-dev/grepnavi.git"
+  },
+  "homepage": "https://github.com/Taka-S-dev/grepnavi#readme",
+  "bugs": {
+    "url": "https://github.com/Taka-S-dev/grepnavi/issues"
+  },
   "type": "commonjs",
   "dependencies": {
     "monaco-editor": "^0.55.1"

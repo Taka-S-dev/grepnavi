@@ -4,4 +4,5 @@
 const ADDONS = [
   'c-include',   // C言語インクルード依存グラフ
   'call-tree',   // コールツリーパネル
+  'jump-map',    // 定義ジャンプ経路の可視化
 ];
