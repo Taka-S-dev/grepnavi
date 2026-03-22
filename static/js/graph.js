@@ -3,6 +3,7 @@
 // GraphResponse をクライアント状態に適用する共通関数
 function applyGraphResponse(g) {
   const savedRoot = projectRoot || g.root_dir;
+  if(g.file_path) window._serverGraphFile = g.file_path;
   graph = g;
   if(!graph.nodes) graph.nodes = {};
   if(!graph.edges) graph.edges = [];
@@ -30,6 +31,7 @@ async function loadGraph() {
     const r = await fetch('/api/graph');
     const g = await r.json();
     applyGraphResponse(g);
+    if(typeof markClean === 'function') markClean();
   } catch(e){}
 }
 

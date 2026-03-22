@@ -128,6 +128,7 @@ func (s *Store) buildResponse(t *Tree) *GraphResponse {
 		Nodes:        t.Nodes,
 		Edges:        t.Edges,
 		RootDir:      s.pf.RootDir,
+		FilePath:     s.filePath,
 		UpdatedAt:    t.UpdatedAt,
 		Trees:        s.treeMetas(),
 		ActiveTreeID: s.pf.ActiveTreeID,

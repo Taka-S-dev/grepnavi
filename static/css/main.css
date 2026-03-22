@@ -372,7 +372,7 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 #project-menu-wrap{position:relative;display:inline-flex}
 #btn-project-menu{background:transparent;border:1px solid #4a4a4a;color:#999;font-size:11px;padding:2px 7px;border-radius:3px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:3px}
 #btn-project-menu:hover{background:#3c3c3c;border-color:#666;color:#ccc}
-#btn-project-menu #project-name{overflow:hidden;text-overflow:ellipsis;max-width:100px;display:inline-block;vertical-align:middle}
+#btn-project-menu #project-name{overflow:hidden;text-overflow:ellipsis;max-width:110px;display:inline-block;vertical-align:middle}
 #project-menu{
   display:none;position:absolute;top:100%;right:0;z-index:4000;
   background:#2d2d2d;border:1px solid #555;border-radius:3px;
@@ -425,16 +425,27 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 /* ===== ファイルブラウザ ===== */
 #fb-overlay{display:none;position:fixed;inset:0;z-index:5000;background:rgba(0,0,0,.6);align-items:center;justify-content:center}
 #fb-overlay.open{display:flex}
-#fb-box{background:#252526;border:1px solid #555;border-radius:4px;width:560px;max-width:94vw;max-height:80vh;display:flex;flex-direction:column;overflow:hidden}
+#fb-box{background:#252526;border:1px solid #555;border-radius:4px;width:560px;max-width:94vw;height:70vh;display:flex;flex-direction:column;overflow:hidden}
 #fb-header{display:flex;align-items:center;padding:8px 12px;border-bottom:1px solid #333;gap:8px}
 #fb-title{flex:1;font-size:13px;font-weight:bold;color:#ccc}
 #fb-close{background:none;border:none;color:#888;cursor:pointer;font-size:16px;padding:0}
 #fb-close:hover{color:#fff}
-#fb-path-row{display:flex;gap:4px;padding:6px 8px;border-bottom:1px solid #2a2a2a;align-items:center}
-#fb-up{padding:2px 6px;font-size:11px}
-#fb-path-input{flex:1;background:#1e1e1e;border:1px solid #454545;border-radius:3px;color:#d4d4d4;padding:3px 7px;font:12px Consolas,monospace;outline:none;min-width:0}
-#fb-path-input:focus{border-color:#007acc}
-#fb-path-go{padding:2px 8px;font-size:11px}
+#fb-path-row{display:flex;gap:2px;padding:5px 8px;border-bottom:1px solid #2a2a2a;align-items:center;min-width:0}
+#fb-back,#fb-fwd,#fb-up{padding:2px 5px;font-size:12px;flex-shrink:0}
+#fb-back:disabled,#fb-fwd:disabled,#fb-up:disabled{opacity:.3;cursor:default;pointer-events:none}
+#fb-breadcrumb{flex:1;display:flex;align-items:center;gap:0;overflow-x:auto;white-space:nowrap;min-width:0;scrollbar-width:none}
+#fb-breadcrumb::-webkit-scrollbar{display:none}
+#fb-path-edit{padding:2px 5px;font-size:11px;flex-shrink:0;opacity:.5}
+#fb-path-edit:hover{opacity:1}
+#fb-path-input{flex:1;background:#1e1e1e;border:1px solid #007acc;border-radius:3px;color:#d4d4d4;padding:3px 7px;font:12px Consolas,monospace;outline:none;min-width:0}
+
+.fb-bc-seg{font-size:12px;color:#aaa;cursor:pointer;padding:2px 4px;border-radius:3px;flex-shrink:0}
+.fb-bc-seg:hover{color:#fff;background:#2a2d2e}
+.fb-bc-cur{color:#e0e0e0;font-weight:600;cursor:default}
+.fb-bc-cur:hover{background:none}
+.fb-bc-sep{color:#555;font-size:11px;padding:0 1px;flex-shrink:0;user-select:none}
+#fb-current-dir{display:none;padding:5px 12px;font-size:11px;color:#888;border-top:1px solid #2a2a2a;background:#1e1e1e}
+#fb-current-dir .fb-current-name{color:#ccc;font-weight:600}
 #fb-list{flex:1;overflow-y:auto;padding:4px 0;min-height:200px}
 #fb-list::-webkit-scrollbar{width:6px}
 #fb-list::-webkit-scrollbar-thumb{background:#444;border-radius:3px}
@@ -445,6 +456,10 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 .fb-dir .codicon{color:#dcb67a}
 .fb-file{color:#9cdcfe}
 .fb-file .codicon{color:#b5cea8}
+#fb-recent-section{display:none;border-top:1px solid #333;max-height:150px;overflow-y:auto;flex-shrink:0}
+#fb-recent-section::-webkit-scrollbar{width:6px}
+#fb-recent-section::-webkit-scrollbar-thumb{background:#444;border-radius:3px}
+#fb-recent-section .fb-section-label{position:sticky;top:0;background:#1e1e1e;z-index:1}
 #fb-filename-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-top:1px solid #2a2a2a}
 #fb-filename-row label{font-size:11px;color:#888;flex-shrink:0}
 #fb-filename{flex:1;background:#1e1e1e;border:1px solid #454545;border-radius:3px;color:#d4d4d4;padding:3px 7px;font:12px Consolas,monospace;outline:none}

@@ -94,7 +94,7 @@ function extractSym(text) {
 function st(msg){ id('st').textContent=msg; }
 function stGraph(){
   const nc=Object.keys(graph.nodes).length, ec=(graph.edges||[]).length;
-  st(`${nc}ノード / ${ec}エッジ | 保存済`);
+  st(`${nc}ノード / ${ec}エッジ`);
 }
 
 // ===== FILE ICONS =====

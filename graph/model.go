@@ -91,6 +91,7 @@ type GraphResponse struct {
 	Nodes        map[string]*Node  `json:"nodes"`
 	Edges        []*Edge           `json:"edges"`
 	RootDir      string            `json:"root_dir"`
+	FilePath     string            `json:"file_path"`
 	UpdatedAt    time.Time         `json:"updated_at"`
 	Trees        []TreeMeta        `json:"trees"`
 	ActiveTreeID string            `json:"active_tree_id"`

@@ -13,6 +13,7 @@ func main() {
 	root      := flag.String("root", ".", "C source root directory to search")
 	graphFile := flag.String("graph", "graph.json", "Path to graph JSON file")
 	port      := flag.Int("port", 8080, "HTTP server port")
+	host      := flag.String("host", "127.0.0.1", "bind address (use 0.0.0.0 for LAN access)")
 	noBrowser := flag.Bool("no-browser", false, "suppress automatic browser launch")
 	flag.Parse()
 
@@ -22,7 +23,7 @@ func main() {
 		log.Fatalf("invalid root: %v", err)
 	}
 
-	addr := fmt.Sprintf(":%d", *port)
+	addr := fmt.Sprintf("%s:%d", *host, *port)
 	url := fmt.Sprintf("http://localhost:%d", *port)
 	srv := newServer(absRoot, rootExplicit, *graphFile, addr)
 
