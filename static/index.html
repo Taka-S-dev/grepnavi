@@ -185,11 +185,16 @@
       <button id="fb-close" title="閉じる"><i class="codicon codicon-close"></i></button>
     </div>
     <div id="fb-path-row">
-      <button id="fb-up" title="上へ"><i class="codicon codicon-arrow-up"></i></button>
-      <input id="fb-path-input" type="text" spellcheck="false">
-      <button id="fb-path-go">移動</button>
+      <button id="fb-back"  class="sec" title="戻る"><i class="codicon codicon-arrow-left"></i></button>
+      <button id="fb-fwd"   class="sec" title="進む"><i class="codicon codicon-arrow-right"></i></button>
+      <button id="fb-up"    class="sec" title="上の階層へ">↑</button>
+      <div id="fb-breadcrumb"></div>
+      <button id="fb-path-edit" class="sec" title="パスを直接入力"><i class="codicon codicon-edit"></i></button>
+      <input id="fb-path-input" type="text" spellcheck="false" style="display:none">
     </div>
     <div id="fb-list"></div>
+    <div id="fb-recent-section"></div>
+    <div id="fb-current-dir"></div>
     <div id="fb-filename-row">
       <label>ファイル名</label>
       <input id="fb-filename" type="text" spellcheck="false">
@@ -274,6 +279,7 @@
 <script src="/js/search.js"></script>
 <script src="/js/graph.js"></script>
 <script src="/js/editor.js"></script>
+<script src="/js/filebrowser.js"></script>
 <script src="/js/project.js"></script>
 <script src="/js/app.js"></script>
 <!-- アドオン JS（DOMContentLoaded 内で HTML 注入・イベント登録を自己完結） -->

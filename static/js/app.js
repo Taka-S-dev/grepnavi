@@ -192,6 +192,13 @@ addEventListener('DOMContentLoaded', async () => {
   if(saved.word)  id('btn-wb').classList.toggle('on', !!saved.word);
 
   await loadGraph();
+
+  // 前回開いていたプロジェクトファイルを自動で復元
+  const _lastProject = getProjectPath();
+  if(_lastProject) {
+    try { await openProject(_lastProject); } catch(e) {}
+  }
+
   initSearchBar();
   initFilter();
   initDirPicker();

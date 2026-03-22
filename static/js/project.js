@@ -97,43 +97,9 @@ async function setRoot(newRoot) {
 }
 
 function showRootDialog() {
-  const overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center';
-  const box = document.createElement('div');
-  box.style.cssText = 'background:#252526;border:1px solid #555;border-radius:6px;padding:20px;width:480px;display:flex;flex-direction:column;gap:10px';
-  box.innerHTML = `
-    <div style="font-size:13px;color:#ccc;font-weight:600">プロジェクトルートを設定</div>
-    <div style="font-size:11px;color:#888">検索対象のルートディレクトリの絶対パスを入力してください</div>
-    <div style="display:flex;gap:6px">
-      <input id="root-inp" type="text" value="${esc(projectRoot)}" placeholder="例: C:\\Users\\you\\project" style="flex:1;min-width:0;box-sizing:border-box;background:#3c3c3c;border:1px solid #555;color:#ccc;padding:6px 8px;border-radius:3px;font-size:12px;font-family:Consolas,monospace">
-      <button id="root-browse" class="sec" title="フォルダを選択"><span class="codicon codicon-folder"></span></button>
-    </div>
-    <div style="display:flex;gap:6px;justify-content:flex-end">
-      <button id="root-cancel" class="sec">キャンセル</button>
-      <button id="root-ok">設定</button>
-    </div>`;
-  overlay.appendChild(box);
-  document.body.appendChild(overlay);
-  const inp = box.querySelector('#root-inp');
-  inp.focus(); inp.select();
-  box.querySelector('#root-browse').onclick = async () => {
-    const res = await fetch('/api/pick-dir').then(r => r.json()).catch(() => null);
-    if(res?.path) inp.value = res.path;
-  };
-
-  const close = () => document.body.removeChild(overlay);
-  box.querySelector('#root-cancel').onclick = close;
-  box.querySelector('#root-ok').onclick = async () => {
-    const val = inp.value.trim();
-    if(!val) return;
-    const ok = await setRoot(val);
-    if(ok) close();
-  };
-  inp.onkeydown = async e => {
-    if(e.key === 'Enter') { box.querySelector('#root-ok').click(); }
-    if(e.key === 'Escape') close();
-  };
-  overlay.onclick = e => { if(e.target === overlay) close(); };
+  showFileBrowser('dir', async path => {
+    await setRoot(path);
+  });
 }
 
 // ===== ディレクトリピッカー =====
@@ -283,9 +249,27 @@ function initColResizer() {
 }
 
 // ===== プロジェクト保存/開く =====
+let _dirty = false;
+function markDirty() { _dirty = true;  updateProjectUI(); }
+function markClean() { _dirty = false; updateProjectUI(); }
+
+// グラフ・ツリーを変更する API 呼び出しで自動的に dirty にする
+(function() {
+  const _orig = window.fetch;
+  window.fetch = function(url, opts) {
+    const method = ((opts && opts.method) || 'GET').toUpperCase();
+    if(method !== 'GET' && typeof url === 'string' &&
+       (url.startsWith('/api/graph') || url.startsWith('/api/trees'))) {
+      markDirty();
+    }
+    return _orig.apply(this, arguments);
+  };
+})();
+
 const LS_PROJECT_PATH    = 'grepnavi_project_path';
 const LS_PROJECT_HISTORY = 'grepnavi_project_history';
-const LS_DIR_HISTORY     = 'grepnavi_dir_history';
+const LS_DIR_HISTORY     = 'grepnavi_dir_history';      // ルート選択専用
+const LS_SAVE_DIR_HISTORY= 'grepnavi_save_dir_history'; // open/save フォルダ専用
 const LS_GLOB_HISTORY    = 'grepnavi_glob_history';
 const HISTORY_MAX = 8;
 
@@ -316,6 +300,16 @@ function addDirHistory(dir) {
   hist.unshift(dir);
   if(hist.length > HISTORY_MAX) hist = hist.slice(0, HISTORY_MAX);
   localStorage.setItem(LS_DIR_HISTORY, JSON.stringify(hist));
+}
+function getSaveDirHistory() {
+  try { return JSON.parse(localStorage.getItem(LS_SAVE_DIR_HISTORY) || '[]'); } catch { return []; }
+}
+function addSaveDirHistory(dir) {
+  if(!dir) return;
+  let hist = getSaveDirHistory().filter(h => h !== dir);
+  hist.unshift(dir);
+  if(hist.length > HISTORY_MAX) hist = hist.slice(0, HISTORY_MAX);
+  localStorage.setItem(LS_SAVE_DIR_HISTORY, JSON.stringify(hist));
 }
 function getGlobHistory() {
   try { return JSON.parse(localStorage.getItem(LS_GLOB_HISTORY) || '[]'); } catch { return []; }
@@ -393,9 +387,13 @@ function updateProjectUI() {
   const p = getProjectPath();
   const el = id('project-name');
   if(!el) return;
-  const name = p ? p.replace(/\\/g, '/').split('/').pop() : '無題';
+  const serverFile = window._serverGraphFile
+    ? window._serverGraphFile.replace(/\\/g, '/').split('/').pop()
+    : 'graph.json';
+  const base = p ? p.replace(/\\/g, '/').split('/').pop() : `無題 (${serverFile})`;
+  const name = _dirty ? '* ' + base : base;
   el.textContent = name;
-  el.title = p || '';
+  el.title = p || window._serverGraphFile || '';
   const saveItem = id('pmenu-save');
   if(saveItem) saveItem.style.color = p ? '' : '#666';
 }
@@ -448,7 +446,9 @@ async function saveProject(path) {
   });
   const d = await r.json();
   if(d.error) { st('保存エラー: ' + d.error); return; }
+  _dirty = false;
   setProjectPath(path);
+  addSaveDirHistory(path.replace(/\\/g, '/').split('/').slice(0, -1).join('/'));
   st('保存しました: ' + path);
 }
 
@@ -466,7 +466,9 @@ async function openProject(path) {
   fzfFiles = null;
   projectRoot = '';
   applyGraphResponse(d.graph);
+  _dirty = false;
   setProjectPath(path);
+  addSaveDirHistory(path.replace(/\\/g, '/').split('/').slice(0, -1).join('/'));
   st('読み込みました: ' + path);
 }
 
@@ -482,154 +484,4 @@ async function saveProjectFileCurrent() {
   await saveProject(p);
 }
 
-async function showFileBrowser(mode) {
-  _fbMode = mode;
-  id('fb-title').textContent = mode === 'save' ? '名前を付けて保存' : 'プロジェクトを開く';
-  id('fb-ok').textContent    = mode === 'save' ? '保存' : '開く';
-  id('fb-overlay').classList.add('open');
-
-  // 初期ディレクトリ: 前回パス → プロジェクトルート → ホーム
-  const cur = getProjectPath();
-  const startDir = cur
-    ? cur.replace(/\\/g, '/').split('/').slice(0, -1).join('/')
-    : '';
-  await fbNavigate(startDir);
-
-  // 保存モードは前回ファイル名を引き継ぐ
-  if(mode === 'save') {
-    const name = cur ? cur.replace(/\\/g, '/').split('/').pop() : 'project.json';
-    id('fb-filename').value = name;
-  } else {
-    id('fb-filename').value = '';
-  }
-}
-
-async function fbNavigate(dir) {
-  const params = new URLSearchParams({ ext: '.json' });
-  if(dir) params.set('path', dir);
-  const res = await fetch('/api/browse?' + params).catch(() => null);
-  if(!res || !res.ok) { st('ディレクトリを開けませんでした'); return; }
-  const data = await res.json();
-
-  _fbCurrentPath = data.path;
-  id('fb-path-input').value = data.path;
-  id('fb-up').disabled = !data.parent;
-  addDirHistory(data.path);
-
-  const list = id('fb-list');
-  list.innerHTML = '';
-
-  // 最近使ったファイル（開くモード時のみ表示）
-  const hist = getProjectHistory();
-  if(hist.length) {
-    const label = document.createElement('div');
-    label.className = 'fb-section-label';
-    label.textContent = '最近使ったファイル';
-    list.appendChild(label);
-    hist.slice(0, 8).forEach(p => {
-      const name = p.replace(/\\/g, '/').split('/').pop();
-      const dir  = p.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
-      const row  = document.createElement('div');
-      row.className = 'fb-item fb-file fb-recent';
-      row.innerHTML = `<i class="codicon codicon-history"></i><span title="${esc(p)}">${esc(name)}</span><span class="fb-recent-dir">${esc(dir)}</span>`;
-      if(_fbMode === 'open') {
-        row.ondblclick = async () => { closeFb(); await openProject(p); };
-        row.onclick = () => {
-          list.querySelectorAll('.fb-item').forEach(r => r.classList.remove('selected'));
-          row.classList.add('selected');
-          id('fb-filename').value = name;
-          fbNavigate(dir);
-        };
-      } else {
-        row.onclick = () => {
-          list.querySelectorAll('.fb-item').forEach(r => r.classList.remove('selected'));
-          row.classList.add('selected');
-          id('fb-filename').value = name;
-          fbNavigate(dir);
-        };
-      }
-      list.appendChild(row);
-    });
-    const sep = document.createElement('div');
-    sep.className = 'fb-section-sep';
-    list.appendChild(sep);
-  }
-
-  // 最近使ったフォルダ
-  const dirHist = getDirHistory().filter(d => d !== data.path);
-  if(dirHist.length) {
-    const label = document.createElement('div');
-    label.className = 'fb-section-label';
-    label.textContent = '最近使ったフォルダ';
-    list.appendChild(label);
-    dirHist.slice(0, 5).forEach(dir => {
-      const name = dir.replace(/\\/g, '/').split('/').pop() || dir;
-      const row  = document.createElement('div');
-      row.className = 'fb-item fb-dir fb-recent';
-      row.innerHTML = `<i class="codicon codicon-folder"></i><span title="${esc(dir)}">${esc(name)}</span><span class="fb-recent-dir">${esc(dir)}</span>`;
-      row.ondblclick = () => fbNavigate(dir);
-      row.onclick    = () => fbSelectDir(row);
-      list.appendChild(row);
-    });
-    const sep2 = document.createElement('div');
-    sep2.className = 'fb-section-sep';
-    list.appendChild(sep2);
-  }
-
-  (data.dirs || []).forEach(name => {
-    const row = document.createElement('div');
-    row.className = 'fb-item fb-dir';
-    row.innerHTML = `<i class="codicon codicon-folder"></i><span>${esc(name)}</span>`;
-    row.ondblclick = () => fbNavigate(data.path + '/' + name);
-    row.onclick    = () => fbSelectDir(row);
-    list.appendChild(row);
-  });
-
-  (data.files || []).forEach(name => {
-    const row = document.createElement('div');
-    row.className = 'fb-item fb-file';
-    row.innerHTML = `<i class="codicon codicon-json"></i><span>${esc(name)}</span>`;
-    row.onclick = () => {
-      list.querySelectorAll('.fb-item').forEach(r => r.classList.remove('selected'));
-      row.classList.add('selected');
-      id('fb-filename').value = name;
-    };
-    row.ondblclick = () => { id('fb-filename').value = name; fbOk(); };
-    list.appendChild(row);
-  });
-}
-
-function fbSelectDir(row) {
-  id('fb-list').querySelectorAll('.fb-item').forEach(r => r.classList.remove('selected'));
-  row.classList.add('selected');
-}
-
-async function fbOk() {
-  const filename = id('fb-filename').value.trim();
-  if(!filename) return;
-  let fullPath = _fbCurrentPath.replace(/\\/g, '/');
-  if(!fullPath.endsWith('/')) fullPath += '/';
-  fullPath += filename.endsWith('.json') ? filename : filename + '.json';
-
-  closeFb();
-  if(_fbMode === 'save') await saveProject(fullPath);
-  else                   await openProject(fullPath);
-}
-
-function closeFb() {
-  id('fb-overlay').classList.remove('open');
-}
-
-addEventListener('DOMContentLoaded', () => {
-  id('fb-close').onclick   = closeFb;
-  id('fb-cancel').onclick  = closeFb;
-  id('fb-ok').onclick      = fbOk;
-  id('fb-overlay').addEventListener('click', e => { if(e.target === id('fb-overlay')) closeFb(); });
-  id('fb-up').onclick      = () => {
-    const parent = id('fb-path-input').value.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
-    if(parent) fbNavigate(parent);
-  };
-  id('fb-path-go').onclick = () => fbNavigate(id('fb-path-input').value.trim());
-  id('fb-path-input').onkeydown = e => { if(e.key === 'Enter') fbNavigate(id('fb-path-input').value.trim()); };
-  id('fb-filename').onkeydown   = e => { if(e.key === 'Enter') fbOk(); };
-});
+// ファイルブラウザは filebrowser.js 参照

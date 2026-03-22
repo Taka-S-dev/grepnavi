@@ -73,5 +73,8 @@ let _stackDragIdx = null;
 const accState = {loc:true, ifdef:false, snippet:false, memo:true, expand:false};
 
 // File browser
-let _fbMode = 'save'; // 'save' | 'open'
+let _fbMode = 'save'; // 'save' | 'open' | 'dir'
 let _fbCurrentPath = '';
+let _fbNavStack = [];  // 訪問履歴
+let _fbNavIdx   = -1;  // 現在位置
+let _fbListIdx  = -1;  // キーボードフォーカス中のリスト行インデックス
