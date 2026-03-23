@@ -10,6 +10,25 @@ let _incRootNode = null;
 const _incNodeMap = new Map(); // id -> node
 let _incSvg = null, _incRootG = null;
 let _incLoadingId = null; // 展開中ノードID
+const _INC_SPIN = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+let _incSpinFrame = 0, _incSpinTimer = null;
+
+function _incSpinStart() {
+  _incSpinFrame = 0;
+  if(_incSpinTimer) return;
+  _incSpinTimer = setInterval(() => {
+    _incSpinFrame = (_incSpinFrame + 1) % _INC_SPIN.length;
+    if(_incLoadingId && _incSvg) {
+      _incSvg.selectAll('g.inc-node text')
+        .filter(d => d.id === _incLoadingId)
+        .text(_INC_SPIN[_incSpinFrame] + ' ' + (_incNodeMap.get(_incLoadingId)?._dispLabel || _incNodeMap.get(_incLoadingId)?.label || ''));
+    }
+  }, 80);
+}
+
+function _incSpinStop() {
+  if(_incSpinTimer) { clearInterval(_incSpinTimer); _incSpinTimer = null; }
+}
 
 function _mkIncNode(inc) {
   return { id: inc.id, label: inc.label, expanded: false, fwd: [], rev: [] };
@@ -108,6 +127,7 @@ async function _incExpand(node) {
 
   _incLoadingId = node.id;
   _incRender(); // ローディング状態を反映
+  _incSpinStart();
 
   const [fR, rR] = await Promise.all([
     fetch('/api/include-file?file=' + encodeURIComponent(node.id)),
@@ -130,6 +150,7 @@ async function _incExpand(node) {
     if(!node.rev.includes(n)) node.rev.push(n);
   });
 
+  _incSpinStop();
   _incLoadingId = null;
   _incRender();
 }
@@ -283,7 +304,7 @@ function _incRender() {
     });
   nodeG.selectAll('g.inc-node text')
     .text(d => {
-      if(d.id === _incLoadingId) return '⏳ ' + (d._dispLabel || d.label);
+      if(d.id === _incLoadingId) return _INC_SPIN[_incSpinFrame] + ' ' + (d._dispLabel || d.label);
       const lbl = d._dispLabel || d.label;
       const maxCh = Math.floor((d._w || _incNodeWidth(lbl)) / 7.5) - 2;
       return lbl.length > maxCh ? lbl.slice(0, maxCh - 1) + '…' : lbl;

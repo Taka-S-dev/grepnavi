@@ -27,13 +27,8 @@ func GtagsInPath() bool {
 // GtagsIndexed は dir 配下に GTAGS ファイルが存在するか確認する。
 func GtagsIndexed(dir string) bool {
 	gtagsFile := filepath.Join(dir, "GTAGS")
-	if _, err := os.Stat(gtagsFile); err == nil {
-		return true
-	}
-	// fallback: global -p で確認
-	c := exec.Command("global", "-p")
-	c.Dir = dir
-	return c.Run() == nil
+	_, err := os.Stat(gtagsFile)
+	return err == nil
 }
 
 // GtagsAvailable は GNU Global が使用可能か（インストール済み + インデックス済み）確認する。
@@ -94,12 +89,26 @@ func GtagsBuildIndex(ctx context.Context, dir string) error {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+		msg := strings.TrimSpace(stderr.String())
+		// Windowsで日本語パスを含む場合にgtagsが失敗することがある
+		if strings.Contains(dir, " ") || isNonASCII(dir) {
+			return fmt.Errorf("gtags failed (ヒント: 日本語やスペースを含まないパスで試してください): %w: %s", err, msg)
+		}
+		if msg != "" {
 			return fmt.Errorf("%w: %s", err, msg)
 		}
 		return err
 	}
 	return nil
+}
+
+func isNonASCII(s string) bool {
+	for _, r := range s {
+		if r > 127 {
+			return true
+		}
+	}
+	return false
 }
 
 // GtagsRebuildIndex は既存インデックスを削除してから gtags で再生成する。
@@ -156,7 +165,28 @@ func gtagsParseOutput(out []byte, kind, dir string) []DefHit {
 	return results
 }
 
+// implExts は実装ファイルの拡張子セット（ヘッダより優先する）。
+var implExts = map[string]bool{
+	".c": true, ".cpp": true, ".cc": true, ".cxx": true, ".java": true,
+}
+
+// preferImplHits は実装ファイルのヒットが1件以上あればヘッダ(.h/.hpp等)を除外して返す。
+// 実装ファイルが1件もない場合は全件そのまま返す。
+func preferImplHits(hits []DefHit) []DefHit {
+	var impl []DefHit
+	for _, h := range hits {
+		if implExts[strings.ToLower(filepath.Ext(h.File))] {
+			impl = append(impl, h)
+		}
+	}
+	if len(impl) > 0 {
+		return impl
+	}
+	return hits
+}
+
 // GtagsFindDefinitions は GNU Global で word の定義を検索する。
+// 宣言(.h)と実装(.c/.cpp)が両方ヒットした場合は実装を優先する。
 func GtagsFindDefinitions(ctx context.Context, word, dir string) ([]DefHit, error) {
 	cmd := exec.CommandContext(ctx, "global", "-xd", word)
 	cmd.Dir = dir
@@ -167,7 +197,7 @@ func GtagsFindDefinitions(ctx context.Context, word, dir string) ([]DefHit, erro
 		}
 		return nil, err
 	}
-	return gtagsParseOutput(out, "func", dir), nil
+	return preferImplHits(gtagsParseOutput(out, "func", dir)), nil
 }
 
 // gtagsClassifyKind はファイルの該当行テキストから kind を判定する。

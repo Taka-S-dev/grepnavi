@@ -8,7 +8,7 @@
 </script>
 <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
 <link rel="stylesheet" href="/css/codicon.css">
-<link rel="stylesheet" href="/css/main.css">
+<link rel="stylesheet" href="/css/main.css?v=5">
 <!-- アドオン CSS/JS ローダー（addons/addons.js でアドオンを管理） -->
 <script src="/addons/addons.js"></script>
 <script>
@@ -213,6 +213,7 @@
       <span id="fzf-icon">🔍</span>
       <input id="fzf-input" type="text" placeholder="ファイル名を入力…" autocomplete="off" spellcheck="false">
       <span id="fzf-count"></span>
+      <button id="fzf-browse-btn" title="フォルダで探す (Ctrl+Shift+O)">📂</button>
     </div>
     <div id="fzf-list"></div>
   </div>

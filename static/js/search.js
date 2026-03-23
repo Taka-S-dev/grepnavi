@@ -472,6 +472,7 @@ function removeFromSearchStack(idx) {
 
 function switchSearchStack(idx) {
   if(idx < 0 || idx >= searchStack.length) return;
+  _currentStackIdx = idx;
   const entry = searchStack[idx];
   allMatches = [...entry.allMatches];
   pending = [...entry.allMatches];
@@ -501,7 +502,7 @@ function renderSearchStack() {
   bar.innerHTML = '';
   searchStack.forEach((entry, i) => {
     const el = document.createElement('div');
-    el.className = 'stab sstack';
+    el.className = 'stab sstack' + (i === _currentStackIdx ? ' active' : '');
     el.draggable = true;
 
     el.addEventListener('dragstart', e => {

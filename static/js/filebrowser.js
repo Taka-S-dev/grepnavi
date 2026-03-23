@@ -20,14 +20,21 @@ async function showFileBrowser(mode, dirCallback) {
   _fbNavStack = [];
   _fbNavIdx   = -1;
 
-  const isDirMode = mode === 'dir';
-  id('fb-title').textContent    = isDirMode ? 'フォルダを選択' : mode === 'save' ? '名前を付けて保存' : 'プロジェクトを開く';
+  const isDirMode      = mode === 'dir';
+  const isOpenFileMode = mode === 'open-file';
+  id('fb-title').textContent = isDirMode ? 'フォルダを選択'
+    : isOpenFileMode          ? 'ファイルを開く'
+    : mode === 'save'         ? '名前を付けて保存'
+    :                           'プロジェクトを開く';
   id('fb-ok').textContent       = isDirMode ? '選択' : mode === 'save' ? '保存' : '開く';
-  id('fb-filename-row').style.display = isDirMode ? 'none' : '';
+  id('fb-ok').style.display     = isOpenFileMode ? 'none' : '';
+  id('fb-filename-row').style.display = (isDirMode || isOpenFileMode) ? 'none' : '';
   id('fb-overlay').classList.add('open');
 
   let startDir = '';
-  if(isDirMode) {
+  if(isOpenFileMode) {
+    startDir = localStorage.getItem('grepnavi-open-file-dir') || projectRoot || '';
+  } else if(isDirMode) {
     startDir = projectRoot || '';
   } else {
     const cur = getProjectPath();
@@ -76,14 +83,26 @@ function fbUpdateNavButtons(hasParent) {
   if(hasParent !== undefined) id('fb-up').disabled = !hasParent;
 }
 
+function _fbFileIcon(name) {
+  const ext = name.split('.').pop().toLowerCase();
+  if(['c','h','cpp','hpp','cc','cxx'].includes(ext)) return 'codicon-file-code';
+  if(['json'].includes(ext)) return 'codicon-json';
+  if(['md','txt'].includes(ext)) return 'codicon-file-text';
+  return 'codicon-file';
+}
+
 async function fbNavigate(dir, pushHistory = true, focusName = null) {
-  const params = new URLSearchParams({ ext: '.json' });
+  const ext = (_fbMode === 'open-file') ? '' : '.json';
+  const params = new URLSearchParams({ ext });
   if(dir) params.set('path', dir);
   const res = await fetch('/api/browse?' + params).catch(() => null);
   if(!res || !res.ok) { st('ディレクトリを開けませんでした'); return; }
   const data = await res.json();
 
   _fbCurrentPath = data.path;
+  if(_fbMode === 'open-file') {
+    try { localStorage.setItem('grepnavi-open-file-dir', data.path); } catch {}
+  }
   if(pushHistory) {
     _fbNavStack = _fbNavStack.slice(0, _fbNavIdx + 1);
     _fbNavStack.push(data.path);
@@ -149,7 +168,16 @@ async function fbNavigate(dir, pushHistory = true, focusName = null) {
     addNavRow(row, null, () => fbNavigate(data.path + '/' + name), () => fbNavigate(data.path + '/' + name));
   });
 
-  if(!isDirMode) {
+  if(_fbMode === 'open-file') {
+    (data.files || []).forEach(name => {
+      const fullPath = data.path.replace(/\\/g, '/') + '/' + name;
+      const row = mkRow('fb-file', `<i class="codicon ${_fbFileIcon(name)}"></i><span>${esc(name)}</span>`);
+      addNavRow(row,
+        null,
+        () => { closeFb(); openPeek(fullPath, 1); },
+        () => { closeFb(); openPeek(fullPath, 1); });
+    });
+  } else if(!isDirMode) {
     (data.files || []).forEach(name => {
       const row = mkRow('fb-file', `<i class="codicon codicon-json"></i><span>${esc(name)}</span>`);
       addNavRow(row,
@@ -301,8 +329,9 @@ addEventListener('DOMContentLoaded', () => {
     id('fb-path-edit').style.display   = '';
   };
   id('fb-path-input').onkeydown = e => {
+    e.stopPropagation();
     if(e.key === 'Enter') { fbNavigate(id('fb-path-input').value.trim()); id('fb-path-input').blur(); }
     if(e.key === 'Escape') { id('fb-path-input').blur(); }
   };
-  id('fb-filename').onkeydown = e => { if(e.key === 'Enter') fbOk(); };
+  id('fb-filename').onkeydown = e => { e.stopPropagation(); if(e.key === 'Enter') fbOk(); };
 });

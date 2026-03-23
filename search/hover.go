@@ -23,16 +23,19 @@ type HoverHit struct {
 // 検索戦略（ripgrep 時）:
 //  1. ヘッダ（*.h,*.hpp）のみ検索 → struct/enum/define/typedef はここで完結
 //  2. func の宣言しか見つからなかった場合、ソースファイルも追加検索して定義本体を取得
-func FindHover(ctx context.Context, word, dir, glob string, includeChain ...map[string]bool) ([]HoverHit, error) {
+func FindHover(ctx context.Context, word, dir, glob, root string, includeChain ...map[string]bool) ([]HoverHit, error) {
 	chain := map[string]bool{}
 	if len(includeChain) > 0 && includeChain[0] != nil {
 		chain = includeChain[0]
+	}
+	if root == "" {
+		root = dir
 	}
 
 	var hits []DefHit
 
 	// GNU Global が使えるなら定義位置をインデックスから直接取得
-	if GtagsAvailable(dir) {
+	if GtagsAvailable(root) {
 		gHits, err := GtagsFindHoverHits(ctx, word, dir)
 		if err == nil && len(gHits) > 0 {
 			hits = gHits
@@ -44,26 +47,42 @@ func FindHover(ctx context.Context, word, dir, glob string, includeChain ...map[
 		const maxPerQuery = 5
 		headerGlob := "*.h,*.hpp"
 
-		// Phase 1: ヘッダのみ
-		var err error
-		hits, err = FindDefinitionsN(ctx, word, dir, headerGlob, maxPerQuery)
-		if err != nil && ctx.Err() != nil {
-			return nil, err
+		type phaseResult struct{ hits []DefHit }
+		ch1 := make(chan phaseResult, 1)
+		ch2 := make(chan phaseResult, 1)
+
+		// Phase 1 と Phase 2 を並列実行
+		go func() {
+			h, _ := FindDefinitionsN(ctx, word, dir, headerGlob, maxPerQuery)
+			ch1 <- phaseResult{h}
+		}()
+		go func() {
+			if glob == headerGlob {
+				ch2 <- phaseResult{}
+				return
+			}
+			h, _ := FindDefinitionsN(ctx, word, dir, glob, maxPerQuery)
+			ch2 <- phaseResult{h}
+		}()
+
+		r1, r2 := <-ch1, <-ch2
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
 		}
 
-		// Phase 2: ソースファイルも検索してマージ
-		if glob != headerGlob && ctx.Err() == nil {
-			srcHits, _ := FindDefinitionsN(ctx, word, dir, glob, maxPerQuery)
-			seen := map[string]bool{}
-			for _, h := range hits {
-				seen[fmt.Sprintf("%s:%d", h.File, h.Line)] = true
+		seen := map[string]bool{}
+		for _, h := range r1.hits {
+			key := fmt.Sprintf("%s:%d", h.File, h.Line)
+			if !seen[key] {
+				seen[key] = true
+				hits = append(hits, h)
 			}
-			for _, h := range srcHits {
-				key := fmt.Sprintf("%s:%d", h.File, h.Line)
-				if !seen[key] {
-					hits = append(hits, h)
-					seen[key] = true
-				}
+		}
+		for _, h := range r2.hits {
+			key := fmt.Sprintf("%s:%d", h.File, h.Line)
+			if !seen[key] {
+				seen[key] = true
+				hits = append(hits, h)
 			}
 		}
 	}

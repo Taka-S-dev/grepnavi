@@ -251,16 +251,24 @@ function refreshGraphDecorations() {
 }
 
 // ===== Monaco ロード =====
+let _monacoLoadPromise = null;
 function loadMonaco() {
-  return new Promise(resolve => {
-    if(monacoReady){ resolve(); return; }
-    require(['vs/editor/editor.main'], () => { monacoReady = true; resolve(); });
-  });
+  if(monacoReady) return Promise.resolve();
+  if(!_monacoLoadPromise) {
+    _monacoLoadPromise = new Promise(resolve => {
+      require(['vs/editor/editor.main'], () => { monacoReady = true; resolve(); });
+    });
+  }
+  return _monacoLoadPromise;
 }
 
+let _editorInitPromise = null;
 async function ensureEditor() {
   await loadMonaco();
   if(monacoEditor) return;
+  if(_editorInitPromise) { await _editorInitPromise; return; }
+  let _resolve;
+  _editorInitPromise = new Promise(r => { _resolve = r; });
   monaco.editor.defineTheme('grepnavi-dark', {
     base: 'vs-dark', inherit: true, rules: [],
     colors: {
@@ -560,7 +568,11 @@ async function ensureEditor() {
       addToGraph({id: nodeId, file, line, text}, '', 'ref', text);
     }
   });
+  _resolve();
 }
+
+// ページロード時に Monaco をバックグラウンドでプリロード（初回クリック遅延を防ぐ）
+if(typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', () => { loadMonaco(); });
 
 // ===== Ctrl+P ファイルクイックオープン =====
 async function openFzf() {

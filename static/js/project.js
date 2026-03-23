@@ -440,12 +440,18 @@ async function onProjectModalOk() {
 
 async function saveProject(path) {
   const lineMemos = getLineMemos();
-  const r = await fetch('/api/graph/saveas', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({path, line_memos: lineMemos})
-  });
-  const d = await r.json();
-  if(d.error) { st('保存エラー: ' + d.error); return; }
+  let d;
+  try {
+    const r = await fetch('/api/graph/saveas', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path, line_memos: lineMemos})
+    });
+    d = await r.json();
+  } catch(e) {
+    st('保存エラー: ' + e.message);
+    return;
+  }
+  if(!d || d.error) { st('保存エラー: ' + (d?.error || '不明なエラー')); return; }
   _dirty = false;
   setProjectPath(path);
   addSaveDirHistory(path.replace(/\\/g, '/').split('/').slice(0, -1).join('/'));
@@ -453,14 +459,21 @@ async function saveProject(path) {
 }
 
 async function openProject(path) {
-  const r = await fetch('/api/graph/openfile', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({path})
-  });
-  const d = await r.json();
-  if(d.error) { st('読み込みエラー: ' + d.error); return; }
+  let d;
+  try {
+    const r = await fetch('/api/graph/openfile', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path})
+    });
+    d = await r.json();
+  } catch(e) {
+    st('読み込みエラー: ' + e.message);
+    return;
+  }
+  if(!d || d.error) { st('読み込みエラー: ' + (d?.error || '不明なエラー')); return; }
+  if(!d.graph)      { st('読み込みエラー: レスポンスにグラフデータがありません'); return; }
   selNode = null; showDetail(null);
-  tabs.forEach(t => t.model.dispose());
+  tabs.forEach(t => { try { t.model?.dispose(); } catch(_) {} });
   tabs = []; activeTabIdx = -1;
   renderTabs();
   fzfFiles = null;
