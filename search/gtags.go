@@ -27,13 +27,8 @@ func GtagsInPath() bool {
 // GtagsIndexed は dir 配下に GTAGS ファイルが存在するか確認する。
 func GtagsIndexed(dir string) bool {
 	gtagsFile := filepath.Join(dir, "GTAGS")
-	if _, err := os.Stat(gtagsFile); err == nil {
-		return true
-	}
-	// fallback: global -p で確認
-	c := exec.Command("global", "-p")
-	c.Dir = dir
-	return c.Run() == nil
+	_, err := os.Stat(gtagsFile)
+	return err == nil
 }
 
 // GtagsAvailable は GNU Global が使用可能か（インストール済み + インデックス済み）確認する。
@@ -94,12 +89,26 @@ func GtagsBuildIndex(ctx context.Context, dir string) error {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+		msg := strings.TrimSpace(stderr.String())
+		// Windowsで日本語パスを含む場合にgtagsが失敗することがある
+		if strings.Contains(dir, " ") || isNonASCII(dir) {
+			return fmt.Errorf("gtags failed (ヒント: 日本語やスペースを含まないパスで試してください): %w: %s", err, msg)
+		}
+		if msg != "" {
 			return fmt.Errorf("%w: %s", err, msg)
 		}
 		return err
 	}
 	return nil
+}
+
+func isNonASCII(s string) bool {
+	for _, r := range s {
+		if r > 127 {
+			return true
+		}
+	}
+	return false
 }
 
 // GtagsRebuildIndex は既存インデックスを削除してから gtags で再生成する。

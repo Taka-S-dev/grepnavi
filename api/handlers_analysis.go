@@ -73,7 +73,7 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 		dir = filepath.Join(hroot, dir)
 	}
 	glob := q.Get("glob")
-	useGtags := q.Get("gtags") != "0" && search.GtagsAvailable(dir)
+	useGtags := q.Get("gtags") != "0" && search.GtagsAvailable(hroot)
 	var hits []search.DefHit
 	var err error
 	if useGtags {
@@ -158,7 +158,7 @@ func (h *Handler) handleCallers(w http.ResponseWriter, r *http.Request) {
 	} else if !filepath.IsAbs(dir) {
 		dir = filepath.Join(hroot, dir)
 	}
-	useGtags := q.Get("gtags") != "0" && search.GtagsAvailable(dir)
+	useGtags := q.Get("gtags") != "0" && search.GtagsAvailable(hroot)
 	var hits []search.CallSite
 	var err error
 	if useGtags {
