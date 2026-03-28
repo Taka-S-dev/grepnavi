@@ -1480,6 +1480,4 @@ function attachIndentDrag(handle, row, nodeId, depth) {
   }
 }
 
-// インクルード依存グラフ機能は static/js/include-graph.js に分離されています。
-
 if (typeof module !== 'undefined') module.exports = { computeDepths, findParent, findGrandparent, clientIsDescendant, getNodeSiblings };

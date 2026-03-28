@@ -30,7 +30,7 @@ body{font:13px/1.4 'Consolas','Courier New',monospace;background:#1e1e1e;color:#
 .srch-btn{background:none;border:none;color:#858585;cursor:pointer;font-size:11px;padding:2px 4px;border-radius:2px;line-height:1;white-space:nowrap;font-family:Consolas,monospace}
 .srch-btn:hover{color:#ccc;background:#505050}
 .srch-btn.on{color:#fff;background:#094771}
-#btn-toggle-sub{background:none;border:none;color:#858585;cursor:pointer;font-size:13px;padding:2px 4px;line-height:1;flex-shrink:0}
+#btn-toggle-sub{background:none;border:1px solid transparent;border-radius:3px;color:#858585;cursor:pointer;font-size:13px;padding:3px 10px;line-height:1;flex-shrink:0;text-align:center}
 #btn-toggle-sub:hover{color:#ccc}
 #btn-toggle-sub.open{color:#007acc}
 #root-chip{display:flex;align-items:center;gap:4px;background:#1e2d38;border:1px solid #2a5a7a;border-left:3px solid #007acc;border-radius:3px;padding:3px 8px 3px 7px;font-size:11px;color:#9ec8e8;cursor:pointer;flex:1;min-width:0;white-space:nowrap;overflow:hidden;user-select:none}
@@ -166,7 +166,7 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 /* left: search results */
 #pane-search{flex:1;min-height:80px;display:flex;flex-direction:column}
 #search-hdr{padding:4px 8px;background:#2d2d2d;border-bottom:1px solid #444;display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#999;position:relative;flex-wrap:nowrap}
-#filter-bar{display:flex;align-items:center;gap:4px;padding:3px 6px;background:#1e1e1e;border-bottom:1px solid #333}
+#filter-bar{display:flex;align-items:center;gap:4px;padding:3px 8px;background:#1e1e1e;border-bottom:1px solid #333}
 #filter-scope{font-size:11px;padding:2px 6px;background:#3a3a3a;border:1px solid #555;border-radius:3px;color:#aaa;cursor:pointer;flex-shrink:0;white-space:nowrap;line-height:1.4}
 #filter-scope:hover{color:#ccc}
 #filter-input{flex:1;background:#3c3c3c;border:1px solid #555;color:#ccc;font-size:11px;padding:2px 6px;border-radius:3px;outline:none;font-family:Consolas,monospace}
@@ -174,11 +174,10 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 #filter-input.active{border-color:#4ec9b0;background:#1e3a3a}
 #filter-clear{background:none;border:none;color:#666;cursor:pointer;font-size:13px;padding:0 3px;line-height:1.4}
 #filter-clear:hover{color:#ccc}
-.ri.fz-hidden{display:none}
-.rg-file-group.fz-hidden{display:none}
+
 .fz-hl{background:#b5890060;border-radius:2px}
-#results{flex:1;overflow-y:auto}
-.ri{display:flex;align-items:center;gap:4px;padding:1px 8px;cursor:pointer;min-height:20px}
+#results{flex:1;overflow-y:auto;position:relative}
+.ri{display:flex;align-items:center;gap:4px;padding:1px 8px;cursor:pointer;height:22px;overflow:hidden}
 .ri:hover{background:#2a2d2e}
 .ri.sel{background:#094771}
 .ri-lnum{color:#858585;font-size:11px;min-width:34px;text-align:right;flex-shrink:0;font-family:Consolas,monospace}
@@ -187,14 +186,11 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .ri-add{flex-shrink:0;background:#0e639c;color:#fff;border:none;border-radius:2px;padding:0 4px;cursor:pointer;font-size:11px;line-height:16px;opacity:0}
 .ri:hover .ri-add{opacity:1}
 .ri-add:hover{background:#1177bb}
-.rg-file-group{border-bottom:1px solid #2a2a2a;margin-top:4px}
-.rg-file-hdr{display:flex;align-items:center;gap:6px;padding:4px 8px;background:#232323;border-left:2px solid #007acc;cursor:pointer;user-select:none;position:sticky;top:0;z-index:1}
+.rg-file-hdr{display:flex;align-items:center;gap:6px;padding:4px 8px;background:#232323;border-left:2px solid #007acc;cursor:pointer;user-select:none;height:28px;box-sizing:border-box}
 .rg-file-hdr:hover{background:#2a2a2a}
 .rg-toggle{color:#666;font-size:10px;width:10px;flex-shrink:0}
 .rg-fname{color:#569cd6;font-size:12px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rg-fcount{color:#666;font-size:10px;flex-shrink:0}
-.rg-file-items .ri{padding-left:20px}
-.rg-file-items .ri-file{color:#888}
 
 /* center: node tree */
 #pane-tree{flex:1;display:flex;flex-direction:column;border-right:1px solid #444;overflow:hidden;position:relative}
@@ -496,30 +492,30 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 /* ===== 検索履歴ドロップダウン ===== */
 #btn-search-hist{margin-left:auto;font-size:10px;padding:1px 6px;background:#3a3a3a;border:1px solid #555;border-radius:3px;color:#aaa;cursor:pointer;flex-shrink:0;white-space:nowrap}
 #btn-search-hist:hover{background:#4a4a4a;color:#ccc}
-#search-tab-bar,#search-stack-bar{display:none;position:absolute;top:100%;right:0;min-width:280px;max-width:420px;max-height:320px;overflow-y:auto;z-index:300;background:#252526;border:1px solid #555;border-radius:4px;box-shadow:0 4px 16px rgba(0,0,0,0.6);padding:3px;flex-direction:column;gap:1px}
+#search-tab-bar,#search-stack-bar{display:none;position:absolute;top:calc(100% + 4px);right:0;width:360px;max-height:340px;overflow-y:auto;z-index:300;background:#1e1e1e;border:1px solid #444;border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,0.7);padding:4px;flex-direction:column;gap:0}
 #search-tab-bar.open,#search-stack-bar.open{display:flex}
 #search-stack-wrap{display:inline-flex}
 #btn-stack-add{font-size:10px;padding:1px 5px;background:#3a3a3a;border:1px solid #555;border-right:none;color:#aaa;border-radius:3px 0 0 3px;cursor:pointer;white-space:nowrap}
 #btn-stack-add:hover{background:#505050;color:#ccc}
 #btn-search-stack{font-size:10px;padding:1px 6px;background:#3a3a3a;border:1px solid #555;color:#aaa;border-radius:0 3px 3px 0;cursor:pointer;white-space:nowrap}
 #btn-search-stack:hover{background:#505050;color:#ccc}
-.sstack-handle{flex-shrink:0;color:#555;cursor:grab;font-size:12px;padding:0 3px;user-select:none}
-.sstack-handle:hover{color:#aaa}
+.sstack-handle{flex-shrink:0;color:#444;cursor:grab;font-size:12px;padding:0 2px;user-select:none}
+.sstack-handle:hover{color:#999}
 .sstack-dragging{opacity:0.4}
 .sstack-drag-over{outline:2px solid #4ec9b0;outline-offset:-2px;background:#1a3a2a}
-.sstack-body{display:flex;flex-direction:column;flex:1;min-width:0;gap:1px}
+.sstack-body{display:flex;flex-direction:column;flex:1;min-width:0;gap:2px}
 .sstack-label{font-size:10px;color:#555;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;align-self:flex-start;max-width:100%;opacity:0;transition:opacity 0.15s}
 .sstack-label.has-label{color:#7a9a7a;opacity:1}
-.stab:hover .sstack-label:not(.has-label){opacity:0.6}
+.stab:hover .sstack-label:not(.has-label){opacity:0.5}
 .sstack-label:hover{opacity:1 !important;color:#aaa}
 .sstack-label-input{font-size:10px;background:#333;border:1px solid #007acc;color:#ccc;outline:none;padding:0 4px;border-radius:2px;width:100%;font-family:inherit}
-.stab{display:flex;align-items:center;gap:6px;padding:5px 6px 5px 10px;background:transparent;border-radius:3px;cursor:pointer;color:#aaa;font-size:11px;user-select:none;white-space:nowrap}
-.stab:hover{background:#2a3a4a;color:#ccc}
+.stab{display:flex;align-items:center;gap:6px;padding:5px 8px;background:transparent;border-radius:4px;cursor:pointer;color:#bbb;font-size:12px;user-select:none;white-space:nowrap;min-height:30px}
+.stab:hover{background:#2a2d2e;color:#ddd}
 .stab.active{background:#0d3a5c;color:#ccc}
-.stab-lbl{flex:1;overflow:hidden;text-overflow:ellipsis}
-.stab-cnt{font-size:10px;color:#555;flex-shrink:0}
+.stab-lbl{flex:1;overflow:hidden;text-overflow:ellipsis;font-family:Consolas,monospace}
+.stab-cnt{font-size:10px;color:#555;flex-shrink:0;min-width:36px;text-align:right}
 .stab.active .stab-cnt{color:#7ab}
-.stab-close{flex-shrink:0;color:#444;font-size:12px;padding:0 3px;border-radius:2px;line-height:1}
+.stab-close{flex-shrink:0;color:#444;font-size:13px;padding:0 3px;border-radius:2px;line-height:1}
 .stab-close:hover{color:#e04;background:rgba(200,0,0,0.15)}
 .stab-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;cursor:pointer;border:1px solid transparent;margin-right:1px}
 .stab-dot::before{content:'';display:block;width:6px;height:6px;border-radius:50%;margin:auto}
@@ -528,9 +524,7 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 .stab:hover .stab-dot:hover{border-color:#aaa}
 .stab.pinned .stab-dot{opacity:1;border-color:#4ec9b0}
 .stab.pinned .stab-dot::before{background:#4ec9b0}
-.stab-sep{border-top:1px solid #333;margin:2px 0}
-
-/* インクルードグラフのスタイルは include-graph.css に分離されています。 */
+.stab-sep{border-top:1px solid #2a2a2a;margin:3px 0}
 
 /* ===== panel mode (?mode=panel) ===== */
 #panel-tabs{display:none;flex-shrink:0;border-bottom:1px solid #333;background:#252526}

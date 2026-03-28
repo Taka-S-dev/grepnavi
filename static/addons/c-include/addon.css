@@ -9,10 +9,12 @@
 #include-start{background:#3c3c3c;border:1px solid #555;color:#ccc;font-size:12px;padding:2px 6px;border-radius:3px;width:300px}
 #include-count{font-size:11px;color:#666}
 #include-graph-container{flex:1;overflow:hidden;position:relative}
-#inc-loading-bar{position:absolute;top:0;left:0;right:0;height:2px;z-index:10;display:none}
-#inc-loading-bar.active{display:block}
-#inc-loading-bar::after{content:'';position:absolute;top:0;height:2px;background:#4ec9b0;animation:inc-bar-slide 1.2s ease-in-out infinite}
-@keyframes inc-bar-slide{0%{left:-40%;width:40%}50%{left:30%;width:50%}100%{left:100%;width:40%}}
+@keyframes inc-spin{to{transform:rotate(360deg)}}
+#inc-loading-overlay{display:none;position:absolute;inset:0;background:rgba(0,0,0,0.45);z-index:10;align-items:center;justify-content:center;flex-direction:column;gap:10px;pointer-events:none}
+#inc-loading-overlay.active{display:flex}
+#inc-loading-ring{width:36px;height:36px;border:3px solid #444;border-top-color:#4ec9b0;border-radius:50%;animation:inc-spin 0.7s linear infinite}
+#inc-loading-cancel{color:#888;font-size:11px;cursor:pointer}
+#inc-loading-cancel:hover{color:#ccc}
 #include-graph-container svg{display:block}
 .inc-node{cursor:pointer}
 .inc-node rect{rx:4;fill:#2d2d2d;stroke:#555;stroke-width:1}
