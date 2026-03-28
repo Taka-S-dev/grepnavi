@@ -10,10 +10,58 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 )
 
 var reLocalInclude = regexp.MustCompile(`#\s*include\s*"([^"]+)"`)
 var reSystemInclude = regexp.MustCompile(`#\s*include\s*<([^>]+)>`)
+
+// headerIndexCache はディレクトリごとのヘッダサフィックスインデックスのキャッシュ。
+type headerIndexEntry struct {
+	index     map[string]string
+	expiresAt time.Time
+}
+
+type headerIndexInflight struct {
+	done chan struct{}
+	idx  map[string]string
+}
+
+var (
+	_headerIndexMu       sync.Mutex
+	_headerIndexCache    = map[string]headerIndexEntry{}
+	_headerIndexInflight = map[string]*headerIndexInflight{}
+)
+
+const _headerIndexTTL = 5 * time.Minute
+
+// cachedHeaderSuffixIndex はヘッダのサフィックスインデックスをキャッシュ付きで返す。
+// 同一 dir への同時呼び出しは1回の rg --files で済ませる（in-flight dedup）。
+func cachedHeaderSuffixIndex(ctx context.Context, dir string) map[string]string {
+	_headerIndexMu.Lock()
+	if e, ok := _headerIndexCache[dir]; ok && time.Now().Before(e.expiresAt) {
+		_headerIndexMu.Unlock()
+		return e.index
+	}
+	if inf, ok := _headerIndexInflight[dir]; ok {
+		_headerIndexMu.Unlock()
+		<-inf.done
+		return inf.idx
+	}
+	inf := &headerIndexInflight{done: make(chan struct{})}
+	_headerIndexInflight[dir] = inf
+	_headerIndexMu.Unlock()
+
+	inf.idx = buildHeaderSuffixIndex(ctx, dir)
+
+	_headerIndexMu.Lock()
+	_headerIndexCache[dir] = headerIndexEntry{index: inf.idx, expiresAt: time.Now().Add(_headerIndexTTL)}
+	delete(_headerIndexInflight, dir)
+	_headerIndexMu.Unlock()
+	close(inf.done)
+	return inf.idx
+}
 
 // IncludeNode はインクルードグラフのノード（ファイル）。
 type IncludeNode struct {
@@ -84,8 +132,8 @@ func BuildIncludeGraph(ctx context.Context, dir, glob string) (*IncludeGraph, er
 		glob = "*.c,*.h,*.cpp,*.hpp,*.cc"
 	}
 
-	// プロジェクト内ヘッダのサフィックスインデックスを構築
-	headerIndex := buildHeaderSuffixIndex(ctx, dir)
+	// プロジェクト内ヘッダのサフィックスインデックスを構築（TTLキャッシュ）
+	headerIndex := cachedHeaderSuffixIndex(ctx, dir)
 
 	args := []string{"--json"}
 	for _, g := range strings.FieldsFunc(glob, func(r rune) bool { return r == ' ' || r == ',' }) {
@@ -206,17 +254,50 @@ func BuildIncludeGraph(ctx context.Context, dir, glob string) (*IncludeGraph, er
 	return &IncludeGraph{Nodes: nodes, Edges: edges, Truncated: truncated}, nil
 }
 
+// includeChainCache は GetFileIncludes 結果の TTL キャッシュ。
+type includeChainEntry struct {
+	nodes     []IncludeNode
+	expiresAt time.Time
+}
+
+var (
+	_includeChainMu    sync.Mutex
+	_includeChainCache = map[string]includeChainEntry{}
+)
+
+const _includeChainTTL = 5 * time.Minute
+
 // GetFileIncludes は1ファイルの #include を解析して
 // インクルード先のファイルリストを返す。root からの相対パスで表現する。
 // "..." と <...> の両方を対象とし、<...> はプロジェクト内に存在するもののみ返す。
+// 結果は TTL キャッシュされる。
 func GetFileIncludes(absFile, root string) ([]IncludeNode, error) {
+	key := absFile + "\x00" + root
+	_includeChainMu.Lock()
+	if e, ok := _includeChainCache[key]; ok && time.Now().Before(e.expiresAt) {
+		_includeChainMu.Unlock()
+		return e.nodes, nil
+	}
+	_includeChainMu.Unlock()
+
+	nodes, err := getFileIncludesImpl(absFile, root)
+	if err != nil {
+		return nil, err
+	}
+	_includeChainMu.Lock()
+	_includeChainCache[key] = includeChainEntry{nodes: nodes, expiresAt: time.Now().Add(_includeChainTTL)}
+	_includeChainMu.Unlock()
+	return nodes, nil
+}
+
+func getFileIncludesImpl(absFile, root string) ([]IncludeNode, error) {
 	lines, err := CachedLines(absFile)
 	if err != nil {
 		return nil, err
 	}
 
-	// <...> 解決用にヘッダインデックスを構築
-	headerIndex := buildHeaderSuffixIndex(context.Background(), root)
+	// <...> 解決用にヘッダインデックスを構築（TTLキャッシュ）
+	headerIndex := cachedHeaderSuffixIndex(context.Background(), root)
 
 	fileDir := filepath.Dir(absFile)
 	seen := map[string]bool{}

@@ -10,6 +10,38 @@ let _incRootNode = null;
 const _incNodeMap = new Map(); // id -> node
 let _incSvg = null, _incRootG = null;
 let _incLoadingId = null; // 展開中ノードID
+const _INC_SPIN = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+let _incSpinFrame = 0, _incSpinTimer = null;
+
+function _incLoadingBar(on) {
+  let bar = document.getElementById('inc-loading-bar');
+  if(!bar) {
+    bar = document.createElement('div');
+    bar.id = 'inc-loading-bar';
+    const c = document.getElementById('include-graph-container');
+    if(c) c.appendChild(bar);
+  }
+  bar.classList.toggle('active', on);
+}
+
+function _incSpinStart() {
+  _incSpinFrame = 0;
+  _incLoadingBar(true);
+  if(_incSpinTimer) return;
+  _incSpinTimer = setInterval(() => {
+    _incSpinFrame = (_incSpinFrame + 1) % _INC_SPIN.length;
+    if(_incLoadingId && _incSvg) {
+      _incSvg.selectAll('g.inc-node text')
+        .filter(d => d.id === _incLoadingId)
+        .text(_INC_SPIN[_incSpinFrame] + ' ' + (_incNodeMap.get(_incLoadingId)?._dispLabel || _incNodeMap.get(_incLoadingId)?.label || ''));
+    }
+  }, 80);
+}
+
+function _incSpinStop() {
+  if(_incSpinTimer) { clearInterval(_incSpinTimer); _incSpinTimer = null; }
+  _incLoadingBar(false);
+}
 
 function _mkIncNode(inc) {
   return { id: inc.id, label: inc.label, expanded: false, fwd: [], rev: [] };
@@ -67,7 +99,19 @@ async function startIncludeGraph(file) {
     .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient','auto')
     .append('path').attr('d','M0,-5L10,0L0,5').attr('fill','#555');
   _incRootG = svg.append('g');
-  svg.call(d3.zoom().scaleExtent([0.1,4]).on('zoom', e => _incRootG.attr('transform', e.transform)));
+  const _incZoom = d3.zoom()
+    .scaleExtent([0.1, 4])
+    .filter(e => e.type === 'wheel' ? e.ctrlKey : !e.button)
+    .on('zoom', e => _incRootG.attr('transform', e.transform));
+  svg.call(_incZoom);
+  // スクロール(ホイール)でパン、Ctrl+ホイールでズーム
+  svg.on('wheel.pan', e => {
+    e.preventDefault();
+    _incZoom.translateBy(svg, -e.deltaX, -e.deltaY);
+  });
+  svg.style('cursor', 'grab');
+  svg.on('mousedown.cursor', () => svg.style('cursor', 'grabbing'));
+  svg.on('mouseup.cursor',   () => svg.style('cursor', 'grab'));
   _incSvg = svg;
 
   const normFile = _incNormId(file);
@@ -108,6 +152,7 @@ async function _incExpand(node) {
 
   _incLoadingId = node.id;
   _incRender(); // ローディング状態を反映
+  _incSpinStart();
 
   const [fR, rR] = await Promise.all([
     fetch('/api/include-file?file=' + encodeURIComponent(node.id)),
@@ -130,6 +175,7 @@ async function _incExpand(node) {
     if(!node.rev.includes(n)) node.rev.push(n);
   });
 
+  _incSpinStop();
   _incLoadingId = null;
   _incRender();
 }
@@ -283,7 +329,7 @@ function _incRender() {
     });
   nodeG.selectAll('g.inc-node text')
     .text(d => {
-      if(d.id === _incLoadingId) return '⏳ ' + (d._dispLabel || d.label);
+      if(d.id === _incLoadingId) return _INC_SPIN[_incSpinFrame] + ' ' + (d._dispLabel || d.label);
       const lbl = d._dispLabel || d.label;
       const maxCh = Math.floor((d._w || _incNodeWidth(lbl)) / 7.5) - 2;
       return lbl.length > maxCh ? lbl.slice(0, maxCh - 1) + '…' : lbl;

@@ -9,6 +9,10 @@
 #include-start{background:#3c3c3c;border:1px solid #555;color:#ccc;font-size:12px;padding:2px 6px;border-radius:3px;width:300px}
 #include-count{font-size:11px;color:#666}
 #include-graph-container{flex:1;overflow:hidden;position:relative}
+#inc-loading-bar{position:absolute;top:0;left:0;right:0;height:2px;z-index:10;display:none}
+#inc-loading-bar.active{display:block}
+#inc-loading-bar::after{content:'';position:absolute;top:0;height:2px;background:#4ec9b0;animation:inc-bar-slide 1.2s ease-in-out infinite}
+@keyframes inc-bar-slide{0%{left:-40%;width:40%}50%{left:30%;width:50%}100%{left:100%;width:40%}}
 #include-graph-container svg{display:block}
 .inc-node{cursor:pointer}
 .inc-node rect{rx:4;fill:#2d2d2d;stroke:#555;stroke-width:1}
