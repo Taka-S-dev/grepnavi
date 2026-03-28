@@ -16,7 +16,10 @@ func (h *Handler) handleGtagsStatus(w http.ResponseWriter, r *http.Request) {
 	h.mu.RUnlock()
 	installed := search.GtagsInPath()
 	indexed := search.GtagsIndexed(root)
-
+	// ?diag=1 を付けると詳細診断をサーバーログに出力
+	if r.URL.Query().Get("diag") == "1" {
+		search.GtagsDiagnose(root)
+	}
 	jsonOK(w, map[string]interface{}{
 		"installed":  installed,
 		"indexed":    indexed,

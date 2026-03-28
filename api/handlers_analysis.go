@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -73,13 +74,19 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 		dir = filepath.Join(hroot, dir)
 	}
 	glob := q.Get("glob")
-	useGtags := q.Get("gtags") != "0" && search.GtagsAvailable(hroot)
+	gtagsParam     := q.Get("gtags") != "0"
+	gtagsInstalled := search.GtagsInPath()
+	gtagsIndexed   := search.GtagsIndexed(hroot)
+	useGtags := gtagsParam && gtagsInstalled && gtagsIndexed
+	log.Printf("[definition] word=%q hroot=%q gtags_param=%v installed=%v indexed=%v → useGtags=%v",
+		word, hroot, gtagsParam, gtagsInstalled, gtagsIndexed, useGtags)
 	engine := "rg"
 	if useGtags {
 		engine = "gtags"
 	}
 	cacheKey := word + "\x00" + dir + "\x00" + glob + "\x00" + engine
 	if cached, ok := defCacheGet(cacheKey); ok {
+		log.Printf("[definition] cache hit  word=%q engine=%s", word, engine)
 		jsonOK(w, cached)
 		return
 	}
@@ -90,17 +97,24 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 		if cached, ok := defCacheGet(cacheKey); ok {
 			return cached, nil
 		}
+		t0 := time.Now()
 		var h []search.DefHit
 		var e error
 		eng := engine
 		if useGtags {
+			log.Printf("[definition-dbg] hroot=%q dir=%q", hroot, dir)
 			h, e = search.GtagsFindDefinitions(r.Context(), word, hroot)
+			log.Printf("[definition] word=%q engine=gtags hits=%d dir=%q elapsed=%s", word, len(h), dir, time.Since(t0))
 			if len(h) == 0 && e == nil {
+				log.Printf("[definition] word=%q gtags空振り → ripgrepフォールバック", word)
+				t0 = time.Now()
 				h, e = search.FindDefinitions(r.Context(), word, dir, glob)
 				eng = "rg"
+				log.Printf("[definition] word=%q engine=%s hits=%d elapsed=%s", word, eng, len(h), time.Since(t0))
 			}
 		} else {
 			h, e = search.FindDefinitions(r.Context(), word, dir, glob)
+			log.Printf("[definition] word=%q engine=%s hits=%d elapsed=%s", word, eng, len(h), time.Since(t0))
 		}
 		usedEngine = eng
 		if e == nil {
@@ -147,9 +161,11 @@ func (h *Handler) handleHover(w http.ResponseWriter, r *http.Request) {
 	file := q.Get("file")
 	hoverKey := word + "\x00" + file + "\x00" + dir + "\x00" + glob
 	if cached, ok := hoverCacheGet(hoverKey); ok {
+		log.Printf("[hover] cache hit  word=%q", word)
 		jsonOK(w, cached)
 		return
 	}
+	t0 := time.Now()
 	// 現在開いているファイルのインクルードチェーンを取得（優先ソート用・TTLキャッシュ済み）
 	var includeChain map[string]bool
 	if file != "" {
@@ -160,9 +176,12 @@ func (h *Handler) handleHover(w http.ResponseWriter, r *http.Request) {
 		}
 		includeChain[file] = true
 	}
+	tInc := time.Since(t0)
 	ctx, cancel := context.WithTimeout(r.Context(), 8000*time.Millisecond)
 	defer cancel()
 	hits, err := search.FindHover(ctx, word, dir, glob, hroot, includeChain)
+	log.Printf("[hover] word=%q hits=%d include=%s search=%s total=%s",
+		word, len(hits), tInc, time.Since(t0)-tInc, time.Since(t0))
 	if err != nil {
 		if ctx.Err() != nil {
 			jsonOK(w, []search.HoverHit{})
