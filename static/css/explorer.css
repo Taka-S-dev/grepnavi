@@ -57,6 +57,55 @@
 }
 #explorer-panel.visible { display: flex; }
 
+#explorer-root-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 12px 4px;
+  flex-shrink: 0;
+  user-select: none;
+}
+#explorer-root-name {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #bbb;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#explorer-collapse-all {
+  background: none;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  line-height: 1;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+#explorer-root-header:hover #explorer-collapse-all { opacity: 1; }
+#explorer-collapse-all:hover { color: #ccc; }
+
+#explorer-sticky-folder {
+  display: none;
+  align-items: center;
+  gap: 3px;
+  padding: 0 4px 0 6px;
+  height: 22px;
+  background: #252526;
+  border-bottom: 1px solid #3a3a3a;
+  flex-shrink: 0;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: Consolas, monospace;
+  color: #ccc;
+}
+#explorer-sticky-folder:hover { background: #2a2d2e; }
+
 #explorer-filter-bar {
   display: flex;
   align-items: center;

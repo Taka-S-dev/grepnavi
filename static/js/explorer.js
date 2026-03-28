@@ -132,6 +132,42 @@ function renderTree() {
 
 function rowH() { return _filtered ? FLAT_H : ITEM_H; }
 
+function updateRootName() {
+  const el = document.getElementById('explorer-root-name');
+  if (!el) return;
+  const root = (projectRoot || '').replace(/\\/g, '/').replace(/\/$/, '');
+  el.textContent = (root.split('/').pop() || 'EXPLORER').toUpperCase();
+}
+
+function updateStickyFolder() {
+  const stickyEl = document.getElementById('explorer-sticky-folder');
+  if (!stickyEl) return;
+  if (_filtered || _scrollEl.scrollTop <= 0) { stickyEl.style.display = 'none'; return; }
+
+  const firstIdx = Math.floor(_scrollEl.scrollTop / ITEM_H);
+  const firstItem = _allItems[firstIdx];
+  if (!firstItem || firstItem.depth === 0) { stickyEl.style.display = 'none'; return; }
+
+  // 先頭可視アイテムの直接親フォルダを後ろ向きに探す
+  const parentDepth = firstItem.depth - 1;
+  let stickyDir = null;
+  for (let i = firstIdx - 1; i >= 0; i--) {
+    const item = _allItems[i];
+    if (item && item.type === 'dir' && item.depth === parentDepth) { stickyDir = item; break; }
+  }
+  if (!stickyDir) { stickyEl.style.display = 'none'; return; }
+
+  stickyEl.style.display = 'flex';
+  stickyEl.innerHTML =
+    `<span style="width:${4 + parentDepth * INDENT}px;flex-shrink:0"></span>` +
+    dirIconOpen(stickyDir.name) +
+    `<span>${escHtml(stickyDir.name)}</span>`;
+  stickyEl.onclick = () => {
+    const idx = _allItems.indexOf(stickyDir);
+    if (idx >= 0) _scrollEl.scrollTop = Math.max(0, idx * ITEM_H - 4);
+  };
+}
+
 function renderVirtual() {
   if (_rendering) return;
   _rendering = true;
@@ -160,6 +196,7 @@ function renderVirtual() {
   el.appendChild(frag);
   el.scrollTop = scrollTop;
   _rendering = false;
+  updateStickyFolder();
 }
 
 function scrollSelIntoView() {
@@ -200,7 +237,7 @@ function makeItemEl(item, idx) {
     addGuides(el, item.depth);
     el.innerHTML +=
       `<span class="ex-arrow">&#x276F;</span>` +
-      (item.expanded ? dirIconOpen() : dirIcon()) +
+      (item.expanded ? dirIconOpen(item.name) : dirIcon(item.name)) +
       `<span class="ex-name">${escHtml(item.name)}</span>`;
     el.onclick = () => {
       if (_expanded.has(item.dirPath)) _expanded.delete(item.dirPath);
@@ -254,11 +291,39 @@ function makeItemEl(item, idx) {
   return el;
 }
 
-function dirIcon() {
-  return `<img src="${MIT_ICON_BASE}folder-base.svg" width="16" height="16" style="vertical-align:middle;flex-shrink:0;margin-right:3px">`;
+const DIR_TO_ICON = {
+  src:'src',source:'src',
+  lib:'lib',libs:'lib',library:'lib',
+  include:'include',includes:'include',inc:'include',
+  test:'test',tests:'test','__tests__':'test',spec:'test',specs:'test',
+  docs:'docs',doc:'docs',documentation:'docs',
+  build:'build',out:'build',output:'build',
+  dist:'dist',release:'dist',
+  config:'config',configs:'config',configuration:'config',conf:'config',settings:'config',
+  scripts:'scripts',script:'scripts',
+  tools:'tools',tool:'tools',
+  public:'public',
+  static:'static',
+  assets:'assets',asset:'assets',
+  images:'images',image:'images',img:'images',imgs:'images',
+  css:'css',styles:'css',style:'css',
+  js:'js',
+  node_modules:'node',
+  '.git':'git','.github':'github','.vscode':'vscode',
+  api:'api',
+  app:'app',
+  components:'components',component:'components',
+  utils:'utils',util:'utils',helpers:'utils',
+};
+function dirIcon(name) {
+  const key = (name||'').toLowerCase();
+  const icon = DIR_TO_ICON[key] || DIR_TO_ICON[name] || 'base';
+  return `<img src="${MIT_ICON_BASE}folder-${icon}.svg" width="16" height="16" style="vertical-align:middle;flex-shrink:0;margin-right:3px" onerror="this.src='${MIT_ICON_BASE}folder-base.svg'">`;
 }
-function dirIconOpen() {
-  return `<img src="${MIT_ICON_BASE}folder-base-open.svg" width="16" height="16" style="vertical-align:middle;flex-shrink:0;margin-right:3px">`;
+function dirIconOpen(name) {
+  const key = (name||'').toLowerCase();
+  const icon = DIR_TO_ICON[key] || DIR_TO_ICON[name] || 'base';
+  return `<img src="${MIT_ICON_BASE}folder-${icon}-open.svg" width="16" height="16" style="vertical-align:middle;flex-shrink:0;margin-right:3px" onerror="this.src='${MIT_ICON_BASE}folder-base-open.svg'">`;
 }
 function escHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -373,13 +438,21 @@ window.initExplorer = async function() {
     filterEl.focus();
   };
 
-  _scrollEl.addEventListener('scroll', () => renderVirtual(), { passive: true });
+  _scrollEl.addEventListener('scroll', () => { renderVirtual(); updateStickyFolder(); }, { passive: true });
+
+  document.getElementById('explorer-collapse-all')?.addEventListener('click', () => {
+    _expanded.clear();
+    render();
+  });
+
+  updateRootName();
 };
 
 window.explorerShow = async function() {
   _scrollEl = document.getElementById('explorer-tree');
   await explorerLoad();
   _tree = buildTree(_files);
+  updateRootName();
   render();
   document.getElementById('explorer-filter')?.focus();
 };
