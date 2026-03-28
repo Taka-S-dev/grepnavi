@@ -14,6 +14,35 @@ const JM_FIT_PADDING    = 40;    // グラフfit時のpadding(px)
 const JM_MAX_ZOOM       = 1.2;   // relayout後の最大ズーム倍率
 const JM_SNIPPET_CTX    = 25;    // プレビュー前後行数
 
+// ----- 色プリセット -----
+const JM_COLOR_PRESETS = {
+  vivid: { fileBg:'#1e2a35', fileBorder:'#4a90d9', symBg:'#2d4a6a', symBorder:'#4a90d9',
+           edge:'#4a90d9', curFileBorder:'#7ec8ff', curSymBg:'#1a6aaa', curSymBorder:'#7ec8ff' },
+  muted: { fileBg:'#1e2830', fileBorder:'#5a7a9a', symBg:'#253545', symBorder:'#5a7a9a',
+           edge:'#5a7a9a', curFileBorder:'#8ab0c8', curSymBg:'#2a4a5a', curSymBorder:'#8ab0c8' },
+  dark:  { fileBg:'#1a1e22', fileBorder:'#3a4a55', symBg:'#1e2830', symBorder:'#3a4a55',
+           edge:'#3a4a55', curFileBorder:'#5a7080', curSymBg:'#1e3040', curSymBorder:'#5a7080' },
+};
+const JM_COLOR_PRESET_ORDER = ['vivid','muted','dark'];
+const JM_COLOR_LABELS = {vivid:'色:鮮', muted:'色:淡', dark:'色:暗'};
+let _jmColorPreset = localStorage.getItem('grepnavi-jm-color-preset') || 'vivid';
+
+function _jmApplyColorPreset(preset) {
+  _jmColorPreset = preset;
+  localStorage.setItem('grepnavi-jm-color-preset', preset);
+  const c = JM_COLOR_PRESETS[preset];
+  if(!_cy) return;
+  _cy.style()
+    .selector('node[type="file"]').style({'background-color': c.fileBg, 'border-color': c.fileBorder})
+    .selector('node[type="file"].current-file').style({'border-color': c.curFileBorder})
+    .selector('node[type="sym"]').style({'background-color': c.symBg, 'border-color': c.symBorder})
+    .selector('node[type="sym"].current').style({'background-color': c.curSymBg, 'border-color': c.curSymBorder})
+    .selector('edge').style({'line-color': c.edge, 'target-arrow-color': c.edge})
+    .update();
+  const btn = document.getElementById('jm-color');
+  if(btn) btn.textContent = JM_COLOR_LABELS[preset] || '色';
+}
+
 // ----- Cytoscape 遅延ロード -----
 let _cy = null;
 
@@ -231,6 +260,30 @@ async function _jmInitCy() {
     userPanningEnabled: true,
   });
 
+  // ドラッグ閾値: 5px未満の移動はクリックとみなして元の位置に戻す
+  _cy.on('grabon', 'node', e => {
+    const n = e.target;
+    n.scratch('_grabPos', { x: n.position('x'), y: n.position('y') });
+  });
+  _cy.on('free', 'node', e => {
+    const n = e.target;
+    const orig = n.scratch('_grabPos');
+    if(!orig) return;
+    const dx = n.position('x') - orig.x;
+    const dy = n.position('y') - orig.y;
+    if(Math.sqrt(dx*dx + dy*dy) < 5) n.position(orig);
+    n.removeScratch('_grabPos');
+  });
+
+  // ズーム変更時に入力欄を同期
+  _cy.on('zoom', () => {
+    const el = document.getElementById('jm-zoom-val');
+    if(el) el.value = Math.round(_cy.zoom() * 100);
+  });
+
+  // 保存済み色プリセットを適用
+  if(_jmColorPreset !== 'vivid') _jmApplyColorPreset(_jmColorPreset);
+
   // 線引きモード: クリックで接続元→接続先を指定してエッジ作成
   let _drawSrc = null;
   _cy.on('tap', 'node[type="sym"]', e => {
@@ -384,14 +437,20 @@ document.addEventListener('DOMContentLoaded', () => {
       <div id="jm-resizer"></div>
       <div id="jm-header">
         <span>Jump Map</span>
-        <div style="display:flex;gap:4px;align-items:center">
-          <button id="jm-rec" class="sec" title="ジャンプ追跡の開始/停止">● REC</button>
-          <button id="jm-peek-toggle" class="sec" title="ホバープレビューの表示/非表示">Preview</button>
-          <button id="jm-edge-mode" class="sec" title="エッジ描画モード（ノードをドラッグして接続）">線引き</button>
-          <button id="jm-fit"   class="sec" title="全体表示">Fit</button>
-          <button id="jm-clear" class="sec" title="クリア">Clear</button>
-          <button id="jm-close">×</button>
-        </div>
+        <button id="jm-close">×</button>
+      </div>
+      <div id="jm-toolbar">
+        <button id="jm-rec" class="sec" title="ジャンプ追跡の開始/停止">● REC</button>
+        <button id="jm-peek-toggle" class="sec" title="ホバープレビューの表示/非表示">Preview</button>
+        <button id="jm-edge-mode" class="sec" title="エッジ描画モード">線引き</button>
+        <button id="jm-fit"   class="sec" title="全体表示">Fit</button>
+        <span id="jm-zoom-wrap" style="display:inline-flex;align-items:center;gap:2px">
+          <button id="jm-zoom-out" class="sec" title="縮小 (−5%)">−</button>
+          <input id="jm-zoom-val" type="number" min="10" max="500" step="5" value="100" title="ズーム率(%)" style="width:46px;text-align:center;background:#2a2a2a;border:1px solid #444;color:#ccc;font-size:11px;padding:1px 2px;border-radius:3px">
+          <button id="jm-zoom-in"  class="sec" title="拡大 (+5%)">+</button>
+        </span>
+        <button id="jm-color" class="sec" title="ノード色切り替え: 鮮→淡→暗">${JM_COLOR_LABELS[_jmColorPreset]}</button>
+        <button id="jm-clear" class="sec" title="クリア">Clear</button>
       </div>
       <div id="jm-status" style="color:#888;font-size:11px;padding:4px 12px;flex-shrink:0"></div>
       <div id="jm-cy" style="flex:1;min-height:0"></div>
@@ -434,7 +493,29 @@ document.addEventListener('DOMContentLoaded', () => {
     this.classList.toggle('rec-on', _tracking);
     if(!_tracking) _jmLastSymId = null; // 追跡停止時はチェーンをリセット
   };
-  document.getElementById('jm-fit').onclick = () => { if(_cy) _cy.fit(JM_FIT_PADDING); };
+  document.getElementById('jm-fit').onclick = () => { if(_cy) { _cy.fit(JM_FIT_PADDING); _jmSyncZoomVal(); } };
+
+  function _jmSyncZoomVal() {
+    const el = document.getElementById('jm-zoom-val');
+    if(el && _cy) el.value = Math.round(_cy.zoom() * 100);
+  }
+  function _jmSetZoom(pct) {
+    if(!_cy) return;
+    const level = Math.max(0.1, Math.min(5, pct / 100));
+    _cy.zoom({ level, renderedPosition: { x: _cy.width() / 2, y: _cy.height() / 2 } });
+    _jmSyncZoomVal();
+  }
+  document.getElementById('jm-zoom-out').onclick = () => { if(_cy) _jmSetZoom(Math.round(_cy.zoom() * 100) - 5); };
+  document.getElementById('jm-zoom-in' ).onclick = () => { if(_cy) _jmSetZoom(Math.round(_cy.zoom() * 100) + 5); };
+  document.getElementById('jm-zoom-val').addEventListener('change', e => _jmSetZoom(Number(e.target.value)));
+  document.getElementById('jm-zoom-val').addEventListener('keydown', e => {
+    if(e.key === 'ArrowUp')   { e.preventDefault(); _jmSetZoom(Number(e.target.value) + 5); }
+    if(e.key === 'ArrowDown') { e.preventDefault(); _jmSetZoom(Number(e.target.value) - 5); }
+  });
+  document.getElementById('jm-color').onclick = function() {
+    const idx = JM_COLOR_PRESET_ORDER.indexOf(_jmColorPreset);
+    _jmApplyColorPreset(JM_COLOR_PRESET_ORDER[(idx + 1) % JM_COLOR_PRESET_ORDER.length]);
+  };
 
   document.getElementById('jm-edge-mode').onclick = function() {
     _edgeDrawing = !_edgeDrawing;
