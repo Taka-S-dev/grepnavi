@@ -21,6 +21,15 @@ let pending = [], allMatches = [];
 let fileGroupMap = {};
 let filterTokens = [];
 
+// Virtual scroll state
+let _virtItems = [];       // [{type:'header', file, count}, {type:'row', match, file}]
+let _visibleItems = [];    // filtered/uncollapsed subset for virtual scroll
+let _collapsedGroups = new Set();
+let _selectedKey = '';     // "file:line" of selected row
+let _virtRenderTimer = null;
+let _virtHeaderMap = new Map(); // file → header item (O(1) lookup)
+let _virtNeedRebuild = false;   // true = buildVisibleItems needed before next render
+
 // Drag & Drop
 let dragNodeId = null;
 let dragDepth  = 0;

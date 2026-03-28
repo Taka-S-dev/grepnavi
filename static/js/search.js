@@ -1,3 +1,8 @@
+// ===== Virtual scroll constants =====
+const VIRT_GH = 28;  // group header row height px
+const VIRT_RH = 22;  // result row height px
+const VIRT_OVER = 8; // overdraw rows outside viewport
+
 // ===== 純粋関数 (Pure functions) =====
 
 // 検索パラメータを構築して返す（DOM・副作用なし）
@@ -64,6 +69,7 @@ function doSearch() {
 
   stopSearch();
   allMatches=[]; pending=[]; fileGroupMap={};
+  _virtItems=[]; _visibleItems=[]; _collapsedGroups=new Set(); _selectedKey=''; _virtHeaderMap=new Map(); _virtNeedRebuild=false;
   id('results').innerHTML='';
   id('filter-input').value=''; filterTokens=[]; id('filter-input').classList.remove('active'); id('filter-clear').style.display='none';
   id('sh-title').textContent='検索中... "'+q+'"';
@@ -90,7 +96,7 @@ function doSearch() {
     const d = JSON.parse(e.data);
     stopSearch();
     flushBatch(q);
-    const fcount = Object.keys(fileGroupMap).length;
+    const fcount = _virtItems.filter(it => it.type === 'header').length;
     const { title, overText } = buildSearchSummary(d.count, fcount, q, LIMIT);
     id('sh-title').textContent = title;
     id('sh-over').textContent = overText;
@@ -151,25 +157,11 @@ function matchFilter(haystack, orGroups) {
 
 function applyFilter() {
   const raw = id('filter-input').value;
-  const groups = parseFilter(raw);
   const active = raw.trim().length > 0;
   id('filter-input').classList.toggle('active', active);
   id('filter-clear').style.display = active ? '' : 'none';
-
-  const fileOnly = id('filter-scope')?.classList.contains('on');
-
-  document.querySelectorAll('.rg-file-group').forEach(group => {
-    let groupHasVisible = false;
-    group.querySelectorAll('.ri').forEach(row => {
-      const file = (row.title || '').toLowerCase();
-      const text = fileOnly ? '' : (row.querySelector('.ri-text')||{}).textContent?.toLowerCase() || '';
-      const haystack = file + ' ' + text;
-      const match = matchFilter(haystack, groups);
-      row.classList.toggle('fz-hidden', !match);
-      if(match) groupHasVisible = true;
-    });
-    group.classList.toggle('fz-hidden', !groupHasVisible);
-  });
+  buildVisibleItems();
+  renderVirtual();
 }
 
 function initFilter() {
@@ -181,12 +173,17 @@ function initFilter() {
     if(e.key === 'Escape') { inp.value=''; applyFilter(); inp.blur(); }
     if(e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
-      const rows = [...document.querySelectorAll('.ri:not(.fz-hidden)')];
+      const rows = _visibleItems.filter(it => it.type === 'row');
       if(!rows.length) return;
-      const sel = document.querySelector('.ri.sel');
-      const idx = sel ? rows.indexOf(sel) : -1;
-      const next = e.key === 'ArrowDown' ? rows[idx+1]||rows[0] : rows[idx-1]||rows[rows.length-1];
-      if(next) next.click();
+      const curIdx = rows.findIndex(r => (_selectedKey === r.match.file + ':' + r.match.line));
+      const nextIdx = e.key === 'ArrowDown'
+        ? (curIdx + 1) % rows.length
+        : (curIdx - 1 + rows.length) % rows.length;
+      const nextRow = rows[nextIdx];
+      if(nextRow) {
+        previewMatch(nextRow.match);
+        scrollToVirtItem(nextRow);
+      }
     }
   });
   btn.onclick = () => { inp.value=''; applyFilter(); inp.focus(); };
@@ -207,48 +204,180 @@ function initFilter() {
   }
 }
 
-function getOrCreateFileGroup(file) {
-  if(fileGroupMap[file]) return fileGroupMap[file];
-  const group = document.createElement('div');
-  group.className = 'rg-file-group';
-  const hdr = document.createElement('div');
-  hdr.className = 'rg-file-hdr';
-  const toggle = document.createElement('span');
-  toggle.className = 'rg-toggle'; toggle.textContent = '▼';
-  const iconEl = document.createElement('span');
-  iconEl.innerHTML = fileIcon(file);
-  const fname = document.createElement('span');
-  fname.className = 'rg-fname'; fname.textContent = shortPath(file); fname.title = file;
-  const fcount = document.createElement('span');
-  fcount.className = 'rg-fcount'; fcount.textContent = '0件';
-  hdr.append(toggle, iconEl, fname, fcount);
-  const items = document.createElement('div');
-  items.className = 'rg-file-items';
-  hdr.onclick = () => {
-    const collapsed = items.style.display === 'none';
-    items.style.display = collapsed ? '' : 'none';
-    toggle.textContent = collapsed ? '▼' : '▶';
-  };
-  group.append(hdr, items);
-  id('results').appendChild(group);
-  fileGroupMap[file] = {items, fcount, count: 0};
-  return fileGroupMap[file];
-}
-
 function flushBatch(q) {
   if(!pending.length) return;
   const batch = pending.splice(0);
-  const rendered = id('results').querySelectorAll('.ri').length;
-  let added = 0;
   for(const m of batch) {
-    if(rendered+added >= LIMIT) break;
-    const fg = getOrCreateFileGroup(m.file);
-    fg.items.appendChild(makeRI(m, true));
-    fg.count++;
-    fg.fcount.textContent = fg.count + '件';
-    added++;
+    if(allMatches.length > LIMIT) break;
+    const file = m.file;
+    let header = _virtHeaderMap.get(file);
+    if(!header) {
+      header = {type: 'header', file, count: 0};
+      _virtHeaderMap.set(file, header);
+      _virtItems.push(header);
+    }
+    header.count++;
+    _virtItems.push({type: 'row', match: m, file});
   }
+  _virtNeedRebuild = true;
+  scheduleRender();
   id('sh-title').textContent = `検索中... ${allMatches.length}件 "${q}"`;
+}
+
+function scheduleRender() {
+  if(_virtRenderTimer) return;
+  _virtRenderTimer = requestAnimationFrame(() => {
+    _virtRenderTimer = null;
+    if(_virtNeedRebuild) { buildVisibleItems(); _virtNeedRebuild = false; }
+    renderVirtual();
+  });
+}
+
+function buildVisibleItems() {
+  const filterStr = id('filter-input').value.trim();
+  const filter = parseFilter(filterStr);
+  const fileOnly = id('filter-scope')?.classList.contains('on');
+
+  _visibleItems = [];
+  let i = 0;
+  while(i < _virtItems.length) {
+    const item = _virtItems[i];
+    if(item.type !== 'header') { i++; continue; }
+
+    const collapsed = _collapsedGroups.has(item.file);
+
+    // Collect rows for this group
+    const groupRows = [];
+    let j = i + 1;
+    while(j < _virtItems.length && _virtItems[j].type === 'row' && _virtItems[j].file === item.file) {
+      groupRows.push(_virtItems[j]);
+      j++;
+    }
+
+    // Apply filter to rows
+    let visibleRows = groupRows;
+    if(filter) {
+      visibleRows = groupRows.filter(r => matchFilter(
+        (item.file + (fileOnly ? '' : ' ' + (r.match.text || ''))).toLowerCase(),
+        filter
+      ));
+    }
+
+    // Skip group entirely if filter active and no rows pass
+    if(filter && visibleRows.length === 0) { i = j; continue; }
+
+    _visibleItems.push({...item, _visibleCount: visibleRows.length});
+    if(!collapsed) {
+      for(const r of visibleRows) _visibleItems.push(r);
+    }
+    i = j;
+  }
+}
+
+function renderVirtual() {
+  const el = id('results');
+  if(!el) return;
+  const scrollTop = el.scrollTop;
+  const viewH = el.clientHeight || 500;
+
+  // Compute cumulative offsets
+  let totalH = 0;
+  const offsets = new Array(_visibleItems.length);
+  for(let i = 0; i < _visibleItems.length; i++) {
+    offsets[i] = totalH;
+    totalH += _visibleItems[i].type === 'header' ? VIRT_GH : VIRT_RH;
+  }
+
+  // Find visible range
+  const overPx = VIRT_OVER * VIRT_RH;
+  let startIdx = 0;
+  for(let i = 0; i < offsets.length; i++) {
+    if(offsets[i] >= scrollTop - overPx) { startIdx = Math.max(0, i - 1); break; }
+    startIdx = i;
+  }
+  let endIdx = _visibleItems.length;
+  for(let i = startIdx; i < offsets.length; i++) {
+    if(offsets[i] > scrollTop + viewH + overPx) { endIdx = i; break; }
+  }
+
+  const frag = document.createDocumentFragment();
+
+  const topSpacer = document.createElement('div');
+  topSpacer.style.height = (offsets[startIdx] || 0) + 'px';
+  frag.appendChild(topSpacer);
+
+  for(let i = startIdx; i < endIdx; i++) {
+    frag.appendChild(makeVirtRow(_visibleItems[i]));
+  }
+
+  const lastRenderedEnd = endIdx > 0
+    ? (offsets[endIdx - 1] || 0) + (_visibleItems[endIdx - 1]?.type === 'header' ? VIRT_GH : VIRT_RH)
+    : 0;
+  const botH = totalH - lastRenderedEnd;
+  const botSpacer = document.createElement('div');
+  botSpacer.style.height = Math.max(0, botH) + 'px';
+  frag.appendChild(botSpacer);
+
+  el.innerHTML = '';
+  el.appendChild(frag);
+  el.scrollTop = scrollTop;
+}
+
+function makeVirtRow(item) {
+  if(item.type === 'header') {
+    const div = document.createElement('div');
+    div.className = 'rg-file-hdr';
+    div.style.height = VIRT_GH + 'px';
+    const collapsed = _collapsedGroups.has(item.file);
+    const toggle = document.createElement('span');
+    toggle.className = 'rg-toggle';
+    toggle.textContent = collapsed ? '▶' : '▼';
+    const iconEl = document.createElement('span');
+    iconEl.innerHTML = fileIcon(item.file);
+    const fname = document.createElement('span');
+    fname.className = 'rg-fname';
+    fname.textContent = shortPath(item.file);
+    fname.title = item.file;
+    const fcount = document.createElement('span');
+    fcount.className = 'rg-fcount';
+    fcount.textContent = item._visibleCount + '件';
+    div.append(toggle, iconEl, fname, fcount);
+    div.onclick = () => {
+      if(_collapsedGroups.has(item.file)) _collapsedGroups.delete(item.file);
+      else _collapsedGroups.add(item.file);
+      buildVisibleItems();
+      renderVirtual();
+    };
+    return div;
+  } else {
+    const div = makeRI(item.match, true);
+    div.style.height = VIRT_RH + 'px';
+    div.style.overflow = 'hidden';
+    if(_selectedKey === item.match.file + ':' + item.match.line) div.classList.add('sel');
+    div.onclick = () => {
+      previewMatch(item.match);
+    };
+    return div;
+  }
+}
+
+// Scroll the #results container so that a virtual item is in view
+function scrollToVirtItem(targetItem) {
+  const el = id('results');
+  if(!el) return;
+  let offset = 0;
+  for(const item of _visibleItems) {
+    if(item === targetItem) break;
+    offset += item.type === 'header' ? VIRT_GH : VIRT_RH;
+  }
+  const itemH = targetItem.type === 'header' ? VIRT_GH : VIRT_RH;
+  const viewH = el.clientHeight;
+  if(offset < el.scrollTop) {
+    el.scrollTop = offset;
+  } else if(offset + itemH > el.scrollTop + viewH) {
+    el.scrollTop = offset + itemH - viewH;
+  }
+  renderVirtual();
 }
 
 function makeRI(m, compact=false) {
@@ -281,13 +410,14 @@ function makeRI(m, compact=false) {
   }
   div.querySelector('.ri-add').onclick = e => { e.stopPropagation(); addToGraph(m,null,'ref'); };
   div.querySelector('.ri-open').onclick = e => { e.stopPropagation(); if(e.ctrlKey || e.metaKey) openFile(m.file, m.line); };
-  div.onclick = () => previewMatch(m, div);
+  div.onclick = () => previewMatch(m);
   return div;
 }
 
-function previewMatch(m, el) {
-  document.querySelectorAll('.ri').forEach(r=>r.classList.remove('sel'));
-  el.classList.add('sel');
+function previewMatch(m) {
+  _selectedKey = m.file + ':' + m.line;
+  // Re-render to update .sel on visible rows
+  renderVirtual();
   showDetail({id:'__preview__', match:m, memo:'', label:labelFrom(m), children:[], expanded:true});
   const bd = id('btn-del');
   if(bd) bd.style.display='none';
@@ -295,18 +425,15 @@ function previewMatch(m, el) {
 }
 
 // ===== F3 検索結果ナビゲーション =====
-function getVisibleResultRows() {
-  return [...document.querySelectorAll('#results .ri:not(.fz-hidden)')];
-}
-
 function jumpResult(delta) {
-  const rows = getVisibleResultRows();
+  const rows = _visibleItems.filter(it => it.type === 'row');
   if(!rows.length) return;
-  const cur = rows.findIndex(r => r.classList.contains('sel'));
+  const cur = rows.findIndex(r => _selectedKey === r.match.file + ':' + r.match.line);
   const next = nextResultIndex(cur, delta, rows.length);
   if(next < 0) return;
-  rows[next].click();
-  rows[next].scrollIntoView({block:'nearest'});
+  const nextRow = rows[next];
+  previewMatch(nextRow.match);
+  scrollToVirtItem(nextRow);
 }
 
 // ===== 検索履歴タブ =====
@@ -355,6 +482,7 @@ function switchSearchTab(idx) {
   allMatches = [...tab.allMatches];
   pending = [...tab.allMatches];
   fileGroupMap = {};
+  _virtItems = []; _visibleItems = []; _collapsedGroups = new Set(); _selectedKey = ''; _virtHeaderMap = new Map(); _virtNeedRebuild = false;
   id('results').innerHTML = '';
 
   flushBatch(tab.query);
@@ -385,6 +513,7 @@ function closeSearchTab(idx) {
     id('sh-title').textContent = '検索結果';
     id('sh-over').textContent = '';
     allMatches = []; pending = []; fileGroupMap = {};
+    _virtItems = []; _visibleItems = []; _collapsedGroups = new Set(); _selectedKey = ''; _virtHeaderMap = new Map(); _virtNeedRebuild = false;
     renderSearchTabs();
     return;
   }
@@ -477,6 +606,7 @@ function switchSearchStack(idx) {
   allMatches = [...entry.allMatches];
   pending = [...entry.allMatches];
   fileGroupMap = {};
+  _virtItems = []; _visibleItems = []; _collapsedGroups = new Set(); _selectedKey = ''; _virtHeaderMap = new Map(); _virtNeedRebuild = false;
   id('results').innerHTML = '';
   flushBatch(entry.query);
   id('sh-title').textContent = entry.title;
@@ -604,6 +734,10 @@ function initSearchBar() {
   renderSearchStack();
   if(searchStack.length) { const w = id('search-stack-wrap'); if(w) w.style.display = ''; }
 
+  // Virtual scroll: re-render on scroll
+  const resultsEl = id('results');
+  if(resultsEl) resultsEl.addEventListener('scroll', () => renderVirtual(), {passive: true});
+
   id('btn-cs').onclick = () => id('btn-cs').classList.toggle('on');
   id('btn-wb').onclick = () => id('btn-wb').classList.toggle('on');
   id('btn-re').onclick = () => id('btn-re').classList.toggle('on');
@@ -636,6 +770,14 @@ function initSearchBar() {
     if(e.altKey && e.key.toLowerCase() === 'w') { e.preventDefault(); id('btn-wb').click(); }
     if(e.altKey && e.key.toLowerCase() === 'r') { e.preventDefault(); id('btn-re').click(); }
     if(e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'f') { e.preventDefault(); id('q').focus(); id('q').select(); }
+    if(e.ctrlKey && !e.shiftKey && e.key === 'Enter' && document.activeElement === id('q')) { e.preventDefault(); addToSearchStack(); }
+    if(e.altKey && e.shiftKey && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      if(!searchStack.length) return;
+      renderSearchStack();
+      id('search-tab-bar')?.classList.remove('open');
+      id('search-stack-bar').classList.toggle('open');
+    }
   });
   id('btn-toggle-sub').onclick = () => {
     const sub = id('bar-sub');

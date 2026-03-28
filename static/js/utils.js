@@ -26,36 +26,58 @@ const KIND_COLOR = {define:'#a06000', struct:'#4a5bbf', enum:'#4a5bbf', typedef:
 // Material Icon Theme (MIT License, PKief/vscode-material-icon-theme)
 const MIT_ICON_BASE = 'https://cdn.jsdelivr.net/gh/PKief/vscode-material-icon-theme@main/icons/';
 const EXT_TO_ICON = {
+  // C/C++
   c:'c',h:'h',cpp:'cpp',cc:'cpp',cxx:'cpp',hpp:'hpp',
-  go:'go',
+  // Go/Rust/Python/Ruby
+  go:'go',rs:'rust',py:'python',rb:'ruby',
+  // JS/TS
   js:'javascript',mjs:'javascript',cjs:'javascript',
   ts:'typescript',tsx:'react_ts',jsx:'react',
+  // Web
   html:'html',htm:'html',
   css:'css',scss:'scss',sass:'sass',less:'less',
+  // Data/Config
   json:'json',jsonc:'json',
-  py:'python',
-  rs:'rust',
-  md:'markdown',
-  sh:'shell',bash:'shell',zsh:'shell',
-  bat:'windows_cmd',cmd:'windows_cmd',
   yaml:'yaml',yml:'yaml',
-  xml:'xml',
+  xml:'xml',toml:'toml',ini:'tune',cfg:'tune',conf:'tune',
+  env:'dotenv',lock:'lock',
+  // DB
   sql:'database',
-  rb:'ruby',
-  java:'java',
+  // JVM
+  java:'java',kt:'kotlin',kts:'kotlin',gradle:'gradle',
+  scala:'scala',
+  // .NET
   cs:'csharp',
-  php:'php',
-  vue:'vue',
-  svelte:'svelte',
-  kt:'kotlin',kts:'kotlin',
-  swift:'swift',
-  r:'r',
-  lua:'lua',
-  cmake:'cmake',
-  makefile:'makefile',mk:'makefile',
-  toml:'toml',
-  lock:'lock',
-  env:'dotenv',
+  // Shell
+  sh:'shell',bash:'shell',zsh:'shell',fish:'shell',
+  bat:'windows_cmd',cmd:'windows_cmd',ps1:'powershell',
+  // Other languages
+  php:'php',lua:'lua',r:'r',dart:'dart',swift:'swift',
+  ex:'elixir',exs:'elixir',
+  tf:'terraform',tfvars:'terraform',
+  // Frontend frameworks
+  vue:'vue',svelte:'svelte',
+  // Docs
+  md:'markdown',rst:'readme',
+  // Build
+  cmake:'cmake',makefile:'makefile',mk:'makefile',
+  // Dotfiles (ext = part after last dot, e.g. ".gitignore" → ext="gitignore")
+  gitignore:'git',gitattributes:'git',gitmodules:'git',mailmap:'git',
+  editorconfig:'editorconfig',
+  npmignore:'npm',
+  dockerignore:'docker',
+  eslintignore:'eslint',eslintrc:'eslint',
+  prettierrc:'prettier',prettierignore:'prettier',
+  babelrc:'babel',
+  nvmrc:'nvm',
+  // No-extension files (ext == full name lowercased for files without dots)
+  readme:'readme',
+  license:'license',copying:'license',credits:'license',authors:'authors',
+  changelog:'changelog',changes:'changelog',
+  contributing:'contributing',
+  maintainers:'authors',
+  codeowners:'git',
+  dockerfile:'docker',
 };
 const _iconCache = {};
 
