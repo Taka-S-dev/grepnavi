@@ -618,10 +618,19 @@ func diagGuess(stderr string) string {
 }
 
 // gtagsClassifyKind はファイルの該当行テキストから kind を判定する。
+// "struct foo *bar(...)" のような関数定義を struct に誤分類しないよう、
+// ( が { より先に現れる場合は関数定義として扱う。
 func gtagsClassifyKind(line string) string {
 	t := strings.TrimSpace(line)
 	if strings.HasPrefix(t, "#define") {
 		return "define"
+	}
+	// ( が先に現れる = 関数定義（戻り値に struct/enum が含まれていても func）
+	parenIdx := strings.IndexByte(t, '(')
+	braceIdx := strings.IndexByte(t, '{')
+	isFuncDef := parenIdx >= 0 && (braceIdx < 0 || parenIdx < braceIdx)
+	if isFuncDef {
+		return "func"
 	}
 	if strings.Contains(t, "struct") {
 		return "struct"
@@ -657,28 +666,42 @@ func GtagsFindHoverHits(ctx context.Context, word, dir string) ([]DefHit, error)
 // 各参照行を囲む関数名・定義行を findContainingFunc で解決して返す。
 func GtagsFindRefs(ctx context.Context, word, dir string) ([]CallSite, error) {
 	cmd := exec.CommandContext(ctx, resolveGlobalBin(), "-xr", word)
+	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GTAGSDBPATH="+dir, "GTAGSROOT="+dir)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			slog.Debug("gtags-find-refs no results", "word", word)
 			return nil, nil
 		}
+		slog.Warn("gtags-find-refs error", "word", word, "err", err, "stderr", stderr.String())
 		return nil, err
 	}
 	hits := gtagsParseOutput(out, "ref", dir)
+	slog.Debug("gtags-find-refs raw hits", "word", word, "count", len(hits))
 	var results []CallSite
 	seen := map[string]bool{}
+	skippedNoFunc, skippedSelf, skippedDup := 0, 0, 0
 	for _, h := range hits {
 		lines, lerr := CachedLines(h.File)
 		if lerr != nil {
+			slog.Debug("gtags-find-refs CachedLines error", "file", h.File, "err", lerr)
 			continue
 		}
 		funcName, defLine := findContainingFunc(lines, h.Line)
-		if funcName == "" || funcName == word {
+		if funcName == "" {
+			skippedNoFunc++
+			continue
+		}
+		if funcName == word {
+			skippedSelf++
 			continue
 		}
 		key := h.File + ":" + strconv.Itoa(defLine)
 		if seen[key] {
+			skippedDup++
 			continue
 		}
 		seen[key] = true
@@ -689,5 +712,7 @@ func GtagsFindRefs(ctx context.Context, word, dir string) ([]CallSite, error) {
 			CallLine: h.Line,
 		})
 	}
+	slog.Debug("gtags-find-refs result", "word", word, "results", len(results),
+		"skipped_no_func", skippedNoFunc, "skipped_self", skippedSelf, "skipped_dup", skippedDup)
 	return results, nil
 }

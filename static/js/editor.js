@@ -478,8 +478,8 @@ async function ensureEditor() {
   monacoEditor.addAction({
     id: 'grepnavi-line-memo', label: '行メモを追加/編集 (Alt+N)',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyN],
-    contextMenuGroupId: 'grepnavi',
-    contextMenuOrder: 2,
+    contextMenuGroupId: 'grepnavi-mark',
+    contextMenuOrder: 3,
     run: ed => {
       const file = tabs[activeTabIdx]?.file;
       const line = ed.getPosition()?.lineNumber;
@@ -488,30 +488,11 @@ async function ensureEditor() {
     }
   });
 
-  // 右クリック → クリップボードにコピー
-  monacoEditor.addAction({
-    id: 'grepnavi-copy-word', label: 'クリップボードにコピー',
-    contextMenuGroupId: 'grepnavi',
-    contextMenuOrder: -1,
-    run: ed => {
-      const sel = ed.getSelection();
-      const model = ed.getModel();
-      if(!model) return;
-      const text = model.getValueInRange(sel);
-      if(text) {
-        navigator.clipboard.writeText(text);
-      } else {
-        const word = model.getWordAtPosition(ed.getPosition());
-        if(word) navigator.clipboard.writeText(word.word);
-      }
-    }
-  });
-
   // 右クリック → grep 検索（カーソル単語）
   monacoEditor.addAction({
-    id: 'grepnavi-grep-word', label: 'grep 検索（カーソル単語）',
-    contextMenuGroupId: 'grepnavi',
-    contextMenuOrder: 0,
+    id: 'grepnavi-grep-word', label: 'grep 検索',
+    contextMenuGroupId: 'grepnavi-nav',
+    contextMenuOrder: 1,
     run: ed => {
       const sel = ed.getSelection();
       const model = ed.getModel();
@@ -525,11 +506,26 @@ async function ensureEditor() {
   // 右クリック → 定義へジャンプ
   monacoEditor.addAction({
     id: 'grepnavi-goto-def-menu', label: '定義へジャンプ',
-    contextMenuGroupId: 'grepnavi',
-    contextMenuOrder: 0.2,
+    contextMenuGroupId: 'grepnavi-nav',
+    contextMenuOrder: 2,
     run: ed => {
       const word = ed.getModel()?.getWordAtPosition(ed.getPosition())?.word;
       if(word) jumpToDefinition(word);
+    }
+  });
+
+  // 右クリック → コールツリーで検索
+  monacoEditor.addAction({
+    id: 'grepnavi-calltree', label: 'コールツリーで検索',
+    contextMenuGroupId: 'grepnavi-nav',
+    contextMenuOrder: 3,
+    run: ed => {
+      const sel = ed.getSelection();
+      const model = ed.getModel();
+      if(!model) return;
+      const word = (sel && !sel.isEmpty() ? model.getValueInRange(sel).trim() : null)
+                   || model.getWordAtPosition(ed.getPosition())?.word;
+      if(word && typeof window.openCallTree === 'function') window.openCallTree(word);
     }
   });
 
@@ -537,8 +533,8 @@ async function ensureEditor() {
   monacoEditor.addAction({
     id: 'grepnavi-pin-highlight', label: '単語ハイライトを固定/解除 (Alt+H)',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyH],
-    contextMenuGroupId: 'grepnavi',
-    contextMenuOrder: 0.5,
+    contextMenuGroupId: 'grepnavi-mark',
+    contextMenuOrder: 1,
     run: ed => {
       const model = ed.getModel();
       const pos = ed.getPosition();
@@ -554,8 +550,8 @@ async function ensureEditor() {
   monacoEditor.addAction({
     id: 'grepnavi-add-node', label: 'ノードに追加 (Alt+G)',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyG],
-    contextMenuGroupId: 'grepnavi',
-    contextMenuOrder: 1,
+    contextMenuGroupId: 'grepnavi-mark',
+    contextMenuOrder: 2,
     run: ed => {
       const sel   = ed.getSelection();
       const model = ed.getModel();

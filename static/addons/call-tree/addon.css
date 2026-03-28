@@ -191,16 +191,14 @@ body.panel-mode #ct-close { display: none; }
 .ct-func {
   color: #dcdcaa;
   cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex-shrink: 0;
 }
 .ct-func:hover { text-decoration: underline; }
 
 .ct-callee-name {
   color: #9cdcfe;
   cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex-shrink: 0;
 }
 .ct-callee-name:hover { text-decoration: underline; }
 
@@ -209,7 +207,9 @@ body.panel-mode #ct-close { display: none; }
   margin-left: 4px;
   font-size: 10px;
   cursor: pointer;
-  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.8;
 }
 .ct-loc:hover { text-decoration: underline; }
 

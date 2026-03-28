@@ -356,6 +356,7 @@ function makeNodeEl(node, depth, isCycle = false) {
     const displayFile = shortFilePath(node.file);
     const jumpLine = _ctMode === 'callers' ? (node.callLine || node.line) : node.line;
     loc.textContent = `${displayFile}:${jumpLine}`;
+    loc.title = `${node.file}:${jumpLine}`;
     loc.onclick = () => ctJumpToLine(node.file, jumpLine);
   }
 
@@ -480,8 +481,7 @@ function escHtml(s) {
 
 function shortFilePath(p) {
   if (!p) return '';
-  const parts = p.replace(/\\/g, '/').split('/');
-  return parts.length > 2 ? parts.slice(-2).join('/') : parts[parts.length - 1];
+  return p.replace(/\\/g, '/').split('/').pop();
 }
 
 // openPeek は core（editor.js）のグローバル関数を利用する
