@@ -342,17 +342,15 @@ func GtagsFindDefinitions(ctx context.Context, word, dir string) ([]DefHit, erro
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
-	log.Printf("[gtags-find] === GtagsFindDefinitions word=%q dir=%q ===", word, dir)
-	log.Printf("[gtags-find] bin=%q", globalBin)
-	log.Printf("[gtags-find] GTAGSDBPATH=%q  GTAGSROOT=%q", dir, dir)
+	slog.Debug("gtags-find", "word", word, "bin", globalBin, "dir", dir)
 
 	// DBファイルの存在確認
 	for _, name := range []string{"GTAGS", "GRTAGS", "GPATH"} {
 		p := filepath.Join(dir, name)
 		if fi, err := os.Stat(p); err == nil {
-			log.Printf("[gtags-find] DB %s: OK size=%d", name, fi.Size())
+			slog.Debug("gtags-find db", "file", name, "size", fi.Size())
 		} else {
-			log.Printf("[gtags-find] DB %s: なし!", name)
+			slog.Debug("gtags-find db", "file", name, "status", "missing")
 		}
 	}
 
@@ -363,20 +361,23 @@ func GtagsFindDefinitions(ctx context.Context, word, dir string) ([]DefHit, erro
 			exitCode = exitErr.ExitCode()
 		}
 	}
-	log.Printf("[gtags-find] exit=%d stdout=%q stderr=%q err=%v",
-		exitCode, strings.TrimSpace(string(out)), strings.TrimSpace(stderr.String()), err)
+	slog.Debug("gtags-find result",
+		"exit", exitCode,
+		"stdout", strings.TrimSpace(string(out)),
+		"stderr", strings.TrimSpace(stderr.String()),
+		"err", err)
 
 	if err != nil {
 		if exitCode == 1 {
-			log.Printf("[gtags-find] exit=1 → 見つからず (正常)")
+			slog.Debug("gtags-find", "msg", "exit=1 not found (normal)")
 			return nil, nil
 		}
 		return nil, err
 	}
 	hits := preferDefinitionHits(gtagsParseOutput(out, "func", dir))
-	log.Printf("[gtags-find] hits=%d", len(hits))
+	slog.Debug("gtags-find", "hits", len(hits))
 	for i, h := range hits {
-		log.Printf("[gtags-find]   [%d] %s:%d %q", i, h.File, h.Line, h.Text)
+		slog.Debug("gtags-find hit", "i", i, "file", h.File, "line", h.Line, "text", h.Text)
 	}
 	return hits, nil
 }
@@ -492,22 +493,18 @@ func resolveGlobalBinOnce() (string, string) {
 // GtagsDiagnose は gtags 環境の診断情報をログに出力する。
 // ステータス API から呼ばれる。
 func GtagsDiagnose(dir string) {
-	log.Printf("[gtags-diag] ========================================")
-	log.Printf("[gtags-diag] === gtags 診断開始 dir=%q ===", dir)
-	log.Printf("[gtags-diag] ========================================")
+	slog.Info("gtags-diag start", "dir", dir)
 
 	// ---- 1. DBファイルの存在・サイズ・フォーマット確認 ----
-	log.Printf("[gtags-diag] --- [1] DB ファイル確認 ---")
 	for _, name := range []string{"GTAGS", "GRTAGS", "GPATH"} {
 		p := filepath.Join(dir, name)
 		fi, err := os.Stat(p)
 		if err != nil {
-			log.Printf("[gtags-diag]   %s: ✗ なし → インデックス未生成の可能性", name)
+			slog.Info("gtags-diag db", "file", name, "status", "missing")
 			continue
 		}
-		log.Printf("[gtags-diag]   %s: ✓ size=%d bytes  mtime=%s", name, fi.Size(), fi.ModTime().Format("2006-01-02 15:04:05"))
+		slog.Info("gtags-diag db", "file", name, "size", fi.Size(), "mtime", fi.ModTime().Format("2006-01-02 15:04:05"))
 
-		// GTAGS ファイルの先頭バイトからフォーマットを推測
 		if name == "GTAGS" {
 			f, ferr := os.Open(p)
 			if ferr == nil {
@@ -515,59 +512,44 @@ func GtagsDiagnose(dir string) {
 				n, _ := f.Read(hdr)
 				f.Close()
 				if n > 0 {
-					log.Printf("[gtags-diag]   GTAGS 先頭バイト: % x", hdr[:n])
+					var format string
 					switch {
 					case n >= 4 && hdr[0] == 0x13 && hdr[1] == 0x57:
-						log.Printf("[gtags-diag]   フォーマット推測: gdbm (ビッグエンディアン) ← MSYS2/Linux 由来の可能性")
+						format = "gdbm big-endian (MSYS2/Linux origin)"
 					case n >= 4 && hdr[0] == 0xce && hdr[1] == 0x9a:
-						log.Printf("[gtags-diag]   フォーマット推測: gdbm (リトルエンディアン) ← Windows ネイティブ由来の可能性")
+						format = "gdbm little-endian (Windows native origin)"
 					default:
-						log.Printf("[gtags-diag]   フォーマット推測: 不明 (btree/その他)")
+						format = "unknown (btree/other)"
 					}
+					slog.Info("gtags-diag db format", "header", fmt.Sprintf("% x", hdr[:n]), "format", format)
 				}
 			}
 		}
 	}
 
 	// ---- 2. global バイナリの確認 ----
-	log.Printf("[gtags-diag] --- [2] global バイナリ確認 ---")
 	bin := resolveGlobalBin()
-	log.Printf("[gtags-diag]   bin: %q", bin)
-
+	slog.Info("gtags-diag bin", "path", bin)
 	if fi, err := os.Stat(bin); err == nil {
-		log.Printf("[gtags-diag]   size: %d bytes", fi.Size())
-		if fi.Size() < 2048 {
-			log.Printf("[gtags-diag]   ⚠ サイズが小さすぎ → Scoop シムの可能性! 実際のバイナリが呼ばれていない")
-		} else {
-			log.Printf("[gtags-diag]   size は正常 (シムではなさそう)")
-		}
+		shim := fi.Size() < 2048
+		slog.Info("gtags-diag bin", "size", fi.Size(), "possible_shim", shim)
 	}
-
 	verCmd := exec.Command(bin, "--version")
 	verOut, verErr := verCmd.Output()
 	if verErr != nil {
-		log.Printf("[gtags-diag]   --version エラー: %v → バイナリが実行できない!", verErr)
+		slog.Info("gtags-diag bin", "version_err", verErr)
 	} else {
 		ver := strings.TrimSpace(string(verOut))
-		log.Printf("[gtags-diag]   バージョン: %q", ver)
-		if strings.Contains(strings.ToLower(ver), "msys") || strings.Contains(ver, "/usr/") {
-			log.Printf("[gtags-diag]   ⚠ MSYS2 版の global が使われています")
-		}
+		isMsys := strings.Contains(strings.ToLower(ver), "msys") || strings.Contains(ver, "/usr/")
+		slog.Info("gtags-diag bin", "version", ver, "is_msys", isMsys)
 	}
 
 	// ---- 3. 環境変数確認 ----
-	log.Printf("[gtags-diag] --- [3] 環境変数確認 ---")
 	for _, key := range []string{"GTAGSCONF", "GTAGSDBPATH", "GTAGSROOT", "GTAGSLABEL", "SCOOP", "USERPROFILE"} {
-		v := os.Getenv(key)
-		if v != "" {
-			log.Printf("[gtags-diag]   %s=%q", key, v)
-		} else {
-			log.Printf("[gtags-diag]   %s=(未設定)", key)
-		}
+		slog.Info("gtags-diag env", "key", key, "value", os.Getenv(key))
 	}
 
 	// ---- 4. DB に実際にアクセスできるか ----
-	log.Printf("[gtags-diag] --- [4] DB アクセステスト ---")
 	env := append(os.Environ(), "GTAGSDBPATH="+dir, "GTAGSROOT="+dir)
 	for _, testWord := range []string{"main", "open", "close"} {
 		tCmd := exec.Command(bin, "-xd", testWord)
@@ -584,41 +566,32 @@ func GtagsDiagnose(dir string) {
 		stderr := strings.TrimSpace(tStderr.String())
 		stdout := strings.TrimSpace(string(tOut))
 		if exitCode == 0 && stdout != "" {
-			log.Printf("[gtags-diag]   \"%s\" → ✓ ヒット! exit=0 (DB は読めています)", testWord)
-			log.Printf("[gtags-diag]     出力例: %q", firstLine(stdout))
+			slog.Info("gtags-diag test", "word", testWord, "status", "hit", "example", firstLine(stdout))
 			break
 		} else if exitCode == 1 {
-			log.Printf("[gtags-diag]   \"%s\" → exit=1 (見つからず) stderr=%q", testWord, stderr)
+			slog.Info("gtags-diag test", "word", testWord, "status", "not found", "stderr", stderr)
 		} else {
-			log.Printf("[gtags-diag]   \"%s\" → ✗ exit=%d stderr=%q ← DB 読み取りエラーの可能性!", testWord, exitCode, stderr)
-			if stderr != "" {
-				log.Printf("[gtags-diag]   原因候補: %s", diagGuess(stderr))
-			}
+			slog.Info("gtags-diag test", "word", testWord, "status", "error",
+				"exit", exitCode, "stderr", stderr, "guess", diagGuess(stderr))
 		}
 	}
 
 	// ---- 5. gtags バイナリの確認 (DB生成側) ----
-	log.Printf("[gtags-diag] --- [5] gtags (DB生成) バイナリ確認 ---")
 	gtagsBin, lookErr := exec.LookPath("gtags")
 	if lookErr != nil {
-		log.Printf("[gtags-diag]   gtags: PATH に見つかりません (%v)", lookErr)
+		slog.Info("gtags-diag gtags-bin", "status", "not found in PATH", "err", lookErr)
 	} else {
-		log.Printf("[gtags-diag]   gtags: %q", gtagsBin)
+		slog.Info("gtags-diag gtags-bin", "path", gtagsBin)
 		if fi, err := os.Stat(gtagsBin); err == nil {
-			log.Printf("[gtags-diag]   gtags size: %d bytes", fi.Size())
-			if fi.Size() < 2048 {
-				log.Printf("[gtags-diag]   ⚠ gtags もシムの可能性")
-			}
+			slog.Info("gtags-diag gtags-bin", "size", fi.Size(), "possible_shim", fi.Size() < 2048)
 		}
 		gVerCmd := exec.Command(gtagsBin, "--version")
 		if gVerOut, gVerErr := gVerCmd.Output(); gVerErr == nil {
-			log.Printf("[gtags-diag]   gtags バージョン: %q", strings.TrimSpace(string(gVerOut)))
+			slog.Info("gtags-diag gtags-bin", "version", strings.TrimSpace(string(gVerOut)))
 		}
 	}
 
-	log.Printf("[gtags-diag] ========================================")
-	log.Printf("[gtags-diag] === 診断完了 ===")
-	log.Printf("[gtags-diag] ========================================")
+	slog.Info("gtags-diag done")
 }
 
 func firstLine(s string) string {
