@@ -11,7 +11,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -124,7 +124,7 @@ func GtagsBuildIndex(ctx context.Context, dir string) error {
 	// 進捗を1行ずつコンソールに出力
 	scanner := bufio.NewScanner(stderr)
 	for scanner.Scan() {
-		log.Printf("[gtags] %s", scanner.Text())
+		slog.Info("gtags", "line", scanner.Text())
 	}
 
 	if err := cmd.Wait(); err != nil {
@@ -391,80 +391,72 @@ func resolveGtagsBinOnce() string {
 	if d := localBinDir(); d != "" {
 		p := filepath.Join(d, "gtags.exe")
 		if fi, err := os.Stat(p); err == nil {
-			log.Printf("[gtags-resolve] ✓ gtags found in local bin: %q (size=%d)", p, fi.Size())
+			slog.Debug("gtags-resolve", "found", "local bin", "path", p, "size", fi.Size())
 			return p
 		}
 	}
 	// 2. PATH
 	if p, err := exec.LookPath("gtags"); err == nil {
-		log.Printf("[gtags-resolve] ✓ gtags found in PATH: %q", p)
+		slog.Debug("gtags-resolve", "found", "PATH", "path", p)
 		return p
 	}
-	log.Printf("[gtags-resolve] ✗ gtags.exe が見つかりません。\"gtags\" にフォールバック")
+	slog.Debug("gtags-resolve", "gtags.exe", "not found, falling back to 'gtags'")
 	return "gtags"
 }
 
 func resolveGlobalBinOnce() (string, string) {
-	log.Printf("[gtags-resolve] === global.exe 探索開始 ===")
-	log.Printf("[gtags-resolve] SCOOP=%q  USERPROFILE=%q",
-		os.Getenv("SCOOP"), os.Getenv("USERPROFILE"))
+	slog.Debug("gtags-resolve", "msg", "searching global.exe",
+		"SCOOP", os.Getenv("SCOOP"), "USERPROFILE", os.Getenv("USERPROFILE"))
 
 	// 0. アプリ隣の bin/ を最優先（PATH 不要・shim 非依存）
 	if d := localBinDir(); d != "" {
 		p := filepath.Join(d, "global.exe")
 		if fi, err := os.Stat(p); err == nil {
-			log.Printf("[gtags-resolve] ✓ found in local bin: %q (size=%d)", p, fi.Size())
+			slog.Debug("gtags-resolve", "found", "local bin", "path", p, "size", fi.Size())
 			return p, "bin"
 		}
-		log.Printf("[gtags-resolve] local bin なし: %q", d)
+		slog.Debug("gtags-resolve", "local bin", "not found", "dir", d)
 	}
 
 	scoopAppsDir := ""
 	if s := os.Getenv("SCOOP"); s != "" {
 		scoopAppsDir = filepath.Join(s, "apps")
-		log.Printf("[gtags-resolve] scoop dir (from SCOOP): %q", scoopAppsDir)
 	} else if up := os.Getenv("USERPROFILE"); up != "" {
 		scoopAppsDir = filepath.Join(up, "scoop", "apps")
-		log.Printf("[gtags-resolve] scoop dir (from USERPROFILE): %q", scoopAppsDir)
 	}
 
 	if scoopAppsDir != "" {
 		entries, err := os.ReadDir(scoopAppsDir)
 		if err != nil {
-			log.Printf("[gtags-resolve] scoop ReadDir error: %v", err)
+			slog.Debug("gtags-resolve", "scoop ReadDir error", err)
 		} else {
-			log.Printf("[gtags-resolve] scoop apps count: %d", len(entries))
 			for _, e := range entries {
 				if !e.IsDir() {
 					continue
 				}
 				p := filepath.Join(scoopAppsDir, e.Name(), "current", "global.exe")
-				if _, err := os.Stat(p); err == nil {
-					log.Printf("[gtags-resolve] ✓ found in scoop: %q", p)
-					if fi, err := os.Stat(p); err == nil {
-						log.Printf("[gtags-resolve]   size=%d bytes", fi.Size())
-					}
+				if fi, err := os.Stat(p); err == nil {
+					slog.Debug("gtags-resolve", "found", "scoop", "path", p, "size", fi.Size())
 					return p, "scoop"
 				}
 			}
-			log.Printf("[gtags-resolve] scoop に global.exe なし")
+			slog.Debug("gtags-resolve", "scoop", "global.exe not found")
 		}
 	}
 
 	for _, base := range []string{`C:\msys64`, `C:\msys2`, `D:\msys64`, `D:\msys2`} {
 		p := filepath.Join(base, "usr", "bin", "global.exe")
 		if _, err := os.Stat(p); err == nil {
-			log.Printf("[gtags-resolve] ✓ found in msys: %q", p)
+			slog.Debug("gtags-resolve", "found", "msys", "path", p)
 			return p, "msys"
 		}
-		log.Printf("[gtags-resolve] not found: %q", p)
 	}
 
 	if p, err := exec.LookPath("global"); err == nil {
-		log.Printf("[gtags-resolve] ✓ found in PATH: %q", p)
+		slog.Debug("gtags-resolve", "found", "PATH", "path", p)
 		return p, "path"
 	}
-	log.Printf("[gtags-resolve] ✗ global.exe が見つかりません。\"global\" にフォールバック")
+	slog.Debug("gtags-resolve", "global.exe", "not found, falling back to 'global'")
 	return "global", ""
 }
 

@@ -3,7 +3,7 @@ package search
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -112,7 +112,7 @@ func FindDefinitionsN(ctx context.Context, word, dir, glob string, maxPerQuery i
 
 	results = preferDefinitionHits(results)
 
-	log.Printf("[FindDefinitionsN] word=%q hits=%d elapsed=%s", word, len(results), time.Since(t1)) // DEBUG
+	slog.Debug("FindDefinitions", "word", word, "hits", len(results), "elapsed", time.Since(t1))
 	return results, nil
 }
 

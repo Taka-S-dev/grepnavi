@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"runtime"
@@ -15,27 +16,47 @@ func main() {
 	port      := flag.Int("port", 8080, "HTTP server port")
 	host      := flag.String("host", "127.0.0.1", "bind address (use 0.0.0.0 for LAN access)")
 	noBrowser := flag.Bool("no-browser", false, "suppress automatic browser launch")
+	logLevel  := flag.String("log-level", "info", "log level: debug, info, warn, error")
 	flag.Parse()
+
+	// slog セットアップ
+	var level slog.Level
+	switch *logLevel {
+	case "debug":
+		level = slog.LevelDebug
+	case "warn":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	default:
+		level = slog.LevelInfo
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
+	// log.Printf も slog に流す（サードパーティライブラリ対応）
+	log.SetFlags(0)
+	log.SetOutput(os.Stderr)
 
 	rootExplicit := *root != "."
 	absRoot, err := absPath(*root)
 	if err != nil {
-		log.Fatalf("invalid root: %v", err)
+		slog.Error("invalid root", "err", err)
+		os.Exit(1)
 	}
 
 	addr := fmt.Sprintf("%s:%d", *host, *port)
 	url := fmt.Sprintf("http://localhost:%d", *port)
 	srv := newServer(absRoot, rootExplicit, *graphFile, addr)
 
-	log.Printf("grepnavi: root=%s graph=%s", absRoot, *graphFile)
-	log.Printf("Listening on %s", url)
+	slog.Info("grepnavi started", "root", absRoot, "graph", *graphFile)
+	slog.Info("listening", "url", url)
 
 	if !*noBrowser {
 		go openBrowser(url)
 	}
 
 	if err := srv.ListenAndServe(); err != nil {
-		log.Fatal(err)
+		slog.Error("server error", "err", err)
+		os.Exit(1)
 	}
 }
 
