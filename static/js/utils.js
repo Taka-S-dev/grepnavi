@@ -1,7 +1,25 @@
 // ===== CONSTANTS =====
 const SPINNER_FRAMES = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
 const LIMIT = 1000, BATCH_MS = 80, DRAG_STEP = 30;
-const NODE_COLORS = ['#4a9edd','#3dbfa0','#d4875a','#d4c45a','#b87ac8'];
+const NODE_COLOR_PRESETS = {
+  vivid: ['#4a9edd','#3dbfa0','#d4875a','#d4c45a','#b87ac8'],
+  muted: ['#5a7a9a','#4a8a72','#8a6040','#7a7040','#7a5a8a'],
+  dark:  ['#2a3d52','#243d30','#3d2a1a','#3a3a1a','#2d2038'],
+};
+const NODE_COLOR_PRESET_ORDER = ['vivid','muted','dark'];
+let _nodeColorPreset = localStorage.getItem('grepnavi-node-color-preset') || 'vivid';
+let NODE_COLORS = [...NODE_COLOR_PRESETS[_nodeColorPreset]];
+
+function cycleNodeColorPreset() {
+  const idx = NODE_COLOR_PRESET_ORDER.indexOf(_nodeColorPreset);
+  _nodeColorPreset = NODE_COLOR_PRESET_ORDER[(idx + 1) % NODE_COLOR_PRESET_ORDER.length];
+  localStorage.setItem('grepnavi-node-color-preset', _nodeColorPreset);
+  NODE_COLORS.splice(0, NODE_COLORS.length, ...NODE_COLOR_PRESETS[_nodeColorPreset]);
+}
+
+function nodeColorPresetLabel() {
+  return {vivid:'色:鮮', muted:'色:淡', dark:'色:暗'}[_nodeColorPreset] || '色';
+}
 const KIND_LABEL = {define:'macro', struct:'struct', enum:'enum', typedef:'typedef', func:'fn'};
 const KIND_COLOR = {define:'#a06000', struct:'#4a5bbf', enum:'#4a5bbf', typedef:'#1e7d82', func:'#1e6e40'};
 

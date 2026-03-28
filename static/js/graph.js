@@ -204,7 +204,7 @@ function loadD3() {
     const savedDefine = window.define;
     window.define = undefined;
     const s = document.createElement('script');
-    s.src = '/d3.min.js';
+    s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
     s.onload  = () => { window.define = savedDefine; resolve(); };
     s.onerror = () => { window.define = savedDefine; reject(new Error('D3 load failed')); };
     document.head.appendChild(s);
@@ -276,7 +276,13 @@ async function renderGraph() {
   btnShrink.textContent = '⇔ 縮める';
   btnShrink.style.cssText = 'font-size:11px;padding:2px 8px;background:#3c3c3c;color:#ccc;border:1px solid #555;border-radius:3px;cursor:pointer';
 
-  toolbar.append(btnShrink, btnExpand, btnMemo, btnPng, btnDrawio);
+  const btnColor = document.createElement('button');
+  btnColor.textContent = nodeColorPresetLabel();
+  btnColor.title = 'ノード色: 鮮 → 淡 → 暗 の順に切り替え';
+  btnColor.style.cssText = 'font-size:11px;padding:2px 8px;background:#3c3c3c;color:#ccc;border:1px solid #555;border-radius:3px;cursor:pointer';
+  btnColor.onclick = () => { cycleNodeColorPreset(); renderGraph(); };
+
+  toolbar.append(btnShrink, btnExpand, btnColor, btnMemo, btnPng, btnDrawio);
   container.appendChild(toolbar);
 
   const W = container.offsetWidth  || 800;

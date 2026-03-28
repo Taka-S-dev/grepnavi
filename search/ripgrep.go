@@ -25,6 +25,7 @@ type Options struct {
 	FileGlob     string // e.g. "*.c" / "*.h"
 	ContextLines int    // default 3
 	MaxResults   int    // 0 = unlimited
+	Multiline    bool   // --multiline (-U): パターンを複数行にまたがってマッチ
 }
 
 // Search は ripgrep を呼び出してマッチ一覧を返す。
@@ -67,6 +68,9 @@ func buildArgs(opts Options) []string {
 	}
 	if opts.WordRegexp {
 		args = append(args, "--word-regexp")
+	}
+	if opts.Multiline {
+		args = append(args, "--multiline")
 	}
 	for _, g := range strings.FieldsFunc(opts.FileGlob, func(r rune) bool {
 		return r == ' ' || r == ','

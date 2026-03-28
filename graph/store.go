@@ -66,6 +66,9 @@ func loadProjectFile(path string) (*ProjectFile, error) {
 		return nil, fmt.Errorf("no trees in project file")
 	}
 	for _, t := range pf.Trees {
+		if t == nil {
+			return nil, fmt.Errorf("project file contains nil tree element")
+		}
 		if t.Nodes == nil {
 			t.Nodes = make(map[string]*Node)
 		}
@@ -114,9 +117,11 @@ func (s *Store) activeTree() *Tree {
 }
 
 func (s *Store) treeMetas() []TreeMeta {
-	metas := make([]TreeMeta, len(s.pf.Trees))
-	for i, t := range s.pf.Trees {
-		metas[i] = TreeMeta{ID: t.ID, Name: t.Name}
+	metas := make([]TreeMeta, 0, len(s.pf.Trees))
+	for _, t := range s.pf.Trees {
+		if t != nil {
+			metas = append(metas, TreeMeta{ID: t.ID, Name: t.Name})
+		}
 	}
 	return metas
 }
