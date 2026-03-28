@@ -941,33 +941,6 @@ function closeDefPeek() {
   if (_defDom) { _defDom.remove(); _defDom = null; }
 }
 
-let _engineToastTimer = null;
-function showEngineToast(engine) {
-  if (!engine) return;
-  let el = document.getElementById('engine-toast');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'engine-toast';
-    document.body.appendChild(el);
-  }
-  clearTimeout(_engineToastTimer);
-  const isGtags = engine === 'gtags';
-  el.textContent = isGtags ? 'gtags ✓' : 'ripgrep';
-  el.className = 'engine-toast ' + (isGtags ? 'engine-toast-gtags' : 'engine-toast-rg');
-  // Monaco カーソル位置の近くに表示
-  if (monacoEditor) {
-    const pos = monacoEditor.getPosition();
-    const px = monacoEditor.getScrolledVisiblePosition(pos);
-    if (px) {
-      const editorDom = monacoEditor.getDomNode();
-      const rect = editorDom ? editorDom.getBoundingClientRect() : {left:0, top:0};
-      el.style.left = (rect.left + px.left + 16) + 'px';
-      el.style.top  = (rect.top  + px.top  - 28) + 'px';
-    }
-  }
-  el.style.opacity = '1';
-  _engineToastTimer = setTimeout(() => { el.style.opacity = '0'; }, 1800);
-}
 
 function showDefPeek(hits, word, pixelPos) {
   closeDefPeek();
@@ -1051,7 +1024,6 @@ async function jumpToDefinition(word) {
       if (r.ok) {
         hits = await r.json();
         totalCount = hits.length;
-        showEngineToast(r.headers.get('X-Engine') || '');
       }
     } catch {}
   }
