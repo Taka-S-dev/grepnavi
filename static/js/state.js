@@ -64,6 +64,7 @@ const LS_PINNED_TABS = 'grepnavi-pinned-tabs';
 
 // Search stack
 let searchStack = []; // [{query, count, title, overText, filterValue, allMatches}]
+let _currentStackIdx = -1; // 現在アクティブなスタックのインデックス (-1 = なし)
 const LS_SEARCH_STACK = 'grepnavi-search-stack';
 
 // Search stack drag

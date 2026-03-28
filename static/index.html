@@ -2,13 +2,14 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>grepnavi</title>
+<title>コードビューア</title>
 <script>
   var require = {paths: {'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs'}};
 </script>
 <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
 <link rel="stylesheet" href="/css/codicon.css">
-<link rel="stylesheet" href="/css/main.css">
+<link rel="stylesheet" href="/css/main.css?v=5">
+<link rel="stylesheet" href="/css/explorer.css">
 <!-- アドオン CSS/JS ローダー（addons/addons.js でアドオンを管理） -->
 <script src="/addons/addons.js"></script>
 <script>
@@ -21,6 +22,22 @@
 <div id="workspace">
   <!-- 左列: 検索UI（上）+ 結果（中）+ 詳細（下） -->
   <div id="pane-left">
+    <div id="activity-bar">
+      <button class="activity-btn active" id="tab-search" title="検索">
+        <i class="codicon codicon-search"></i>
+      </button>
+      <button class="activity-btn" id="tab-explorer" title="エクスプローラ">
+        <i class="codicon codicon-folder"></i>
+      </button>
+    </div>
+    <div id="left-content">
+    <div id="explorer-panel">
+      <div id="explorer-filter-bar">
+        <input id="explorer-filter" type="text" placeholder="ファイルを検索..." autocomplete="off" spellcheck="false">
+        <button id="explorer-filter-clear">✕</button>
+      </div>
+      <div id="explorer-tree"></div>
+    </div>
     <div id="search-panel">
       <div id="bar-main">
         <div id="q-wrap">
@@ -75,7 +92,6 @@
       </div>
       <div id="results"></div>
     </div>
-
     <div id="left-resizer"></div>
 
     <!-- 詳細 -->
@@ -85,6 +101,7 @@
         <div id="no-sel">ノードを選択</div>
       </div>
     </div>
+    </div><!-- /left-content -->
   </div>
 
   <div id="col-resizer"></div>
@@ -164,6 +181,28 @@
 
 </div><!-- #workspace -->
 
+<!-- タブコンテキストメニュー -->
+<div id="tab-ctx-menu">
+  <div class="tab-ctx-item" id="tab-ctx-close">このタブを閉じる</div>
+  <div class="tab-ctx-sep"></div>
+  <div class="tab-ctx-item" id="tab-ctx-close-right">右のタブをすべて閉じる</div>
+  <div class="tab-ctx-item" id="tab-ctx-close-others">他のタブをすべて閉じる</div>
+  <div class="tab-ctx-sep"></div>
+  <div class="tab-ctx-item" id="tab-ctx-copy-path">パスをコピー</div>
+  <div class="tab-ctx-item" id="tab-ctx-open-explorer">エクスプローラで開く</div>
+</div>
+
+<!-- 汎用確認ダイアログ -->
+<div id="confirm-modal">
+  <div id="confirm-modal-box">
+    <div id="confirm-modal-msg"></div>
+    <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:12px">
+      <button id="confirm-modal-ok">OK</button>
+      <button class="sec" id="confirm-modal-cancel">キャンセル</button>
+    </div>
+  </div>
+</div>
+
 <!-- プロジェクト保存/開くモーダル -->
 <div id="project-modal">
   <div id="project-modal-box">
@@ -213,6 +252,7 @@
       <span id="fzf-icon">🔍</span>
       <input id="fzf-input" type="text" placeholder="ファイル名を入力…" autocomplete="off" spellcheck="false">
       <span id="fzf-count"></span>
+      <button id="fzf-browse-btn" title="フォルダで探す (Ctrl+Shift+O)">📂</button>
     </div>
     <div id="fzf-list"></div>
   </div>
@@ -281,6 +321,7 @@
 <script src="/js/editor.js"></script>
 <script src="/js/filebrowser.js"></script>
 <script src="/js/project.js"></script>
+<script src="/js/explorer.js"></script>
 <script src="/js/app.js"></script>
 <!-- アドオン JS（DOMContentLoaded 内で HTML 注入・イベント登録を自己完結） -->
 <script>
@@ -288,5 +329,20 @@
     document.write('<script src="/addons/'+name+'/addon.js"><\/script>');
   });
 </script>
+<div id="gtags-console">
+  <div id="gtags-console-header">
+    <span id="gtags-console-title">gtags</span>
+    <span id="gtags-console-elapsed" style="display:none"></span>
+    <button id="gtags-console-minimize" title="最小化">─</button>
+    <button id="gtags-console-abort" style="display:none">中断</button>
+    <button id="gtags-console-close" disabled>✕</button>
+  </div>
+  <div id="gtags-prog-bar-wrap"><div id="gtags-prog-bar"></div></div>
+  <div id="gtags-prog-body">
+    <span id="gtags-prog-count">-</span>
+    <span id="gtags-prog-file"></span>
+  </div>
+  <div id="gtags-console-body" style="display:none"></div>
+</div>
 </body>
 </html>
