@@ -156,13 +156,31 @@ go build .
 
 ### インストール（Windows）
 
-```bash
-# Scoop を使う場合
-scoop install global
+**方法 1: Scoop（推奨）**
 
-# または公式サイトからバイナリをダウンロード
-# https://www.gnu.org/software/global/download.html
+```bash
+scoop install global
 ```
+
+**方法 2: exe を直接配置（PATH 不要・環境依存なし）**
+
+インストール不要で使いたい場合や、Scoop 環境で問題が発生する場合はこの方法が確実です。
+
+1. [GNU Global 公式サイト](https://www.gnu.org/software/global/download.html) から Windows 用バイナリをダウンロード
+2. アーカイブを展開し、`global.exe` と `gtags.exe` を grepnavi の `bin/` フォルダに配置
+
+```
+grepnavi/
+├── grepnavi.exe
+├── static/
+└── bin/
+    ├── global.exe   ← 定義ジャンプ・参照検索に使用
+    └── gtags.exe    ← インデックス生成に使用
+```
+
+3. grepnavi を（再）起動すれば自動的に `bin/` のバイナリが使われます。PATH への追加は不要です。
+
+> **注意：** gtags.exe・global.exe の両方が必要です。片方だけでは一部機能が動作しません。
 
 ### 使い方
 
