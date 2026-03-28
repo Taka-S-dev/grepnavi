@@ -73,14 +73,44 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 		dir = filepath.Join(hroot, dir)
 	}
 	glob := q.Get("glob")
-	useGtags := q.Get("gtags") != "0" && search.GtagsAvailable(dir)
-	var hits []search.DefHit
-	var err error
+	useGtags := q.Get("gtags") != "0" && search.GtagsAvailable(hroot)
+	engine := "rg"
 	if useGtags {
-		hits, err = search.GtagsFindDefinitions(r.Context(), word, dir)
-	} else {
-		hits, err = search.FindDefinitions(r.Context(), word, dir, glob)
+		engine = "gtags"
 	}
+	cacheKey := word + "\x00" + dir + "\x00" + glob + "\x00" + engine
+	if cached, ok := defCacheGet(cacheKey); ok {
+		jsonOK(w, cached)
+		return
+	}
+	usedEngine := engine
+	// 同一キーの並行リクエストは1回の検索で済ませる（in-flight dedup）
+	hits, err := defInflightDo(cacheKey, func() ([]search.DefHit, error) {
+		// キャッシュを再チェック（待機中に別のリクエストが完了した可能性）
+		if cached, ok := defCacheGet(cacheKey); ok {
+			return cached, nil
+		}
+		var h []search.DefHit
+		var e error
+		eng := engine
+		if useGtags {
+			h, e = search.GtagsFindDefinitions(r.Context(), word, hroot)
+			if len(h) == 0 && e == nil {
+				h, e = search.FindDefinitions(r.Context(), word, dir, glob)
+				eng = "rg"
+			}
+		} else {
+			h, e = search.FindDefinitions(r.Context(), word, dir, glob)
+		}
+		usedEngine = eng
+		if e == nil {
+			if h == nil {
+				h = []search.DefHit{}
+			}
+			defCacheSet(cacheKey, h)
+		}
+		return h, e
+	})
 	if err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -88,6 +118,7 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 	if hits == nil {
 		hits = []search.DefHit{}
 	}
+	w.Header().Set("X-Engine", usedEngine)
 	jsonOK(w, hits)
 }
 
@@ -113,9 +144,15 @@ func (h *Handler) handleHover(w http.ResponseWriter, r *http.Request) {
 	if glob == "" {
 		glob = "*.c,*.h,*.cpp,*.hpp,*.cc"
 	}
-	// 現在開いているファイルのインクルードチェーンを取得（優先ソート用）
+	file := q.Get("file")
+	hoverKey := word + "\x00" + file + "\x00" + dir + "\x00" + glob
+	if cached, ok := hoverCacheGet(hoverKey); ok {
+		jsonOK(w, cached)
+		return
+	}
+	// 現在開いているファイルのインクルードチェーンを取得（優先ソート用・TTLキャッシュ済み）
 	var includeChain map[string]bool
-	if file := q.Get("file"); file != "" {
+	if file != "" {
 		incs, _ := search.GetFileIncludes(file, hroot)
 		includeChain = make(map[string]bool, len(incs)+1)
 		for _, f := range incs {
@@ -123,9 +160,9 @@ func (h *Handler) handleHover(w http.ResponseWriter, r *http.Request) {
 		}
 		includeChain[file] = true
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 4000*time.Millisecond)
+	ctx, cancel := context.WithTimeout(r.Context(), 8000*time.Millisecond)
 	defer cancel()
-	hits, err := search.FindHover(ctx, word, dir, glob, includeChain)
+	hits, err := search.FindHover(ctx, word, dir, glob, hroot, includeChain)
 	if err != nil {
 		if ctx.Err() != nil {
 			jsonOK(w, []search.HoverHit{})
@@ -137,6 +174,7 @@ func (h *Handler) handleHover(w http.ResponseWriter, r *http.Request) {
 	if hits == nil {
 		hits = []search.HoverHit{}
 	}
+	hoverCacheSet(hoverKey, hits)
 	jsonOK(w, hits)
 }
 
@@ -158,11 +196,11 @@ func (h *Handler) handleCallers(w http.ResponseWriter, r *http.Request) {
 	} else if !filepath.IsAbs(dir) {
 		dir = filepath.Join(hroot, dir)
 	}
-	useGtags := q.Get("gtags") != "0" && search.GtagsAvailable(dir)
+	useGtags := q.Get("gtags") != "0" && search.GtagsAvailable(hroot)
 	var hits []search.CallSite
 	var err error
 	if useGtags {
-		hits, err = search.GtagsFindRefs(r.Context(), word, dir)
+		hits, err = search.GtagsFindRefs(r.Context(), word, hroot)
 	} else {
 		hits, err = search.FindCallers(r.Context(), word, dir, q.Get("glob"))
 	}
