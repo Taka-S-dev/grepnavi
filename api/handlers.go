@@ -49,6 +49,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/trees", h.handleTrees)
 	mux.HandleFunc("/api/trees/", h.handleTreeByID)
 	mux.HandleFunc("/api/open", h.handleOpen)
+	mux.HandleFunc("/api/reveal", h.handleReveal)
 	mux.HandleFunc("/api/snippet", h.handleSnippet)
 	mux.HandleFunc("/api/file", h.handleFile)
 	mux.HandleFunc("/api/symbols", h.handleSymbols)
@@ -69,6 +70,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/gtags/index", h.handleGtagsIndex)
 	mux.HandleFunc("/api/gtags/update", h.handleGtagsUpdate)
 	mux.HandleFunc("/api/gtags/rebuild", h.handleGtagsRebuild)
+	mux.HandleFunc("/api/gtags/stream", h.handleGtagsStream)
 	// [C言語アドオン] 以下の3行を削除するとインクルードグラフAPIが無効になります
 	mux.HandleFunc("/api/include-graph", h.handleIncludeGraph)
 	mux.HandleFunc("/api/include-file", h.handleIncludeFile)
