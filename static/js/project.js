@@ -17,6 +17,37 @@ async function openNewWindow() {
   st('新しいウィンドウを開きました');
 }
 
+// ===== タイトル更新 =====
+// file を渡すと "filename – ProjectName"、省略時は "ProjectName"
+function updateTitle(file) {
+  const rootName = projectRoot
+    ? projectRoot.replace(/\\/g, '/').split('/').filter(Boolean).pop() || projectRoot
+    : '';
+  if (file) {
+    const fileName = file.replace(/\\/g, '/').split('/').pop();
+    document.title = rootName ? fileName + ' \u2013 ' + rootName : fileName;
+  } else {
+    document.title = rootName || 'コードビューア';
+  }
+}
+
+// ===== 汎用確認ダイアログ =====
+function showConfirm(msg) {
+  return new Promise(resolve => {
+    id('confirm-modal-msg').textContent = msg;
+    id('confirm-modal').classList.add('open');
+    const ok     = id('confirm-modal-ok');
+    const cancel = id('confirm-modal-cancel');
+    function close(result) {
+      id('confirm-modal').classList.remove('open');
+      ok.onclick = null; cancel.onclick = null;
+      resolve(result);
+    }
+    ok.onclick     = () => close(true);
+    cancel.onclick = () => close(false);
+  });
+}
+
 // ===== ルートチップ =====
 function updateRootChip() {
   const chip = id('root-chip');
@@ -35,6 +66,7 @@ function updateRootChip() {
     chip.classList.remove('has-subdir');
     chip.title = (projectRoot || '未設定') + '\n(クリックで設定)';
   }
+  updateTitle();
 }
 
 // ===== ディレクトリ取得 =====
@@ -73,6 +105,17 @@ function highlightMatch(text, query) {
 
 // ===== ルート設定 =====
 async function setRoot(newRoot) {
+  // 未保存の変更がある場合は確認
+  if(_dirty) {
+    const ok = await showConfirm('未保存の変更があります。保存せずにルートを切り替えますか？');
+    if(!ok) return false;
+  }
+
+  // 現在のルートとプロジェクトファイルの対応を保存しておく
+  const prevRoot = projectRoot;
+  const prevPath = getProjectPath();
+  if(prevRoot && prevPath) setRootProjectEntry(prevRoot, prevPath);
+
   const r = await fetch('/api/root', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
@@ -90,9 +133,20 @@ async function setRoot(newRoot) {
   id('root-label').title = data.root + ' (クリックで変更)';
   dirList = null;
   fzfFiles = null;
+  if(typeof explorerInvalidate === 'function') explorerInvalidate();
   id('dir').value = '';
   updateRootChip();
-  st('ルート変更: ' + data.root);
+
+  // 新しいルートに対応するプロジェクトファイルを自動で切り替える
+  const savedPath = getRootProjectMap()[data.root];
+  if(savedPath) {
+    await openProject(savedPath);
+  } else {
+    localStorage.removeItem(LS_PROJECT_PATH);
+    markClean();
+    updateProjectUI();
+    st('ルート変更: ' + data.root);
+  }
   return true;
 }
 
@@ -271,7 +325,18 @@ const LS_PROJECT_HISTORY = 'grepnavi_project_history';
 const LS_DIR_HISTORY     = 'grepnavi_dir_history';      // ルート選択専用
 const LS_SAVE_DIR_HISTORY= 'grepnavi_save_dir_history'; // open/save フォルダ専用
 const LS_GLOB_HISTORY    = 'grepnavi_glob_history';
+const LS_ROOT_PROJECT_MAP= 'grepnavi_root_project_map'; // ルート→プロジェクトファイルの対応
 const HISTORY_MAX = 8;
+
+function getRootProjectMap() {
+  try { return JSON.parse(localStorage.getItem(LS_ROOT_PROJECT_MAP) || '{}'); } catch { return {}; }
+}
+function setRootProjectEntry(root, path) {
+  if(!root) return;
+  const map = getRootProjectMap();
+  if(path) map[root] = path; else delete map[root];
+  localStorage.setItem(LS_ROOT_PROJECT_MAP, JSON.stringify(map));
+}
 
 function getProjectPath() {
   return localStorage.getItem(LS_PROJECT_PATH) || '';
@@ -279,6 +344,7 @@ function getProjectPath() {
 function setProjectPath(p) {
   localStorage.setItem(LS_PROJECT_PATH, p);
   addProjectHistory(p);
+  if(projectRoot && p) setRootProjectEntry(projectRoot, p);
   updateProjectUI();
 }
 function getProjectHistory() {
@@ -440,12 +506,18 @@ async function onProjectModalOk() {
 
 async function saveProject(path) {
   const lineMemos = getLineMemos();
-  const r = await fetch('/api/graph/saveas', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({path, line_memos: lineMemos})
-  });
-  const d = await r.json();
-  if(d.error) { st('保存エラー: ' + d.error); return; }
+  let d;
+  try {
+    const r = await fetch('/api/graph/saveas', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path, line_memos: lineMemos})
+    });
+    d = await r.json();
+  } catch(e) {
+    st('保存エラー: ' + e.message);
+    return;
+  }
+  if(!d || d.error) { st('保存エラー: ' + (d?.error || '不明なエラー')); return; }
   _dirty = false;
   setProjectPath(path);
   addSaveDirHistory(path.replace(/\\/g, '/').split('/').slice(0, -1).join('/'));
@@ -453,14 +525,21 @@ async function saveProject(path) {
 }
 
 async function openProject(path) {
-  const r = await fetch('/api/graph/openfile', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({path})
-  });
-  const d = await r.json();
-  if(d.error) { st('読み込みエラー: ' + d.error); return; }
+  let d;
+  try {
+    const r = await fetch('/api/graph/openfile', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path})
+    });
+    d = await r.json();
+  } catch(e) {
+    st('読み込みエラー: ' + e.message);
+    return;
+  }
+  if(!d || d.error) { st('読み込みエラー: ' + (d?.error || '不明なエラー')); return; }
+  if(!d.graph)      { st('読み込みエラー: レスポンスにグラフデータがありません'); return; }
   selNode = null; showDetail(null);
-  tabs.forEach(t => t.model.dispose());
+  tabs.forEach(t => { try { t.model?.dispose(); } catch(_) {} });
   tabs = []; activeTabIdx = -1;
   renderTabs();
   fzfFiles = null;

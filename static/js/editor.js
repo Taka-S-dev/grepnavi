@@ -251,16 +251,24 @@ function refreshGraphDecorations() {
 }
 
 // ===== Monaco ロード =====
+let _monacoLoadPromise = null;
 function loadMonaco() {
-  return new Promise(resolve => {
-    if(monacoReady){ resolve(); return; }
-    require(['vs/editor/editor.main'], () => { monacoReady = true; resolve(); });
-  });
+  if(monacoReady) return Promise.resolve();
+  if(!_monacoLoadPromise) {
+    _monacoLoadPromise = new Promise(resolve => {
+      require(['vs/editor/editor.main'], () => { monacoReady = true; resolve(); });
+    });
+  }
+  return _monacoLoadPromise;
 }
 
+let _editorInitPromise = null;
 async function ensureEditor() {
   await loadMonaco();
   if(monacoEditor) return;
+  if(_editorInitPromise) { await _editorInitPromise; return; }
+  let _resolve;
+  _editorInitPromise = new Promise(r => { _resolve = r; });
   monaco.editor.defineTheme('grepnavi-dark', {
     base: 'vs-dark', inherit: true, rules: [],
     colors: {
@@ -293,7 +301,7 @@ async function ensureEditor() {
     guides: { bracketPairs: true },
   });
   new ResizeObserver(() => monacoEditor.layout()).observe(id('monaco-container'));
-
+  initTabCtxMenu();
 
   // ホバー内リンクからファイルを開くコマンド
   monaco.editor.registerCommand('grepnavi.openFile', (_accessor, file, line) => {
@@ -560,7 +568,11 @@ async function ensureEditor() {
       addToGraph({id: nodeId, file, line, text}, '', 'ref', text);
     }
   });
+  _resolve();
 }
+
+// ページロード時に Monaco をバックグラウンドでプリロード（初回クリック遅延を防ぐ）
+if(typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', () => { loadMonaco(); });
 
 // ===== Ctrl+P ファイルクイックオープン =====
 async function openFzf() {
@@ -704,13 +716,17 @@ function updateNavButtons() {
 // ===== タブ / Peek パネル =====
 async function openPeek(file, line) {
   if(!file) return;
+  if(typeof updateTitle === 'function') updateTitle(file);
   if(pageMode) {
     openFile(file, line);
     return;
   }
   navPush(file, line);
   await ensureEditor();
+  const peekWasHidden = !id('peek').classList.contains('visible');
   id('peek').classList.add('visible');
+  // display:none→flex の後、Monaco がサイズを認識するまで待つ
+  if(peekWasHidden) await new Promise(r => setTimeout(r, 80));
   id('peek-placeholder')?.classList.add('hidden');
   id('peek-open').onclick = () => openFile(file, monacoEditor?.getPosition()?.lineNumber ?? line);
 
@@ -724,6 +740,7 @@ async function openPeek(file, line) {
       options: {isWholeLine: true, className: 'peek-match-decoration'}
     }]);
     monacoEditor.setPosition({lineNumber: matchLine, column: 1});
+    monacoEditor.layout();
     monacoEditor.revealLineInCenter(matchLine);
     return;
   }
@@ -744,7 +761,36 @@ async function openPeek(file, line) {
     options: {isWholeLine: true, className: 'peek-match-decoration'}
   }]);
   monacoEditor.setPosition({lineNumber: matchLine, column: 1});
+  monacoEditor.layout();
   monacoEditor.revealLineInCenter(matchLine);
+}
+
+async function refreshSymbolDecorations() {
+  if (!monacoEditor) return;
+  const tab = tabs[activeTabIdx];
+  if (!tab) return;
+  try {
+    const r = await fetch('/api/symbols?' + new URLSearchParams({ file: tab.file }));
+    if (!r.ok) return;
+    const symbols = await r.json();
+    const model = tab.model;
+    const decos = [];
+    for (const sym of symbols) {
+      const line = sym.start_line;
+      if (line < 1 || line > model.getLineCount()) continue;
+      const text = model.getLineContent(line);
+      const escaped = sym.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const m = new RegExp('\\b' + escaped + '\\b').exec(text);
+      if (m) {
+        const col = m.index + 1;
+        decos.push({
+          range: new monaco.Range(line, col, line, col + sym.name.length),
+          options: { inlineClassName: 'symbol-fn-hl' }
+        });
+      }
+    }
+    tab.symbolDecoIds = monacoEditor.deltaDecorations(tab.symbolDecoIds || [], decos);
+  } catch (_) {}
 }
 
 async function switchTab(idx) {
@@ -758,6 +804,7 @@ async function switchTab(idx) {
   id('peek-file').textContent = tab.file + ':' + tab.line;
   refreshGraphDecorations();
   refreshLineMemoDecorations();
+  refreshSymbolDecorations();
   pinnedHighlights.forEach(ph => applyPinnedHighlightToModel(ph, tab.model));
   const isC = /\.(c|h|cpp|cc|cxx|hpp)$/i.test(tab.file);
   id('ifdef-ui').style.display = isC ? 'flex' : 'none';
@@ -773,6 +820,71 @@ function closeTab(idx) {
   const next = Math.min(idx, tabs.length - 1);
   activeTabIdx = -1;
   switchTab(next);
+}
+
+function closeTabsToRight(idx) {
+  for(let i = tabs.length - 1; i > idx; i--) {
+    tabs[i].model.dispose();
+    tabs.splice(i, 1);
+  }
+  if(activeTabIdx > idx) { activeTabIdx = -1; switchTab(idx); } else renderTabs();
+}
+
+function closeOtherTabs(idx) {
+  const keep = tabs[idx];
+  tabs.forEach((t, i) => { if(i !== idx) t.model.dispose(); });
+  tabs = [keep];
+  activeTabIdx = -1;
+  switchTab(0);
+}
+
+// ===== タブコンテキストメニュー =====
+let _tabCtxIdx = -1;
+
+function showTabCtxMenu(tabIdx, x, y) {
+  _tabCtxIdx = tabIdx;
+  const menu = id('tab-ctx-menu');
+  const hasRight = tabIdx < tabs.length - 1;
+  const hasOthers = tabs.length > 1;
+  id('tab-ctx-close-right').classList.toggle('disabled', !hasRight);
+  id('tab-ctx-close-others').classList.toggle('disabled', !hasOthers);
+  menu.style.left = x + 'px';
+  menu.style.top  = y + 'px';
+  menu.classList.add('open');
+  // 画面端クランプ
+  const r = menu.getBoundingClientRect();
+  if(r.right  > window.innerWidth)  menu.style.left = (x - (r.right - window.innerWidth) - 4) + 'px';
+  if(r.bottom > window.innerHeight) menu.style.top  = (y - r.height) + 'px';
+}
+
+function hideTabCtxMenu() {
+  id('tab-ctx-menu').classList.remove('open');
+  _tabCtxIdx = -1;
+}
+
+function initTabCtxMenu() {
+  id('tab-ctx-close').onclick = () => {
+    const i = _tabCtxIdx; hideTabCtxMenu(); if(i >= 0) closeTab(i);
+  };
+  id('tab-ctx-close-right').onclick = () => {
+    const i = _tabCtxIdx; hideTabCtxMenu();
+    if(i >= 0 && !id('tab-ctx-close-right').classList.contains('disabled')) closeTabsToRight(i);
+  };
+  id('tab-ctx-close-others').onclick = () => {
+    const i = _tabCtxIdx; hideTabCtxMenu();
+    if(i >= 0 && !id('tab-ctx-close-others').classList.contains('disabled')) closeOtherTabs(i);
+  };
+  id('tab-ctx-copy-path').onclick = () => {
+    const i = _tabCtxIdx; hideTabCtxMenu();
+    if(i >= 0 && tabs[i]) navigator.clipboard.writeText(tabs[i].file).then(() => st('パスをコピーしました'));
+  };
+  id('tab-ctx-open-explorer').onclick = () => {
+    const i = _tabCtxIdx; hideTabCtxMenu();
+    if(i >= 0 && tabs[i]) fetch('/api/reveal?' + new URLSearchParams({file: tabs[i].file}));
+  };
+  document.addEventListener('mousedown', e => {
+    if(!id('tab-ctx-menu').contains(e.target)) hideTabCtxMenu();
+  }, true);
 }
 
 function renderTabs() {
@@ -791,6 +903,7 @@ function renderTabs() {
     cls.onclick = e => { e.stopPropagation(); closeTab(i); };
     tab.appendChild(lbl);
     tab.appendChild(cls);
+    tab.oncontextmenu = e => { e.preventDefault(); showTabCtxMenu(i, e.clientX, e.clientY); };
     bar.appendChild(tab);
     if(i === activeTabIdx) tab.scrollIntoView({block:'nearest', inline:'nearest'});
   });
@@ -801,6 +914,7 @@ function closePeek() {
   tabs.forEach(t => t.model.dispose());
   tabs = []; activeTabIdx = -1;
   renderTabs();
+  if(typeof updateTitle === 'function') updateTitle();
 }
 
 function buildDefinitionParams(word, dir, glob, caseSensitive) {
@@ -825,6 +939,34 @@ let _defKeyHandler = null;
 function closeDefPeek() {
   if (_defKeyHandler) { document.removeEventListener('keydown', _defKeyHandler); _defKeyHandler = null; }
   if (_defDom) { _defDom.remove(); _defDom = null; }
+}
+
+let _engineToastTimer = null;
+function showEngineToast(engine) {
+  if (!engine) return;
+  let el = document.getElementById('engine-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'engine-toast';
+    document.body.appendChild(el);
+  }
+  clearTimeout(_engineToastTimer);
+  const isGtags = engine === 'gtags';
+  el.textContent = isGtags ? 'gtags ✓' : 'ripgrep';
+  el.className = 'engine-toast ' + (isGtags ? 'engine-toast-gtags' : 'engine-toast-rg');
+  // Monaco カーソル位置の近くに表示
+  if (monacoEditor) {
+    const pos = monacoEditor.getPosition();
+    const px = monacoEditor.getScrolledVisiblePosition(pos);
+    if (px) {
+      const editorDom = monacoEditor.getDomNode();
+      const rect = editorDom ? editorDom.getBoundingClientRect() : {left:0, top:0};
+      el.style.left = (rect.left + px.left + 16) + 'px';
+      el.style.top  = (rect.top  + px.top  - 28) + 'px';
+    }
+  }
+  el.style.opacity = '1';
+  _engineToastTimer = setTimeout(() => { el.style.opacity = '0'; }, 1800);
 }
 
 function showDefPeek(hits, word, pixelPos) {
@@ -897,25 +1039,20 @@ async function jumpToDefinition(word) {
   let hits = [];
   let totalCount = 0;
 
-  // GNU Global が有効なら /api/definition を優先
-  if (typeof gtagsEnabled === 'function' && gtagsEnabled()) {
-    const p = new URLSearchParams({word});
-    if (dir) p.set('dir', dir);
-    try {
-      const r = await fetch('/api/definition?' + p);
-      if (r.ok) { hits = await r.json(); totalCount = hits.length; }
-    } catch {}
-  }
-
-  // gtags が無効 or 結果なしは ripgrep /api/definition にフォールバック
-  if (hits.length === 0) {
+  // /api/definition に1回だけリクエスト。
+  // サーバー側で gtags→ripgrep フォールバックを処理するため、フロント側での2重呼び出しは不要。
+  {
     const p = new URLSearchParams({word});
     if (dir)  p.set('dir', dir);
     if (glob) p.set('glob', glob);
-    p.set('gtags', '0');
+    if (typeof window.gtagsEnabled === 'function' && !window.gtagsEnabled()) p.set('gtags', '0');
     try {
       const r = await fetch('/api/definition?' + p);
-      if (r.ok) { hits = await r.json(); totalCount = hits.length; }
+      if (r.ok) {
+        hits = await r.json();
+        totalCount = hits.length;
+        showEngineToast(r.headers.get('X-Engine') || '');
+      }
     } catch {}
   }
 

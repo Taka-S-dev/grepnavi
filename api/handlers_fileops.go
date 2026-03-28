@@ -34,6 +34,21 @@ func (h *Handler) handleOpen(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]string{"status": "ok"})
 }
 
+// --- /api/reveal ---
+
+func (h *Handler) handleReveal(w http.ResponseWriter, r *http.Request) {
+	file := r.URL.Query().Get("file")
+	if file == "" {
+		jsonErr(w, "file is required", http.StatusBadRequest)
+		return
+	}
+	if err := revealInExplorer(file); err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, map[string]string{"status": "ok"})
+}
+
 // --- /api/root ---
 
 func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {
@@ -273,6 +288,22 @@ func findFreePort(start int) (int, error) {
 func openInEditor(target string) error {
 	cmd := exec.Command("code", "--goto", target)
 	cmd.Start()
+	return nil
+}
+
+// revealInExplorer はファイルをOSのファイルマネージャで選択状態で開く。
+func revealInExplorer(file string) error {
+	switch runtime.GOOS {
+	case "windows":
+		cmd := exec.Command("explorer", "/select,"+filepath.FromSlash(file))
+		cmd.Start()
+	case "darwin":
+		cmd := exec.Command("open", "-R", file)
+		cmd.Start()
+	default:
+		cmd := exec.Command("xdg-open", filepath.Dir(file))
+		cmd.Start()
+	}
 	return nil
 }
 
