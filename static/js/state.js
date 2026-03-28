@@ -25,10 +25,13 @@ let filterTokens = [];
 let _virtItems = [];       // [{type:'header', file, count}, {type:'row', match, file}]
 let _visibleItems = [];    // filtered/uncollapsed subset for virtual scroll
 let _collapsedGroups = new Set();
+let _collapsedFolders = new Set();
 let _selectedKey = '';     // "file:line" of selected row
 let _virtRenderTimer = null;
 let _virtHeaderMap = new Map(); // file → header item (O(1) lookup)
 let _virtNeedRebuild = false;   // true = buildVisibleItems needed before next render
+let _groupView = localStorage.getItem('grepnavi-group-view') === '1';
+const LS_GROUP_VIEW = 'grepnavi-group-view';
 
 // Drag & Drop
 let dragNodeId = null;

@@ -167,8 +167,9 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 #pane-search{flex:1;min-height:80px;display:flex;flex-direction:column}
 #search-hdr{padding:4px 8px;background:#2d2d2d;border-bottom:1px solid #444;display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#999;position:relative;flex-wrap:nowrap}
 #filter-bar{display:flex;align-items:center;gap:4px;padding:3px 8px;background:#1e1e1e;border-bottom:1px solid #333}
-#filter-scope{font-size:11px;padding:2px 6px;background:#3a3a3a;border:1px solid #555;border-radius:3px;color:#aaa;cursor:pointer;flex-shrink:0;white-space:nowrap;line-height:1.4}
-#filter-scope:hover{color:#ccc}
+#filter-scope,#btn-group-view{font-size:11px;padding:2px 6px;background:#3a3a3a;border:1px solid #555;border-radius:3px;color:#aaa;cursor:pointer;flex-shrink:0;white-space:nowrap;line-height:1.4}
+#filter-scope:hover,#btn-group-view:hover{color:#ccc}
+#btn-group-view.on{background:#094771;color:#fff;border-color:#007acc}
 #filter-input{flex:1;background:#3c3c3c;border:1px solid #555;color:#ccc;font-size:11px;padding:2px 6px;border-radius:3px;outline:none;font-family:Consolas,monospace}
 #filter-input:focus{border-color:#007acc}
 #filter-input.active{border-color:#4ec9b0;background:#1e3a3a}
@@ -186,8 +187,13 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .ri-add{flex-shrink:0;background:#0e639c;color:#fff;border:none;border-radius:2px;padding:0 4px;cursor:pointer;font-size:11px;line-height:16px;opacity:0}
 .ri:hover .ri-add{opacity:1}
 .ri-add:hover{background:#1177bb}
+.rg-folder-hdr{display:flex;align-items:center;gap:6px;padding:4px 8px;background:#1a2333;border-left:2px solid #4a7fbf;cursor:pointer;user-select:none;height:28px;box-sizing:border-box;font-weight:700}
+.rg-folder-hdr:hover{background:#1f2b40}
+.rg-folder-hdr .rg-fname{color:#7ab3f0}
 .rg-file-hdr{display:flex;align-items:center;gap:6px;padding:4px 8px;background:#232323;border-left:2px solid #007acc;cursor:pointer;user-select:none;height:28px;box-sizing:border-box}
 .rg-file-hdr:hover{background:#2a2a2a}
+.rg-file-hdr-sub{padding-left:20px;border-left-color:#555;background:#1e1e1e}
+.rg-file-hdr-sub:hover{background:#252525}
 .rg-toggle{color:#666;font-size:10px;width:10px;flex-shrink:0}
 .rg-fname{color:#569cd6;font-size:12px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rg-fcount{color:#666;font-size:10px;flex-shrink:0}

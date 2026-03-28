@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -374,7 +375,11 @@ func GtagsFindDefinitions(ctx context.Context, word, dir string) ([]DefHit, erro
 		}
 		return nil, err
 	}
-	hits := preferDefinitionHits(gtagsParseOutput(out, "func", dir))
+	rawHits := gtagsParseOutput(out, "func", dir)
+	for i := range rawHits {
+		rawHits[i].Kind = gtagsClassifyKind(rawHits[i].Text)
+	}
+	hits := preferDefinitionHits(rawHits)
 	slog.Debug("gtags-find", "hits", len(hits))
 	for i, h := range hits {
 		slog.Debug("gtags-find hit", "i", i, "file", h.File, "line", h.Line, "text", h.Text)
@@ -617,6 +622,10 @@ func diagGuess(stderr string) string {
 	}
 }
 
+// reGtagsEnumMember は gtags のトリム済みテキストから enum メンバーを検出する。
+// 例: "BPF_MAP_TYPE_ARRAY," / "MY_CONST = 3," / "LAST_VAL"
+var reGtagsEnumMember = regexp.MustCompile(`^[A-Za-z_]\w*(\s*=\s*[^,{}();]+)?\s*,?\s*$`)
+
 // gtagsClassifyKind はファイルの該当行テキストから kind を判定する。
 // "struct foo *bar(...)" のような関数定義を struct に誤分類しないよう、
 // ( が { より先に現れる場合は関数定義として扱う。
@@ -640,6 +649,14 @@ func gtagsClassifyKind(line string) string {
 	}
 	if strings.Contains(t, "union") {
 		return "union"
+	}
+	// インデントあり（実ファイル行）→ enum メンバー
+	if len(line) > 0 && (line[0] == ' ' || line[0] == '\t') {
+		return "enum_member"
+	}
+	// ベア識別子パターン（gtags トリム済みテキスト）→ enum メンバー
+	if reGtagsEnumMember.MatchString(t) {
+		return "enum_member"
 	}
 	return "func"
 }

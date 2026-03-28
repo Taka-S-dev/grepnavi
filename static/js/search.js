@@ -54,6 +54,55 @@ function upsertSearchTab(tabs, query, data, maxTabs) {
   return { tabs: next, activeIdx };
 }
 
+// ===== フォルダグループ化（compressed trie）=====
+// ファイルパス一覧から「枝分かれ点」を自動検出し、Map<folderKey, files[]> を返す純粋関数。
+// 各ファイルは、祖先ディレクトリのうち ≥2 の異なるサブパスに分岐する最も深いノードをグループキーに割り当てる。
+function buildFolderGroups(files) {
+  if(!files.length) return new Map();
+  const normSep = f => f.replace(/\\/g, '/');
+
+  // childSet[dir] = そのディレクトリの直接の子セグメントのうちファイルへ繋がるものの Set
+  // dirFiles[dir] = そのディレクトリに直属するファイル（サブディレクトリなし）
+  const childSet = new Map();
+  const dirFiles  = new Map();
+
+  for(const f of files) {
+    const parts = normSep(f).split('/');
+    const fileDir = parts.slice(0, -1).join('/'); // ルート直下なら ''
+    if(!dirFiles.has(fileDir)) dirFiles.set(fileDir, []);
+    dirFiles.get(fileDir).push(f);
+    for(let d = 0; d < parts.length - 1; d++) {
+      const dir   = parts.slice(0, d).join('/');
+      const child = parts[d];
+      if(!childSet.has(dir)) childSet.set(dir, new Set());
+      childSet.get(dir).add(child);
+    }
+  }
+
+  function findGroup(fileDir) {
+    if(fileDir === '') return '';
+    const parts = fileDir.split('/');
+    for(let d = parts.length; d >= 0; d--) {
+      const dir      = parts.slice(0, d).join('/');
+      const nChild   = childSet.has(dir) ? childSet.get(dir).size : 0;
+      const nDirect  = dirFiles.has(dir)  ? 1 : 0;
+      if(nChild + nDirect >= 2 || d === 0)
+        return d < parts.length ? parts.slice(0, d + 1).join('/') : fileDir;
+    }
+    return fileDir;
+  }
+
+  const groups = new Map();
+  for(const f of files) {
+    const parts   = normSep(f).split('/');
+    const fileDir = parts.slice(0, -1).join('/');
+    const key     = findGroup(fileDir);
+    if(!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(f);
+  }
+  return new Map([...groups.entries()].sort((a, b) => a[0].localeCompare(b[0])));
+}
+
 // ===== SEARCH =====
 function doSearch() {
   const q = id('q').value.trim(); if(!q) return;
@@ -69,7 +118,7 @@ function doSearch() {
 
   stopSearch();
   allMatches=[]; pending=[]; fileGroupMap={};
-  _virtItems=[]; _visibleItems=[]; _collapsedGroups=new Set(); _selectedKey=''; _virtHeaderMap=new Map(); _virtNeedRebuild=false;
+  _virtItems=[]; _visibleItems=[]; _collapsedGroups=new Set(); _collapsedFolders=new Set(); _selectedKey=''; _virtHeaderMap=new Map(); _virtNeedRebuild=false;
   id('results').innerHTML='';
   id('filter-input').value=''; filterTokens=[]; id('filter-input').classList.remove('active'); id('filter-clear').style.display='none';
   id('sh-title').textContent='検索中... "'+q+'"';
@@ -239,38 +288,87 @@ function buildVisibleItems() {
   const fileOnly = id('filter-scope')?.classList.contains('on');
 
   _visibleItems = [];
-  let i = 0;
-  while(i < _virtItems.length) {
-    const item = _virtItems[i];
-    if(item.type !== 'header') { i++; continue; }
 
-    const collapsed = _collapsedGroups.has(item.file);
+  if(!_groupView) {
+    // ファイル単位ビュー（既存の動作）
+    let i = 0;
+    while(i < _virtItems.length) {
+      const item = _virtItems[i];
+      if(item.type !== 'header') { i++; continue; }
 
-    // Collect rows for this group
-    const groupRows = [];
-    let j = i + 1;
-    while(j < _virtItems.length && _virtItems[j].type === 'row' && _virtItems[j].file === item.file) {
-      groupRows.push(_virtItems[j]);
-      j++;
+      const collapsed = _collapsedGroups.has(item.file);
+      const groupRows = [];
+      let j = i + 1;
+      while(j < _virtItems.length && _virtItems[j].type === 'row' && _virtItems[j].file === item.file) {
+        groupRows.push(_virtItems[j]);
+        j++;
+      }
+
+      let visibleRows = groupRows;
+      if(filter) {
+        visibleRows = groupRows.filter(r => matchFilter(
+          (item.file + (fileOnly ? '' : ' ' + (r.match.text || ''))).toLowerCase(),
+          filter
+        ));
+      }
+
+      if(filter && visibleRows.length === 0) { i = j; continue; }
+
+      _visibleItems.push({...item, _visibleCount: visibleRows.length});
+      if(!collapsed) {
+        for(const r of visibleRows) _visibleItems.push(r);
+      }
+      i = j;
+    }
+  } else {
+    // フォルダ単位ビュー
+    // file → rows の高速検索用マップを構築
+    const fileRows = new Map();
+    for(const item of _virtItems) {
+      if(item.type === 'row') {
+        if(!fileRows.has(item.file)) fileRows.set(item.file, []);
+        fileRows.get(item.file).push(item);
+      }
     }
 
-    // Apply filter to rows
-    let visibleRows = groupRows;
-    if(filter) {
-      visibleRows = groupRows.filter(r => matchFilter(
-        (item.file + (fileOnly ? '' : ' ' + (r.match.text || ''))).toLowerCase(),
-        filter
-      ));
-    }
+    const files = [..._virtHeaderMap.keys()];
+    const folderGroups = buildFolderGroups(files);
 
-    // Skip group entirely if filter active and no rows pass
-    if(filter && visibleRows.length === 0) { i = j; continue; }
+    for(const [dir, groupFiles] of folderGroups) {
+      let folderCount = 0;
+      const fileEntries = [];
 
-    _visibleItems.push({...item, _visibleCount: visibleRows.length});
-    if(!collapsed) {
-      for(const r of visibleRows) _visibleItems.push(r);
+      for(const file of groupFiles) {
+        const header = _virtHeaderMap.get(file);
+        if(!header) continue;
+
+        const rows = fileRows.get(file) || [];
+        let visRows = rows;
+        if(filter) {
+          visRows = rows.filter(r => matchFilter(
+            (file + (fileOnly ? '' : ' ' + (r.match.text || ''))).toLowerCase(),
+            filter
+          ));
+        }
+        if(filter && visRows.length === 0) continue;
+
+        folderCount += visRows.length;
+        fileEntries.push({header, visRows});
+      }
+
+      if(filter && folderCount === 0) continue;
+
+      _visibleItems.push({type: 'folder', dir, count: folderCount});
+      if(!_collapsedFolders.has(dir)) {
+        for(const {header, visRows} of fileEntries) {
+          const fileCollapsed = _collapsedGroups.has(header.file);
+          _visibleItems.push({...header, _visibleCount: visRows.length, _inFolder: true});
+          if(!fileCollapsed) {
+            for(const r of visRows) _visibleItems.push(r);
+          }
+        }
+      }
     }
-    i = j;
   }
 }
 
@@ -285,7 +383,7 @@ function renderVirtual() {
   const offsets = new Array(_visibleItems.length);
   for(let i = 0; i < _visibleItems.length; i++) {
     offsets[i] = totalH;
-    totalH += _visibleItems[i].type === 'header' ? VIRT_GH : VIRT_RH;
+    totalH += (_visibleItems[i].type === 'header' || _visibleItems[i].type === 'folder') ? VIRT_GH : VIRT_RH;
   }
 
   // Find visible range
@@ -311,7 +409,7 @@ function renderVirtual() {
   }
 
   const lastRenderedEnd = endIdx > 0
-    ? (offsets[endIdx - 1] || 0) + (_visibleItems[endIdx - 1]?.type === 'header' ? VIRT_GH : VIRT_RH)
+    ? (offsets[endIdx - 1] || 0) + ((_visibleItems[endIdx - 1]?.type === 'header' || _visibleItems[endIdx - 1]?.type === 'folder') ? VIRT_GH : VIRT_RH)
     : 0;
   const botH = totalH - lastRenderedEnd;
   const botSpacer = document.createElement('div');
@@ -324,9 +422,32 @@ function renderVirtual() {
 }
 
 function makeVirtRow(item) {
+  if(item.type === 'folder') {
+    const div = document.createElement('div');
+    div.className = 'rg-folder-hdr';
+    div.style.height = VIRT_GH + 'px';
+    const collapsed = _collapsedFolders.has(item.dir);
+    const toggle = document.createElement('span');
+    toggle.className = 'rg-toggle';
+    toggle.textContent = collapsed ? '▶' : '▼';
+    const label = document.createElement('span');
+    label.className = 'rg-fname';
+    label.textContent = (item.dir || '(root)') + '/';
+    const fcount = document.createElement('span');
+    fcount.className = 'rg-fcount';
+    fcount.textContent = item.count + '件';
+    div.append(toggle, label, fcount);
+    div.onclick = () => {
+      if(_collapsedFolders.has(item.dir)) _collapsedFolders.delete(item.dir);
+      else _collapsedFolders.add(item.dir);
+      buildVisibleItems();
+      renderVirtual();
+    };
+    return div;
+  }
   if(item.type === 'header') {
     const div = document.createElement('div');
-    div.className = 'rg-file-hdr';
+    div.className = 'rg-file-hdr' + (item._inFolder ? ' rg-file-hdr-sub' : '');
     div.style.height = VIRT_GH + 'px';
     const collapsed = _collapsedGroups.has(item.file);
     const toggle = document.createElement('span');
@@ -368,7 +489,7 @@ function scrollToVirtItem(targetItem) {
   let offset = 0;
   for(const item of _visibleItems) {
     if(item === targetItem) break;
-    offset += item.type === 'header' ? VIRT_GH : VIRT_RH;
+    offset += (item.type === 'header' || item.type === 'folder') ? VIRT_GH : VIRT_RH;
   }
   const itemH = targetItem.type === 'header' ? VIRT_GH : VIRT_RH;
   const viewH = el.clientHeight;
@@ -482,7 +603,7 @@ function switchSearchTab(idx) {
   allMatches = [...tab.allMatches];
   pending = [...tab.allMatches];
   fileGroupMap = {};
-  _virtItems = []; _visibleItems = []; _collapsedGroups = new Set(); _selectedKey = ''; _virtHeaderMap = new Map(); _virtNeedRebuild = false;
+  _virtItems = []; _visibleItems = []; _collapsedGroups = new Set(); _collapsedFolders = new Set(); _selectedKey = ''; _virtHeaderMap = new Map(); _virtNeedRebuild = false;
   id('results').innerHTML = '';
 
   flushBatch(tab.query);
@@ -513,7 +634,7 @@ function closeSearchTab(idx) {
     id('sh-title').textContent = '検索結果';
     id('sh-over').textContent = '';
     allMatches = []; pending = []; fileGroupMap = {};
-    _virtItems = []; _visibleItems = []; _collapsedGroups = new Set(); _selectedKey = ''; _virtHeaderMap = new Map(); _virtNeedRebuild = false;
+    _virtItems = []; _visibleItems = []; _collapsedGroups = new Set(); _collapsedFolders = new Set(); _selectedKey = ''; _virtHeaderMap = new Map(); _virtNeedRebuild = false;
     renderSearchTabs();
     return;
   }
@@ -606,7 +727,7 @@ function switchSearchStack(idx) {
   allMatches = [...entry.allMatches];
   pending = [...entry.allMatches];
   fileGroupMap = {};
-  _virtItems = []; _visibleItems = []; _collapsedGroups = new Set(); _selectedKey = ''; _virtHeaderMap = new Map(); _virtNeedRebuild = false;
+  _virtItems = []; _visibleItems = []; _collapsedGroups = new Set(); _collapsedFolders = new Set(); _selectedKey = ''; _virtHeaderMap = new Map(); _virtNeedRebuild = false;
   id('results').innerHTML = '';
   flushBatch(entry.query);
   id('sh-title').textContent = entry.title;
@@ -726,6 +847,22 @@ function _loadSearchStack() {
   } catch {}
 }
 
+// ===== グループビュー切り替え =====
+function toggleGroupView() {
+  _groupView = !_groupView;
+  localStorage.setItem(LS_GROUP_VIEW, _groupView ? '1' : '0');
+  _collapsedFolders = new Set();
+  const btn = id('btn-group-view');
+  if(btn) {
+    btn.classList.toggle('on', _groupView);
+    btn.title = _groupView
+      ? 'フォルダ単位表示 — クリックでファイル単位に切り替え'
+      : 'ファイル単位表示 — クリックでフォルダ単位に切り替え';
+  }
+  buildVisibleItems();
+  renderVirtual();
+}
+
 // ===== 検索バー初期化 =====
 function initSearchBar() {
   _loadPinnedTabs();
@@ -741,6 +878,15 @@ function initSearchBar() {
   id('btn-cs').onclick = () => id('btn-cs').classList.toggle('on');
   id('btn-wb').onclick = () => id('btn-wb').classList.toggle('on');
   id('btn-re').onclick = () => id('btn-re').classList.toggle('on');
+
+  const btnGV = id('btn-group-view');
+  if(btnGV) {
+    btnGV.classList.toggle('on', _groupView);
+    btnGV.title = _groupView
+      ? 'フォルダ単位表示 — クリックでファイル単位に切り替え'
+      : 'ファイル単位表示 — クリックでフォルダ単位に切り替え';
+    btnGV.onclick = () => toggleGroupView();
+  }
 
   // スタック
   id('btn-stack-add').onclick = e => { e.stopPropagation(); addToSearchStack(); };
