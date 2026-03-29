@@ -1025,7 +1025,13 @@ async function jumpToDefinition(word) {
   }
 
   clearInterval(stimer);
-  if(hits.length === 0) { st('見つかりません: ' + word); return; }
+  if(hits.length === 0) {
+    const hint = (typeof window.gtagsEnabled === 'function' && window.gtagsEnabled())
+      ? ' — インデックスが古い場合は再生成を試してください'
+      : '';
+    st('見つかりません: ' + word + hint);
+    return;
+  }
 
   // 現在ファイルを先頭に
   if(currentFile) {

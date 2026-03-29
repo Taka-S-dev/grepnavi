@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 )
 
 // localBinDir はアプリ実行ファイルと同階層の bin/ ディレクトリを返す。
@@ -263,23 +264,63 @@ func GtagsBuildIndexStream(ctx context.Context, dir string, w io.Writer) error {
 }
 
 // GtagsUpdateIndexStream は global -u --verbose を実行し出力を行単位で w に書き込む。
+// Windows ではパイプバッファリングにより出力が遅延するため、5 秒ごとにハートビートを送る。
 func GtagsUpdateIndexStream(ctx context.Context, dir string, w io.Writer) error {
 	cmd := exec.CommandContext(ctx, resolveGlobalBin(), "-u", "-v")
 	cmd.Env = englishEnv("GTAGSDBPATH="+dir, "GTAGSROOT="+dir)
-	var combined bytes.Buffer
-	// sanitize ラッパー経由で w に書き込む
-	sw := &sanitizeWriter{w: w}
-	mw := io.MultiWriter(sw, &combined)
-	cmd.Stdout = mw
-	cmd.Stderr = mw
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(combined.String())
-		if msg != "" {
-			return fmt.Errorf("%w: %s", err, sanitizeLine(msg))
-		}
+
+	pr, pw := io.Pipe()
+	cmd.Stdout = pw
+	cmd.Stderr = pw
+
+	if err := cmd.Start(); err != nil {
+		pr.Close()
+		pw.Close()
 		return err
 	}
-	return nil
+
+	// プロセス完了後にパイプを閉じる
+	waitDone := make(chan error, 1)
+	go func() {
+		waitDone <- cmd.Wait()
+		pw.Close()
+	}()
+
+	// 出力が来ない間も定期的にハートビートを送る（バッファリング対策）
+	stopHB := make(chan struct{})
+	received := make(chan struct{}, 1)
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				select {
+				case <-received:
+					// 直近に出力があった → ハートビート不要
+				default:
+					fmt.Fprintln(w, "... global 実行中")
+				}
+			case <-stopHB:
+				return
+			}
+		}
+	}()
+
+	// 行単位でスキャンしてブラウザへ送る
+	scanner := bufio.NewScanner(pr)
+	for scanner.Scan() {
+		// 出力を受信したことをハートビートゴルーチンに通知
+		select {
+		case received <- struct{}{}:
+		default:
+		}
+		fmt.Fprintln(w, sanitizeLine(scanner.Text()))
+	}
+	pr.Close()
+	close(stopHB)
+
+	return <-waitDone
 }
 
 // sanitizeWriter は書き込み時に不正UTF-8バイトを除去するラッパー。

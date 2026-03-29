@@ -15,6 +15,7 @@ let _stale = false;
 
 // ===== 進捗オーバーレイ =====
 let _progCount = 0;
+let _progUpToDate = false;
 let _progElapsedTimer = null;
 let _progStartTime = 0;
 
@@ -32,6 +33,7 @@ function _consoleOpen(title) {
   const abortBtn = document.getElementById('gtags-console-abort');
   if (abortBtn) { abortBtn.style.display = ''; abortBtn.onclick = () => { if (_opCancel) _opCancel(); }; }
   _progCount = 0;
+  _progUpToDate = false;
   _progStartTime = Date.now();
   clearInterval(_progElapsedTimer);
   _progElapsedTimer = setInterval(() => {
@@ -42,10 +44,11 @@ function _consoleOpen(title) {
   el.classList.add('open');
 }
 
-// "[5249] extracting tags of arch/..." からカウントとファイル名を抽出
+// "[5249] extracting tags of arch/..."   初回ビルド
+// " [1/1] extracting tags of c.c"        差分更新 (global -u -v)
 function _parseProgressLine(text) {
-  const m = text.match(/^\[(\d+)\]\s+extracting tags of\s+(.+)$/);
-  if (m) return { count: parseInt(m[1]), file: m[2].split('/').pop() };
+  const m = text.match(/^\s*\[(\d+)(?:\/\d+)?\]\s+extracting tags of\s+(.+)$/);
+  if (m) return { count: parseInt(m[1]), file: m[2].split(/[/\\]/).pop() };
   return null;
 }
 
@@ -58,6 +61,15 @@ function _consoleAppend(text, cls) {
       document.getElementById('gtags-prog-count').textContent = prog.count.toLocaleString() + ' ファイル処理済み';
       document.getElementById('gtags-prog-file').textContent = prog.file;
       return;
+    }
+    // ハートビート行はプログレス表示に反映（ログには流さない）
+    if (text.trim() === '... global 実行中') {
+      document.getElementById('gtags-prog-count').textContent = 'global 実行中...';
+      return;
+    }
+    // 変化なし検知
+    if (text.includes('up to date')) {
+      _progUpToDate = true;
     }
     // 開始/完了行などはログへ
     const body = document.getElementById('gtags-console-body');
@@ -92,8 +104,8 @@ function _consoleDone(ok) {
   const secs = Math.floor((Date.now() - _progStartTime) / 1000);
   if (ok) {
     const countEl = document.getElementById('gtags-prog-count');
-    countEl.textContent = '完了 ✓';
-    countEl.style.color = '#4ec9b0';
+    countEl.textContent = _progUpToDate ? '最新状態 ✓' : '完了 ✓';
+    countEl.style.color = _progUpToDate ? '#888' : '#4ec9b0';
     countEl.style.fontWeight = 'bold';
     const detail = (_progCount > 0 ? _progCount.toLocaleString() + ' ファイル / ' : '') + secs + 's';
     document.getElementById('gtags-prog-file').textContent = '(' + detail + ')';
