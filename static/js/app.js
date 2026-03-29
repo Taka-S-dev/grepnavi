@@ -47,7 +47,7 @@ addEventListener('DOMContentLoaded', async () => {
       const tag = document.activeElement?.tagName;
       if(tag !== 'INPUT' && tag !== 'TEXTAREA') { e.preventDefault(); toggleHelp(); }
     }
-    if(e.key === 'Escape') { closeHelp(); if(typeof _incCancelExpand === 'function') _incCancelExpand(); }
+    if(e.key === 'Escape') { if(window.closeTopFloatingDef?.()) return; closeHelp(); if(typeof _incCancelExpand === 'function') _incCancelExpand(); }
   });
 
   id('fzf-input').addEventListener('input', e => fzfRender(e.target.value));

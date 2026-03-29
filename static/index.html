@@ -55,7 +55,7 @@
         <button class="sec" id="btn-stop" style="display:none">■</button>
       </div>
       <div id="bar-loc">
-        <span id="root-chip" title="クリックでプロジェクトルートを変更"><i class="codicon codicon-folder-opened"></i><span style="font-size:9px;color:#666;flex-shrink:0">ルート</span><span id="root-chip-text">…</span><i class="codicon codicon-chevron-down"></i></span>
+        <span id="root-chip" title="クリックでプロジェクトルートを変更"><i class="codicon codicon-folder"></i><span style="font-size:9px;color:#666;flex-shrink:0">ルート</span><span id="root-chip-text">…</span><i class="codicon codicon-chevron-down"></i></span>
         <button id="btn-toggle-sub" title="フィルター (ディレクトリ・glob)"><i class="codicon codicon-filter"></i></button>
       </div>
       <div id="bar-sub">
@@ -93,7 +93,7 @@
       <div id="filter-bar">
         <input id="filter-input" type="text" placeholder="絞り込み: AND=スペース  OR=|  除外=-word" spellcheck="false">
         <button id="filter-scope" title="絞り込み対象: 全体 (クリックでファイル名のみに切り替え)"><i class="codicon codicon-file"></i></button>
-        <button id="btn-group-view" title="ファイル単位表示 — クリックでフォルダ単位に切り替え"><i class="codicon codicon-list-tree"></i></button>
+        <button id="btn-group-view" title="ファイル単位表示 — クリックでフォルダ単位に切り替え">☰</button>
         <button id="filter-clear" title="クリア">✕</button>
       </div>
       <div id="results"></div>
@@ -324,6 +324,7 @@
 <script src="/js/utils.js"></script>
 <script src="/js/search.js"></script>
 <script src="/js/graph.js"></script>
+<script src="/js/floating-peek.js"></script>
 <script src="/js/editor.js"></script>
 <script src="/js/filebrowser.js"></script>
 <script src="/js/project.js"></script>

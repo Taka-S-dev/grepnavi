@@ -337,11 +337,20 @@ async function ensureEditor() {
   // ホバー結果キャッシュ（同じ単語は再検索しない）
   const _hoverCache = new Map(); // "word:dir:glob" -> {result, time}
   const HOVER_CACHE_TTL = 60_000; // 1分
+  let _lastHoverWord = '';
+  let _lastHoverHit  = null; // { file, line }
+
+  // ===== Floating Peek 初期化 =====
+  const { showFloatingDef: _showFloatingDef, showFloatingCtx: _showFloatingCtx, showWordCtxMenu: _showWordCtxMenu } = initFloatingPeek(
+    () => ({ word: _lastHoverWord, hit: _lastHoverHit })
+  );
+
 
   HOVER_LANGS.forEach(lang => {
     monaco.languages.registerHoverProvider(lang, {
       provideHover: async (model, position, token) => {
         const word = model.getWordAtPosition(position);
+        _lastHoverWord = word?.word || '';
         // B: 3文字未満・キーワードはスキップ
         if(!word || word.word.length < 3) return null;
         if(HOVER_SKIP.has(word.word)) return null;
@@ -409,6 +418,7 @@ async function ensureEditor() {
               const header = `**${kindLabel[h.kind]||h.kind} \`${word.word}\`${counter}** — *${fileLink}*`;
               const body = h.body.length > 2000 ? h.body.slice(0, 2000) + '\n// ...' : h.body;
               const prefix = i === 0 ? declNote : '';
+              if(i === 0) _lastHoverHit = { file: h.file, line: h.line, body: h.body };
               apiContents.push({value: prefix + header + '\n```c\n' + body + '\n```', isTrusted: true});
             }
           }
@@ -526,6 +536,28 @@ async function ensureEditor() {
       const word = (sel && !sel.isEmpty() ? model.getValueInRange(sel).trim() : null)
                    || model.getWordAtPosition(ed.getPosition())?.word;
       if(word && typeof window.openCallTree === 'function') window.openCallTree(word);
+    }
+  });
+
+  // 右クリック → Floating Peek
+  monacoEditor.addAction({
+    id: 'grepnavi-float-def', label: 'Floating Peek',
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyF],
+    contextMenuGroupId: 'grepnavi-nav',
+    contextMenuOrder: 4,
+    run: ed => {
+      const sel = ed.getSelection();
+      const model = ed.getModel();
+      if(!model) return;
+      const word = (sel && !sel.isEmpty() ? model.getValueInRange(sel).trim() : null)
+                   || model.getWordAtPosition(ed.getPosition())?.word;
+      if(word) {
+        _showFloatingDef(word);
+      } else {
+        const curFile = tabs[activeTabIdx]?.file;
+        const curLine = ed.getPosition()?.lineNumber;
+        if(curFile && curLine) _showFloatingCtx(curFile, curLine);
+      }
     }
   });
 
@@ -924,6 +956,7 @@ function buildDefinitionParams(word, dir, glob, caseSensitive) {
 // ===== grep 検索（検索欄に表示） =====
 async function grepSearchWord(word) {
   if(!word || word.length < 2) return;
+  id('tab-search')?.click();
   id('q').value = word;
   doSearch();
 }
