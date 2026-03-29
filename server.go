@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"os"
+	"strings"
 
 	"grepnavi/api"
 	"grepnavi/graph"
@@ -25,5 +26,24 @@ func newServer(root string, rootExplicit bool, graphFile, addr string) *http.Ser
 	h := api.NewHandler(store, effectiveRoot)
 	h.Register(mux)
 
-	return &http.Server{Addr: addr, Handler: mux}
+	return &http.Server{Addr: addr, Handler: csrfMiddleware(mux)}
+}
+
+// csrfMiddleware は /api/* へのリクエストに対して Origin ヘッダーを検証する。
+// Origin が存在する場合、localhost または 127.0.0.1 からのリクエストのみ許可する。
+// ブラウザは cross-origin リクエスト時に必ず Origin を付与するため、
+// 悪意あるサイトからの CSRF を防げる。
+func csrfMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			origin := r.Header.Get("Origin")
+			if origin != "" &&
+				!strings.HasPrefix(origin, "http://localhost") &&
+				!strings.HasPrefix(origin, "http://127.0.0.1") {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
