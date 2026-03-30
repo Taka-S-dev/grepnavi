@@ -41,6 +41,22 @@ func TestPreferDefinitionHits(t *testing.T) {
 			wantFiles: []string{"foo.h"},
 		},
 		{
+			name: "宣言に末尾コメントがあっても宣言と判定できる",
+			hits: []DefHit{
+				{File: "foo.c", Line: 3,  Text: "static int foo(int x);   /* forward decl */", Kind: "func"}, // 宣言（コメント付き）
+				{File: "foo.c", Line: 10, Text: "static int foo(int x) {",                     Kind: "func"}, // 定義
+			},
+			wantFiles: []string{"foo.c"},
+		},
+		{
+			name: "宣言に /**/ コメントがあっても宣言と判定できる",
+			hits: []DefHit{
+				{File: "foo.c", Line: 3,  Text: "static int foo(int x);/**/", Kind: "func"}, // 宣言（/**/ 付き）
+				{File: "foo.c", Line: 10, Text: "static int foo(int x) {",    Kind: "func"}, // 定義
+			},
+			wantFiles: []string{"foo.c"},
+		},
+		{
 			name: "定義あり: .c と .h の定義が両方ある場合 .c を優先",
 			hits: []DefHit{
 				{File: "foo.h", Line: 5,  Text: "void foo(int x);",           Kind: "func"}, // 宣言
@@ -133,9 +149,9 @@ func TestClassifyDefKind(t *testing.T) {
 			want: "func",
 		},
 		{
-			name: "STATIC function",
-			text: "STATIC void lvSFXdrvOpe_ShowErrDlg(lvSFXdrvOpe* pThis)",
-			word: "lvSFXdrvOpe_ShowErrDlg",
+			name: "static function",
+			text: "static void widget_show_error(Widget* self)",
+			word: "widget_show_error",
 			want: "func",
 		},
 	}

@@ -148,10 +148,11 @@ func isDefinitionHit(h DefHit) bool {
 		return true // #define / struct / enum 等は常に定義
 	}
 	t := strings.TrimSpace(h.Text)
-	if strings.HasSuffix(t, ";") {
+	tCode := stripLineComment(t) // コメントを除いて判定
+	if strings.HasSuffix(tCode, ";") {
 		return false // 行末が ; → 宣言
 	}
-	if strings.Contains(t, "{") {
+	if strings.Contains(tCode, "{") {
 		return true // { を含む → 定義
 	}
 	// 行末が ) や関数名のみ（K&R スタイル等）→ 次行を確認

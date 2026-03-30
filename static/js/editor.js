@@ -358,7 +358,6 @@ async function ensureEditor() {
         token.onCancellationRequested(() => controller.abort());
         try {
           const currentFile = tabs[activeTabIdx]?.file || '';
-          const dir  = id('dir').value.trim();
           const glob = id('glob').value.trim();
           const contents = [];
 
@@ -377,7 +376,7 @@ async function ensureEditor() {
           }
 
           // A: キャッシュチェック（メモ以外の検索結果）
-          const cacheKey = `${word.word}:${dir}:${glob}`;
+          const cacheKey = `${word.word}:${glob}`;
           const cached = _hoverCache.get(cacheKey);
           if(cached && Date.now() - cached.time < HOVER_CACHE_TTL) {
             const allContents = [...contents, ...cached.contents];
@@ -389,8 +388,8 @@ async function ensureEditor() {
           }
 
           // 2. /api/hover — struct/union/enum/define のブロック本体（C: /api/search は廃止）
+          // dir は送らない（プロジェクトルート全体を検索するため）
           const hp = new URLSearchParams({word: word.word});
-          if(dir)  hp.set('dir',  dir);
           if(glob) hp.set('glob', glob);
           const hoverFile = tabs[activeTabIdx]?.file || '';
           if(hoverFile) hp.set('file', hoverFile);
@@ -829,7 +828,7 @@ async function switchTab(idx) {
   const tab = tabs[idx];
   monacoEditor.setModel(tab.model);
   if(tab.viewState) try { monacoEditor.restoreViewState(tab.viewState); } catch(_) {}
-  id('peek-file').textContent = tab.file + ':' + tab.line;
+  id('peek-file').value = tab.file;
   refreshGraphDecorations();
   refreshLineMemoDecorations();
   refreshSymbolDecorations();
@@ -838,6 +837,10 @@ async function switchTab(idx) {
   id('ifdef-ui').style.display = isC ? 'flex' : 'none';
   if(!isC) clearIfdefHighlight();
   renderTabs();
+  // エクスプローラパネルが表示中なら連動してファイルを選択
+  if(document.getElementById('explorer-panel')?.classList.contains('visible')) {
+    window.explorerRevealFile?.(tab.file);
+  }
 }
 
 function closeTab(idx) {
@@ -1035,7 +1038,6 @@ async function jumpToDefinition(word) {
   const stimer = setInterval(() => { sf=(sf+1)%SPINNER_FRAMES.length; st(SPINNER_FRAMES[sf]+' 定義を検索中: '+word); }, 80);
   st(SPINNER_FRAMES[0]+' 定義を検索中: '+word);
   const currentFile = tabs[activeTabIdx]?.file || '';
-  const dir = id('dir').value.trim();
   const glob = id('glob').value.trim();
 
   let hits = [];
@@ -1043,9 +1045,9 @@ async function jumpToDefinition(word) {
 
   // /api/definition に1回だけリクエスト。
   // サーバー側で gtags→ripgrep フォールバックを処理するため、フロント側での2重呼び出しは不要。
+  // dir は送らない（プロジェクトルート全体を検索するため）
   {
     const p = new URLSearchParams({word});
-    if (dir)  p.set('dir', dir);
     if (glob) p.set('glob', glob);
     if (typeof window.gtagsEnabled === 'function' && !window.gtagsEnabled()) p.set('gtags', '0');
     try {

@@ -198,7 +198,6 @@
   line-height: 1;
 }
 .ex-item:hover .ex-folder-btn { display: inline-flex; align-items: center; }
-.ex-flat.ex-item:hover .ex-folder-btn { display: none; }
 .ex-folder-btn:hover { color: #ce9178; }
 
 /* フィルタ結果 1行表示 (VSCode Ctrl+P スタイル) */

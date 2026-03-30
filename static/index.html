@@ -41,7 +41,7 @@
         <button id="explorer-filter-clear">✕</button>
       </div>
       <div id="explorer-sticky-folder"></div>
-      <div id="explorer-tree"></div>
+      <div id="explorer-tree" tabindex="-1"></div>
     </div>
     <div id="search-panel">
       <div id="bar-main">
@@ -154,7 +154,7 @@
         <button id="btn-nav-back" title="前に戻る (Alt+←)" disabled><i class="codicon codicon-arrow-left"></i></button>
         <button id="btn-nav-fwd"  title="次へ進む (Alt+→)" disabled><i class="codicon codicon-arrow-right"></i></button>
         <button id="btn-fzf-open" title="ファイルを開く (Ctrl+P)" onclick="openFzf()"><i class="codicon codicon-go-to-file"></i> 開く</button>
-        <span class="peek-file" id="peek-file"></span>
+        <input class="peek-file" id="peek-file" readonly spellcheck="false">
         <span id="peek-hint">Ctrl+クリック/F12: 定義ジャンプ　Alt+クリック: grep検索</span>
         <span id="ifdef-ui" style="display:none;gap:4px;align-items:center">
           <input id="ifdef-cond" type="text" placeholder="#ifdef 条件: WIN32=1 DEBUG=0">

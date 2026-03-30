@@ -58,13 +58,13 @@ function updateRootChip() {
     ? projectRoot.replace(/\\/g,'/').split('/').filter(Boolean).pop() || projectRoot
     : '未設定';
   if(dirVal) {
-    chipText.textContent = rootName + ' / ' + dirVal;
+    chipText.innerHTML = rootName + '<span class="chip-subdir"> ▸ ' + dirVal.replace(/</g,'&lt;') + '</span>';
     chip.classList.add('has-subdir');
-    chip.title = projectRoot + ' / ' + dirVal + '\n(クリックで設定)';
+    chip.title = 'ルート: ' + (projectRoot || '未設定') + '\n検索範囲: ' + dirVal + '\n(クリックでルートを変更)';
   } else {
     chipText.textContent = rootName;
     chip.classList.remove('has-subdir');
-    chip.title = (projectRoot || '未設定') + '\n(クリックで設定)';
+    chip.title = 'ルート: ' + (projectRoot || '未設定') + '\n(クリックで変更)';
   }
   updateTitle();
 }
@@ -286,7 +286,7 @@ function initColResizer() {
     startW = left.offsetWidth;
     resizer.classList.add('active');
     const onMove = e => {
-      const w = Math.max(200, Math.min(600, startW + e.clientX - startX));
+      const w = Math.max(200, Math.min(900, startW + e.clientX - startX));
       left.style.width = w + 'px';
     };
     const onUp = () => {

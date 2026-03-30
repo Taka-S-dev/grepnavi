@@ -43,6 +43,14 @@ addEventListener('DOMContentLoaded', async () => {
     }
     if((e.ctrlKey || e.metaKey) && e.key === 'p') { e.preventDefault(); openFzf(); }
     if((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'O') { e.preventDefault(); showFileBrowser('open-file'); }
+    if((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+      if(id('explorer-panel')?.classList.contains('visible')) {
+        e.preventDefault();
+        id('tab-search').click();
+        id('q')?.focus();
+        id('q')?.select();
+      }
+    }
     if(e.key === '?' && !e.ctrlKey && !e.metaKey && !e.altKey) {
       const tag = document.activeElement?.tagName;
       if(tag !== 'INPUT' && tag !== 'TEXTAREA') { e.preventDefault(); toggleHelp(); }
@@ -203,8 +211,8 @@ addEventListener('DOMContentLoaded', async () => {
 
   // 前回の検索設定を復元
   const saved = JSON.parse(localStorage.getItem('grepnavi-settings') || '{}');
-  if(saved.dir)  id('dir').value  = saved.dir;
-  if(saved.glob) id('glob').value = saved.glob;
+  if(saved.dir)  { id('dir').value  = saved.dir;  const dc = id('dir-clear');  if(dc) dc.style.display = ''; }
+  if(saved.glob) { id('glob').value = saved.glob; const gc = id('glob-clear'); if(gc) gc.style.display = ''; }
   updateRootChip();
   if(saved.regex) id('btn-re').classList.toggle('on', !!saved.regex);
   if(saved.cs)    id('btn-cs').classList.toggle('on', !!saved.cs);

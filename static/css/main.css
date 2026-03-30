@@ -39,6 +39,7 @@ body{font:13px/1.4 'Consolas','Courier New',monospace;background:#1e1e1e;color:#
 #root-chip.has-subdir{border-color:#3a7aaa;color:#9ec8e8;background:#1e2d38}
 #root-chip .codicon-chevron-down{font-size:11px;opacity:0.8;margin-left:auto;flex-shrink:0}
 #root-chip-text{overflow:hidden;text-overflow:ellipsis}
+#root-chip-text .chip-subdir{font-size:10px;color:#5a8aaa;opacity:0.85;margin-left:1px}
 #btn-s{padding:3px 10px;font-size:12px}
 #btn-stop{padding:3px 8px;font-size:12px}
 .bar-field{display:flex;flex-direction:column;gap:2px}
@@ -93,7 +94,7 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
   padding:3px 8px;background:#2d2d2d;border-bottom:1px solid #444;
   font-size:11px;color:#999;flex-shrink:0;cursor:ns-resize;user-select:none;
 }
-#peek-hdr .peek-file{color:#569cd6;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#peek-hdr .peek-file{color:#569cd6;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:transparent;border:none;outline:none;font:inherit;cursor:text;min-width:0}
 #peek-hdr button{background:none;border:none;color:#777;cursor:pointer;font-size:11px;padding:1px 6px;line-height:1.4;border-radius:2px}
 #peek-hdr button:hover{color:#ccc;background:#3c3c3c}
 #btn-nav-back,#btn-nav-fwd{font-size:13px;padding:0 5px}
@@ -178,7 +179,7 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 
 .fz-hl{background:#b5890060;border-radius:2px}
 #results{flex:1;overflow-y:auto;position:relative}
-.ri{display:flex;align-items:center;gap:4px;padding:1px 8px;cursor:pointer;height:22px;overflow:hidden}
+.ri{display:flex;align-items:center;gap:4px;padding:1px 8px 1px 12px;cursor:pointer;height:22px;overflow:hidden;border-left:2px solid #2a3a2a}
 .ri:hover{background:#2a2d2e}
 .ri.sel{background:#094771}
 .ri-lnum{color:#858585;font-size:11px;min-width:34px;text-align:right;flex-shrink:0;font-family:Consolas,monospace}
@@ -187,15 +188,14 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .ri-add{flex-shrink:0;background:#0e639c;color:#fff;border:none;border-radius:2px;padding:0 4px;cursor:pointer;font-size:11px;line-height:16px;opacity:0}
 .ri:hover .ri-add{opacity:1}
 .ri-add:hover{background:#1177bb}
-.rg-folder-hdr{display:flex;align-items:center;gap:6px;padding:4px 8px;background:#1a2333;border-left:2px solid #4a7fbf;cursor:pointer;user-select:none;height:28px;box-sizing:border-box;font-weight:700}
-.rg-folder-hdr:hover{background:#1f2b40}
+.rg-folder-hdr{display:flex;align-items:center;gap:6px;padding:4px 8px;background:#141a24;border-top:1px solid #2a3a55;border-left:3px solid #4a7fbf;user-select:none;height:28px;box-sizing:border-box;font-weight:700;margin-top:2px}
 .rg-folder-hdr .rg-fname{color:#7ab3f0}
-.rg-file-hdr{display:flex;align-items:center;gap:6px;padding:4px 8px;background:#232323;border-left:2px solid #007acc;cursor:pointer;user-select:none;height:28px;box-sizing:border-box}
-.rg-file-hdr:hover{background:#2a2a2a}
-.rg-file-hdr-sub{padding-left:20px;border-left-color:#555;background:#1e1e1e}
-.rg-file-hdr-sub:hover{background:#252525}
-.rg-toggle{color:#666;font-size:10px;width:10px;flex-shrink:0}
+.rg-file-hdr{display:flex;align-items:center;gap:6px;padding:4px 8px;background:#1e1e1e;border-left:3px solid #007acc;user-select:none;height:28px;box-sizing:border-box}
+.rg-file-hdr-sub{padding-left:12px;border-left-color:#555;background:#1a1a1a}
+.rg-toggle{color:#888;font-size:10px;width:14px;height:100%;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;border-radius:2px}
+.rg-toggle:hover{color:#ccc;background:#ffffff18}
 .rg-fname{color:#569cd6;font-size:12px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rg-fcount{color:#666;font-size:10px;flex-shrink:0}
 .rg-fcount{color:#666;font-size:10px;flex-shrink:0}
 
 /* center: node tree */

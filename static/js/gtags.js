@@ -230,8 +230,8 @@ function renderPopover() {
     <span>ripgrep</span>
   </label>`;
 
-  // インデックス操作（GNU Global 選択時のみ表示）
-  if (enabled) {
+  // インデックス操作（GNU Global がインストール済みなら常に表示）
+  if (_installed) {
     html += `<div class="gtags-pop-divider"></div>`;
     html += `<div class="gtags-pop-section">インデックス</div>`;
     if (_opRunning) {

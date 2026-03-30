@@ -251,6 +251,20 @@ function initFilter() {
       applyFilter();
     };
   }
+
+  // イベント委譲: #results に1つだけ click リスナーを登録し、
+  // DOM の作り直し（renderVirtual）に影響されないようにする
+  const resultsEl = id('results');
+  if(resultsEl) {
+    resultsEl.addEventListener('click', e => {
+      if(e.target.closest('.rg-toggle')) return; // 折りたたみトグルは個別ハンドラに任せる
+      const row = e.target.closest('[data-match-key]');
+      if(!row) return;
+      const key = row.dataset.matchKey;
+      const item = _visibleItems.find(it => it.type === 'row' && it.match.file + '\x00' + it.match.line === key);
+      if(item) previewMatch(item.match);
+    });
+  }
 }
 
 function flushBatch(q) {
@@ -432,12 +446,12 @@ function makeVirtRow(item) {
     toggle.textContent = collapsed ? '▶' : '▼';
     const label = document.createElement('span');
     label.className = 'rg-fname';
-    label.textContent = (item.dir || '(root)') + '/';
+    label.textContent = (item.dir ? shortPath(item.dir) : '(root)') + '/';
     const fcount = document.createElement('span');
     fcount.className = 'rg-fcount';
     fcount.textContent = item.count + '件';
     div.append(toggle, label, fcount);
-    div.onclick = () => {
+    toggle.onclick = () => {
       if(_collapsedFolders.has(item.dir)) _collapsedFolders.delete(item.dir);
       else _collapsedFolders.add(item.dir);
       buildVisibleItems();
@@ -463,7 +477,7 @@ function makeVirtRow(item) {
     fcount.className = 'rg-fcount';
     fcount.textContent = item._visibleCount + '件';
     div.append(toggle, iconEl, fname, fcount);
-    div.onclick = () => {
+    toggle.onclick = () => {
       if(_collapsedGroups.has(item.file)) _collapsedGroups.delete(item.file);
       else _collapsedGroups.add(item.file);
       buildVisibleItems();
@@ -475,9 +489,7 @@ function makeVirtRow(item) {
     div.style.height = VIRT_RH + 'px';
     div.style.overflow = 'hidden';
     if(_selectedKey === item.match.file + ':' + item.match.line) div.classList.add('sel');
-    div.onclick = () => {
-      previewMatch(item.match);
-    };
+    div.dataset.matchKey = item.match.file + '\x00' + item.match.line;
     return div;
   }
 }

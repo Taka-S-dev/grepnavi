@@ -244,6 +244,12 @@ function makeItemEl(item, idx) {
       else _expanded.add(item.dirPath);
       render();
     };
+    el.oncontextmenu = e => {
+      e.preventDefault();
+      const base = (projectRoot || '').replace(/\\/g, '/').replace(/\/$/, '');
+      const absDir = base ? base + '/' + item.dirPath : item.dirPath;
+      showDirCtxMenu(absDir, item.dirPath, e.clientX, e.clientY);
+    };
 
   } else if (item.type === 'file') {
     el.style.height = ITEM_H + 'px';
@@ -256,6 +262,7 @@ function makeItemEl(item, idx) {
       fileIcon(item.name) +
       `<span class="ex-name">${escHtml(item.name)}</span>`;
     el.onclick = () => { _selPath = item.abs; openPeek(item.abs, 1); render(); };
+    el.oncontextmenu = e => { e.preventDefault(); showFileCtxMenu(item.abs, e.clientX, e.clientY); };
 
   } else { // file-flat (フィルタ結果)
     el.style.height = FLAT_H + 'px';
@@ -275,14 +282,18 @@ function makeItemEl(item, idx) {
       `<div class="ex-flat-icon">${fileIcon(name)}</div>` +
       `<span class="ex-flat-name">${nameHL}</span>` +
       `<span class="ex-flat-path">${dirHL}</span>` +
-      `<span class="ex-folder-btn" title="フォルダをツリーで表示"><i class="codicon codicon-folder-opened"></i></span>`;
+      `<span class="ex-folder-btn" title="フォルダをツリーで表示"><i class="codicon codicon-folder"></i></span>`;
 
     el.onclick = () => {
       _selIdx = idx;
       _selPath = item.abs;
-      openPeek(item.abs, 1);
       renderVirtual();
+      _scrollEl.focus({ preventScroll: true });
     };
+    el.ondblclick = () => {
+      openPeek(item.abs, 1);
+    };
+    el.oncontextmenu = e => { e.preventDefault(); showFileCtxMenu(item.abs, e.clientX, e.clientY); };
     el.querySelector('.ex-folder-btn').onclick = e => {
       e.stopPropagation();
       revealFolderInTree(item.abs);
@@ -327,6 +338,84 @@ function dirIconOpen(name) {
 }
 function escHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ---- Context menu ----
+
+let _ctxMenu = null;
+
+function createCtxMenu() {
+  if (_ctxMenu) return;
+  _ctxMenu = document.createElement('div');
+  _ctxMenu.style.cssText = 'display:none;position:fixed;z-index:9000;background:#2d2d2d;border:1px solid #555;border-radius:3px;box-shadow:0 4px 12px rgba(0,0,0,.5);padding:3px 0;min-width:180px;font-size:12px;user-select:none';
+  document.body.appendChild(_ctxMenu);
+  document.addEventListener('mousedown', e => {
+    if (!_ctxMenu.contains(e.target)) hideCtxMenu();
+  }, true);
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') hideCtxMenu();
+  }, true);
+}
+
+function hideCtxMenu() {
+  if (_ctxMenu) _ctxMenu.style.display = 'none';
+}
+
+function ctxItem(label, action) {
+  const div = document.createElement('div');
+  div.textContent = label;
+  div.style.cssText = 'padding:5px 16px;cursor:pointer;color:#ccc;white-space:nowrap';
+  div.onmouseenter = () => { div.style.background = '#094771'; };
+  div.onmouseleave = () => { div.style.background = ''; };
+  div.onclick = () => { hideCtxMenu(); action(); };
+  return div;
+}
+
+function positionCtxMenu(x, y) {
+  _ctxMenu.style.display = 'block';
+  const w = _ctxMenu.offsetWidth || 190;
+  const h = _ctxMenu.offsetHeight || 100;
+  _ctxMenu.style.left = Math.min(x, window.innerWidth  - w - 4) + 'px';
+  _ctxMenu.style.top  = Math.min(y, window.innerHeight - h - 4) + 'px';
+}
+
+function showFileCtxMenu(abs, x, y) {
+  createCtxMenu();
+  _ctxMenu.innerHTML = '';
+  _ctxMenu.appendChild(ctxItem('エクスプローラで開く', () => {
+    fetch('/api/reveal?' + new URLSearchParams({ file: abs }));
+  }));
+  _ctxMenu.appendChild(ctxItem('パスをコピー', () => {
+    navigator.clipboard.writeText(abs.replace(/\//g, '\\'));
+  }));
+  positionCtxMenu(x, y);
+}
+
+function showDirCtxMenu(absDir, relDir, x, y) {
+  createCtxMenu();
+  _ctxMenu.innerHTML = '';
+  _ctxMenu.appendChild(ctxItem('エクスプローラで開く', () => {
+    fetch('/api/reveal?' + new URLSearchParams({ file: absDir }));
+  }));
+  _ctxMenu.appendChild(ctxItem('このフォルダで検索', () => {
+    const dirEl = document.getElementById('dir');
+    if (dirEl) {
+      dirEl.value = relDir.replace(/\//g, '\\');
+      const clearEl = document.getElementById('dir-clear');
+      if (clearEl) clearEl.style.display = '';
+    }
+    const sub = document.getElementById('bar-sub');
+    if (sub && !sub.classList.contains('open')) {
+      sub.classList.add('open');
+      document.getElementById('btn-toggle-sub')?.classList.add('open');
+    }
+    document.getElementById('tab-search')?.click();
+    document.getElementById('q')?.focus();
+  }));
+  _ctxMenu.appendChild(ctxItem('パスをコピー', () => {
+    navigator.clipboard.writeText(absDir.replace(/\//g, '\\'));
+  }));
+  positionCtxMenu(x, y);
 }
 
 // ---- ツリーで表示 ----
@@ -440,12 +529,36 @@ window.initExplorer = async function() {
 
   _scrollEl.addEventListener('scroll', () => { renderVirtual(); updateStickyFolder(); }, { passive: true });
 
+  _scrollEl.addEventListener('keydown', e => {
+    if (!_filtered || !_allItems.length) return;
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      const it = _allItems[_selIdx];
+      if (it) revealFolderInTree(it.abs);
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      _selIdx = e.key === 'ArrowDown'
+        ? Math.min(_selIdx + 1, _allItems.length - 1)
+        : Math.max(_selIdx - 1, 0);
+      scrollSelIntoView();
+      renderVirtual();
+    } else if (e.key === 'Enter') {
+      const it = _allItems[_selIdx];
+      if (it) { _selPath = it.abs; openPeek(it.abs, 1); }
+    }
+  });
+
   document.getElementById('explorer-collapse-all')?.addEventListener('click', () => {
     _expanded.clear();
     render();
   });
 
   updateRootName();
+};
+
+window.explorerRevealFile = function(absPath) {
+  if (!absPath) return;
+  revealFolderInTree(absPath);
 };
 
 window.explorerShow = async function() {
