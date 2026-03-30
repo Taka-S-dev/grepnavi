@@ -537,19 +537,20 @@ func resolveGlobalBinOnce() (string, string) {
 
 
 // GtagsDiagnose は gtags 環境の診断情報をログに出力する。
-// ステータス API から呼ばれる。
-func GtagsDiagnose(dir string) {
-	slog.Info("gtags-diag start", "dir", dir)
+// word を指定すると「なぜそのシンボルが見つからないか」も追加診断する。
+func GtagsDiagnose(dir, word string) {
+	slog.Info("=== gtags-diag start ===", "dir", dir, "test_word", word)
 
-	// ---- 1. DBファイルの存在・サイズ・フォーマット確認 ----
+	// ---- 1. DBファイルの存在・サイズ・フォーマット ----
+	dbFormat := ""
 	for _, name := range []string{"GTAGS", "GRTAGS", "GPATH"} {
 		p := filepath.Join(dir, name)
 		fi, err := os.Stat(p)
 		if err != nil {
-			slog.Info("gtags-diag db", "file", name, "status", "missing")
+			slog.Info("gtags-diag [1] DB", "file", name, "status", "★ MISSING ★ インデックスが存在しない")
 			continue
 		}
-		slog.Info("gtags-diag db", "file", name, "size", fi.Size(), "mtime", fi.ModTime().Format("2006-01-02 15:04:05"))
+		slog.Info("gtags-diag [1] DB", "file", name, "size", fi.Size(), "mtime", fi.ModTime().Format("2006-01-02 15:04:05"))
 
 		if name == "GTAGS" {
 			f, ferr := os.Open(p)
@@ -558,86 +559,202 @@ func GtagsDiagnose(dir string) {
 				n, _ := f.Read(hdr)
 				f.Close()
 				if n > 0 {
-					var format string
 					switch {
 					case n >= 4 && hdr[0] == 0x13 && hdr[1] == 0x57:
-						format = "gdbm big-endian (MSYS2/Linux origin)"
+						dbFormat = "gdbm big-endian (MSYS2/Linux gtags で生成)"
 					case n >= 4 && hdr[0] == 0xce && hdr[1] == 0x9a:
-						format = "gdbm little-endian (Windows native origin)"
+						dbFormat = "gdbm little-endian (Windows native gtags で生成)"
 					default:
-						format = "unknown (btree/other)"
+						dbFormat = "unknown"
 					}
-					slog.Info("gtags-diag db format", "header", fmt.Sprintf("% x", hdr[:n]), "format", format)
+					slog.Info("gtags-diag [1] DB format", "format", dbFormat, "header", fmt.Sprintf("% x", hdr[:n]))
 				}
 			}
 		}
 	}
 
-	// ---- 2. global バイナリの確認 ----
+	// ---- 2. global / gtags バイナリとバージョン ----
 	bin := resolveGlobalBin()
-	slog.Info("gtags-diag bin", "path", bin)
+	globalVer := "(取得失敗)"
 	if fi, err := os.Stat(bin); err == nil {
 		shim := fi.Size() < 2048
-		slog.Info("gtags-diag bin", "size", fi.Size(), "possible_shim", shim)
-	}
-	verCmd := exec.Command(bin, "--version")
-	verOut, verErr := verCmd.Output()
-	if verErr != nil {
-		slog.Info("gtags-diag bin", "version_err", verErr)
+		shimNote := ""
+		if shim {
+			shimNote = " ★ shim の可能性あり（環境変数が渡らない場合がある）"
+		}
+		slog.Info("gtags-diag [2] global bin", "path", bin, "size", fi.Size(), "possible_shim", shim, "note", shimNote)
 	} else {
-		ver := strings.TrimSpace(string(verOut))
-		isMsys := strings.Contains(strings.ToLower(ver), "msys") || strings.Contains(ver, "/usr/")
-		slog.Info("gtags-diag bin", "version", ver, "is_msys", isMsys)
+		slog.Info("gtags-diag [2] global bin", "path", bin, "stat_err", err)
+	}
+	if out, err := exec.Command(bin, "--version").Output(); err == nil {
+		globalVer = firstLine(strings.TrimSpace(string(out)))
+	}
+	slog.Info("gtags-diag [2] global version", "version", globalVer)
+
+	gtagsBin := resolveGtagsBin()
+	gtagsVer := "(取得失敗)"
+	if fi, err := os.Stat(gtagsBin); err == nil {
+		slog.Info("gtags-diag [2] gtags bin", "path", gtagsBin, "size", fi.Size(), "possible_shim", fi.Size() < 2048)
+	}
+	if out, err := exec.Command(gtagsBin, "--version").Output(); err == nil {
+		gtagsVer = firstLine(strings.TrimSpace(string(out)))
+	}
+	slog.Info("gtags-diag [2] gtags version", "version", gtagsVer)
+	if globalVer != gtagsVer && globalVer != "(取得失敗)" && gtagsVer != "(取得失敗)" {
+		slog.Info("gtags-diag [2] version-mismatch", "conclusion",
+			"★ global と gtags のバージョンが異なる → DB フォーマット不一致の可能性あり",
+			"global", globalVer, "gtags", gtagsVer)
+	} else {
+		slog.Info("gtags-diag [2] version-match", "global", globalVer, "gtags", gtagsVer)
 	}
 
-	// ---- 3. 環境変数確認 ----
+	// ---- 3. 環境変数 ----
 	for _, key := range []string{"GTAGSCONF", "GTAGSDBPATH", "GTAGSROOT", "GTAGSLABEL", "SCOOP", "USERPROFILE"} {
-		slog.Info("gtags-diag env", "key", key, "value", os.Getenv(key))
+		v := os.Getenv(key)
+		note := ""
+		if key == "GTAGSDBPATH" && v != "" && v != dir {
+			note = " ★ アプリが設定する値と異なる"
+		}
+		slog.Info("gtags-diag [3] env", "key", key, "value", v, "note", note)
 	}
 
-	// ---- 4. DB に実際にアクセスできるか ----
+	// ---- 4. DB読み取りテスト（共通シンボルで疎通確認）----
 	env := append(os.Environ(), "GTAGSDBPATH="+dir, "GTAGSROOT="+dir)
-	for _, testWord := range []string{"main", "open", "close"} {
-		tCmd := exec.Command(bin, "-xd", testWord)
-		tCmd.Env = env
-		var tStderr bytes.Buffer
-		tCmd.Stderr = &tStderr
-		tOut, tErr := tCmd.Output()
-		exitCode := 0
-		if tErr != nil {
-			if ex, ok := tErr.(*exec.ExitError); ok {
-				exitCode = ex.ExitCode()
-			}
-		}
-		stderr := strings.TrimSpace(tStderr.String())
-		stdout := strings.TrimSpace(string(tOut))
-		if exitCode == 0 && stdout != "" {
-			slog.Info("gtags-diag test", "word", testWord, "status", "hit", "example", firstLine(stdout))
+	cmdLine := fmt.Sprintf("%s -xd <word>  (GTAGSDBPATH=%s  GTAGSROOT=%s)", bin, dir, dir)
+	slog.Info("gtags-diag [4] command-line", "cmd", cmdLine, "note", "以下のコマンドをターミナルで実行して同じ結果か確認してください")
+
+	dbReadable := false
+	for _, testWord := range []string{"main", "open", "close", "init"} {
+		exit, stdout, stderr := runGlobalCmd(bin, env, "-xd", testWord)
+		if exit == 0 && stdout != "" {
+			slog.Info("gtags-diag [4] DB疎通", "status", "✓ OK", "word", testWord, "example", firstLine(stdout))
+			dbReadable = true
 			break
-		} else if exitCode == 1 {
-			slog.Info("gtags-diag test", "word", testWord, "status", "not found", "stderr", stderr)
+		} else if exit == 1 {
+			slog.Info("gtags-diag [4] DB疎通", "word", testWord, "exit", 1, "note", "ヒットなし（続けてテスト）")
 		} else {
-			slog.Info("gtags-diag test", "word", testWord, "status", "error",
-				"exit", exitCode, "stderr", stderr, "guess", diagGuess(stderr))
+			slog.Info("gtags-diag [4] DB疎通", "status", "★ ERROR ★", "word", testWord,
+				"exit", exit, "stderr", stderr, "guess", diagGuess(stderr))
 		}
 	}
+	if !dbReadable {
+		slog.Info("gtags-diag [4] DB疎通", "conclusion",
+			"★ main/open/close/init すべてヒットなし → DBが空・破損・フォーマット不一致のいずれか。GTAGSを再生成してください")
+	}
 
-	// ---- 5. gtags バイナリの確認 (DB生成側) ----
-	gtagsBin, lookErr := exec.LookPath("gtags")
-	if lookErr != nil {
-		slog.Info("gtags-diag gtags-bin", "status", "not found in PATH", "err", lookErr)
+	// ---- 5. インデックス済みファイル数 ----
+	exit, stdout, _ := runGlobalCmd(bin, env, "-P", "")
+	if exit == 0 {
+		lines := strings.Split(strings.TrimSpace(stdout), "\n")
+		count := len(lines)
+		if stdout == "" {
+			count = 0
+		}
+		sample := ""
+		if count > 0 {
+			sample = lines[0]
+		}
+		note := ""
+		if count == 0 {
+			note = "★ ファイルが1件もない → gtags が正常に完了していない可能性"
+		}
+		slog.Info("gtags-diag [5] indexed-files", "count", count, "sample", sample, "note", note)
 	} else {
-		slog.Info("gtags-diag gtags-bin", "path", gtagsBin)
-		if fi, err := os.Stat(gtagsBin); err == nil {
-			slog.Info("gtags-diag gtags-bin", "size", fi.Size(), "possible_shim", fi.Size() < 2048)
+		slog.Info("gtags-diag [5] indexed-files", "status", "取得失敗", "exit", exit)
+	}
+
+	// ---- 6. 指定シンボルの詳細テスト ----
+	if word != "" {
+		slog.Info("gtags-diag [6] symbol-test", "word", word)
+
+		// 6a. 定義検索
+		exit, stdout, stderr := runGlobalCmd(bin, env, "-xd", word)
+		if exit == 0 && stdout != "" {
+			slog.Info("gtags-diag [6a] -xd (定義)", "status", "✓ ヒットあり", "result", firstLine(stdout))
+		} else if exit == 1 {
+			slog.Info("gtags-diag [6a] -xd (定義)", "status",
+				"✗ インデックスに定義なし → このシンボルはGTAGSに登録されていない")
+		} else {
+			slog.Info("gtags-diag [6a] -xd (定義)", "status", "★ ERROR", "exit", exit, "stderr", stderr)
 		}
-		gVerCmd := exec.Command(gtagsBin, "--version")
-		if gVerOut, gVerErr := gVerCmd.Output(); gVerErr == nil {
-			slog.Info("gtags-diag gtags-bin", "version", strings.TrimSpace(string(gVerOut)))
+
+		// 6b. 参照検索（定義がなくても参照はあるか）
+		exit, stdout, _ = runGlobalCmd(bin, env, "-xr", word)
+		if exit == 0 && stdout != "" {
+			slog.Info("gtags-diag [6b] -xr (参照)", "status", "参照はある（定義だけ未登録）", "count", strings.Count(stdout, "\n")+1)
+		} else {
+			slog.Info("gtags-diag [6b] -xr (参照)", "status", "参照もなし")
+		}
+
+		// 6c. 前方一致補完（シンボル名のスペルが正しいか確認）
+		exit, stdout, _ = runGlobalCmd(bin, env, "-c", word)
+		if exit == 0 && stdout != "" {
+			slog.Info("gtags-diag [6c] -c (補完)", "status", "類似シンボルあり", "matches", firstLine(stdout))
+		} else {
+			slog.Info("gtags-diag [6c] -c (補完)", "status",
+				"完全一致も前方一致もなし → このシンボル名はインデックスに存在しない")
+		}
+
+		// 6d. 環境変数なし（cwd だけ）で同じ検索（env 渡しが効いているか確認）
+		exitNoEnv, stdoutNoEnv, _ := runGlobalCmdDir(bin, nil, dir, "-xd", word)
+		if exitNoEnv == 0 && stdoutNoEnv != "" {
+			slog.Info("gtags-diag [6d] env無し実行", "status",
+				"★ env なしでは見つかる → GTAGSDBPATH の渡し方に問題がある可能性")
+		} else {
+			slog.Info("gtags-diag [6d] env無し実行", "status", "env なしでも見つからない（env の問題ではない）")
 		}
 	}
 
-	slog.Info("gtags-diag done")
+	slog.Info("=== gtags-diag done ===")
+}
+
+// runGlobalCmd は global コマンドを env 付きで実行し (exitCode, stdout, stderr) を返す。
+func runGlobalCmd(bin string, env []string, flag, arg string) (int, string, string) {
+	args := []string{flag}
+	if arg != "" {
+		args = append(args, arg)
+	}
+	cmd := exec.Command(bin, args...)
+	cmd.Env = env
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+	err := cmd.Run()
+	exit := 0
+	if err != nil {
+		if ex, ok := err.(*exec.ExitError); ok {
+			exit = ex.ExitCode()
+		} else {
+			exit = -1
+		}
+	}
+	return exit, strings.TrimSpace(outBuf.String()), strings.TrimSpace(errBuf.String())
+}
+
+// runGlobalCmdDir は global コマンドを指定ディレクトリ・env で実行する。env が nil のときは継承しない（空）。
+func runGlobalCmdDir(bin string, env []string, dir, flag, arg string) (int, string, string) {
+	args := []string{flag}
+	if arg != "" {
+		args = append(args, arg)
+	}
+	cmd := exec.Command(bin, args...)
+	cmd.Dir = dir
+	if env != nil {
+		cmd.Env = env
+	}
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+	err := cmd.Run()
+	exit := 0
+	if err != nil {
+		if ex, ok := err.(*exec.ExitError); ok {
+			exit = ex.ExitCode()
+		} else {
+			exit = -1
+		}
+	}
+	return exit, strings.TrimSpace(outBuf.String()), strings.TrimSpace(errBuf.String())
 }
 
 func firstLine(s string) string {

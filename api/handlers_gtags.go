@@ -17,8 +17,10 @@ func (h *Handler) handleGtagsStatus(w http.ResponseWriter, r *http.Request) {
 	installed := search.GtagsInPath()
 	indexed := search.GtagsIndexed(root)
 	// ?diag=1 を付けると詳細診断をサーバーログに出力
+	// ?word=xxx で失敗したシンボルを指定すると追加テストを行う
 	if r.URL.Query().Get("diag") == "1" {
-		search.GtagsDiagnose(root)
+		word := r.URL.Query().Get("word")
+		search.GtagsDiagnose(root, word)
 	}
 	jsonOK(w, map[string]interface{}{
 		"installed":  installed,
