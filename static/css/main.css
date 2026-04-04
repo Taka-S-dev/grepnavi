@@ -42,6 +42,9 @@ body{font:13px/1.4 'Consolas','Courier New',monospace;background:#1e1e1e;color:#
 #root-chip-text .chip-subdir{font-size:10px;color:#5a8aaa;opacity:0.85;margin-left:1px}
 #btn-s{padding:4px 10px;font-size:12px;min-width:52px;text-align:center}
 #btn-stop{padding:3px 8px;font-size:12px}
+#enc-btn{background:none;border:none;color:rgba(255,255,255,0.4);font-size:11px;padding:0 6px;cursor:pointer;font-family:inherit;flex-shrink:0}
+#enc-btn:hover{color:#fff}
+#enc-btn.active{color:#fff;background:rgba(255,200,0,0.25);border-radius:2px}
 .bar-field{display:flex;flex-direction:column;gap:2px}
 .bar-field-label{font-size:10px;color:#858585;padding-left:2px}
 #dir-wrap{position:relative;display:flex;align-items:center;background:#3c3c3c;border:1px solid #555;border-radius:3px;padding:0 4px;gap:2px}

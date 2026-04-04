@@ -198,3 +198,16 @@ function moveMemoTip(e) {
 }
 
 function hideMemoTip() { id('memo-tooltip').style.display = 'none'; }
+
+// ===== ENCODING BUTTON =====
+const ENC_LABELS = { '': 'UTF-8', 'sjis': 'SJIS', 'euc-jp': 'EUC-JP', 'utf-16le': 'UTF-16' };
+function updateEncBtn(enc) {
+  const btn = id('enc-btn');
+  if(!btn) return;
+  btn.dataset.enc = enc || '';
+  btn.textContent = ENC_LABELS[enc] || 'UTF-8';
+  btn.classList.toggle('active', !!enc);
+}
+function getSearchEnc() {
+  return id('enc-btn')?.dataset.enc || '';
+}

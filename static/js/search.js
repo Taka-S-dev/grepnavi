@@ -6,7 +6,7 @@ const VIRT_OVER = 8; // overdraw rows outside viewport
 // ===== 純粋関数 (Pure functions) =====
 
 // 検索パラメータを構築して返す（DOM・副作用なし）
-function buildSearchParams(q, dir, glob, isRegex, isCaseSensitive, isWord) {
+function buildSearchParams(q, dir, glob, isRegex, isCaseSensitive, isWord, enc) {
   const params = new URLSearchParams({
     q,
     regex: isRegex ? '1' : '0',
@@ -15,6 +15,7 @@ function buildSearchParams(q, dir, glob, isRegex, isCaseSensitive, isWord) {
   });
   if(dir)  params.set('dir', dir);
   if(glob) params.set('glob', glob);
+  if(enc)  params.set('enc', enc);
   return params;
 }
 
@@ -112,9 +113,10 @@ function doSearch() {
   const isRegex = id('btn-re').classList.contains('on');
   const isCaseSensitive = id('btn-cs').classList.contains('on');
   const isWord = id('btn-wb').classList.contains('on');
-  localStorage.setItem('grepnavi-settings', JSON.stringify({dir, glob, regex: isRegex, cs: isCaseSensitive, word: isWord}));
+  const enc = getSearchEnc();
+  localStorage.setItem('grepnavi-settings', JSON.stringify({dir, glob, regex: isRegex, cs: isCaseSensitive, word: isWord, enc}));
 
-  const params = buildSearchParams(q, dir, glob, isRegex, isCaseSensitive, isWord);
+  const params = buildSearchParams(q, dir, glob, isRegex, isCaseSensitive, isWord, enc);
 
   stopSearch();
   allMatches=[]; pending=[]; fileGroupMap={};

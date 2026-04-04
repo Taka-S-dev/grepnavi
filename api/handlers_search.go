@@ -34,6 +34,13 @@ func (h *Handler) handleSearchStream(w http.ResponseWriter, r *http.Request) {
 		dir = filepath.Join(hroot, dir)
 	}
 
+	enc := q.Get("enc")
+	// 許可するエンコーディングのみ通す
+	switch enc {
+	case "sjis", "euc-jp", "utf-16le", "utf-16be":
+	default:
+		enc = ""
+	}
 	opts := search.Options{
 		Pattern:       pattern,
 		Dir:           dir,
@@ -42,6 +49,7 @@ func (h *Handler) handleSearchStream(w http.ResponseWriter, r *http.Request) {
 		Regex:         q.Get("regex") == "1",
 		FileGlob:      q.Get("glob"),
 		ContextLines:  8,
+		Encoding:      enc,
 	}
 
 	w.Header().Set("Content-Type", "text/event-stream")

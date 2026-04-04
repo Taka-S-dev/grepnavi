@@ -217,6 +217,7 @@ addEventListener('DOMContentLoaded', async () => {
   if(saved.regex) id('btn-re').classList.toggle('on', !!saved.regex);
   if(saved.cs)    id('btn-cs').classList.toggle('on', !!saved.cs);
   if(saved.word)  id('btn-wb').classList.toggle('on', !!saved.word);
+  if(saved.enc)   updateEncBtn(saved.enc);
 
   await loadGraph();
 
@@ -274,4 +275,18 @@ addEventListener('DOMContentLoaded', async () => {
   }
 
   st('準備完了');
+
+  // エンコーディングボタン初期化
+  const encBtn = id('enc-btn');
+  if(encBtn) {
+    encBtn.addEventListener('click', () => {
+      const cycle = ['', 'sjis', 'euc-jp', 'utf-16le'];
+      const cur = encBtn.dataset.enc || '';
+      const next = cycle[(cycle.indexOf(cur) + 1) % cycle.length];
+      updateEncBtn(next);
+      const saved = JSON.parse(localStorage.getItem('grepnavi-settings') || '{}');
+      saved.enc = next;
+      localStorage.setItem('grepnavi-settings', JSON.stringify(saved));
+    });
+  }
 });
