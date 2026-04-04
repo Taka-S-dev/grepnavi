@@ -35,6 +35,7 @@ addEventListener('DOMContentLoaded', async () => {
   id('btn-nav-fwd').onclick  = navForward;
 
   document.addEventListener('keydown', e => {
+    if(document.querySelector('#include-overlay.open, #ct-sidebar.open')) return;
     if(e.altKey && e.key === 'ArrowLeft')  { e.preventDefault(); navBack(); }
     if(e.altKey && e.key === 'ArrowRight') { e.preventDefault(); navForward(); }
     if(e.key === 'F3' && !e.altKey && !e.ctrlKey && !e.metaKey) {
@@ -75,7 +76,6 @@ addEventListener('DOMContentLoaded', async () => {
   document.addEventListener('click', () => id('project-menu').classList.remove('open'));
   id('pmenu-new-window').onclick = () => { id('project-menu').classList.remove('open'); openNewWindow(); };
   id('pmenu-open').onclick       = () => { id('project-menu').classList.remove('open'); openProjectFilePicker(); };
-  id('fzf-browse-btn').onclick   = () => { closeFzf(); showFileBrowser('open-file'); };
   id('pmenu-saveas').onclick     = () => { id('project-menu').classList.remove('open'); saveAsProjectFilePicker(); };
   id('pmenu-save').onclick       = () => { id('project-menu').classList.remove('open'); saveProjectFileCurrent(); };
 
