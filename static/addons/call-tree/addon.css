@@ -46,6 +46,7 @@ body.panel-mode #ct-close { display: none; }
   width: 4px;
   cursor: ew-resize;
   background: transparent;
+  z-index: 10;
 }
 #ct-resizer:hover { background: #007acc; }
 
