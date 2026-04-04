@@ -1267,7 +1267,7 @@ addEventListener('DOMContentLoaded', () => {
   addEventListener('mousemove', e => {
     if(peekResizing) {
       const delta = peekStartY - e.clientY;
-      const newH = Math.max(120, Math.min(peekStartH + delta, id('pane-right').offsetHeight * 0.8));
+      const newH = Math.max(28, Math.min(peekStartH + delta, id('pane-right').offsetHeight * 0.95));
       id('peek').style.height = newH + 'px';
       id('peek').style.maxHeight = 'none';
       if(monacoEditor) monacoEditor.layout();
