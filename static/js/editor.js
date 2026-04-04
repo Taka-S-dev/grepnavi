@@ -301,6 +301,14 @@ async function ensureEditor() {
     guides: { bracketPairs: true },
   });
   new ResizeObserver(() => monacoEditor.layout()).observe(id('monaco-container'));
+
+  // 編集時にプレビュータブを固定に昇格
+  monacoEditor.onDidChangeModelContent(() => {
+    if(activeTabIdx >= 0 && tabs[activeTabIdx]?.preview) {
+      tabs[activeTabIdx].preview = false;
+      renderTabs();
+    }
+  });
   initTabCtxMenu();
 
   // ホバー内リンクからファイルを開くコマンド
@@ -341,7 +349,7 @@ async function ensureEditor() {
   let _lastHoverHit  = null; // { file, line }
 
   // ===== Floating Peek 初期化 =====
-  const { showFloatingDef: _showFloatingDef, showFloatingCtx: _showFloatingCtx, showWordCtxMenu: _showWordCtxMenu } = initFloatingPeek(
+  const { showFloatingDef: _showFloatingDef, showFloatingCtx: _showFloatingCtx, showFloatingSelection: _showFloatingSelection, showWordCtxMenu: _showWordCtxMenu } = initFloatingPeek(
     () => ({ word: _lastHoverWord, hit: _lastHoverHit })
   );
 
@@ -349,11 +357,12 @@ async function ensureEditor() {
   HOVER_LANGS.forEach(lang => {
     monaco.languages.registerHoverProvider(lang, {
       provideHover: async (model, position, token) => {
-        const word = model.getWordAtPosition(position);
+        let word = model.getWordAtPosition(position);
         _lastHoverWord = word?.word || '';
         // B: 3文字未満・キーワードはスキップ
         if(!word || word.word.length < 3) return null;
         if(HOVER_SKIP.has(word.word)) return null;
+
         const controller = new AbortController();
         token.onCancellationRequested(() => controller.abort());
         try {
@@ -380,21 +389,27 @@ async function ensureEditor() {
           const cached = _hoverCache.get(cacheKey);
           if(cached && Date.now() - cached.time < HOVER_CACHE_TTL) {
             const allContents = [...contents, ...cached.contents];
-            if(!allContents.length) return null;
+            if(!allContents.length) {
+              if(_declContent) return {
+                range: new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn),
+                contents: _declContent
+              };
+              return null;
+            }
             return {
               range: new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn),
               contents: allContents.map(c => ({...c, isTrusted: true}))
             };
           }
 
-          // 2. /api/hover — struct/union/enum/define のブロック本体（C: /api/search は廃止）
-          // dir は送らない（プロジェクトルート全体を検索するため）
+          // 2. /api/hover — struct/union/enum/define のブロック本体
           const hp = new URLSearchParams({word: word.word});
           if(glob) hp.set('glob', glob);
           const hoverFile = tabs[activeTabIdx]?.file || '';
           if(hoverFile) hp.set('file', hoverFile);
           const hr = await fetch('/api/hover?' + hp, {signal: controller.signal});
           const hoverHits = await hr.json();
+          const hoverEngine = hr.headers.get('X-Engine') || '';
           const apiContents = [];
           if(Array.isArray(hoverHits) && hoverHits.length) {
             const kindLabel = {define:'#define', struct:'struct', enum:'enum', union:'union', typedef:'typedef', func:'function', enum_member:'enum'};
@@ -414,7 +429,8 @@ async function ensureEditor() {
               const args = encodeURIComponent(JSON.stringify([h.file, h.line]));
               const fileLink = `[${shortPath(h.file)}:${h.line}](command:grepnavi.openFile?${args})`;
               const counter = multi ? ` — **${i+1} / ${hits.length}**` : '';
-              const header = `**${kindLabel[h.kind]||h.kind} \`${word.word}\`${counter}** — *${fileLink}*`;
+              const engLabel = (i === 0 && hoverEngine) ? ` \`[${hoverEngine}]\`` : '';
+              const header = `**${kindLabel[h.kind]||h.kind} \`${word.word}\`${counter}**${engLabel} — *${fileLink}*`;
               const body = h.body.length > 2000 ? h.body.slice(0, 2000) + '\n// ...' : h.body;
               const prefix = i === 0 ? declNote : '';
               if(i === 0) _lastHoverHit = { file: h.file, line: h.line, body: h.body };
@@ -430,7 +446,13 @@ async function ensureEditor() {
           }
 
           const allContents = [...contents, ...apiContents];
-          if(!allContents.length) return null;
+          if(!allContents.length) {
+            if(_declContent) return {
+              range: new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn),
+              contents: _declContent
+            };
+            return null;
+          }
           return {
             range: new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn),
             contents: allContents.map(c => ({...c, isTrusted: true}))
@@ -548,12 +570,22 @@ async function ensureEditor() {
       const sel = ed.getSelection();
       const model = ed.getModel();
       if(!model) return;
+      const curFile = tabs[activeTabIdx]?.file;
+      // 複数行選択、または記号/スペースを含む選択なら選択範囲を固定表示
+      if(sel && !sel.isEmpty()) {
+        const text = model.getValueInRange(sel);
+        const isMultiLine = sel.endLineNumber > sel.startLineNumber;
+        const isMultiWord = /[\s\(\)\[\]\|&,;]/.test(text.trim());
+        if(isMultiLine || isMultiWord) {
+          if(curFile) _showFloatingSelection(curFile, sel.startLineNumber, sel.endLineNumber, text);
+          return;
+        }
+      }
       const word = (sel && !sel.isEmpty() ? model.getValueInRange(sel).trim() : null)
                    || model.getWordAtPosition(ed.getPosition())?.word;
       if(word) {
         _showFloatingDef(word);
       } else {
-        const curFile = tabs[activeTabIdx]?.file;
         const curLine = ed.getPosition()?.lineNumber;
         if(curFile && curLine) _showFloatingCtx(curFile, curLine);
       }
@@ -741,7 +773,13 @@ function updateNavButtons() {
 }
 
 // ===== タブ / Peek パネル =====
-async function openPeek(file, line) {
+// プレビュータブを固定（permanent）に昇格する
+function promotePreviewTab() {
+  const idx = tabs.findIndex(t => t.preview);
+  if(idx >= 0) { tabs[idx].preview = false; renderTabs(); }
+}
+
+async function openPeek(file, line, {permanent = false} = {}) {
   if(!file) return;
   if(typeof updateTitle === 'function') updateTitle(file);
   if(pageMode) {
@@ -757,8 +795,10 @@ async function openPeek(file, line) {
   id('peek-placeholder')?.classList.add('hidden');
   id('peek-open').onclick = () => openFile(file, monacoEditor?.getPosition()?.lineNumber ?? line);
 
+  // 同一ファイルが既に開いている場合はそこへ移動
   const existIdx = tabs.findIndex(t => t.file === file);
   if(existIdx >= 0) {
+    if(permanent) tabs[existIdx].preview = false;
     tabs[existIdx].line = line;
     await switchTab(existIdx);
     const matchLine = parseInt(line) || 1;
@@ -767,20 +807,54 @@ async function openPeek(file, line) {
       options: {isWholeLine: true, className: 'peek-match-decoration'}
     }]);
     monacoEditor.setPosition({lineNumber: matchLine, column: 1});
-    monacoEditor.layout();
     monacoEditor.revealLineInCenter(matchLine);
+    await new Promise(r => setTimeout(r, 0));
+    monacoEditor.layout();
     return;
   }
 
   const r = await fetch('/api/file?' + new URLSearchParams({file}));
-  if(!r.ok) return;
+  if(!r.ok) {
+    const msg = r.status === 415 ? 'バイナリファイルは表示できません'
+              : r.status === 413 ? 'ファイルが大きすぎます (10MB超)'
+              : `ファイルを開けません (${r.status})`;
+    // エラー内容をエディタ上に表示するためダミーモデルでタブを開く
+    const errUri = monaco.Uri.from({scheme:'grepnavi-err', path: file.replace(/\\/g,'/')});
+    const errModel = monaco.editor.getModel(errUri) || monaco.editor.createModel(`// ${msg}\n// ${file}`, 'plaintext', errUri);
+    const errTab = {file, line: 1, label: file.replace(/\\/g,'/').split('/').pop(), model: errModel, decoIds: [], preview: !permanent, error: true};
+    const previewIdx2 = permanent ? -1 : tabs.findIndex(t => t.preview);
+    if(previewIdx2 >= 0) {
+      const oldModel = tabs[previewIdx2].model;
+      tabs[previewIdx2] = errTab;
+      await switchTab(previewIdx2);
+      if(oldModel !== errModel) oldModel.dispose();
+    } else {
+      tabs.push(errTab);
+      await switchTab(tabs.length - 1);
+    }
+    st(msg);
+    // エラーファイルをキャッシュして次回グレーアウトに使う
+    _unopenableFiles.add(file);
+    return;
+  }
   const text = await r.text();
   const lang = detectLang(file);
   const uri = monaco.Uri.from({scheme:'grepnavi', path: file.replace(/\\/g,'/')});
   const model = monaco.editor.getModel(uri) || monaco.editor.createModel(text, lang || 'plaintext', uri);
-  const tab = {file, line, label: file.replace(/\\/g,'/').split('/').pop(), model, decoIds: []};
-  tabs.push(tab);
-  await switchTab(tabs.length - 1);
+  const tab = {file, line, label: file.replace(/\\/g,'/').split('/').pop(), model, decoIds: [], preview: !permanent};
+
+  // プレビュー開きの場合：既存プレビュータブをこのタブで置き換える
+  const previewIdx = permanent ? -1 : tabs.findIndex(t => t.preview);
+  if(previewIdx >= 0) {
+    const oldModel = tabs[previewIdx].model;
+    tabs[previewIdx] = tab;
+    await switchTab(previewIdx);
+    // switchTab で新モデルをセットした後に dispose する
+    if(oldModel !== tab.model) oldModel.dispose();
+  } else {
+    tabs.push(tab);
+    await switchTab(tabs.length - 1);
+  }
 
   const matchLine = parseInt(line) || 1;
   tab.decoIds = monacoEditor.deltaDecorations([], [{
@@ -788,8 +862,14 @@ async function openPeek(file, line) {
     options: {isWholeLine: true, className: 'peek-match-decoration'}
   }]);
   monacoEditor.setPosition({lineNumber: matchLine, column: 1});
-  monacoEditor.layout();
   monacoEditor.revealLineInCenter(matchLine);
+  // Monaco がレイアウトを確実に更新するまで待つ
+  await new Promise(r => setTimeout(r, 0));
+  monacoEditor.layout();
+}
+
+async function openPeekPermanent(file, line) {
+  return openPeek(file, line, {permanent: true});
 }
 
 async function refreshSymbolDecorations() {
@@ -923,11 +1003,13 @@ function renderTabs() {
   bar.innerHTML = '';
   tabs.forEach((t, i) => {
     const tab = document.createElement('div');
-    tab.className = 'ptab' + (i === activeTabIdx ? ' active' : '');
+    tab.className = 'ptab' + (i === activeTabIdx ? ' active' : '') + (t.preview ? ' preview' : '') + (t.error ? ' error' : '');
     const lbl = document.createElement('span');
     lbl.textContent = t.label;
     lbl.title = t.file;
     lbl.onclick = () => switchTab(i);
+    // ダブルクリックでプレビューを固定に昇格
+    lbl.ondblclick = () => { tabs[i].preview = false; renderTabs(); };
     const cls = document.createElement('span');
     cls.className = 'ptab-close';
     cls.textContent = '×';
@@ -1002,7 +1084,7 @@ function showDefPeek(hits, word, pixelPos) {
     const row = document.createElement('div');
     row.className = 'def-peek-row' + (i === 0 ? ' def-peek-sel' : '');
     row.innerHTML = `<span class="def-peek-loc">${esc(shortPath(h.file))}:${h.line}</span><span class="def-peek-txt">${esc((h.text || '').trim())}</span>`;
-    row.onclick = async () => { closeDefPeek(); if(typeof window.recordJump === 'function') window.recordJump(word, null, null, h.file, h.line); await openPeek(h.file, h.line); monacoEditor.focus(); };
+    row.onclick = async () => { closeDefPeek(); if(typeof window.recordJump === 'function') window.recordJump(word, null, null, h.file, h.line); await openPeekPermanent(h.file, h.line); monacoEditor.focus(); };
     row.onmouseenter = () => { rows[sel].classList.remove('def-peek-sel'); sel = i; rows[sel].classList.add('def-peek-sel'); };
     list.appendChild(row);
     return row;
@@ -1015,7 +1097,7 @@ function showDefPeek(hits, word, pixelPos) {
     if (e.key === 'Escape')    { e.preventDefault(); e.stopPropagation(); closeDefPeek(); monacoEditor.focus(); return; }
     if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); rows[sel].classList.remove('def-peek-sel'); sel = (sel + 1) % hits.length; rows[sel].classList.add('def-peek-sel'); rows[sel].scrollIntoView({block:'nearest'}); return; }
     if (e.key === 'ArrowUp')   { e.preventDefault(); e.stopPropagation(); rows[sel].classList.remove('def-peek-sel'); sel = (sel - 1 + hits.length) % hits.length; rows[sel].classList.add('def-peek-sel'); rows[sel].scrollIntoView({block:'nearest'}); return; }
-    if (e.key === 'Enter')     { e.preventDefault(); e.stopPropagation(); const h = hits[sel]; closeDefPeek(); if(typeof window.recordJump === 'function') window.recordJump(word, null, null, h.file, h.line); await openPeek(h.file, h.line); monacoEditor.focus(); return; }
+    if (e.key === 'Enter')     { e.preventDefault(); e.stopPropagation(); const h = hits[sel]; closeDefPeek(); if(typeof window.recordJump === 'function') window.recordJump(word, null, null, h.file, h.line); await openPeekPermanent(h.file, h.line); monacoEditor.focus(); return; }
   };
   document.addEventListener('keydown', _defKeyHandler);
 
@@ -1028,8 +1110,11 @@ function showDefPeek(hits, word, pixelPos) {
 }
 
 // ===== 定義ジャンプ =====
+let _defAbortCtrl = null;
 async function jumpToDefinition(word) {
   if(!word || word.length < 2) return;
+  if(_defAbortCtrl) _defAbortCtrl.abort();
+  _defAbortCtrl = new AbortController();
   // ジャンプ前の現在位置を履歴に記録（Alt+← で戻れるように）
   const curFile = tabs[activeTabIdx]?.file;
   const curLine = monacoEditor?.getPosition()?.lineNumber;
@@ -1049,14 +1134,17 @@ async function jumpToDefinition(word) {
   {
     const p = new URLSearchParams({word});
     if (glob) p.set('glob', glob);
+    if (currentFile) p.set('file', currentFile);
     if (typeof window.gtagsEnabled === 'function' && !window.gtagsEnabled()) p.set('gtags', '0');
     try {
-      const r = await fetch('/api/definition?' + p);
+      const r = await fetch('/api/definition?' + p, {signal: _defAbortCtrl.signal});
       if (r.ok) {
         hits = await r.json();
         totalCount = hits.length;
+        const eng = r.headers.get('X-Engine');
+        if (eng) window._lastDefEngine = eng;
       }
-    } catch {}
+    } catch(e) { if(e?.name === 'AbortError') { clearInterval(stimer); return; } }
   }
 
   clearInterval(stimer);
@@ -1074,16 +1162,17 @@ async function jumpToDefinition(word) {
     if(inCurrent.length) hits = [...inCurrent, ...hits.filter(m => m.file !== currentFile)];
   }
 
+  const _engLabel = window._lastDefEngine ? ` [${window._lastDefEngine}]` : '';
   // 1件なら直接ジャンプ
   if(hits.length === 1) {
-    st(`定義: ${shortPath(hits[0].file)}:${hits[0].line}`);
+    st(`定義: ${shortPath(hits[0].file)}:${hits[0].line}${_engLabel}`);
     if(typeof window.recordJump === 'function') window.recordJump(word, curFile, curLine, hits[0].file, hits[0].line);
-    await openPeek(hits[0].file, hits[0].line);
+    await openPeekPermanent(hits[0].file, hits[0].line);
     return;
   }
 
   // 複数件はピークウィジェットで表示（検索欄を汚染しない）
-  st(`定義 ${hits.length}件`);
+  st(`定義 ${hits.length}件${_engLabel}`);
   const monacoPos = monacoEditor.getPosition() || { lineNumber: 1, column: 1 };
   const pixelPos = monacoEditor.getScrolledVisiblePosition(monacoPos) || { top: 40, left: 40 };
   // 1行分下にずらして表示

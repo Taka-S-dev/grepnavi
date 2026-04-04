@@ -43,8 +43,10 @@ let dragSeq = 0; // ドラッグ操作ごとに増加。再レンダリング後
 
 // Monaco Editor
 let monacoEditor = null, monacoDecoIds = [], monacoReady = false;
-let tabs = []; // {file, line, label, model, decoIds}
+let tabs = []; // {file, line, label, model, decoIds, preview?, error?}
 let activeTabIdx = -1;
+const _unopenableFiles = new Set(); // 415/413 になったファイルパスのキャッシュ
+window.isUnopenableFile = f => _unopenableFiles.has(f);
 const navHistory = []; // [{file, line}]
 let navIndex = -1;
 let navSkipPush = false;

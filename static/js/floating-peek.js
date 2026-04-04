@@ -166,6 +166,13 @@ function initFloatingPeek(getHoverCtx) {
         label.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:' + (win._floatMinimized ? '#555' : isTop ? '#ddd' : '#aaa') + (win._floatMinimized ? ';text-decoration:line-through' : '');
         label.title = displayName;
 
+        const minRowBtn = document.createElement('span');
+        minRowBtn.textContent = '─';
+        minRowBtn.style.cssText = 'cursor:pointer;color:#666;padding:0 2px;flex-shrink:0';
+        minRowBtn.onmouseenter = () => { minRowBtn.style.color = '#ccc'; };
+        minRowBtn.onmouseleave = () => { minRowBtn.style.color = '#666'; };
+        minRowBtn.onclick = e => { e.stopPropagation(); win._floatToggleMin(); };
+
         const closeBtn = document.createElement('span');
         closeBtn.textContent = '✕';
         closeBtn.style.cssText = 'cursor:pointer;color:#666;padding:0 2px;flex-shrink:0';
@@ -180,6 +187,7 @@ function initFloatingPeek(getHoverCtx) {
         row.appendChild(handle);
         row.appendChild(dot);
         row.appendChild(label);
+        row.appendChild(minRowBtn);
         row.appendChild(closeBtn);
         list.appendChild(row);
       });
@@ -210,7 +218,7 @@ function initFloatingPeek(getHoverCtx) {
     const ci = _floatCascadeIdx % _cascadeMax;
     _floatCascadeIdx++;
     const win = document.createElement('div');
-    win.style.cssText = `position:fixed;z-index:${++_floatZBase};background:#1e1e1e;border:1px solid #555;border-radius:4px;box-shadow:0 4px 16px rgba(0,0,0,.6);width:500px;max-height:400px;display:flex;flex-direction:column;top:${_cascadeTopBase + ci * _cascadeStep}px;left:${_cascadeLeftBase + ci * _cascadeStep}px;resize:both;overflow:hidden;min-width:200px;min-height:80px`;
+    win.style.cssText = `position:fixed;z-index:${++_floatZBase};background:#1e1e1e;border:1px solid #555;border-radius:4px;box-shadow:0 4px 16px rgba(0,0,0,.6);width:500px;height:400px;display:flex;flex-direction:column;top:${_cascadeTopBase + ci * _cascadeStep}px;left:${_cascadeLeftBase + ci * _cascadeStep}px;resize:both;overflow:hidden;min-width:200px;min-height:80px`;
     _floatingWins.set(key, win);
     win._floatClose = () => { win.remove(); _floatingWins.delete(key); _floatMgr.render(); };
     if(_floatingWins.size > 15) {
@@ -255,11 +263,12 @@ function initFloatingPeek(getHoverCtx) {
     document.body.appendChild(win);
 
     win._floatFirstHit = null;
+    win._floatEditors = [];
     win.addEventListener('contextmenu', e => {
       e.preventDefault();
       e.stopPropagation();
       const sel = window.getSelection()?.toString().trim();
-      _showWordCtxMenu(sel || title, e.clientX, e.clientY, win._floatFirstHit);
+      _showWordCtxMenu(sel || title, e.clientX, e.clientY, win._floatFirstHit, win._floatEditors);
     });
 
     let dx = 0, dy = 0;
@@ -291,25 +300,139 @@ function initFloatingPeek(getHoverCtx) {
     try {
       const r = await fetch('/api/hover?' + p);
       const hits = await r.json();
+      const hoverEngine = r.headers.get('X-Engine') || '';
       body.innerHTML = '';
-      if(!Array.isArray(hits) || !hits.length) { body.textContent = '定義が見つかりません'; return; }
+      body.style.cssText = 'display:flex;flex-direction:column;overflow:hidden;padding:0;flex:1';
+      if(!Array.isArray(hits) || !hits.length) {
+        body.style.cssText = 'overflow:auto;padding:8px;color:#aaa;font:12px monospace;flex:1';
+        body.textContent = '定義が見つかりません';
+        return;
+      }
       const defs = hits.filter(h => !h.decl);
       const show = defs.length ? defs : hits;
       if(show[0]) win._floatFirstHit = { file: show[0].file, line: show[0].line };
-      show.slice(0, 3).forEach(h => {
-        const loc = document.createElement('div');
-        loc.style.cssText = 'color:#888;font-size:11px;margin-bottom:2px;cursor:pointer';
-        loc.textContent = shortPath(h.file) + ':' + h.line;
-        loc.onclick = () => openPeek(h.file, h.line);
-        const pre = document.createElement('pre');
-        pre.style.cssText = 'margin:0 0 10px;padding:6px;background:#252526;border-radius:3px;overflow:auto;font:12px/1.5 Consolas,monospace;color:#d4d4d4;white-space:pre;tab-size:4';
-        pre.textContent = h.body || '';
-        body.appendChild(loc);
-        body.appendChild(pre);
+      const origClose = win._floatClose;
+      win._floatClose = () => { win._floatEditors.forEach(e => e.dispose()); origClose(); };
+      const isSingle = show.length === 1;
+      const sliced = show.slice(0, 3);
+
+      // 複数ヒット時はタブバーを表示し、1ペインずつ切り替え
+      const tabBar = isSingle ? null : (() => {
+        const tb = document.createElement('div');
+        tb.style.cssText = 'display:flex;flex-shrink:0;border-bottom:1px solid #3a3a3a;background:#252526';
+        body.appendChild(tb);
+        return tb;
+      })();
+
+      const edContainers = [];
+      const tabEls = [];
+
+      function _switchTab(idx) {
+        edContainers.forEach((c, j) => { c.style.display = j === idx ? 'flex' : 'none'; });
+        tabEls.forEach((t, j) => {
+          t.style.background = j === idx ? '#1e1e1e' : 'transparent';
+          t.style.color = j === idx ? '#ccc' : '#777';
+          t.style.borderBottom = j === idx ? '2px solid #007acc' : '2px solid transparent';
+        });
+        // Monaco は非表示時にレイアウトを更新しないため、表示直後に layout() を呼ぶ
+        win._floatEditors[idx]?.layout();
+      }
+
+      sliced.forEach((h, i) => {
+        const engSuffix = (i === 0 && hoverEngine) ? ` [${hoverEngine}]` : '';
+        const label = shortPath(h.file) + ':' + h.line + engSuffix;
+
+        if (tabBar) {
+          const tab = document.createElement('div');
+          tab.style.cssText = 'padding:4px 10px;font-size:11px;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;user-select:none';
+          tab.textContent = label;
+          tab.onclick = () => _switchTab(i);
+          tab.ondblclick = () => openPeekPermanent(h.file, h.line);
+          tab.title = 'ダブルクリックでエディタで開く';
+          tabBar.appendChild(tab);
+          tabEls.push(tab);
+        } else {
+          // 単一ヒット: ファイルパスラベルをそのまま表示
+          const loc = document.createElement('div');
+          loc.style.cssText = 'color:#888;font-size:11px;padding:4px 8px 2px;cursor:pointer;flex-shrink:0';
+          loc.textContent = label;
+          loc.onclick = () => openPeekPermanent(h.file, h.line);
+          body.appendChild(loc);
+        }
+
+        const edContainer = document.createElement('div');
+        edContainer.style.cssText = 'flex:1;min-height:0;display:flex;flex-direction:column';
+        body.appendChild(edContainer);
+        edContainers.push(edContainer);
+
         const lang = detectLang(h.file) || 'plaintext';
-        monaco.editor.colorize(h.body || '', lang, {}).then(html => { pre.innerHTML = html; });
+        const ed = monaco.editor.create(edContainer, {
+          value: h.body || '',
+          language: lang,
+          readOnly: true,
+          minimap: { enabled: false },
+          scrollBeyondLastLine: false,
+          fontSize: 12,
+          theme: 'vs-dark',
+          lineNumbers: n => String(h.line + n - 1),
+          lineNumbersMinChars: 4,
+          contextmenu: false,
+          automaticLayout: true,
+        });
+        // enum_member の場合、対象行をハイライト
+        if (h.kind === 'enum_member' && h.body) {
+          const bodyLines = h.body.split('\n');
+          let targetLn = 2;
+          if (bodyLines.length > 1 && bodyLines[1].trim() === '...') targetLn = 3;
+          ed.deltaDecorations([], [{
+            range: new monaco.Range(targetLn, 1, targetLn, 1),
+            options: { isWholeLine: true, className: 'float-peek-target-line' }
+          }]);
+        }
+        win._floatEditors.push(ed);
+        _attachEditorCtxMenu(ed, win);
       });
+
+      // 複数ヒット: 最初のタブをアクティブにする
+      if (tabBar) _switchTab(0);
     } catch { body.textContent = 'エラーが発生しました'; }
+  }
+
+  // ===== Floating Peek ウィンドウ (選択範囲固定表示) =====
+  function _showFloatingSelection(file, startLine, endLine, text) {
+    const key = '\x00sel:' + file + ':' + startLine + ':' + endLine;
+    if(_floatingWins.has(key)) { _floatBringToFront(_floatingWins.get(key)); return; }
+
+    const title = shortPath(file) + ':' + startLine + '-' + endLine;
+    const { win, body } = _createFloatWin(key, title);
+    win._floatFirstHit = { file, line: startLine };
+
+    body.innerHTML = '';
+    body.style.cssText = 'overflow:hidden;padding:0;flex:1';
+
+    const edContainer = document.createElement('div');
+    edContainer.style.cssText = 'width:100%;height:100%';
+    body.appendChild(edContainer);
+
+    const lang = detectLang(file) || 'plaintext';
+    const ed = monaco.editor.create(edContainer, {
+      value: text,
+      language: lang,
+      readOnly: true,
+      minimap: { enabled: false },
+      scrollBeyondLastLine: false,
+      fontSize: 12,
+      theme: 'vs-dark',
+      lineNumbers: n => String(startLine + n - 1),
+      lineNumbersMinChars: 4,
+      contextmenu: false,
+      automaticLayout: true,
+    });
+
+    win._floatEditors.push(ed);
+    _attachEditorCtxMenu(ed, win);
+    const origClose = win._floatClose;
+    win._floatClose = () => { ed.dispose(); origClose(); };
   }
 
   // ===== Floating Peek ウィンドウ (カーソル前後コンテキスト) =====
@@ -326,36 +449,83 @@ function initFloatingPeek(getHoverCtx) {
       const r = await fetch('/api/snippet?' + p);
       const lines = await r.json();
       body.innerHTML = '';
-      if(!Array.isArray(lines) || !lines.length) { body.textContent = 'コンテキストが見つかりません'; return; }
+      body.style.cssText = 'overflow:hidden;padding:0;flex:1';
+      if(!Array.isArray(lines) || !lines.length) {
+        body.style.cssText = 'overflow:auto;padding:8px;color:#aaa;font:12px monospace;flex:1';
+        body.textContent = 'コンテキストが見つかりません';
+        return;
+      }
       const lang = detectLang(file) || 'plaintext';
-      const pre = document.createElement('pre');
-      pre.style.cssText = 'margin:0;padding:6px;background:#252526;border-radius:3px;font:12px/1.5 Consolas,monospace;color:#d4d4d4;white-space:pre;tab-size:4';
       const text = lines.map(l => l.text).join('\n');
-      pre.textContent = text;
-      body.appendChild(pre);
-      monaco.editor.colorize(text, lang, {}).then(html => {
-        pre.innerHTML = html;
-        // ターゲット行をハイライト
-        const htmlLines = pre.innerHTML.split('\n');
-        const targetIdx = lines.findIndex(l => l.is_match);
-        if(targetIdx >= 0 && htmlLines[targetIdx] !== undefined) {
-          htmlLines[targetIdx] = `<span style="display:block;background:#094771">${htmlLines[targetIdx]}</span>`;
-          pre.innerHTML = htmlLines.join('\n');
-        }
+
+      const edContainer = document.createElement('div');
+      edContainer.style.cssText = 'width:100%;height:100%';
+      body.appendChild(edContainer);
+
+      const ed = monaco.editor.create(edContainer, {
+        value: text,
+        language: lang,
+        readOnly: true,
+        minimap: { enabled: false },
+        scrollBeyondLastLine: false,
+        fontSize: 12,
+        theme: 'vs-dark',
+        lineNumbers: n => String(lines[n - 1]?.line ?? n),
+        lineNumbersMinChars: 4,
+        contextmenu: false,
+        automaticLayout: true,
       });
-      // 行番号サイドバー
-      const lineNums = document.createElement('div');
-      lineNums.style.cssText = 'position:absolute;left:0;top:0;padding:6px 4px;color:#555;font:12px/1.5 Consolas,monospace;white-space:pre;pointer-events:none;user-select:none;text-align:right;min-width:32px';
-      lineNums.textContent = lines.map(l => l.line).join('\n');
-      pre.style.paddingLeft = '38px';
-      pre.style.position = 'relative';
-      pre.appendChild(lineNums);
+
+      // ターゲット行をハイライト
+      const targetIdx = lines.findIndex(l => l.is_match);
+      if(targetIdx >= 0) {
+        ed.deltaDecorations([], [{
+          range: new monaco.Range(targetIdx + 1, 1, targetIdx + 1, 1),
+          options: { isWholeLine: true, className: 'float-peek-target-line' },
+        }]);
+        ed.revealLineInCenter(targetIdx + 1);
+      }
+
+      win._floatEditors.push(ed);
+      _attachEditorCtxMenu(ed, win);
+      const origClose = win._floatClose;
+      win._floatClose = () => { ed.dispose(); origClose(); };
     } catch { body.textContent = 'エラーが発生しました'; }
+  }
+
+  // ===== エディタの右クリックで単語を取得してメニュー表示 =====
+  function _attachEditorCtxMenu(ed, win) {
+    ed.onContextMenu(e => {
+      const pos = ed.getPosition();
+      const model = ed.getModel();
+      const wordAtPos = pos && model ? model.getWordAtPosition(pos)?.word : '';
+      const sel = ed.getSelection();
+      const selText = sel && !sel.isEmpty() ? model?.getValueInRange(sel)?.trim() : '';
+      const word = selText || wordAtPos || win._floatTitle || '';
+      if(!word) return;
+      _showWordCtxMenu(word, e.event.browserEvent.clientX, e.event.browserEvent.clientY, win._floatFirstHit, win._floatEditors);
+    });
+  }
+
+  // ===== エディタ全体で単語をハイライト =====
+  function _highlightInEditors(editors, word) {
+    editors.forEach(ed => {
+      const model = ed.getModel();
+      if(!model) return;
+      const matches = model.findMatches(word, false, false, true, null, false);
+      ed._floatHighlightDecos = ed.deltaDecorations(
+        ed._floatHighlightDecos || [],
+        matches.map(m => ({
+          range: m.range,
+          options: { inlineClassName: 'float-peek-word-highlight' },
+        }))
+      );
+    });
   }
 
   // ===== 共通右クリックコンテキストメニュー =====
   const _wordCtxMenuId = 'grepnavi-word-ctx';
-  function _showWordCtxMenu(word, x, y, hoverHit) {
+  function _showWordCtxMenu(word, x, y, hoverHit, peekEditors) {
     document.getElementById(_wordCtxMenuId)?.remove();
     const menu = document.createElement('div');
     menu.id = _wordCtxMenuId;
@@ -398,8 +568,11 @@ function initFloatingPeek(getHoverCtx) {
     // Peek
     addSep();
     addItem('codicon-file-code',     'Floating Peek',  () => _showFloatingDef(word));
+    if(peekEditors && peekEditors.length) {
+      addItem('codicon-symbol-color', 'ハイライト: ' + word, () => _highlightInEditors(peekEditors, word));
+    }
     if(hoverHit) {
-      addItem('codicon-link-external', '行を開く: ' + shortPath(hoverHit.file) + ':' + hoverHit.line, () => openPeek(hoverHit.file, hoverHit.line));
+      addItem('codicon-link-external', '行を開く: ' + shortPath(hoverHit.file) + ':' + hoverHit.line, () => openPeekPermanent(hoverHit.file, hoverHit.line));
     }
 
     // グラフ
@@ -444,5 +617,5 @@ function initFloatingPeek(getHoverCtx) {
   new MutationObserver(_attachHoverCtx).observe(document.body, { childList: true, subtree: true });
 
   // 外部公開
-  return { showFloatingDef: _showFloatingDef, showFloatingCtx: _showFloatingCtx, showWordCtxMenu: _showWordCtxMenu };
+  return { showFloatingDef: _showFloatingDef, showFloatingCtx: _showFloatingCtx, showFloatingSelection: _showFloatingSelection, showWordCtxMenu: _showWordCtxMenu };
 }

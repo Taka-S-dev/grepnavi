@@ -257,11 +257,13 @@ function makeItemEl(item, idx) {
     el.className = 'ex-item ex-file' + (item.abs === _selPath ? ' ex-sel' : '');
     el.style.paddingLeft = (4 + item.depth * INDENT) + 'px';
     addGuides(el, item.depth);
+    const _unopen = typeof window.isUnopenableFile === 'function' && window.isUnopenableFile(item.abs);
     el.innerHTML +=
       `<span style="width:16px;flex-shrink:0"></span>` +
       fileIcon(item.name) +
-      `<span class="ex-name">${escHtml(item.name)}</span>`;
+      `<span class="ex-name" style="${_unopen ? 'opacity:0.35' : ''}">${escHtml(item.name)}</span>`;
     el.onclick = () => { _selPath = item.abs; openPeek(item.abs, 1); render(); };
+    el.ondblclick = () => { openPeekPermanent(item.abs, 1); };
     el.oncontextmenu = e => { e.preventDefault(); showFileCtxMenu(item.abs, e.clientX, e.clientY); };
 
   } else { // file-flat (フィルタ結果)
@@ -291,7 +293,7 @@ function makeItemEl(item, idx) {
       _scrollEl.focus({ preventScroll: true });
     };
     el.ondblclick = () => {
-      openPeek(item.abs, 1);
+      openPeekPermanent(item.abs, 1);
     };
     el.oncontextmenu = e => { e.preventDefault(); showFileCtxMenu(item.abs, e.clientX, e.clientY); };
     el.querySelector('.ex-folder-btn').onclick = e => {
@@ -504,7 +506,7 @@ window.initExplorer = async function() {
       }
       if (e.key === 'Enter') {
         const it = _allItems[_selIdx];
-        if (it) { _selPath = it.abs; openPeek(it.abs, 1); }
+        if (it) { _selPath = it.abs; openPeekPermanent(it.abs, 1); }
         return;
       }
       if (e.key === 'ArrowRight') {

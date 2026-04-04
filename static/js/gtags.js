@@ -7,8 +7,13 @@ let _installed  = false;
 let _indexed    = false;
 let _binSource  = ''; // "bin" / "scoop" / "msys" / "path" / ""
 
+// defEngine: "gtags" | "ctags" | "rg"
+window.getDefEngine = function() {
+  return localStorage.getItem('defEngine') || 'gtags';
+};
 window.gtagsEnabled = function() {
-  return _installed && _indexed && localStorage.getItem('gtagsEnabled') !== 'false';
+  const eng = window.getDefEngine();
+  return eng === 'gtags' && _installed && _indexed;
 };
 
 let _stale = false;
@@ -181,13 +186,22 @@ let _opCancel  = null;
 
 async function fetchStatus() {
   try {
-    const r = await fetch('/api/gtags/status');
-    if (!r.ok) return;
-    const d = await r.json();
-    _installed  = !!d.installed;
-    _indexed    = !!d.indexed;
-    _stale      = !!d.stale;
-    _binSource  = d.bin_source || '';
+    const [r1, r2] = await Promise.all([
+      fetch('/api/gtags/status'),
+      fetch('/api/ctags/status'),
+    ]);
+    if (r1.ok) {
+      const d = await r1.json();
+      _installed = !!d.installed;
+      _indexed   = !!d.indexed;
+      _stale     = !!d.stale;
+      _binSource = d.bin_source || '';
+    }
+    if (r2.ok) {
+      const d = await r2.json();
+      // ctags モジュールの状態を直接更新
+      if (typeof window._ctagsSetStatus === 'function') window._ctagsSetStatus(d);
+    }
     renderGear();
   } catch {}
 }
@@ -195,45 +209,68 @@ async function fetchStatus() {
 function renderGear() {
   const label = document.getElementById('gtags-engine-label');
   if (!label) return;
-  if (!_installed) { label.style.display = 'none'; return; }
-  const active = _indexed && localStorage.getItem('gtagsEnabled') !== 'false';
   label.style.display = '';
+  const eng = window.getDefEngine();
   const srcLabel = { bin: 'bin/', scoop: 'Scoop', msys: 'MSYS2', path: 'PATH' }[_binSource] || '';
   const gnuLabel = 'GNU Global' + (srcLabel ? ' (' + srcLabel + ')' : '');
-  if (active && _stale) {
-    label.textContent = gnuLabel + ' ⚠';
-    label.style.color = '#c8a84b';
-    label.title = '定義ジャンプエンジン設定（インデックスが古い可能性があります）';
-  } else {
-    label.textContent = active ? gnuLabel : 'ripgrep';
+  if (eng === 'gtags' && _installed && _indexed) {
+    label.textContent = _stale ? gnuLabel + ' ⚠' : gnuLabel;
+    label.style.color = _stale ? '#c8a84b' : '#999';
+  } else if (eng === 'ctags') {
+    label.textContent = 'ctags';
     label.style.color = '#999';
-    label.title = '定義ジャンプエンジン設定';
+  } else {
+    label.textContent = 'ripgrep';
+    label.style.color = '#999';
   }
+  label.title = '定義ジャンプエンジン設定';
 }
 
 function renderPopover() {
   const pop = document.getElementById('gtags-popover');
   if (!pop) return;
 
-  const enabled = localStorage.getItem('gtagsEnabled') !== 'false';
-  const active  = _indexed && enabled;
+  const eng = window.getDefEngine();
+  const ctagsIndexed = typeof window._ctagsIndexed === 'function' ? window._ctagsIndexed() : false;
+
+  const gtagsBadge = _indexed ? '<span style="color:#4ec9b0;font-size:10px"> ✓</span>' : '<span class="gtags-pop-hint">（未生成）</span>';
+  const ctagsBadge = ctagsIndexed ? '<span style="color:#4ec9b0;font-size:10px"> ✓</span>' : '<span class="gtags-pop-hint">（未生成）</span>';
 
   let html = `<div class="gtags-pop-title">定義ジャンプエンジン</div>`;
 
-  // エンジン選択
+  // エンジン選択（3択）
   html += `<label class="gtags-pop-row">
-    <input type="radio" name="gtags-engine" value="gtags" ${active ? 'checked' : ''} ${!_indexed ? 'disabled' : ''}>
-    <span>GNU Global${!_indexed ? '<span class="gtags-pop-hint">（インデックスなし）</span>' : ''}</span>
+    <input type="radio" name="gtags-engine" value="gtags" ${eng === 'gtags' ? 'checked' : ''} ${!_indexed ? 'disabled' : ''}>
+    <span>GNU Global${gtagsBadge}</span>
   </label>`;
   html += `<label class="gtags-pop-row">
-    <input type="radio" name="gtags-engine" value="ripgrep" ${!active ? 'checked' : ''}>
+    <input type="radio" name="gtags-engine" value="ctags" ${eng === 'ctags' ? 'checked' : ''} ${!ctagsIndexed ? 'disabled' : ''}>
+    <span>ctags${ctagsBadge}</span>
+  </label>`;
+  html += `<label class="gtags-pop-row">
+    <input type="radio" name="gtags-engine" value="rg" ${eng === 'rg' ? 'checked' : ''}>
     <span>ripgrep</span>
   </label>`;
 
-  // インデックス操作（GNU Global がインストール済みなら常に表示）
-  if (_installed) {
-    html += `<div class="gtags-pop-divider"></div>`;
-    html += `<div class="gtags-pop-section">インデックス</div>`;
+  // インデックス操作
+  html += `<div class="gtags-pop-divider"></div>`;
+  if (eng === 'ctags' || (!_installed && ctagsIndexed)) {
+    // ctags インデックス操作
+    html += `<div class="gtags-pop-section">ctags インデックス</div>`;
+    if (ctagsIndexed) {
+      html += `<button class="gtags-pop-btn" id="ctags-pop-rebuild-main" style="width:100%">再生成</button>`;
+    } else {
+      html += `<button class="gtags-pop-btn primary" id="ctags-pop-build-main" style="width:100%">生成</button>`;
+    }
+    // GNU Global がインストール済みで未生成の場合、選択できるよう生成ボタンも表示
+    if (_installed && !_indexed) {
+      html += `<div class="gtags-pop-divider"></div>`;
+      html += `<div class="gtags-pop-section">GNU Global インデックス</div>`;
+      html += `<button class="gtags-pop-btn primary" id="gtags-pop-build" style="width:100%">生成</button>`;
+    }
+  } else if (_installed) {
+    // gtags インデックス操作
+    html += `<div class="gtags-pop-section">GNU Global インデックス</div>`;
     if (_opRunning) {
       html += `<div style="display:flex;gap:4px;align-items:center">`;
       html += `<button class="gtags-pop-btn" id="gtags-op-btn" disabled style="flex:1"><span class="gtags-spinner"></span>${_opLabel} ${_opSecs}s</button>`;
@@ -265,6 +302,8 @@ function renderPopover() {
   // ラジオ変更
   pop.querySelectorAll('input[name="gtags-engine"]').forEach(r => {
     r.onchange = () => {
+      localStorage.setItem('defEngine', r.value);
+      // 後方互換
       localStorage.setItem('gtagsEnabled', r.value === 'gtags' ? 'true' : 'false');
       renderGear();
       renderPopover();
@@ -328,7 +367,15 @@ function renderPopover() {
     rebuildBtn.onclick = () => runIndexOpStream('rebuild', 'gtags 再生成中');
   }
 
+  // ctags 生成/再生成ボタン（ポップオーバー内）
+  const ctagsBuildMain = document.getElementById('ctags-pop-build-main');
+  if (ctagsBuildMain) ctagsBuildMain.onclick = () => { pop.style.display = 'none'; window._ctagsRunIndex && window._ctagsRunIndex(); };
+  const ctagsRebuildMain = document.getElementById('ctags-pop-rebuild-main');
+  if (ctagsRebuildMain) ctagsRebuildMain.onclick = () => { pop.style.display = 'none'; window._ctagsRunIndex && window._ctagsRunIndex(); };
+
 }
+
+window._gtagsRenderPopover = renderPopover;
 
 document.addEventListener('DOMContentLoaded', () => {
   fetchStatus();
@@ -341,7 +388,7 @@ document.addEventListener('DOMContentLoaded', () => {
     e.stopPropagation();
     const open = pop.style.display !== 'none';
     pop.style.display = open ? 'none' : 'block';
-    if (!open) renderPopover();
+    if (!open) fetchStatus().then(renderPopover);
   };
 
   // ポップオーバー外クリックで閉じる

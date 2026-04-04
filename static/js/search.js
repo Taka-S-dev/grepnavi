@@ -544,6 +544,7 @@ function makeRI(m, compact=false) {
   div.querySelector('.ri-add').onclick = e => { e.stopPropagation(); addToGraph(m,null,'ref'); };
   div.querySelector('.ri-open').onclick = e => { e.stopPropagation(); if(e.ctrlKey || e.metaKey) openFile(m.file, m.line); };
   div.onclick = () => previewMatch(m);
+  div.ondblclick = () => { if(m.file) openPeekPermanent(m.file, m.line); };
   return div;
 }
 

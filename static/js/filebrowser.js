@@ -174,8 +174,8 @@ async function fbNavigate(dir, pushHistory = true, focusName = null) {
       const row = mkRow('fb-file', `<i class="codicon ${_fbFileIcon(name)}"></i><span>${esc(name)}</span>`);
       addNavRow(row,
         null,
-        () => { closeFb(); openPeek(fullPath, 1); },
-        () => { closeFb(); openPeek(fullPath, 1); });
+        () => { closeFb(); openPeekPermanent(fullPath, 1); },
+        () => { closeFb(); openPeekPermanent(fullPath, 1); });
     });
   } else if(!isDirMode) {
     (data.files || []).forEach(name => {

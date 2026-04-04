@@ -1228,7 +1228,7 @@ function selectNode(id_) {
   }
   const n = graph.nodes[id_];
   showDetail(n);
-  if (n && n.match && n.match.file) openPeek(n.match.file, n.match.line);
+  if (n && n.match && n.match.file) openPeekPermanent(n.match.file, n.match.line);
 }
 
 function findParent(nodeId, nodes) {
