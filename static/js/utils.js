@@ -145,22 +145,19 @@ function fileIcon(filename) {
   const name = EXT_TO_ICON[ext] || EXT_TO_ICON[base.toLowerCase()];
   const url = name ? MIT_ICON_BASE + name + '.svg' : null;
   if(!url) {
-    const label = ext.slice(0,4) || '?';
-    return `<svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;vertical-align:middle"><rect width="16" height="16" rx="2" fill="#607d8b"/><text x="8" y="11.5" font-size="${label.length>2?4.5:6}" font-family="Consolas,monospace" font-weight="bold" fill="#fff" text-anchor="middle">${label}</text></svg>`;
+    return `<i class="codicon codicon-file" style="flex-shrink:0;vertical-align:middle;font-size:16px;color:#888;margin-right:3px;width:16px;text-align:center;display:inline-block"></i>`;
   }
   if(_iconCache[url]) return _iconCache[url];
-  const html = `<img src="${url}" width="16" height="16" style="flex-shrink:0;vertical-align:middle" onerror="this.replaceWith(fileIconFallback('${ext}'))">`;
+  const html = `<img src="${url}" width="16" height="16" style="flex-shrink:0;vertical-align:middle" onerror="this.replaceWith(fileIconFallback())">`;
   _iconCache[url] = html;
   return html;
 }
 
-function fileIconFallback(ext) {
-  const label = ext.slice(0,4)||'?';
-  const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
-  svg.setAttribute('width','16');svg.setAttribute('height','16');svg.setAttribute('viewBox','0 0 16 16');
-  svg.style.cssText='flex-shrink:0;vertical-align:middle';
-  svg.innerHTML=`<rect width="16" height="16" rx="2" fill="#607d8b"/><text x="8" y="11.5" font-size="${label.length>2?4.5:6}" font-family="Consolas,monospace" font-weight="bold" fill="#fff" text-anchor="middle">${label}</text>`;
-  return svg;
+function fileIconFallback() {
+  const el = document.createElement('i');
+  el.className = 'codicon codicon-file';
+  el.style.cssText = 'flex-shrink:0;vertical-align:middle;font-size:16px;color:#888;margin-right:3px;width:16px;text-align:center;display:inline-block';
+  return el;
 }
 
 // ===== LANGUAGE DETECTION =====
