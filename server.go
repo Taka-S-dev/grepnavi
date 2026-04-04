@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"strings"
 
@@ -25,6 +26,8 @@ func newServer(root string, rootExplicit bool, graphFile, addr string) *http.Ser
 	mux := http.NewServeMux()
 	h := api.NewHandler(store, effectiveRoot)
 	h.Register(mux)
+	// pprof（診断用）
+	mux.Handle("/debug/pprof/", http.DefaultServeMux)
 
 	return &http.Server{Addr: addr, Handler: csrfMiddleware(mux)}
 }

@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"runtime"
 	"sync"
 
 	"grepnavi/graph"
@@ -82,6 +83,21 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/include-graph", h.handleIncludeGraph)
 	mux.HandleFunc("/api/include-file", h.handleIncludeFile)
 	mux.HandleFunc("/api/include-by", h.handleIncludeBy)
+	mux.HandleFunc("/api/memstats", h.handleMemStats)
+}
+
+func (h *Handler) handleMemStats(w http.ResponseWriter, r *http.Request) {
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	jsonOK(w, map[string]uint64{
+		"HeapAlloc":   ms.HeapAlloc,
+		"HeapInuse":   ms.HeapInuse,
+		"HeapSys":     ms.HeapSys,
+		"HeapIdle":    ms.HeapIdle,
+		"HeapReleased": ms.HeapReleased,
+		"Sys":         ms.Sys,
+		"NumGC":       uint64(ms.NumGC),
+	})
 }
 
 func (h *Handler) serveStatic(w http.ResponseWriter, r *http.Request) {

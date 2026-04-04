@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -109,8 +110,12 @@ func (h *Handler) handleFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	args = append(args, root)
 	cmd := exec.Command("rg", args...)
-	out, err := cmd.Output()
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := cmd.Start(); err != nil {
 		// rg が使えない場合は filepath.Walk でフォールバック
 		var files []string
 		filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
@@ -128,10 +133,14 @@ func (h *Handler) handleFiles(w http.ResponseWriter, r *http.Request) {
 		jsonOK(w, files)
 		return
 	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	files := make([]string, 0, len(lines))
+
+	// rg 出力を1行ずつ処理してメモリコピーを削減
 	seen := map[string]bool{}
-	for _, l := range lines {
+	var files []string
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 256*1024), 256*1024)
+	for scanner.Scan() {
+		l := scanner.Text()
 		if l == "" {
 			continue
 		}
@@ -146,7 +155,11 @@ func (h *Handler) handleFiles(w http.ResponseWriter, r *http.Request) {
 		seen[rel] = true
 		files = append(files, rel)
 	}
-	jsonOK(w, files)
+	cmd.Wait()
+
+	// json.NewEncoder で直接書き出し（json.Marshal の中間バッファを省略）
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(files)
 }
 
 // --- /api/dirs ---

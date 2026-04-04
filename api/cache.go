@@ -38,9 +38,17 @@ func hoverCacheSet(key string, hits []search.HoverHit) {
 	_hoverCacheMu.Lock()
 	defer _hoverCacheMu.Unlock()
 	if len(_hoverCache) >= _hoverCacheMax {
-		// 古いエントリを1件削除
+		// 期限切れ優先、なければ任意の1件を強制削除
+		deleted := false
 		for k, v := range _hoverCache {
 			if time.Now().After(v.expiresAt) {
+				delete(_hoverCache, k)
+				deleted = true
+				break
+			}
+		}
+		if !deleted {
+			for k := range _hoverCache {
 				delete(_hoverCache, k)
 				break
 			}
@@ -116,8 +124,16 @@ func defCacheSet(key string, hits []search.DefHit) {
 	_defCacheMu.Lock()
 	defer _defCacheMu.Unlock()
 	if len(_defCache) >= _defCacheMax {
+		deleted := false
 		for k, v := range _defCache {
 			if time.Now().After(v.expiresAt) {
+				delete(_defCache, k)
+				deleted = true
+				break
+			}
+		}
+		if !deleted {
+			for k := range _defCache {
 				delete(_defCache, k)
 				break
 			}

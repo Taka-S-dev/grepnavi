@@ -3,6 +3,7 @@ package search
 import (
 	"bufio"
 	"bytes"
+	"container/list"
 	"os"
 	"strings"
 	"sync"
@@ -128,16 +129,61 @@ func wordAfter(body, word string) string {
 	return strings.TrimSpace(body[len(word)+1:])
 }
 
-// --- ファイルキャッシュ ---
+// --- ファイルキャッシュ (LRU) ---
+
+const fileCacheCap = 30
+const fileCacheMaxBytes = 2 * 1024 * 1024 // 2MB 超のファイルはキャッシュしない
 
 type cacheEntry struct {
+	path  string
 	lines []string
 	mtime time.Time
+	elem  *list.Element
 }
 
-var (
-	fileCache sync.Map // map[string]*cacheEntry
-)
+var fileCache = &lruFileCache{
+	cap:   fileCacheCap,
+	items: make(map[string]*cacheEntry, fileCacheCap),
+}
+
+type lruFileCache struct {
+	mu    sync.Mutex
+	cap   int
+	items map[string]*cacheEntry
+	order list.List // front = most recently used
+}
+
+func (c *lruFileCache) get(path string, mtime time.Time) ([]string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.items[path]
+	if !ok || !e.mtime.Equal(mtime) {
+		return nil, false
+	}
+	c.order.MoveToFront(e.elem)
+	return e.lines, true
+}
+
+func (c *lruFileCache) put(path string, mtime time.Time, lines []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if e, ok := c.items[path]; ok {
+		e.lines = lines
+		e.mtime = mtime
+		c.order.MoveToFront(e.elem)
+		return
+	}
+	e := &cacheEntry{path: path, lines: lines, mtime: mtime}
+	e.elem = c.order.PushFront(e)
+	c.items[path] = e
+	if c.order.Len() > c.cap {
+		oldest := c.order.Back()
+		if oldest != nil {
+			c.order.Remove(oldest)
+			delete(c.items, oldest.Value.(*cacheEntry).path)
+		}
+	}
+}
 
 // CachedLines はファイルの行スライスをキャッシュ付きで返す。
 func CachedLines(path string) ([]string, error) { return cachedLines(path) }
@@ -148,19 +194,21 @@ func cachedLines(path string) ([]string, error) {
 		return nil, err
 	}
 	mtime := info.ModTime()
-
-	if v, ok := fileCache.Load(path); ok {
-		entry := v.(*cacheEntry)
-		if entry.mtime.Equal(mtime) {
-			return entry.lines, nil
-		}
+	if lines, ok := fileCache.get(path, mtime); ok {
+		return lines, nil
 	}
-
 	lines, err := readLines(path)
 	if err != nil {
 		return nil, err
 	}
-	fileCache.Store(path, &cacheEntry{lines: lines, mtime: mtime})
+	// 大きすぎるファイルはキャッシュしない（メモリ節約）
+	totalBytes := 0
+	for _, l := range lines {
+		totalBytes += len(l) + 1
+	}
+	if totalBytes <= fileCacheMaxBytes {
+		fileCache.put(path, mtime, lines)
+	}
 	return lines, nil
 }
 

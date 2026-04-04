@@ -10,6 +10,7 @@ package search
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"io"
 	"log/slog"
@@ -17,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -112,10 +114,9 @@ func SymbolsInFile(file string, syms SymbolsByKind) SymbolsByKind {
 	if err != nil {
 		return SymbolsByKind{}
 	}
-	macroSet := make(map[string]bool, len(syms.Macros))
-	for _, n := range syms.Macros {
-		macroSet[n] = true
-	}
+	// syms.Macros はソート済み（ctagsParseSymbols で sort.Strings 済み）。
+	// map を作らずバイナリサーチで検索することで、毎回の大量アロケーションを回避する。
+	sorted := syms.Macros
 
 	foundMacros := make(map[string]bool)
 	src := content
@@ -132,7 +133,8 @@ func SymbolsInFile(file string, syms SymbolsByKind) SymbolsByKind {
 				}
 			}
 			name := string(src[:end])
-			if macroSet[name] {
+			i := sort.SearchStrings(sorted, name)
+			if i < len(sorted) && sorted[i] == name {
 				foundMacros[name] = true
 			}
 			src = src[end:]
@@ -161,41 +163,49 @@ func ctagsParseSymbols(tagsPath string) (SymbolsByKind, error) {
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 256*1024), 256*1024)
 	for scanner.Scan() {
-		line := scanner.Text()
+		// Bytes() はスキャナ内部バッファへの参照を返す（アロケートなし）。
+		// Text() はフル行文字列をアロケートするため、数百万行では数百MB消費する。
+		line := scanner.Bytes()
 		if len(line) == 0 || line[0] == '!' {
 			continue
 		}
-		tab1 := strings.IndexByte(line, '\t')
+		tab1 := bytes.IndexByte(line, '\t')
 		if tab1 < 0 {
 			continue
 		}
-		name := line[:tab1]
-		if len(name) == 0 {
+		nameBytes := line[:tab1]
+		if len(nameBytes) == 0 {
 			continue
 		}
-		c := name[0]
+		c := nameBytes[0]
 		if c != '_' && !(c >= 'A' && c <= 'Z') && !(c >= 'a' && c <= 'z') {
 			continue
 		}
 		rest := line[tab1:]
-		hasKind := func(k string) bool {
-			return strings.Contains(rest, "\t"+k+"\t") || strings.HasSuffix(rest, "\t"+k)
+		hasKind := func(k byte) bool {
+			needle := []byte{'\t', k, '\t'}
+			suffix := []byte{'\t', k}
+			return bytes.Contains(rest, needle) || bytes.HasSuffix(rest, suffix)
 		}
-		if (hasKind("d") || hasKind("e")) && !seenMacro[name] {
+		if (hasKind('d') || hasKind('e')) && !seenMacro[string(nameBytes)] {
 			// 小文字のみの名前は誤検知が多いので除外
 			hasUpper := false
-			for _, ch := range name {
+			for _, ch := range nameBytes {
 				if ch >= 'A' && ch <= 'Z' {
 					hasUpper = true
 					break
 				}
 			}
 			if hasUpper {
+				// string(nameBytes) はシンボル名分だけをアロケート。
+				// バッファは次の Scan() で上書きされるため独立コピーになる。
+				name := string(nameBytes)
 				seenMacro[name] = true
 				result.Macros = append(result.Macros, name)
 			}
 		}
 	}
+	sort.Strings(result.Macros)
 	return result, nil
 }
 

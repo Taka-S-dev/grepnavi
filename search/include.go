@@ -34,7 +34,10 @@ var (
 	_headerIndexInflight = map[string]*headerIndexInflight{}
 )
 
-const _headerIndexTTL = 5 * time.Minute
+const (
+	_headerIndexTTL = 5 * time.Minute
+	_headerIndexMax = 5 // ルートディレクトリ単位なので件数は少ない
+)
 
 // cachedHeaderSuffixIndex はヘッダのサフィックスインデックスをキャッシュ付きで返す。
 // 同一 dir への同時呼び出しは1回の rg --files で済ませる（in-flight dedup）。
@@ -56,6 +59,23 @@ func cachedHeaderSuffixIndex(ctx context.Context, dir string) map[string]string 
 	inf.idx = buildHeaderSuffixIndex(ctx, dir)
 
 	_headerIndexMu.Lock()
+	if len(_headerIndexCache) >= _headerIndexMax {
+		// 期限切れ優先、なければ任意の1件を削除
+		deleted := false
+		for k, v := range _headerIndexCache {
+			if time.Now().After(v.expiresAt) {
+				delete(_headerIndexCache, k)
+				deleted = true
+				break
+			}
+		}
+		if !deleted {
+			for k := range _headerIndexCache {
+				delete(_headerIndexCache, k)
+				break
+			}
+		}
+	}
 	_headerIndexCache[dir] = headerIndexEntry{index: inf.idx, expiresAt: time.Now().Add(_headerIndexTTL)}
 	delete(_headerIndexInflight, dir)
 	_headerIndexMu.Unlock()
@@ -265,7 +285,10 @@ var (
 	_includeChainCache = map[string]includeChainEntry{}
 )
 
-const _includeChainTTL = 5 * time.Minute
+const (
+	_includeChainTTL = 5 * time.Minute
+	_includeChainMax = 200
+)
 
 // GetFileIncludes は1ファイルの #include を解析して
 // インクルード先のファイルリストを返す。root からの相対パスで表現する。
@@ -285,6 +308,22 @@ func GetFileIncludes(absFile, root string) ([]IncludeNode, error) {
 		return nil, err
 	}
 	_includeChainMu.Lock()
+	if len(_includeChainCache) >= _includeChainMax {
+		deleted := false
+		for k, v := range _includeChainCache {
+			if time.Now().After(v.expiresAt) {
+				delete(_includeChainCache, k)
+				deleted = true
+				break
+			}
+		}
+		if !deleted {
+			for k := range _includeChainCache {
+				delete(_includeChainCache, k)
+				break
+			}
+		}
+	}
 	_includeChainCache[key] = includeChainEntry{nodes: nodes, expiresAt: time.Now().Add(_includeChainTTL)}
 	_includeChainMu.Unlock()
 	return nodes, nil
