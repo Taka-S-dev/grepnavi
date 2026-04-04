@@ -220,7 +220,9 @@ function toggleView() {
   id("tree").style.display = viewMode === "tree" ? "" : "none";
   id("drop-root").style.display = "none";
   id("graph-view").style.display = viewMode === "graph" ? "block" : "none";
-  if (viewMode === "graph") setTimeout(renderGraph, 50);
+  const isGraph = viewMode === "graph";
+  id("tree-toolbar").style.display = isGraph ? "none" : "";
+  if (isGraph) setTimeout(renderGraph, 50);
   else renderTree();
 }
 
@@ -347,7 +349,7 @@ async function renderGraph() {
   toolbar.style.cssText =
     "position:absolute;top:6px;right:8px;display:flex;gap:4px;z-index:10;pointer-events:all";
   const btnMemo = document.createElement("button");
-  btnMemo.textContent = "💬 メモ";
+  btnMemo.innerHTML = '<i class="codicon codicon-comment" style="font-size:12px;margin-right:4px"></i>メモ';
   btnMemo.style.cssText = `font-size:11px;padding:2px 8px;background:${showMemos ? "#094771" : "#3c3c3c"};color:#ccc;border:1px solid #555;border-radius:3px;cursor:pointer`;
   btnMemo.onclick = () => {
     showMemos = !showMemos;
@@ -355,13 +357,13 @@ async function renderGraph() {
   };
 
   const btnPng = document.createElement("button");
-  btnPng.textContent = "🖼 PNG";
+  btnPng.innerHTML = '<i class="codicon codicon-file-media" style="font-size:12px;margin-right:4px"></i>PNG';
   btnPng.style.cssText =
     "font-size:11px;padding:2px 8px;background:#3c3c3c;color:#ccc;border:1px solid #555;border-radius:3px;cursor:pointer";
   btnPng.onclick = exportGraphPNG;
 
   const btnDrawio = document.createElement("button");
-  btnDrawio.textContent = "📐 draw.io";
+  btnDrawio.innerHTML = '<i class="codicon codicon-export" style="font-size:12px;margin-right:4px"></i>draw.io';
   btnDrawio.style.cssText =
     "font-size:11px;padding:2px 8px;background:#3c3c3c;color:#ccc;border:1px solid #555;border-radius:3px;cursor:pointer";
   btnDrawio.onclick = exportGraphDrawio;
@@ -1165,9 +1167,8 @@ function makeNodeEl(node, depth, visited = new Set()) {
   }
   if (node.memo) {
     const memoIcon = document.createElement("span");
-    memoIcon.className = "node-memo-dot";
+    memoIcon.className = "node-memo-dot codicon codicon-comment";
     memoIcon.title = node.memo;
-    memoIcon.textContent = "💬";
     row.appendChild(memoIcon);
   }
   row.appendChild(delBtn);
@@ -1753,20 +1754,34 @@ function exportGraphPNG() {
     st("グラフビューを開いてください");
     return;
   }
-  const W = svgEl.getAttribute("width") || 800;
-  const H = svgEl.getAttribute("height") || 600;
-  const xml = new XMLSerializer().serializeToString(svgEl);
+  const PAD = 20;
+  let bbox;
+  try { bbox = svgEl.getBBox(); } catch(_) { bbox = null; }
+  const W = bbox ? Math.ceil(bbox.width  + PAD * 2) : (svgEl.getAttribute("width")  || 800);
+  const H = bbox ? Math.ceil(bbox.height + PAD * 2) : (svgEl.getAttribute("height") || 600);
+  const ox = bbox ? bbox.x - PAD : 0;
+  const oy = bbox ? bbox.y - PAD : 0;
+
+  // コンテンツ全体が収まるよう viewBox を上書きしたクローンを使う
+  const clone = svgEl.cloneNode(true);
+  clone.setAttribute("width",  W);
+  clone.setAttribute("height", H);
+  clone.setAttribute("viewBox", `${ox} ${oy} ${W} ${H}`);
+
+  const xml = new XMLSerializer().serializeToString(clone);
   const blob = new Blob([xml], { type: "image/svg+xml;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const img = new Image();
   img.onload = () => {
+    const SCALE = 2;
     const canvas = document.createElement("canvas");
-    canvas.width = W;
-    canvas.height = H;
+    canvas.width = W * SCALE;
+    canvas.height = H * SCALE;
     const ctx = canvas.getContext("2d");
+    ctx.scale(SCALE, SCALE);
     ctx.fillStyle = "#1e1e1e";
     ctx.fillRect(0, 0, W, H);
-    ctx.drawImage(img, 0, 0);
+    ctx.drawImage(img, 0, 0, W, H);
     URL.revokeObjectURL(url);
     const a = document.createElement("a");
     a.download = "grepnavi-graph.png";

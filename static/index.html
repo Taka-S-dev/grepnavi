@@ -116,7 +116,7 @@
   <div id="pane-right">
     <div id="pane-tree">
       <div id="tree-hdr">
-        <span id="tree-title">調査グラフ</span>
+        <span id="tree-title">グラフ</span>
         <span style="display:flex;gap:4px;align-items:center">
           <span id="tree-count"></span>
           <div id="project-menu-wrap">
@@ -136,11 +136,13 @@
         <div id="tree-tab-list"></div>
         <button id="btn-tree-add" title="ツリーを追加"><i class="codicon codicon-add"></i></button>
         <div id="tree-tab-actions">
-          <button class="sec" id="btn-node-sub" title="ファイルパス表示切り替え (Alt+P)"><i class="codicon codicon-file"></i></button>
-          <button class="sec" id="btn-tree-memo" title="メモを常時表示 (Alt+N)"><i class="codicon codicon-note"></i></button>
           <button class="sec" id="btn-view">グラフ</button>
           <button id="btn-clr">消去</button>
         </div>
+      </div>
+      <div id="tree-toolbar">
+        <button class="sec" id="btn-node-sub" title="ファイルパス表示切り替え (Alt+P)"><i class="codicon codicon-file"></i> パス</button>
+        <button class="sec" id="btn-tree-memo" title="メモを常時表示 (Alt+N)"><i class="codicon codicon-comment"></i> メモ</button>
       </div>
       <div id="drop-root">ここにドロップ → ルートに移動</div>
       <div id="tree" tabindex="-1"></div>
@@ -153,7 +155,8 @@
       <div id="peek-hdr">
         <button id="btn-nav-back" title="前に戻る (Alt+←)" disabled><i class="codicon codicon-arrow-left"></i></button>
         <button id="btn-nav-fwd"  title="次へ進む (Alt+→)" disabled><i class="codicon codicon-arrow-right"></i></button>
-        <button id="btn-fzf-open" title="ファイルを開く (Ctrl+P)" onclick="openFzf()"><i class="codicon codicon-go-to-file"></i> 開く</button>
+        <button id="btn-fzf-open" title="ファイルを開く (Ctrl+P)" onclick="openFzf()"><i class="codicon codicon-go-to-file"></i></button>
+        <button id="peek-open" title="エディタで開く"><i class="codicon codicon-link-external"></i></button>
         <input class="peek-file" id="peek-file" readonly spellcheck="false">
         <span id="peek-hint">Ctrl+クリック/F12: 定義ジャンプ　Alt+クリック: grep検索</span>
         <span id="ifdef-ui" style="display:none;gap:4px;align-items:center">
@@ -162,7 +165,6 @@
           <button id="ifdef-clear" class="sec">解除</button>
         </span>
         <button id="btn-line-memo-toggle" title="行メモ表示切り替え (Alt+M)"><i class="codicon codicon-note"></i> メモ</button>
-        <button id="peek-open" title="エディタで開く"><i class="codicon codicon-link-external"></i></button>
         <div style="position:relative">
           <span id="gtags-engine-label" style="display:none;font-size:11px;color:#888;cursor:pointer" title="定義ジャンプエンジン設定"></span>
           <div id="gtags-popover" style="display:none"></div>
@@ -178,7 +180,7 @@
       <div id="peek-body">
         <div id="peek-placeholder">
           <div id="peek-placeholder-inner">
-            <div style="font-size:28px;margin-bottom:12px">📄</div>
+            <div style="margin-bottom:12px;color:#444"><i class="codicon codicon-file" style="font-size:48px!important;line-height:1"></i></div>
             <div style="margin-bottom:6px">ファイルを開く</div>
             <div style="color:#555;font-size:11px"><kbd>Ctrl+P</kbd> でファイルを選択</div>
             <div style="color:#555;font-size:11px">検索結果をクリックしてもファイルを開けます</div>
@@ -259,10 +261,9 @@
 <div id="fzf-overlay">
   <div id="fzf-box">
     <div id="fzf-input-wrap">
-      <span id="fzf-icon">🔍</span>
+      <span id="fzf-icon"><i class="codicon codicon-search"></i></span>
       <input id="fzf-input" type="text" placeholder="ファイル名を入力…" autocomplete="off" spellcheck="false">
       <span id="fzf-count"></span>
-      <button id="fzf-browse-btn" title="フォルダで探す (Ctrl+Shift+O)">📂</button>
     </div>
     <div id="fzf-list"></div>
   </div>

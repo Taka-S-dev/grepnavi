@@ -117,7 +117,8 @@ function wrapTextNL(text, maxChars, maxLines = 6) {
 function shortPath(p) {
   if(!p) return '';
   const parts = p.replace(/\\/g,'/').split('/');
-  return parts.length<=2 ? p : parts.slice(-2).join('/');
+  if(parts.length <= 4) return parts.join('/');
+  return '\u2026/' + parts.slice(-3).join('/');
 }
 
 function labelFrom(m) {
@@ -186,7 +187,7 @@ function detectLang(file) {
 function showMemoTip(e, node) {
   if(!node.memo) return;
   const tt = id('memo-tooltip');
-  tt.innerHTML = `<span class="mt-label">💬 ${esc(node.label || shortPath(node.match?.file||'')+(node.match?.line?':'+node.match.line:''))}</span>${esc(node.memo)}`;
+  tt.innerHTML = `<span class="mt-label"><i class="codicon codicon-comment"></i> ${esc(node.label || shortPath(node.match?.file||'')+(node.match?.line?':'+node.match.line:''))}</span>${esc(node.memo)}`;
   tt.style.display = 'block';
   moveMemoTip(e);
 }
