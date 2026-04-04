@@ -138,7 +138,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function updateCtEngineLabel(mode) {
   const label = document.getElementById('ct-engine-label');
   if (!label) return;
-  const useGtags = mode === 'callers' && typeof gtagsEnabled === 'function' && gtagsEnabled();
+  const useGtags = mode === 'callers' && typeof gtagsAvailable === 'function' && gtagsAvailable();
   label.textContent = useGtags ? 'GNU Global' : 'ripgrep';
 }
 
@@ -184,7 +184,8 @@ async function ctSearch() {
   const dir  = (document.getElementById('dir')  || {}).value || '';
   const glob = (document.getElementById('glob') || {}).value || '';
 
-  const useGtags = typeof gtagsEnabled === 'function' && gtagsEnabled();
+  // callers は defEngine に関わらず gtags が使えるなら使う（ripgrep より速い）
+  const useGtags = typeof gtagsAvailable === 'function' && gtagsAvailable();
   updateCtEngineLabel(_ctMode);
 
   try {

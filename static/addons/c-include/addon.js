@@ -84,7 +84,7 @@ function _mkIncNode(inc) {
 }
 
 function openIncludeGraph() {
-  const peekText = id('peek-file')?.textContent?.trim() || '';
+  const peekText = id('peek-file')?.value?.trim() || '';
   const curFile = peekText.replace(/:(\d+)$/, '');
   id('include-start').value = curFile;
   id('include-overlay').classList.add('open');

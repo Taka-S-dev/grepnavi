@@ -15,6 +15,10 @@ window.gtagsEnabled = function() {
   const eng = window.getDefEngine();
   return eng === 'gtags' && _installed && _indexed;
 };
+// defEngine の設定に関わらず gtags が使える状態かどうかを返す（callers 等で使用）
+window.gtagsAvailable = function() {
+  return _installed && _indexed;
+};
 
 let _stale = false;
 
