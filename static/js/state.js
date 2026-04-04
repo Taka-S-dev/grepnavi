@@ -52,7 +52,7 @@ let navIndex = -1;
 let navSkipPush = false;
 let graphDecoIds = [];
 let lineMemoDecoIds = [];
-let showLineMemoInline = true;
+let showLineMemoInline = false;
 let _lineMemoScrollDispose = null;
 let ifdefDecoIds = [];
 let pinnedHighlights = []; // [{word, colorIdx, modelDecos: Map<uriStr, decoIds[]>}]
@@ -85,7 +85,7 @@ const LS_SEARCH_STACK = 'grepnavi-search-stack';
 let _stackDragIdx = null;
 
 // Detail panel accordion open/close state
-const accState = {loc:true, ifdef:false, snippet:false, memo:true, expand:false};
+const accState = {loc:true, ifdef:false, snippet:false, memo:false, expand:false};
 
 // File browser
 let _fbMode = 'save'; // 'save' | 'open' | 'dir'
