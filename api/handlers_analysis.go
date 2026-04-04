@@ -5,14 +5,36 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"grepnavi/search"
 )
 
+var reIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
 // --- /api/file ---
+
+// 開くことを拒否するバイナリ拡張子
+var binaryExts = map[string]bool{
+	".o": true, ".a": true, ".so": true, ".dll": true, ".exe": true,
+	".bin": true, ".elf": true, ".out": true,
+	".zip": true, ".tar": true, ".gz": true, ".xz": true, ".bz2": true,
+	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".bmp": true, ".ico": true,
+	".pdf": true, ".pyc": true, ".class": true,
+	// GNU Global / ctags インデックスファイル
+	"": true, // 拡張子なしのバイナリ（GTAGS, GRTAGS, GPATH 等）
+}
+
+// 拡張子なしで既知のバイナリファイル名
+var binaryNames = map[string]bool{
+	"GTAGS": true, "GRTAGS": true, "GPATH": true, "tags": true,
+}
+
+const maxFileSize = 10 * 1024 * 1024 // 10MB
 
 func (h *Handler) handleFile(w http.ResponseWriter, r *http.Request) {
 	file := r.URL.Query().Get("file")
@@ -20,6 +42,19 @@ func (h *Handler) handleFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "file required", http.StatusBadRequest)
 		return
 	}
+
+	base := filepath.Base(file)
+	ext := strings.ToLower(filepath.Ext(file))
+	if binaryNames[base] || (ext == "" && binaryNames[base]) || binaryExts[ext] {
+		http.Error(w, "binary file not supported", http.StatusUnsupportedMediaType)
+		return
+	}
+
+	if info, err := os.Stat(file); err == nil && info.Size() > maxFileSize {
+		http.Error(w, "file too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+
 	lines, err := search.CachedLines(file)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -64,6 +99,10 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, "word required", http.StatusBadRequest)
 		return
 	}
+	if !reIdentifier.MatchString(word) {
+		jsonOK(w, []search.DefHit{})
+		return
+	}
 	h.mu.RLock()
 	hroot := h.root
 	h.mu.RUnlock()
@@ -103,17 +142,32 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 		if useGtags {
 			slog.Debug("definition gtags", "hroot", hroot, "dir", dir)
 			h, e = search.GtagsFindDefinitions(r.Context(), word, hroot)
+			if e != nil {
+				slog.Warn("definition gtags error, falling back", "word", word, "err", e)
+				e = nil
+			}
 			slog.Debug("definition gtags result", "word", word, "hits", len(h), "dir", dir, "elapsed", time.Since(t0))
 			if len(h) == 0 && e == nil {
 				slog.Debug("definition gtags miss, fallback to rg", "word", word)
 				t0 = time.Now()
-				h, e = search.FindDefinitions(r.Context(), word, dir, glob)
+				currentFile := q.Get("file")
+				if currentFile != "" {
+					h, e = search.FindDefinitionsSmart(r.Context(), word, currentFile, hroot, glob)
+				} else {
+					h, e = search.FindDefinitions(r.Context(), word, dir, glob)
+				}
 				eng = "rg"
 				slog.Debug("definition rg fallback result", "word", word, "hits", len(h), "elapsed", time.Since(t0))
 			}
 		} else {
-			h, e = search.FindDefinitions(r.Context(), word, dir, glob)
-			slog.Debug("definition rg result", "word", word, "engine", eng, "hits", len(h), "elapsed", time.Since(t0))
+			currentFile := q.Get("file")
+			if currentFile != "" {
+				h, e = search.FindDefinitionsSmart(r.Context(), word, currentFile, hroot, glob)
+				slog.Debug("definition rg result", "word", word, "engine", "rg-smart", "hits", len(h), "elapsed", time.Since(t0))
+			} else {
+				h, e = search.FindDefinitions(r.Context(), word, dir, glob)
+				slog.Debug("definition rg result", "word", word, "engine", eng, "hits", len(h), "elapsed", time.Since(t0))
+			}
 		}
 		usedEngine = eng
 		if e == nil {
@@ -142,6 +196,10 @@ func (h *Handler) handleHover(w http.ResponseWriter, r *http.Request) {
 	word := q.Get("word")
 	if word == "" {
 		jsonErr(w, "word required", http.StatusBadRequest)
+		return
+	}
+	if !reIdentifier.MatchString(word) {
+		jsonOK(w, []search.HoverHit{})
 		return
 	}
 	h.mu.RLock()
@@ -178,8 +236,8 @@ func (h *Handler) handleHover(w http.ResponseWriter, r *http.Request) {
 	tInc := time.Since(t0)
 	ctx, cancel := context.WithTimeout(r.Context(), 8000*time.Millisecond)
 	defer cancel()
-	hits, err := search.FindHover(ctx, word, dir, glob, hroot, includeChain)
-	slog.Debug("hover", "word", word, "hits", len(hits), "include", tInc, "search", time.Since(t0)-tInc, "total", time.Since(t0))
+	hits, hoverEngine, err := search.FindHover(ctx, word, dir, glob, hroot, includeChain)
+	slog.Debug("hover", "word", word, "hits", len(hits), "engine", hoverEngine, "include", tInc, "search", time.Since(t0)-tInc, "total", time.Since(t0))
 	if err != nil {
 		if ctx.Err() != nil {
 			jsonOK(w, []search.HoverHit{})
@@ -188,6 +246,7 @@ func (h *Handler) handleHover(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set("X-Engine", hoverEngine)
 	if hits == nil {
 		hits = []search.HoverHit{}
 	}

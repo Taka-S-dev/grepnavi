@@ -19,6 +19,7 @@ import (
 type Options struct {
 	Pattern      string
 	Dir          string
+	Files        []string // Dir の代わりに特定ファイルのみを対象にする
 	CaseSensitive bool
 	Regex        bool   // false = literal search
 	WordRegexp   bool   // --word-regexp
@@ -81,7 +82,12 @@ func buildArgs(opts Options) []string {
 	if opts.MaxResults > 0 {
 		args = append(args, "--max-count", strconv.Itoa(opts.MaxResults))
 	}
-	args = append(args, "--", opts.Pattern, opts.Dir)
+	args = append(args, "--", opts.Pattern)
+	if len(opts.Files) > 0 {
+		args = append(args, opts.Files...)
+	} else {
+		args = append(args, opts.Dir)
+	}
 	return args
 }
 
@@ -229,6 +235,8 @@ func matchID(file string, line, col int) string {
 func SearchStream(ctx context.Context, opts Options, callback func(graph.Match) error) error {
 	if opts.ContextLines == 0 {
 		opts.ContextLines = 6
+	} else if opts.ContextLines < 0 {
+		opts.ContextLines = 0
 	}
 
 	innerCtx, cancel := context.WithCancel(ctx)

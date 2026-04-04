@@ -123,6 +123,7 @@ func (h *Handler) handleFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	files := make([]string, 0, len(lines))
+	seen := map[string]bool{}
 	for _, l := range lines {
 		if l == "" {
 			continue
@@ -131,7 +132,12 @@ func (h *Handler) handleFiles(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			rel = l
 		}
-		files = append(files, filepath.ToSlash(rel))
+		rel = filepath.ToSlash(rel)
+		if seen[rel] {
+			continue
+		}
+		seen[rel] = true
+		files = append(files, rel)
 	}
 	jsonOK(w, files)
 }

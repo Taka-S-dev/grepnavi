@@ -23,7 +23,8 @@ type HoverHit struct {
 // 検索戦略（ripgrep 時）:
 //  1. ヘッダ（*.h,*.hpp）のみ検索 → struct/enum/define/typedef はここで完結
 //  2. func の宣言しか見つからなかった場合、ソースファイルも追加検索して定義本体を取得
-func FindHover(ctx context.Context, word, dir, glob, root string, includeChain ...map[string]bool) ([]HoverHit, error) {
+// 戻り値の第2要素は使用したエンジン名（"gtags" / "rg"）。
+func FindHover(ctx context.Context, word, dir, glob, root string, includeChain ...map[string]bool) ([]HoverHit, string, error) {
 	chain := map[string]bool{}
 	if len(includeChain) > 0 && includeChain[0] != nil {
 		chain = includeChain[0]
@@ -33,12 +34,14 @@ func FindHover(ctx context.Context, word, dir, glob, root string, includeChain .
 	}
 
 	var hits []DefHit
+	engine := "rg"
 
 	// GNU Global が使えるなら定義位置をインデックスから直接取得
 	if GtagsAvailable(root) {
 		gHits, err := GtagsFindHoverHits(ctx, word, dir)
 		if err == nil && len(gHits) > 0 {
 			hits = gHits
+			engine = "gtags"
 		}
 	}
 
@@ -67,7 +70,7 @@ func FindHover(ctx context.Context, word, dir, glob, root string, includeChain .
 
 		r1, r2 := <-ch1, <-ch2
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, engine, ctx.Err()
 		}
 
 		seen := map[string]bool{}
@@ -126,6 +129,11 @@ func FindHover(ctx context.Context, word, dir, glob, root string, includeChain .
 			if !strings.Contains(firstLine, "enum") {
 				continue
 			}
+			// メンバー行が先頭に来るよう表示を組み替える
+			body = extractEnumMemberContext(lines, h.Line)
+			if body == "" {
+				body = h.Text
+			}
 			// コメントはenumブロック開始行（typedef enum { の行）基準で抽出
 			commentLine = findContainingBlockStart(lines, h.Line)
 		case "func":
@@ -136,6 +144,11 @@ func FindHover(ctx context.Context, word, dir, glob, root string, includeChain .
 			if !strings.Contains(body, "{") {
 				body = h.Text
 				isDecl = true
+			}
+		case "var", "member":
+			// 変数・メンバーは宣言行をそのまま表示（型情報が含まれる）
+			if idx := h.Line - 1; idx >= 0 && idx < len(lines) {
+				body = strings.TrimSpace(lines[idx])
 			}
 		default:
 			body = extractBraceBlock(lines, h.Line)
@@ -213,7 +226,7 @@ func FindHover(ctx context.Context, word, dir, glob, root string, includeChain .
 			return inI && !inJ
 		})
 	}
-	return result, nil
+	return result, engine, nil
 }
 
 // extractBraceBlock は startLine（1-indexed）からブレースブロックを抽出する。
@@ -313,6 +326,79 @@ func findContainingBlockStart(lines []string, memberLine int) int {
 
 // extractContainingBlock はメンバー行（enum値等）から逆方向に { を探し、
 // そのブロック全体（enum { ... } Name; 等）を抽出する。
+// extractEnumMemberContext はメンバー行を先頭に表示するよう整形する。
+// 出力フォーマット:
+//
+//	enum foo {          ← ヘッダ行
+//	    ...             ← メンバーが先頭付近でない場合
+//	    PREV_MEMBER,    ← 前後2行のコンテキスト
+//	    TARGET,         ← 対象メンバー
+//	    NEXT_MEMBER,
+//	    ...
+//	};
+func extractEnumMemberContext(lines []string, memberLine int) string {
+	memberIdx := memberLine - 1 // 0-indexed
+	if memberIdx < 0 || memberIdx >= len(lines) {
+		return ""
+	}
+
+	// enum ブロックの開始行と終了行を探す
+	blockStart := findContainingBlockStart(lines, memberLine) - 1 // 0-indexed
+	if blockStart < 0 {
+		return ""
+	}
+	// blockStart が { を含む行、またはその前の typedef/enum 行
+	headerIdx := blockStart
+
+	// ブロック終了 } を探す
+	depth := 0
+	closeIdx := -1
+	for i := blockStart; i < len(lines) && i < blockStart+2000; i++ {
+		for _, ch := range lines[i] {
+			if ch == '{' {
+				depth++
+			} else if ch == '}' {
+				depth--
+				if depth <= 0 {
+					closeIdx = i
+					break
+				}
+			}
+		}
+		if closeIdx >= 0 {
+			break
+		}
+	}
+	if closeIdx < 0 {
+		return ""
+	}
+
+	firstMemberIdx := headerIdx + 1
+	for i := headerIdx; i <= closeIdx; i++ {
+		if strings.ContainsRune(lines[i], '{') {
+			firstMemberIdx = i + 1
+			break
+		}
+	}
+
+	var buf []string
+	// ヘッダ行は常に表示
+	buf = append(buf, lines[headerIdx])
+	// 対象より前のメンバーがあれば ... で省略
+	if memberIdx > firstMemberIdx {
+		buf = append(buf, "    ...")
+	}
+	// 対象メンバー行
+	buf = append(buf, lines[memberIdx])
+	// 対象より後ろにメンバーがあれば ... で省略し、閉じ } だけ表示
+	if memberIdx < closeIdx-1 {
+		buf = append(buf, "    ...")
+	}
+	buf = append(buf, lines[closeIdx])
+
+	return stripCommonIndent(buf)
+}
+
 func extractContainingBlock(lines []string, memberLine int) string {
 	idx := memberLine - 1 // 0-indexed
 	if idx < 0 || idx >= len(lines) {
@@ -344,8 +430,17 @@ func extractContainingBlock(lines []string, memberLine int) string {
 		return strings.TrimSpace(lines[idx])
 	}
 
-	// openIdx の行から前進して { ... } ブロックを抽出（1-indexed）
-	return extractBraceBlock(lines, openIdx+1)
+	// { が独立行にある場合（例: "enum foo\n{"）、前の行に型キーワードがあればそこから開始
+	startIdx := openIdx
+	if openIdx > 0 {
+		prevLine := strings.TrimSpace(lines[openIdx-1])
+		if strings.HasPrefix(prevLine, "enum") || strings.HasPrefix(prevLine, "struct") || strings.HasPrefix(prevLine, "union") || strings.HasPrefix(prevLine, "typedef") {
+			startIdx = openIdx - 1
+		}
+	}
+
+	// startIdx の行から前進して { ... } ブロックを抽出（1-indexed）
+	return extractBraceBlock(lines, startIdx+1)
 }
 
 // extractBraceBlockBackward は } TypedefName; の行から逆方向に { を探してブロックを返す。
