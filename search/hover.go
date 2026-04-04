@@ -19,11 +19,11 @@ type HoverHit struct {
 }
 
 // FindHover は word の定義を検索し、ブロック本体付きで返す。
-// GNU Global が利用可能な場合はそちらを優先し、なければ ripgrep にフォールバックする。
+// 優先順位: GNU Global → ctags → ripgrep
 // 検索戦略（ripgrep 時）:
 //  1. ヘッダ（*.h,*.hpp）のみ検索 → struct/enum/define/typedef はここで完結
 //  2. func の宣言しか見つからなかった場合、ソースファイルも追加検索して定義本体を取得
-// 戻り値の第2要素は使用したエンジン名（"gtags" / "rg"）。
+// 戻り値の第2要素は使用したエンジン名（"gtags" / "ctags" / "rg"）。
 func FindHover(ctx context.Context, word, dir, glob, root string, includeChain ...map[string]bool) ([]HoverHit, string, error) {
 	chain := map[string]bool{}
 	if len(includeChain) > 0 && includeChain[0] != nil {
@@ -45,7 +45,16 @@ func FindHover(ctx context.Context, word, dir, glob, root string, includeChain .
 		}
 	}
 
-	// GNU Global が使えない or 結果なし → ripgrep にフォールバック
+	// ctags インデックスがあれば次の優先候補として使う
+	if len(hits) == 0 && CtagsIndexed(root) {
+		cHits, err := CtagsFindDefinitions(word, root)
+		if err == nil && len(cHits) > 0 {
+			hits = cHits
+			engine = "ctags"
+		}
+	}
+
+	// gtags/ctags で結果なし → ripgrep にフォールバック
 	if len(hits) == 0 {
 		const maxPerQuery = 5
 		headerGlob := "*.h,*.hpp"

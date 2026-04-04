@@ -302,6 +302,9 @@ async function ensureEditor() {
   });
   new ResizeObserver(() => monacoEditor.layout()).observe(id('monaco-container'));
 
+  // ===== C/C++ 言語固有拡張 (editor-c.js) =====
+  const { resolveLocalVar } = initEditorC(monacoEditor, monaco);
+
   // 編集時にプレビュータブを固定に昇格
   monacoEditor.onDidChangeModelContent(() => {
     if(activeTabIdx >= 0 && tabs[activeTabIdx]?.preview) {
@@ -362,6 +365,20 @@ async function ensureEditor() {
         // B: 3文字未満・キーワードはスキップ
         if(!word || word.word.length < 3) return null;
         if(HOVER_SKIP.has(word.word)) return null;
+
+        // C: ローカル/static 変数・引数の処理 (editor-c.js)
+        // false → 通常ルックアップ
+        // null  → 抑制（引数など）
+        // { decl, type } → 宣言を常に表示。type があれば型定義もルックアップ
+        const _localInfo = resolveLocalVar(model, word.word, position);
+        if (_localInfo !== false) {
+          if (!_localInfo) return null;
+          // ローカル/static 変数 → 宣言テキストをそのまま表示
+          return {
+            range: new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn),
+            contents: [{ value: '```c\n' + _localInfo.decl + '\n```', isTrusted: true }]
+          };
+        }
 
         const controller = new AbortController();
         token.onCancellationRequested(() => controller.abort());
@@ -1135,7 +1152,9 @@ async function jumpToDefinition(word) {
     const p = new URLSearchParams({word});
     if (glob) p.set('glob', glob);
     if (currentFile) p.set('file', currentFile);
-    if (typeof window.gtagsEnabled === 'function' && !window.gtagsEnabled()) p.set('gtags', '0');
+    const _defEng = typeof window.getDefEngine === 'function' ? window.getDefEngine() : 'gtags';
+    if (_defEng !== 'gtags') p.set('gtags', '0');
+    if (_defEng === 'ctags') p.set('ctags', '1'); else p.set('ctags', '0');
     try {
       const r = await fetch('/api/definition?' + p, {signal: _defAbortCtrl.signal});
       if (r.ok) {

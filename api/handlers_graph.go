@@ -383,6 +383,9 @@ func (h *Handler) handleGraphImport(w http.ResponseWriter, r *http.Request) {
 			h.mu.Lock()
 			h.root = g.RootDir
 			h.mu.Unlock()
+			if search.CtagsIndexed(g.RootDir) {
+				search.CtagsMacroWarmup(g.RootDir)
+			}
 		}
 	}
 	jsonOK(w, map[string]interface{}{"graph": g})
@@ -442,6 +445,9 @@ func (h *Handler) handleGraphOpenFile(w http.ResponseWriter, r *http.Request) {
 			h.mu.Lock()
 			h.root = g.RootDir
 			h.mu.Unlock()
+			if search.CtagsIndexed(g.RootDir) {
+				search.CtagsMacroWarmup(g.RootDir)
+			}
 		}
 	}
 	jsonOK(w, map[string]interface{}{"graph": g, "file_path": req.Path})

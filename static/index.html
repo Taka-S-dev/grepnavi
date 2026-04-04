@@ -167,6 +167,10 @@
           <span id="gtags-engine-label" style="display:none;font-size:11px;color:#888;cursor:pointer" title="定義ジャンプエンジン設定"></span>
           <div id="gtags-popover" style="display:none"></div>
         </div>
+        <div style="position:relative">
+          <span id="ctags-label" style="display:none;font-size:11px;color:#888;cursor:pointer" title="ctags インデックス管理"></span>
+          <div id="ctags-popover" style="display:none"></div>
+        </div>
         <button onclick="closePeek()" title="閉じる"><i class="codicon codicon-close"></i></button>
       </div>
       <div id="peek-tabs"></div>
@@ -320,11 +324,13 @@
 <script src="/js/state.js"></script>
 <!-- [GNU Global] このscriptタグを削除するだけでGUI機能を取り外し可能 -->
 <script src="/js/gtags.js"></script>
+<script src="/js/ctags.js"></script>
 <script src="/js/panel.js"></script>
 <script src="/js/utils.js"></script>
 <script src="/js/search.js"></script>
 <script src="/js/graph.js"></script>
 <script src="/js/floating-peek.js"></script>
+<script src="/js/editor-c.js"></script>
 <script src="/js/editor.js"></script>
 <script src="/js/filebrowser.js"></script>
 <script src="/js/project.js"></script>
@@ -336,6 +342,20 @@
     document.write('<script src="/addons/'+name+'/addon.js"><\/script>');
   });
 </script>
+<div id="ctags-console">
+  <div id="ctags-console-header">
+    <span id="ctags-console-title">ctags</span>
+    <span id="ctags-console-elapsed" style="display:none"></span>
+    <button id="ctags-console-minimize" title="最小化">─</button>
+    <button id="ctags-console-close" disabled>✕</button>
+  </div>
+  <div id="ctags-prog-bar-wrap"><div id="ctags-prog-bar"></div></div>
+  <div id="ctags-prog-body">
+    <span id="ctags-prog-count">-</span>
+    <span id="ctags-prog-file"></span>
+  </div>
+  <div id="ctags-console-body" style="display:none"></div>
+</div>
 <div id="gtags-console">
   <div id="gtags-console-header">
     <span id="gtags-console-title">gtags</span>

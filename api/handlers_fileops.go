@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -12,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"grepnavi/search"
 )
 
 // --- /api/open ---
@@ -79,6 +82,10 @@ func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {
 		h.root = abs
 		h.mu.Unlock()
 		h.store.SetRootDir(abs)
+		slog.Debug("root changed", "abs", abs, "ctags_indexed", search.CtagsIndexed(abs))
+		if search.CtagsIndexed(abs) {
+			search.CtagsMacroWarmup(abs)
+		}
 		jsonOK(w, map[string]string{"root": abs})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

@@ -117,10 +117,15 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 	gtagsInstalled := search.GtagsInPath()
 	gtagsIndexed   := search.GtagsIndexed(hroot)
 	useGtags := gtagsParam && gtagsInstalled && gtagsIndexed
-	slog.Debug("definition", "word", word, "hroot", hroot, "gtags_param", gtagsParam, "installed", gtagsInstalled, "indexed", gtagsIndexed, "useGtags", useGtags)
+	useCtagsParam := q.Get("ctags") != "0"
+	ctagsIndexed  := search.CtagsIndexed(hroot)
+	useCtags := useCtagsParam && ctagsIndexed && !useGtags
+	slog.Debug("definition", "word", word, "hroot", hroot, "gtags_param", gtagsParam, "installed", gtagsInstalled, "indexed", gtagsIndexed, "useGtags", useGtags, "ctagsIndexed", ctagsIndexed, "useCtags", useCtags)
 	engine := "rg"
 	if useGtags {
 		engine = "gtags"
+	} else if useCtags {
+		engine = "ctags"
 	}
 	cacheKey := word + "\x00" + dir + "\x00" + glob + "\x00" + engine
 	if cached, ok := defCacheGet(cacheKey); ok {
@@ -147,8 +152,35 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 				e = nil
 			}
 			slog.Debug("definition gtags result", "word", word, "hits", len(h), "dir", dir, "elapsed", time.Since(t0))
+			if len(h) == 0 {
+				// gtags miss/error → ctags fallback
+				if search.CtagsIndexed(hroot) {
+					slog.Debug("definition gtags miss, fallback to ctags", "word", word)
+					t0 = time.Now()
+					h, e = search.CtagsFindDefinitions(word, hroot)
+					eng = "ctags"
+					slog.Debug("definition ctags fallback result", "word", word, "hits", len(h), "elapsed", time.Since(t0))
+				}
+			}
 			if len(h) == 0 && e == nil {
-				slog.Debug("definition gtags miss, fallback to rg", "word", word)
+				// ctags も miss → rg fallback
+				slog.Debug("definition gtags+ctags miss, fallback to rg", "word", word)
+				t0 = time.Now()
+				currentFile := q.Get("file")
+				if currentFile != "" {
+					h, e = search.FindDefinitionsSmart(r.Context(), word, currentFile, hroot, glob)
+				} else {
+					h, e = search.FindDefinitions(r.Context(), word, dir, glob)
+				}
+				eng = "rg"
+				slog.Debug("definition rg fallback result", "word", word, "hits", len(h), "elapsed", time.Since(t0))
+			}
+		} else if useCtags {
+			slog.Debug("definition ctags", "hroot", hroot)
+			h, e = search.CtagsFindDefinitions(word, hroot)
+			slog.Debug("definition ctags result", "word", word, "hits", len(h), "elapsed", time.Since(t0))
+			if len(h) == 0 && e == nil {
+				slog.Debug("definition ctags miss, fallback to rg", "word", word)
 				t0 = time.Now()
 				currentFile := q.Get("file")
 				if currentFile != "" {

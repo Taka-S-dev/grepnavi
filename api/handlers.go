@@ -21,6 +21,9 @@ func NewHandler(store *graph.Store, root string) *Handler {
 	if search.GtagsAvailable(root) {
 		search.GtagsCheckStaleAsync(root)
 	}
+	if search.CtagsIndexed(root) {
+		search.CtagsMacroWarmup(root)
+	}
 	return h
 }
 
@@ -71,6 +74,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/gtags/update", h.handleGtagsUpdate)
 	mux.HandleFunc("/api/gtags/rebuild", h.handleGtagsRebuild)
 	mux.HandleFunc("/api/gtags/stream", h.handleGtagsStream)
+	mux.HandleFunc("/api/ctags/status", h.handleCtagsStatus)
+	mux.HandleFunc("/api/ctags/index", h.handleCtagsIndex)
+	mux.HandleFunc("/api/ctags/file-symbols", h.handleCtagsFileSymbols)
+	mux.HandleFunc("/api/ctags/macros", h.handleCtagsMacros)
 	// [C言語アドオン] 以下の3行を削除するとインクルードグラフAPIが無効になります
 	mux.HandleFunc("/api/include-graph", h.handleIncludeGraph)
 	mux.HandleFunc("/api/include-file", h.handleIncludeFile)
