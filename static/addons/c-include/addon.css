@@ -22,6 +22,9 @@
 .inc-node.h-file rect{stroke:#9cdcfe}
 .inc-node text{fill:#ccc;font-size:11px;font-family:Consolas,monospace;pointer-events:none}
 .inc-node:hover rect{stroke:#fff}
+.inc-node.inc-root rect{stroke:#f0a040;stroke-width:2;fill:#2d2010}
+.inc-node:not(.inc-expanded) rect{opacity:0.5;stroke-dasharray:4,2}
+.inc-node.inc-expanded rect{opacity:1;stroke-dasharray:none}
 .inc-link{stroke:#555;stroke-width:1;fill:none;marker-end:url(#inc-arrow);transition:opacity 0.15s,stroke 0.15s}
 .inc-link.reverse{stroke:#666;stroke-dasharray:4,2}
 .inc-link.inc-hi{stroke:#4ec9b0;stroke-width:2;opacity:1}

@@ -41,6 +41,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // イベント登録
   document.getElementById('btn-include-graph').onclick    = openIncludeGraph;
+  // オーバーレイ内のキー操作がメインアプリに漏れないようにする
+  document.getElementById('include-overlay').addEventListener('keydown', e => e.stopPropagation());
+
   document.getElementById('include-analyze').onclick      = () => startIncludeGraph();
   document.getElementById('include-collapse-all').onclick = incCollapseAll;
   document.getElementById('include-export-svg').onclick   = incExportSvg;
@@ -152,7 +155,10 @@ async function startIncludeGraph(file) {
     .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient','auto')
     .append('path').attr('d','M0,-5L10,0L0,5').attr('fill','#555');
   _incRootG = svg.append('g');
-  svg.call(d3.zoom().scaleExtent([0.1,4]).on('zoom', e => _incRootG.attr('transform', e.transform)));
+  const _incZoom = d3.zoom().scaleExtent([0.1,4]).on('zoom', e => _incRootG.attr('transform', e.transform));
+  svg.call(_incZoom);
+  // 初期位置を中央に
+  svg.call(_incZoom.transform, d3.zoomIdentity.translate(W / 2, 60));
   _incSvg = svg;
 
   const normFile = _incNormId(file);
@@ -164,7 +170,10 @@ async function startIncludeGraph(file) {
 
 function _incNodeClass(node) {
   const ext = node.id.split('.').pop().toLowerCase();
-  return 'inc-node ' + (['h','hpp','hh'].includes(ext) ? 'h-file' : 'c-file');
+  const typeClass = ['h','hpp','hh'].includes(ext) ? 'h-file' : 'c-file';
+  const rootClass = node === _incRootNode ? ' inc-root' : '';
+  const expandedClass = node.expanded ? ' inc-expanded' : '';
+  return 'inc-node ' + typeClass + rootClass + expandedClass;
 }
 
 function _incCollapse(node) {
@@ -235,48 +244,101 @@ async function _incExpand(node) {
 function _incLayout() {
   if(!_incRootNode) return;
 
-  const depthMap = new Map();
-  depthMap.set(_incRootNode.id, 0);
-  const q = [_incRootNode];
-  while(q.length) {
-    const n = q.shift();
-    const d = depthMap.get(n.id);
-    n.fwd.forEach(c => {
-      if(!depthMap.has(c.id)) { depthMap.set(c.id, d+1); q.push(c); }
+  const GAP = 24;
+  const DY = _INC_DY * 1.5;
+  const PASSES = 8;
+
+  // ── 1. レイヤー割り当て（BFS: fwd=下, rev=上）──────────────
+  const layerOf = new Map();
+  layerOf.set(_incRootNode.id, 0);
+  const bfsQ = [_incRootNode];
+  while(bfsQ.length) {
+    const n = bfsQ.shift();
+    const d = layerOf.get(n.id);
+    n.fwd.forEach(c => { if(!layerOf.has(c.id)) { layerOf.set(c.id, d+1); bfsQ.push(c); } });
+  }
+  _incNodeMap.forEach(n => {
+    const d = layerOf.has(n.id) ? layerOf.get(n.id) : 0;
+    n.rev.forEach(r => { if(!layerOf.has(r.id)) layerOf.set(r.id, d - 1); });
+  });
+  let minL = 0;
+  layerOf.forEach(d => { if(d < minL) minL = d; });
+  if(minL < 0) layerOf.forEach((d, id) => layerOf.set(id, d - minL));
+  // fwd方向も伝播：各ノードのfwd childrenにレイヤーを割り当て
+  let changed = true;
+  while(changed) {
+    changed = false;
+    _incNodeMap.forEach(n => {
+      if(!layerOf.has(n.id)) return;
+      const d = layerOf.get(n.id);
+      n.fwd.forEach(c => {
+        if(!layerOf.has(c.id)) { layerOf.set(c.id, d + 1); changed = true; }
+        else if(layerOf.get(c.id) < d + 1) { layerOf.set(c.id, d + 1); changed = true; }
+      });
     });
   }
+  _incNodeMap.forEach(n => { if(!layerOf.has(n.id)) layerOf.set(n.id, 0); });
 
+  // ── 2. レイヤー配列構築 ───────────────────────────────────
+  const layerArr = new Map(); // layerIndex → node[]
   _incNodeMap.forEach(n => {
-    const parentDepth = depthMap.has(n.id) ? depthMap.get(n.id) : 0;
-    n.rev.forEach(rn => {
-      if(!depthMap.has(rn.id)) depthMap.set(rn.id, parentDepth - 1);
+    const l = layerOf.get(n.id);
+    if(!layerArr.has(l)) layerArr.set(l, []);
+    layerArr.get(l).push(n);
+  });
+  const sortedL = [...layerArr.keys()].sort((a, b) => a - b);
+
+  // ── 3. バリセンター交差削減（上下交互 PASSES 回）──────────
+  // 各ノードの「隣接レイヤーでのインデックス平均」でソート
+  function barycenter(nodes, refLayer) {
+    const refNodes = layerArr.get(refLayer) || [];
+    const idxOf = new Map(refNodes.map((n, i) => [n.id, i]));
+    const bary = new Map();
+    nodes.forEach(n => {
+      const neighbors = [
+        ...n.fwd.filter(c => layerOf.get(c.id) === refLayer),
+        ...n.rev.filter(r => layerOf.get(r.id) === refLayer),
+      ];
+      if(!neighbors.length) { bary.set(n.id, idxOf.size / 2); return; }
+      const avg = neighbors.reduce((s, nb) => s + (idxOf.get(nb.id) ?? idxOf.size / 2), 0) / neighbors.length;
+      bary.set(n.id, avg);
     });
-  });
+    nodes.sort((a, b) => bary.get(a.id) - bary.get(b.id));
+  }
 
-  let minDepth = 0;
-  depthMap.forEach(d => { if(d < minDepth) minDepth = d; });
-  if(minDepth < 0) depthMap.forEach((d, id) => depthMap.set(id, d - minDepth));
+  for(let p = 0; p < PASSES; p++) {
+    const layers = p % 2 === 0 ? sortedL : [...sortedL].reverse();
+    for(let i = 1; i < layers.length; i++) {
+      const cur = layers[i], prev = layers[i - 1];
+      const nodes = layerArr.get(cur);
+      if(nodes) barycenter(nodes, prev);
+    }
+  }
 
-  _incNodeMap.forEach(n => { if(!depthMap.has(n.id)) depthMap.set(n.id, 0); });
-
-  const levels = new Map();
-  _incNodeMap.forEach(n => {
-    const d = depthMap.get(n.id);
-    if(!levels.has(d)) levels.set(d, []);
-    levels.get(d).push(n);
-  });
-
-  const GAP = 16;
-  levels.forEach((nodes, depth) => {
+  // ── 4. 各レイヤーをバリセンター順で横並び ────────────────────
+  sortedL.forEach(l => {
+    const nodes = layerArr.get(l);
+    if(!nodes) return;
     const widths = nodes.map(n => _incNodeWidth(n._dispLabel || n.label));
     const totalW = widths.reduce((a, b) => a + b, 0) + GAP * (nodes.length - 1);
     let cx = -totalW / 2;
     nodes.forEach((n, i) => {
       n._w = widths[i];
       n._x = cx + widths[i] / 2;
+      n._y = l * DY + 60;
       cx += widths[i] + GAP;
-      n._y = depth * _INC_DY * 1.5 + 60;
     });
+  });
+
+  // ── 5. 重なり解消 ────────────────────────────────────────────
+  sortedL.forEach(l => {
+    const nodes = layerArr.get(l);
+    if(!nodes || nodes.length < 2) return;
+    for(let i = 1; i < nodes.length; i++) {
+      const p = nodes[i-1], c = nodes[i];
+      const minX = p._x + p._w / 2 + GAP + c._w / 2;
+      if(c._x < minX) c._x = minX;
+    }
   });
 }
 
