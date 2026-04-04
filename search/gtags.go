@@ -267,7 +267,8 @@ func GtagsBuildIndexStream(ctx context.Context, dir string, w io.Writer) error {
 // Windows ではパイプバッファリングにより出力が遅延するため、5 秒ごとにハートビートを送る。
 func GtagsUpdateIndexStream(ctx context.Context, dir string, w io.Writer) error {
 	cmd := exec.CommandContext(ctx, resolveGlobalBin(), "-u", "-v")
-	cmd.Env = englishEnv("GTAGSDBPATH="+dir, "GTAGSROOT="+dir)
+	gtagsPathU := filepath.ToSlash(dir)
+	cmd.Env = englishEnv("GTAGSDBPATH="+gtagsPathU, "GTAGSROOT="+gtagsPathU)
 
 	pr, pw := io.Pipe()
 	cmd.Stdout = pw
@@ -377,14 +378,26 @@ func gtagsParseOutput(out []byte, kind, dir string) []DefHit {
 // 宣言(.h)と実装(.c/.cpp)が両方ヒットした場合は実装を優先する。
 func GtagsFindDefinitions(ctx context.Context, word, dir string) ([]DefHit, error) {
 	globalBin := resolveGlobalBin()
-	cmd := exec.CommandContext(ctx, globalBin, "-xd", word)
+	// global.exe は高速（数十ms）なので HTTP キャンセルに巻き込まれないよう
+	// context をデタッチして最後まで実行させる。
+	// キャンセルされても結果はキャッシュに入るので次回即返せる。
+	cmd := exec.CommandContext(context.Background(), globalBin, "-xd", word)
 	cmd.Dir = dir
-	env := append(os.Environ(), "GTAGSDBPATH="+dir, "GTAGSROOT="+dir)
+	// MSYS2版 global.exe はバックスラッシュを解釈できないためフォワードスラッシュに変換する
+	gtagsPath := filepath.ToSlash(dir)
+	env := append(os.Environ(), "GTAGSDBPATH="+gtagsPath, "GTAGSROOT="+gtagsPath)
 	cmd.Env = env
+	if devNull, err := os.Open(os.DevNull); err == nil {
+		cmd.Stdin = devNull
+		defer devNull.Close()
+	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
-	slog.Debug("gtags-find", "word", word, "bin", globalBin, "dir", dir)
+	slog.Debug("gtags-find", "word", word, "bin", globalBin, "dir", dir,
+		"cmd", strings.Join(cmd.Args, " "),
+		"env_gtagsdbpath", "GTAGSDBPATH="+dir,
+		"env_gtagsroot", "GTAGSROOT="+dir)
 
 	// DBファイルの存在確認
 	for _, name := range []string{"GTAGS", "GRTAGS", "GPATH"} {
@@ -396,7 +409,9 @@ func GtagsFindDefinitions(ctx context.Context, word, dir string) ([]DefHit, erro
 		}
 	}
 
+	t0 := time.Now()
 	out, err := cmd.Output()
+	elapsed := time.Since(t0)
 	exitCode := 0
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -405,6 +420,7 @@ func GtagsFindDefinitions(ctx context.Context, word, dir string) ([]DefHit, erro
 	}
 	slog.Debug("gtags-find result",
 		"exit", exitCode,
+		"elapsed", elapsed,
 		"stdout", strings.TrimSpace(string(out)),
 		"stderr", strings.TrimSpace(stderr.String()),
 		"err", err)
@@ -840,9 +856,10 @@ func GtagsFindHoverHits(ctx context.Context, word, dir string) ([]DefHit, error)
 // GtagsFindRefs は GNU Global で word の参照箇所を検索する（callers 用）。
 // 各参照行を囲む関数名・定義行を findContainingFunc で解決して返す。
 func GtagsFindRefs(ctx context.Context, word, dir string) ([]CallSite, error) {
-	cmd := exec.CommandContext(ctx, resolveGlobalBin(), "-xr", word)
+	cmd := exec.CommandContext(context.Background(), resolveGlobalBin(), "-xr", word)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GTAGSDBPATH="+dir, "GTAGSROOT="+dir)
+	gtagsRefPath := filepath.ToSlash(dir)
+	cmd.Env = append(os.Environ(), "GTAGSDBPATH="+gtagsRefPath, "GTAGSROOT="+gtagsRefPath)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

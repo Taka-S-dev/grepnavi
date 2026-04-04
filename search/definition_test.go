@@ -87,6 +87,83 @@ func TestPreferDefinitionHits(t *testing.T) {
 	}
 }
 
+func TestIsDefinitionHit_MultilineSignature(t *testing.T) {
+	// 複数行シグネチャのテスト。
+	// CachedLines を使わずに lines を直接渡すため、
+	// isDefinitionHitLines という内部ヘルパーでテストする。
+	tests := []struct {
+		name  string
+		lines []string
+		line  int // 1-indexed ヒット行
+		want  bool
+	}{
+		{
+			name: "通常の1行宣言は宣言と判定",
+			lines: []string{
+				"int foo(int x);",
+			},
+			line: 1,
+			want: false,
+		},
+		{
+			name: "1行定義は定義と判定",
+			lines: []string{
+				"int foo(int x) {",
+				"    return x;",
+				"}",
+			},
+			line: 1,
+			want: true,
+		},
+		{
+			name: "複数行シグネチャで末尾が ; なら宣言",
+			lines: []string{
+				"int foo(",
+				"    const char*",
+				"    int",
+				"              name,",
+				"              size);",
+			},
+			line: 1,
+			want: false,
+		},
+		{
+			name: "複数行シグネチャで { が出れば定義",
+			lines: []string{
+				"int foo(",
+				"    const char* name,",
+				"    int         size)",
+				"{",
+				"    return 0;",
+				"}",
+			},
+			line: 1,
+			want: true,
+		},
+		{
+			name: "次行に { がある K&R スタイルは定義",
+			lines: []string{
+				"void foo()",
+				"{",
+				"    return;",
+				"}",
+			},
+			line: 1,
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := DefHit{File: "", Line: tt.line, Text: tt.lines[tt.line-1], Kind: "func"}
+			got := isDefinitionHitLines(h, tt.lines)
+			if got != tt.want {
+				t.Errorf("isDefinitionHit = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestClassifyDefKind(t *testing.T) {
 	tests := []struct {
 		name string
