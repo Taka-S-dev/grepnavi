@@ -597,3 +597,104 @@ func stripLeadingN(s string, n int) string {
 	}
 	return strings.TrimLeft(s, " \t")
 }
+
+// ExtractFuncBody は file の targetLine を含む関数全体（コメント込み）を返す。
+// 戻り値: (コード本体, 開始行1-indexed, 終了行1-indexed, error)
+func ExtractFuncBody(file string, targetLine int) (string, int, int, error) {
+	lines, err := CachedLines(file)
+	if err != nil {
+		return "", 0, 0, err
+	}
+	if targetLine < 1 || targetLine > len(lines) {
+		return "", 0, 0, nil
+	}
+	idx := targetLine - 1
+
+	// 上方向に { を探してブロック開始を見つける
+	blockStartIdx := -1
+	depth := 0
+	for i := idx; i >= 0 && i > idx-500; i-- {
+		line := lines[i]
+		for j := len(line) - 1; j >= 0; j-- {
+			ch := line[j]
+			if ch == '}' {
+				depth++
+			} else if ch == '{' {
+				depth--
+				if depth < 0 {
+					blockStartIdx = i
+					goto foundStart
+				}
+			}
+		}
+	}
+foundStart:
+	if blockStartIdx < 0 {
+		// { が見つからない → targetLine 周辺だけ返す
+		s := funcMax(0, idx-2)
+		e := funcMin(len(lines)-1, idx+2)
+		return strings.Join(lines[s:e+1], "\n"), s + 1, e + 1, nil
+	}
+
+	// { より前の関数シグネチャ行を含める
+	sigStart := blockStartIdx
+	for i := blockStartIdx - 1; i >= 0 && i >= blockStartIdx-10; i-- {
+		trimmed := strings.TrimSpace(lines[i])
+		if trimmed == "" || strings.HasSuffix(trimmed, "}") || strings.HasSuffix(trimmed, ";") {
+			break
+		}
+		sigStart = i
+	}
+
+	// 直前のコメント（/** ... */ や //）も含める
+	commentStart := sigStart
+	for i := sigStart - 1; i >= 0 && i >= sigStart-30; i-- {
+		trimmed := strings.TrimSpace(lines[i])
+		if trimmed == "" {
+			break
+		}
+		if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "*") ||
+			strings.HasPrefix(trimmed, "/*") || strings.HasSuffix(trimmed, "*/") {
+			commentStart = i
+		} else {
+			break
+		}
+	}
+
+	// 下方向に対応する } を探す
+	depth = 0
+	closeIdx := -1
+	for i := blockStartIdx; i < len(lines) && i < blockStartIdx+2000; i++ {
+		for _, ch := range lines[i] {
+			if ch == '{' {
+				depth++
+			} else if ch == '}' {
+				depth--
+				if depth <= 0 {
+					closeIdx = i
+					goto foundEnd
+				}
+			}
+		}
+	}
+foundEnd:
+	if closeIdx < 0 {
+		closeIdx = funcMin(len(lines)-1, blockStartIdx+200)
+	}
+
+	return strings.Join(lines[commentStart:closeIdx+1], "\n"), commentStart + 1, closeIdx + 1, nil
+}
+
+func funcMax(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func funcMin(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}

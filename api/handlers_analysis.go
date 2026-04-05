@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -69,6 +70,29 @@ func (h *Handler) handleFile(w http.ResponseWriter, r *http.Request) {
 		sb.WriteString(sanitizeUTF8(l))
 	}
 	w.Write([]byte(sb.String()))
+}
+
+// --- /api/func-body ---
+
+func (h *Handler) handleFuncBody(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	file := q.Get("file")
+	lineStr := q.Get("line")
+	if file == "" || lineStr == "" {
+		http.Error(w, "file and line required", http.StatusBadRequest)
+		return
+	}
+	line, err := strconv.Atoi(lineStr)
+	if err != nil || line < 1 {
+		http.Error(w, "invalid line", http.StatusBadRequest)
+		return
+	}
+	body, startLine, endLine, err := search.ExtractFuncBody(file, line)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, map[string]any{"body": body, "start_line": startLine, "end_line": endLine})
 }
 
 // --- /api/symbols ---
