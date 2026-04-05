@@ -4,6 +4,67 @@
 // initFloatingPeek(getHoverCtx) を ensureEditor() から呼ぶこと。
 // getHoverCtx: () => { word: string, hit: {file,line}|null }
 
+// フローティングピークのエディタに行メモ・範囲メモのデコレーションを適用する
+// lineOffset = file上の行番号 - Monaco上の行番号 (Monaco line 1 = file line lineOffset+1)
+function _applyFloatMemoDecos(ed, file, lineOffset) {
+  const model    = ed.getModel();
+  const normFile = file.replace(/\\/g, '/');
+  const decos    = [];
+
+  // 行メモ: デコレーション + hoverProvider用マップを同時構築
+  const memosByEdLine = {};
+  Object.entries(getLineMemos()).forEach(([key, memo]) => {
+    const normKey = key.replace(/\\/g, '/');
+    if (!normKey.startsWith(normFile + '::')) return;
+    const edLine = parseInt(normKey.split('::')[1]) - lineOffset;
+    if (edLine < 1 || edLine > model.getLineCount()) return;
+    memosByEdLine[edLine] = memo;
+    decos.push({
+      range: new monaco.Range(edLine, 1, edLine, 1),
+      options: {
+        isWholeLine: true,
+        glyphMarginClassName: 'line-memo-glyph',
+        glyphMarginHoverMessage: { value: '✎ ' + memo.split('\n').join('\n\n') },
+      }
+    });
+  });
+
+  // 範囲メモ: デコレーション + hoverProvider用リストを同時構築
+  const rangeMemoList = [];
+  getRangeMemos().filter(m => m.file.replace(/\\/g,'/') === normFile).forEach(m => {
+    const edStart = m.startLine - lineOffset;
+    const edEnd   = m.endLine   - lineOffset;
+    if (edEnd < 1 || edStart > model.getLineCount()) return;
+    rangeMemoList.push({ ...m, edStart, edEnd });
+    decos.push({
+      range: new monaco.Range(
+        Math.max(1, edStart), m.startCol,
+        Math.min(model.getLineCount(), edEnd), m.endCol
+      ),
+      options: { className: 'range-memo-highlight' }
+    });
+  });
+
+  if (decos.length) ed.deltaDecorations([], decos);
+  if (!Object.keys(memosByEdLine).length && !rangeMemoList.length) return;
+
+  // hoverProviderでメモをホバーの先頭に表示（同期的に返すことで言語プロバイダーより先に表示される）
+  monaco.languages.registerHoverProvider(ed.getModel()?.getLanguageId() || 'plaintext', {
+    provideHover(_model, position) {
+      if (_model !== ed.getModel()) return null;
+      const line = position.lineNumber, col = position.column;
+      const rangeParts = rangeMemoList.filter(m =>
+        (line > m.edStart || (line === m.edStart && col >= m.startCol)) &&
+        (line < m.edEnd   || (line === m.edEnd   && col <= m.endCol))
+      ).map(m => ({ value: '✎ ' + m.memo.split('\n').join('  \n') }));
+      if (rangeParts.length) return { contents: rangeParts };
+      const lm = memosByEdLine[line];
+      if (lm) return { contents: [{ value: '✎ ' + lm.split('\n').join('  \n') }] };
+      return null;
+    }
+  });
+}
+
 function initFloatingPeek(getHoverCtx) {
 
   const _floatingWins = new Map(); // word → DOM element
@@ -378,6 +439,8 @@ function initFloatingPeek(getHoverCtx) {
           lineNumbersMinChars: 4,
           contextmenu: false,
           automaticLayout: true,
+          glyphMargin: true,
+          hover: { enabled: true },
         });
         // enum_member の場合、対象行をハイライト
         if (h.kind === 'enum_member' && h.body) {
@@ -389,6 +452,7 @@ function initFloatingPeek(getHoverCtx) {
             options: { isWholeLine: true, className: 'float-peek-target-line' }
           }]);
         }
+        _applyFloatMemoDecos(ed, h.file, h.line - 1);
         win._floatEditors.push(ed);
         _attachEditorCtxMenu(ed, win);
       });
@@ -427,8 +491,10 @@ function initFloatingPeek(getHoverCtx) {
       lineNumbersMinChars: 4,
       contextmenu: false,
       automaticLayout: true,
+      glyphMargin: true,
+      hover: { enabled: true },
     });
-
+    _applyFloatMemoDecos(ed, file, startLine - 1);
     win._floatEditors.push(ed);
     _attachEditorCtxMenu(ed, win);
     const origClose = win._floatClose;
@@ -474,6 +540,8 @@ function initFloatingPeek(getHoverCtx) {
         lineNumbersMinChars: 4,
         contextmenu: false,
         automaticLayout: true,
+        glyphMargin: true,
+        hover: { enabled: true },
       });
 
       // ターゲット行をハイライト
@@ -486,6 +554,7 @@ function initFloatingPeek(getHoverCtx) {
         ed.revealLineInCenter(targetIdx + 1);
       }
 
+      if(lines.length) _applyFloatMemoDecos(ed, file, lines[0].line - 1);
       win._floatEditors.push(ed);
       _attachEditorCtxMenu(ed, win);
       const origClose = win._floatClose;
