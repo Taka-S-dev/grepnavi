@@ -125,7 +125,7 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
   border-top:2px solid transparent;
 }
 .ptab:hover{color:#ccc;background:#2d2d2d}
-.ptab.active{color:#ccc;background:#1e1e1e;border-top-color:#007acc}
+.ptab.active{color:#ccc;background:#1e1e1e;border-top:1px solid #007acc}
 .float-peek-target-line{background:rgba(255,200,0,0.15)!important;border-left:2px solid #ffc800!important}
 .monaco-static-var{color:#9cdcfe!important;font-style:italic}
 .monaco-local-func{color:#dcdcaa!important}
@@ -213,7 +213,7 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .rg-fcount{color:#666;font-size:10px;flex-shrink:0}
 
 /* center: node tree */
-#pane-tree{flex:1;display:flex;flex-direction:column;border-right:1px solid #444;overflow:hidden;position:relative;min-height:0}
+#pane-tree{flex:1;display:flex;flex-direction:column;border-right:1px solid rgba(255,255,255,0.18);overflow:hidden;position:relative;min-height:0}
 #tree-hdr{padding:4px 8px;background:#2d2d2d;border-bottom:1px solid #444;font-size:11px;color:#999;display:flex;align-items:center;justify-content:space-between}
 #addon-buttons{display:flex;gap:4px;align-items:center;margin-left:8px;padding-left:8px;border-left:1px solid #444}
 #tree{flex:1;overflow:auto;padding:6px 4px}
