@@ -21,6 +21,12 @@ function applyGraphResponse(g) {
     Object.assign(existing, g.line_memos);
     localStorage.setItem("grepnavi-line-memos", JSON.stringify(existing));
   }
+  if (g.range_memos && Array.isArray(g.range_memos)) {
+    const existing = getRangeMemos();
+    const existingIds = new Set(existing.map(m => m.id));
+    g.range_memos.forEach(m => { if (!existingIds.has(m.id)) existing.push(m); });
+    saveRangeMemos(existing);
+  }
   renderTreeTabs();
   renderCurrent();
   stGraph();
@@ -2080,6 +2086,146 @@ function attachIndentDrag(handle, row, nodeId, depth) {
 }
 
 // インクルード依存グラフ機能は static/js/include-graph.js に分離されています。
+
+// ===== CODE SNAPSHOT =====
+// 実装は editor.js の exportSelectionSnapshot() を参照
+async function exportNodeSnapshot() {
+  const node = selNode ? graph.nodes[selNode] : null;
+  if (!node) { st('ノードを選択してください'); return; }
+
+  const m = node.match || {};
+  const file = m.file || '';
+  const line = m.line || 0;
+  if (!file || !line) { st('ファイル情報がありません'); return; }
+
+  st('スナップショット生成中...');
+
+  // 関数本体を取得
+  const res = await fetch(`/api/func-body?file=${encodeURIComponent(file)}&line=${line}`).catch(() => null);
+  if (!res || !res.ok) { st('コードの取得に失敗しました'); return; }
+  const { body, start_line: startLine } = await res.json();
+  if (!body) { st('コードの取得に失敗しました'); return; }
+
+  const codeLines = body.split('\n');
+
+  // 行メモを取得（file::line の形式で localStorage に保存されている）
+  const allMemos = (() => {
+    try { return JSON.parse(localStorage.getItem('grepnavi-line-memos') || '{}'); } catch { return {}; }
+  })();
+  // この関数の範囲の行メモだけ抽出 { lineNo: memoText }
+  const memos = {};
+  Object.entries(allMemos).forEach(([k, v]) => {
+    const [f, l] = k.split('::');
+    if (f === file && v) {
+      const ln = parseInt(l);
+      if (ln >= startLine && ln < startLine + codeLines.length) {
+        memos[ln - startLine] = v; // 0-indexed offset
+      }
+    }
+  });
+
+  // Canvas 描画
+  const SCALE    = 2;
+  const FONT_SIZE = 13;
+  const LINE_H   = 20;
+  const PAD_X    = 48; // 行番号幅
+  const PAD_Y    = 16;
+  const CODE_FONT = `${FONT_SIZE}px Consolas, "Courier New", monospace`;
+  const MEMO_FONT = `bold ${FONT_SIZE - 1}px "Segoe UI", sans-serif`;
+  const MEMO_BG   = '#fffbe6';
+  const MEMO_BORDER = '#f0c040';
+  const MEMO_H    = LINE_H + 10; // 吹き出しの高さ
+  const MEMO_PAD  = 6;
+
+  // 各行の高さを計算（メモがある行は吹き出し分追加）
+  const lineHeights = codeLines.map((_, i) => LINE_H + (memos[i] ? MEMO_H + 4 : 0));
+  const totalH = PAD_Y * 2 + lineHeights.reduce((a, b) => a + b, 0);
+
+  // 最長行の幅を計算
+  const tmpCanvas = document.createElement('canvas');
+  const tmpCtx = tmpCanvas.getContext('2d');
+  tmpCtx.font = CODE_FONT;
+  const maxLineW = Math.max(...codeLines.map(l => tmpCtx.measureText(l).width));
+  const totalW = PAD_X + maxLineW + PAD_Y * 2 + 200; // メモ吹き出し余裕
+
+  const canvas = document.createElement('canvas');
+  canvas.width  = totalW * SCALE;
+  canvas.height = totalH * SCALE;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(SCALE, SCALE);
+
+  // 背景
+  ctx.fillStyle = '#1e1e1e';
+  ctx.fillRect(0, 0, totalW, totalH);
+
+  // シンタックスなしでコード行＋行番号を描画
+  let y = PAD_Y;
+  codeLines.forEach((codeLine, i) => {
+    const absLine = startLine + i;
+
+    // 行番号
+    ctx.font = CODE_FONT;
+    ctx.fillStyle = '#555';
+    ctx.textBaseline = 'top';
+    ctx.fillText(String(absLine).padStart(4), 4, y + 3);
+
+    // コード
+    ctx.fillStyle = '#d4d4d4';
+    ctx.fillText(codeLine, PAD_X, y + 3);
+
+    y += LINE_H;
+
+    // 行メモ（吹き出し）
+    if (memos[i]) {
+      const memoText = memos[i];
+      ctx.font = MEMO_FONT;
+      const memoW = ctx.measureText(memoText).width + MEMO_PAD * 2;
+
+      // 吹き出し背景
+      const bx = PAD_X + 8;
+      const by = y;
+      const bw = memoW + 12;
+      const bh = MEMO_H;
+      const br = 4;
+
+      ctx.fillStyle = MEMO_BG;
+      ctx.strokeStyle = MEMO_BORDER;
+      ctx.lineWidth = 1.5;
+      // 角丸矩形
+      ctx.beginPath();
+      ctx.moveTo(bx + br, by);
+      ctx.lineTo(bx + bw - br, by);
+      ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + br);
+      ctx.lineTo(bx + bw, by + bh - br);
+      ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - br, by + bh);
+      ctx.lineTo(bx + br, by + bh);
+      ctx.quadraticCurveTo(bx, by + bh, bx, by + bh - br);
+      ctx.lineTo(bx, by + br);
+      ctx.quadraticCurveTo(bx, by, bx + br, by);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // 📝 アイコン + テキスト
+      ctx.fillStyle = '#666';
+      ctx.font = `${FONT_SIZE - 1}px sans-serif`;
+      ctx.fillText('📝', bx + MEMO_PAD - 2, by + (bh - FONT_SIZE) / 2);
+      ctx.fillStyle = '#333';
+      ctx.font = MEMO_FONT;
+      ctx.fillText(memoText, bx + MEMO_PAD + 18, by + (bh - (FONT_SIZE - 1)) / 2);
+
+      y += MEMO_H + 4;
+    }
+  });
+
+  // ダウンロード
+  const label = (node.label || m.text || 'snapshot').replace(/[^\w\-]/g, '_').slice(0, 40);
+  const a = document.createElement('a');
+  a.download = `${label}.png`;
+  a.href = canvas.toDataURL('image/png');
+  a.click();
+  st('スナップショットを出力しました');
+}
 
 if (typeof module !== "undefined")
   module.exports = {

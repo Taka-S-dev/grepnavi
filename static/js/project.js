@@ -506,11 +506,12 @@ async function onProjectModalOk() {
 
 async function saveProject(path) {
   const lineMemos = getLineMemos();
+  const rangeMemos = getRangeMemos();
   let d;
   try {
     const r = await fetch('/api/graph/saveas', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({path, line_memos: lineMemos})
+      body: JSON.stringify({path, line_memos: lineMemos, range_memos: rangeMemos})
     });
     d = await r.json();
   } catch(e) {

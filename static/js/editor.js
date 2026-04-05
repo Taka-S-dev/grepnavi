@@ -103,6 +103,7 @@ function setLineMemo(file, line, memo) {
   const key = file + '::' + line;
   if(memo) memos[key] = memo; else delete memos[key];
   localStorage.setItem('grepnavi-line-memos', JSON.stringify(memos));
+  if(typeof markDirty === 'function') markDirty();
 }
 
 function refreshLineMemoDecorations() {
@@ -121,8 +122,9 @@ function refreshLineMemoDecorations() {
       return {
         range: new monaco.Range(line, 1, line, 1),
         options: {
+          isWholeLine: true,
           glyphMarginClassName: 'line-memo-glyph',
-          glyphMarginHoverMessage: { value: memo.split('\n').join('\n\n') },
+          glyphMarginHoverMessage: { value: '✎ ' + memo.split('\n').join('\n\n') },
         }
       };
     });
@@ -192,7 +194,7 @@ function showLineMemoInput(file, line) {
   const top = Math.min(edRect.top + (line - 1) * lineH - monacoEditor.getScrollTop() + lineH, window.innerHeight - 140);
   popup.style.left = (edRect.left + 64) + 'px';
   popup.style.top  = Math.max(top, edRect.top) + 'px';
-  popup.innerHTML  = `<div style="color:#aaa;font-size:11px;margin-bottom:4px">行 ${line} のメモ</div>`;
+  popup.innerHTML  = `<div style="color:#aaa;font-size:11px;margin-bottom:4px">L${line} の行メモ</div>`;
   const ta = document.createElement('textarea');
   ta.value = current;
   ta.style.cssText = 'width:100%;height:64px;background:#1a1a1a;border:1px solid #444;color:#ccc;font:11px Consolas,monospace;padding:4px;resize:vertical;box-sizing:border-box;border-radius:2px';
@@ -231,6 +233,141 @@ function showLineMemoInput(file, line) {
   }, {once: true}), 0);
 }
 
+// ===== 範囲メモ (localStorage) =====
+function getRangeMemos() {
+  try { return JSON.parse(localStorage.getItem('grepnavi-range-memos') || '[]'); } catch { return []; }
+}
+function saveRangeMemos(arr) {
+  localStorage.setItem('grepnavi-range-memos', JSON.stringify(arr));
+  if(typeof markDirty === 'function') markDirty();
+}
+
+function refreshRangeMemoDecorations() {
+  if (!monacoEditor) return;
+  const file = tabs[activeTabIdx]?.file;
+  if (!file) {
+    rangeMemoDecoIds = monacoEditor.deltaDecorations(rangeMemoDecoIds, []);
+    return;
+  }
+  const memos = getRangeMemos().filter(m => m.file === file);
+  const decos = memos.map(m => ({
+    range: new monaco.Range(m.startLine, m.startCol, m.endLine, m.endCol),
+    options: {
+      className: 'range-memo-highlight',
+      stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+    }
+  }));
+  rangeMemoDecoIds = monacoEditor.deltaDecorations(rangeMemoDecoIds, decos);
+  renderRangeMemoOverlay();
+}
+
+function renderRangeMemoOverlay() {
+  document.getElementById('range-memo-overlay')?.remove();
+  if (!monacoEditor || !showLineMemoInline) return;
+  const file = tabs[activeTabIdx]?.file;
+  if (!file) return;
+  const memos = getRangeMemos().filter(m => m.file === file);
+  if (!memos.length) return;
+
+  const container = id('monaco-container');
+  const overlay = document.createElement('div');
+  overlay.id = 'range-memo-overlay';
+  overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:hidden;z-index:5';
+  container.style.position = 'relative';
+  container.appendChild(overlay);
+
+  const lineH = monacoEditor.getOption(monaco.editor.EditorOption.lineHeight);
+  const fontSize = monacoEditor.getOption(monaco.editor.EditorOption.fontSize);
+  const layoutInfo = monacoEditor.getLayoutInfo();
+  const contentLeft = layoutInfo.contentLeft;
+
+  function positionItems() {
+    overlay.innerHTML = '';
+    const scrollTop = monacoEditor.getScrollTop();
+    memos.forEach(m => {
+      const top = monacoEditor.getTopForLineNumber(m.endLine) - scrollTop;
+      if (top < -lineH || top > container.offsetHeight) return;
+      const model = monacoEditor.getModel();
+      const endCol = model ? model.getLineMaxColumn(m.endLine) : 1;
+      const pos = monacoEditor.getScrolledVisiblePosition({ lineNumber: m.endLine, column: endCol });
+      const left = pos ? pos.left : contentLeft + 200;
+      const el = document.createElement('div');
+      el.className = 'line-memo-overlay-item range-memo-overlay-item';
+      el.style.cssText = `position:absolute;top:${top}px;left:${left + 8}px;height:${lineH}px;line-height:${lineH}px;font-size:${fontSize}px`;
+      el.textContent = '✎ ' + m.memo.split('\n').join(' ↵ ');
+      overlay.appendChild(el);
+    });
+  }
+
+  positionItems();
+  _rangeMemoScrollDispose?.dispose();
+  _rangeMemoScrollDispose = monacoEditor.onDidScrollChange(positionItems);
+}
+
+function showRangeMemoInput(file, startLine, startCol, endLine, endCol) {
+  document.getElementById('range-memo-popup')?.remove();
+  const arr = getRangeMemos();
+  const existing = arr.find(m => m.file === file && m.startLine === startLine && m.startCol === startCol && m.endLine === endLine && m.endCol === endCol);
+  const current = existing?.memo || '';
+
+  const popup = document.createElement('div');
+  popup.id = 'range-memo-popup';
+  popup.style.cssText = 'position:fixed;z-index:9999;background:#2d2d2d;border:1px solid #555;border-radius:4px;padding:8px;box-shadow:0 4px 12px rgba(0,0,0,0.6);width:300px';
+  const edRect = id('monaco-container').getBoundingClientRect();
+  const lineH = monacoEditor.getOption(monaco.editor.EditorOption.lineHeight);
+  const topPx = Math.min(edRect.top + (endLine - 1) * lineH - monacoEditor.getScrollTop() + lineH, window.innerHeight - 140);
+  popup.style.left = (edRect.left + 64) + 'px';
+  popup.style.top  = Math.max(topPx, edRect.top) + 'px';
+  popup.innerHTML  = `<div style="color:#aaa;font-size:11px;margin-bottom:4px">L${startLine}–${endLine} の範囲メモ</div>`;
+
+  const ta = document.createElement('textarea');
+  ta.value = current;
+  ta.style.cssText = 'width:100%;height:64px;background:#1a1a1a;border:1px solid #444;color:#ccc;font:11px Consolas,monospace;padding:4px;resize:vertical;box-sizing:border-box;border-radius:2px';
+  ta.placeholder = 'Ctrl+Enter で保存 / Esc でキャンセル';
+
+  const btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:4px;margin-top:6px;justify-content:flex-end';
+  const mkBtn = (label, bg) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.style.cssText = `font-size:11px;padding:2px 8px;background:${bg};color:#ccc;border:1px solid #555;border-radius:2px;cursor:pointer`;
+    return b;
+  };
+  const btnSave   = mkBtn('保存', '#0e639c');
+  const btnDel    = mkBtn('削除', '#3c3c3c');
+  const btnCancel = mkBtn('キャンセル', '#3c3c3c');
+  btnDel.style.display = existing ? '' : 'none';
+  btnRow.append(btnDel, btnCancel, btnSave);
+  popup.append(ta, btnRow);
+  document.body.appendChild(popup);
+  ta.focus(); ta.select();
+
+  const save = () => {
+    const memo = ta.value.trim();
+    const arr2 = getRangeMemos().filter(m => !(m.file === file && m.startLine === startLine && m.startCol === startCol && m.endLine === endLine && m.endCol === endCol));
+    if (memo) arr2.push({ id: existing?.id || Math.random().toString(36).slice(2), file, startLine, startCol, endLine, endCol, memo });
+    saveRangeMemos(arr2);
+    popup.remove();
+    refreshRangeMemoDecorations();
+  };
+  const cancel = () => popup.remove();
+  btnSave.onclick = save;
+  btnCancel.onclick = cancel;
+  btnDel.onclick = () => {
+    const arr2 = getRangeMemos().filter(m => m.id !== existing?.id);
+    saveRangeMemos(arr2);
+    popup.remove();
+    refreshRangeMemoDecorations();
+  };
+  ta.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { e.stopPropagation(); cancel(); }
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); save(); }
+  });
+  setTimeout(() => document.addEventListener('mousedown', e => {
+    if (!popup.contains(e.target)) cancel();
+  }, { once: true }), 0);
+}
+
 // ===== グラフ登録済み行のデコレーション =====
 function refreshGraphDecorations() {
   if(!monacoEditor) return;
@@ -256,7 +393,10 @@ function loadMonaco() {
   if(monacoReady) return Promise.resolve();
   if(!_monacoLoadPromise) {
     _monacoLoadPromise = new Promise(resolve => {
-      require(['vs/editor/editor.main'], () => { monacoReady = true; resolve(); });
+      require(['vs/editor/editor.main'], () => {
+        monacoReady = true;
+        resolve();
+      });
     });
   }
   return _monacoLoadPromise;
@@ -522,17 +662,33 @@ async function ensureEditor() {
     }
   });
 
-  // Alt+N → 行メモを追加/編集
+  // Alt+N → メモを追加/編集（選択中なら範囲メモ、未選択なら行メモ）
   monacoEditor.addAction({
-    id: 'grepnavi-line-memo', label: '行メモを追加/編集 (Alt+N)',
+    id: 'grepnavi-line-memo', label: 'メモを追加/編集 (Alt+N)',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyN],
     contextMenuGroupId: 'grepnavi-mark',
-    contextMenuOrder: 3,
+    contextMenuOrder: 2,
     run: ed => {
       const file = tabs[activeTabIdx]?.file;
-      const line = ed.getPosition()?.lineNumber;
-      if(!file || !line) return;
-      showLineMemoInput(file, line);
+      if (!file) return;
+      const sel = ed.getSelection();
+      if (sel && !sel.isEmpty()) {
+        showRangeMemoInput(file, sel.startLineNumber, sel.startColumn, sel.endLineNumber, sel.endColumn);
+        return;
+      }
+      const pos = ed.getPosition();
+      const line = pos?.lineNumber, col = pos?.column;
+      // カーソルが既存の範囲メモ内にいれば範囲メモを開く
+      const hit = getRangeMemos().find(m =>
+        m.file === file &&
+        (line > m.startLine || (line === m.startLine && col >= m.startCol)) &&
+        (line < m.endLine   || (line === m.endLine   && col <= m.endCol))
+      );
+      if (hit) {
+        showRangeMemoInput(file, hit.startLine, hit.startCol, hit.endLine, hit.endCol);
+      } else {
+        if (line) showLineMemoInput(file, line);
+      }
     }
   });
 
@@ -644,6 +800,70 @@ async function ensureEditor() {
       addToGraph({id: nodeId, file, line, text}, '', 'ref', text);
     }
   });
+
+  monacoEditor.addAction({
+    id: 'grepnavi-range-memo-delete', label: '選択範囲のメモを削除 (Delete)',
+    keybindings: [monaco.KeyCode.Delete],
+    contextMenuGroupId: 'grepnavi-mark',
+    contextMenuOrder: 2.5,
+    run: ed => {
+      const sel = ed.getSelection();
+      const file = tabs[activeTabIdx]?.file;
+      if (!file || !sel) return;
+      const sl = sel.startLineNumber, sc = sel.startColumn;
+      const el = sel.endLineNumber,   ec = sel.endColumn;
+      const arr = getRangeMemos();
+      const target = arr.find(m => m.file === file && m.startLine === sl && m.startCol === sc && m.endLine === el && m.endCol === ec);
+      if (target) {
+        saveRangeMemos(arr.filter(m => m.id !== target.id));
+        refreshRangeMemoDecorations();
+        st('範囲メモを削除しました');
+      } else {
+        // 完全一致がなければカーソル行を含む範囲メモを削除
+        const col = ed.getPosition()?.column ?? 1;
+        const ln  = ed.getPosition()?.lineNumber ?? 1;
+        const hit = arr.find(m => m.file === file &&
+          (ln > m.startLine || (ln === m.startLine && col >= m.startCol)) &&
+          (ln < m.endLine   || (ln === m.endLine   && col <= m.endCol)));
+        if (hit) {
+          saveRangeMemos(arr.filter(m => m.id !== hit.id));
+          refreshRangeMemoDecorations();
+          st('範囲メモを削除しました');
+        } else {
+          st('削除できる範囲メモがありません');
+        }
+      }
+    }
+  });
+
+  monacoEditor.addAction({
+    id: 'grepnavi-snapshot', label: 'コードスナップショットを開く',
+    contextMenuGroupId: 'grepnavi-mark',
+    contextMenuOrder: 3,
+    run: ed => exportSelectionSnapshot(ed), // → editor-snapshot.js
+  });
+
+
+  // メモ専用プロバイダを最後に登録（Monaco は後着順で先頭表示）
+  HOVER_LANGS.forEach(lang => {
+    monaco.languages.registerHoverProvider(lang, {
+      provideHover(_model, position) {
+        const file = tabs[activeTabIdx]?.file;
+        if (!file) return null;
+        const line = position.lineNumber, col = position.column;
+        const rangeParts = getRangeMemos().filter(m =>
+          m.file === file &&
+          (line > m.startLine || (line === m.startLine && col >= m.startCol)) &&
+          (line < m.endLine   || (line === m.endLine   && col <= m.endCol))
+        ).map(m => ({ value: '✎ ' + m.memo.split('\n').join('  \n') }));
+        if (rangeParts.length) return { contents: rangeParts };
+        const lm = getLineMemos()[file + '::' + line];
+        if (lm) return { contents: [{ value: '✎ ' + lm.split('\n').join('  \n') }] };
+        return null;
+      }
+    });
+  });
+
   _resolve();
 }
 
@@ -925,9 +1145,10 @@ async function switchTab(idx) {
   const tab = tabs[idx];
   monacoEditor.setModel(tab.model);
   if(tab.viewState) try { monacoEditor.restoreViewState(tab.viewState); } catch(_) {}
-  id('peek-file').value = tab.file;
+  id('peek-file').value = tab.file.replace(/\\/g, '/');
   refreshGraphDecorations();
   refreshLineMemoDecorations();
+  refreshRangeMemoDecorations();
   refreshSymbolDecorations();
   pinnedHighlights.forEach(ph => applyPinnedHighlightToModel(ph, tab.model));
   const isC = /\.(c|h|cpp|cc|cxx|hpp)$/i.test(tab.file);
