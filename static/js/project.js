@@ -132,16 +132,37 @@ async function setRoot(newRoot) {
   id('dir').value = '';
   updateRootChip();
 
-  // .grepnavi からプロジェクトファイルを自動ロード
+  // クライアント側をリセット
   localStorage.removeItem(LS_PROJECT_PATH);
+  selNode = null; showDetail(null);
+  tabs.forEach(t => { try { t.model?.dispose(); } catch(_) {} });
+  tabs = []; activeTabIdx = -1;
+  renderTabs();
+  id('results').innerHTML = '';
+
+  // .grepnavi からプロジェクトファイルを自動ロード
   try {
     const gnRes = await fetch('/api/grepnavi');
     const gn = await gnRes.json();
     if(gn.graph) {
       await openProject(gn.graph);
+      // openProject が projectRoot を書き換えるので data.root に戻す
+      projectRoot = data.root;
+      const _parts = data.root.replace(/\\/g,'/').split('/');
+      id('root-label').textContent = _parts[_parts.length-1] || data.root;
+      id('root-label').title = data.root + ' (クリックで変更)';
+      updateRootChip();
+      // サーバー側の root も戻す
+      await fetch('/api/root', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({root: data.root})}).catch(()=>{});
       return true;
     }
   } catch(_) {}
+
+  // .grepnavi なし → サーバーをファイル保存なしでリセット
+  window._serverGraphFile = null;
+  const cleared = await fetch('/api/graph/clear', { method: 'POST' }).then(r => r.json()).catch(() => null);
+  if(cleared) applyGraphResponse(cleared);
+  else applyGraphResponse({ nodes: {}, edges: [], root_dir: data.root });
   markClean();
   updateProjectUI();
   st('ルート変更: ' + data.root);
@@ -311,7 +332,8 @@ function markClean() { _dirty = false; updateProjectUI(); }
   window.fetch = function(url, opts) {
     const method = ((opts && opts.method) || 'GET').toUpperCase();
     if(method !== 'GET' && typeof url === 'string' &&
-       (url.startsWith('/api/graph') || url.startsWith('/api/trees'))) {
+       (url.startsWith('/api/graph') || url.startsWith('/api/trees')) &&
+       url !== '/api/graph/clear') {
       markDirty();
     }
     return _orig.apply(this, arguments);
@@ -331,14 +353,16 @@ function getProjectPath() {
 function setProjectPath(p) {
   localStorage.setItem(LS_PROJECT_PATH, p);
   addProjectHistory(p);
-  if(projectRoot && p) {
-    fetch('/api/grepnavi', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({graph: p})
-    }).catch(() => {});
-  }
   updateProjectUI();
+}
+
+async function writeGrepnavi(p) {
+  if(!projectRoot || !p) return;
+  await fetch('/api/grepnavi', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({graph: p})
+  }).catch(() => {});
 }
 function getProjectHistory() {
   try { return JSON.parse(localStorage.getItem(LS_PROJECT_HISTORY) || '[]'); } catch { return []; }
@@ -514,6 +538,7 @@ async function saveProject(path) {
   if(!d || d.error) { st('保存エラー: ' + (d?.error || '不明なエラー')); return; }
   _dirty = false;
   setProjectPath(path);
+  await writeGrepnavi(path);
   addSaveDirHistory(path.replace(/\\/g, '/').split('/').slice(0, -1).join('/'));
   st('保存しました: ' + path);
 }

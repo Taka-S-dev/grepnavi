@@ -317,6 +317,16 @@ func (s *Store) ClearActiveTree() error {
 	return s.save()
 }
 
+// ResetInMemory はグラフをメモリ上でのみリセットし、ファイルへの保存は行わない。
+// ルート切り替え時など、既存ファイルを壊さずに状態をクリアしたい場合に使う。
+func (s *Store) ResetInMemory(rootDir string) *GraphResponse {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pf = NewProjectFile(rootDir)
+	s.filePath = ""
+	return s.buildResponse(s.activeTree())
+}
+
 // ===== ノード操作 =====
 
 func (s *Store) AddNode(n *Node) (*Node, error) {

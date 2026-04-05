@@ -14,6 +14,17 @@ import (
 
 // --- /api/graph ---
 
+func (h *Handler) handleGraphClear(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	h.mu.RLock()
+	root := h.root
+	h.mu.RUnlock()
+	jsonOK(w, h.store.ResetInMemory(root))
+}
+
 func (h *Handler) handleGraph(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
