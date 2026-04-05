@@ -255,7 +255,7 @@ function loadD3() {
     const savedDefine = window.define;
     window.define = undefined;
     const s = document.createElement("script");
-    s.src = "https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js";
+    s.src = "/js/vendor/d3.min.js";
     s.onload = () => {
       window.define = savedDefine;
       resolve();

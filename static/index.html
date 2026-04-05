@@ -3,10 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <title>コードビューア</title>
+<script src="/js/vendor/jszip.min.js"></script>
+<script src="/js/vendor/pptxgen.bundle.js"></script>
 <script>
-  var require = {paths: {'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs'}};
+  var require = {paths: {'vs': '/js/vendor/monaco-editor'}};
 </script>
-<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
+<script src="/js/vendor/monaco-editor/loader.js"></script>
 <link rel="stylesheet" href="/css/codicon.css">
 <link rel="stylesheet" href="/css/main.css?v=5">
 <link rel="stylesheet" href="/css/explorer.css">
@@ -332,6 +334,7 @@
 <script src="/js/graph.js"></script>
 <script src="/js/floating-peek.js"></script>
 <script src="/js/editor-c.js"></script>
+<script src="/js/editor-snapshot.js"></script>
 <script src="/js/editor.js"></script>
 <script src="/js/filebrowser.js"></script>
 <script src="/js/project.js"></script>

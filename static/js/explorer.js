@@ -304,39 +304,11 @@ function makeItemEl(item, idx) {
   return el;
 }
 
-const DIR_TO_ICON = {
-  src:'src',source:'src',
-  lib:'lib',libs:'lib',library:'lib',
-  include:'include',includes:'include',inc:'include',
-  test:'test',tests:'test','__tests__':'test',spec:'test',specs:'test',
-  docs:'docs',doc:'docs',documentation:'docs',
-  build:'build',out:'build',output:'build',
-  dist:'dist',release:'dist',
-  config:'config',configs:'config',configuration:'config',conf:'config',settings:'config',
-  scripts:'scripts',script:'scripts',
-  tools:'tools',tool:'tools',
-  public:'public',
-  static:'static',
-  assets:'assets',asset:'assets',
-  images:'images',image:'images',img:'images',imgs:'images',
-  css:'css',styles:'css',style:'css',
-  js:'js',
-  node_modules:'node',
-  '.git':'git','.github':'github','.vscode':'vscode',
-  api:'api',
-  app:'app',
-  components:'components',component:'components',
-  utils:'utils',util:'utils',helpers:'utils',
-};
-function dirIcon(name) {
-  const key = (name||'').toLowerCase();
-  const icon = DIR_TO_ICON[key] || DIR_TO_ICON[name] || 'base';
-  return `<img src="${MIT_ICON_BASE}folder-${icon}.svg" width="16" height="16" style="vertical-align:middle;flex-shrink:0;margin-right:3px" onerror="this.src='${MIT_ICON_BASE}folder-base.svg'">`;
+function dirIcon(_name) {
+  return `<img src="${MIT_ICON_BASE}folder-closed.svg" width="16" height="16" style="vertical-align:middle;flex-shrink:0;margin-right:3px">`;
 }
-function dirIconOpen(name) {
-  const key = (name||'').toLowerCase();
-  const icon = DIR_TO_ICON[key] || DIR_TO_ICON[name] || 'base';
-  return `<img src="${MIT_ICON_BASE}folder-${icon}-open.svg" width="16" height="16" style="vertical-align:middle;flex-shrink:0;margin-right:3px" onerror="this.src='${MIT_ICON_BASE}folder-base-open.svg'">`;
+function dirIconOpen(_name) {
+  return `<img src="${MIT_ICON_BASE}folder-open.svg" width="16" height="16" style="vertical-align:middle;flex-shrink:0;margin-right:3px">`;
 }
 function escHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');

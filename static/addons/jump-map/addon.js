@@ -70,16 +70,15 @@ function _loadScript(url) {
 }
 function _loadCytoscape() {
   if(typeof cytoscape !== 'undefined') return Promise.resolve();
-  return _loadScript('https://cdn.jsdelivr.net/npm/cytoscape@3.28.1/dist/cytoscape.min.js');
+  return _loadScript('/js/vendor/cytoscape.min.js');
 }
 async function _loadHighlightJs() {
   if(typeof hljs !== 'undefined') return;
   const link = document.createElement('link');
   link.rel = 'stylesheet';
-  link.href = 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css';
+  link.href = '/js/vendor/styles/atom-one-dark.min.css';
   document.head.appendChild(link);
-  // CDNリリースビルド（ブラウザ向けIIFE、AMD干渉なし）
-  await _loadScript('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js');
+  await _loadScript('/js/vendor/highlight.min.js');
 }
 function _extToLang(file) {
   const ext = (file || '').split('.').pop().toLowerCase();
@@ -364,7 +363,7 @@ async function _jmInitCy() {
   _initFileResize();
 
   // ミニマップ（cytoscape-navigator）
-  _loadScript('/addons/jump-map/cytoscape-navigator.js')
+  _loadScript('/js/vendor/cytoscape-navigator.js')
     .then(() => {
       if(_jmNav || !_cy) return;
       if(typeof _cy.navigator !== 'function') {

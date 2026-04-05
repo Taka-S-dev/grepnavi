@@ -23,63 +23,6 @@ function nodeColorPresetLabel() {
 const KIND_LABEL = {define:'macro', struct:'struct', enum:'enum', typedef:'typedef', func:'fn'};
 const KIND_COLOR = {define:'#a06000', struct:'#4a5bbf', enum:'#4a5bbf', typedef:'#1e7d82', func:'#1e6e40'};
 
-// Material Icon Theme (MIT License, PKief/vscode-material-icon-theme)
-const MIT_ICON_BASE = 'https://cdn.jsdelivr.net/gh/PKief/vscode-material-icon-theme@main/icons/';
-const EXT_TO_ICON = {
-  // C/C++
-  c:'c',h:'h',cpp:'cpp',cc:'cpp',cxx:'cpp',hpp:'hpp',
-  // Go/Rust/Python/Ruby
-  go:'go',rs:'rust',py:'python',rb:'ruby',
-  // JS/TS
-  js:'javascript',mjs:'javascript',cjs:'javascript',
-  ts:'typescript',tsx:'react_ts',jsx:'react',
-  // Web
-  html:'html',htm:'html',
-  css:'css',scss:'scss',sass:'sass',less:'less',
-  // Data/Config
-  json:'json',jsonc:'json',
-  yaml:'yaml',yml:'yaml',
-  xml:'xml',toml:'toml',ini:'tune',cfg:'tune',conf:'tune',
-  env:'dotenv',lock:'lock',
-  // DB
-  sql:'database',
-  // JVM
-  java:'java',kt:'kotlin',kts:'kotlin',gradle:'gradle',
-  scala:'scala',
-  // .NET
-  cs:'csharp',
-  // Shell
-  sh:'shell',bash:'shell',zsh:'shell',fish:'shell',
-  bat:'windows_cmd',cmd:'windows_cmd',ps1:'powershell',
-  // Other languages
-  php:'php',lua:'lua',r:'r',dart:'dart',swift:'swift',
-  ex:'elixir',exs:'elixir',
-  tf:'terraform',tfvars:'terraform',
-  // Frontend frameworks
-  vue:'vue',svelte:'svelte',
-  // Docs
-  md:'markdown',rst:'readme',
-  // Build
-  cmake:'cmake',makefile:'makefile',mk:'makefile',
-  // Dotfiles (ext = part after last dot, e.g. ".gitignore" → ext="gitignore")
-  gitignore:'git',gitattributes:'git',gitmodules:'git',mailmap:'git',
-  editorconfig:'editorconfig',
-  npmignore:'npm',
-  dockerignore:'docker',
-  eslintignore:'eslint',eslintrc:'eslint',
-  prettierrc:'prettier',prettierignore:'prettier',
-  babelrc:'babel',
-  nvmrc:'nvm',
-  // No-extension files (ext == full name lowercased for files without dots)
-  readme:'readme',
-  license:'license',copying:'license',credits:'license',authors:'authors',
-  changelog:'changelog',changes:'changelog',
-  contributing:'contributing',
-  maintainers:'authors',
-  codeowners:'git',
-  dockerfile:'docker',
-};
-const _iconCache = {};
 
 // ===== DOM / ESCAPE =====
 const id = s => document.getElementById(s);
@@ -139,17 +82,49 @@ function stGraph(){
 }
 
 // ===== FILE ICONS =====
+const MIT_ICON_BASE = '/js/vendor/icons/';
+const EXT_TO_ICON = {
+  c:'c',h:'h',cpp:'cpp',cc:'cpp',cxx:'cpp',hpp:'hpp',
+  go:'go',rs:'rust',py:'python',rb:'ruby',
+  js:'javascript',mjs:'javascript',cjs:'javascript',
+  ts:'typescript',tsx:'react_ts',jsx:'react',
+  html:'html',htm:'html',
+  css:'css',scss:'scss',sass:'sass',less:'less',
+  json:'json',jsonc:'json',
+  yaml:'yaml',yml:'yaml',
+  xml:'xml',toml:'toml',ini:'tune',cfg:'tune',conf:'tune',
+  env:'tune',lock:'lock',
+  sql:'database',
+  java:'java',kt:'kotlin',kts:'kotlin',gradle:'gradle',scala:'scala',
+  cs:'csharp',
+  sh:'shell',bash:'shell',zsh:'shell',fish:'shell',
+  bat:'windows_cmd',cmd:'windows_cmd',ps1:'powershell',
+  php:'php',lua:'lua',r:'r',dart:'dart',swift:'swift',
+  ex:'elixir',exs:'elixir',
+  tf:'terraform',tfvars:'terraform',
+  vue:'vue',svelte:'svelte',
+  md:'markdown',rst:'readme',
+  cmake:'cmake',makefile:'makefile',mk:'makefile',
+  gitignore:'git',gitattributes:'git',gitmodules:'git',
+  editorconfig:'editorconfig',
+  npmignore:'npm',dockerignore:'docker',
+  eslintignore:'eslint',eslintrc:'eslint',
+  prettierrc:'prettier',prettierignore:'prettier',
+  babelrc:'babel',
+  readme:'readme',license:'license',copying:'license',
+  changelog:'changelog',contributing:'contributing',
+  authors:'authors',dockerfile:'docker',
+};
+const _iconCache = {};
+
 function fileIcon(filename) {
   const base = filename.split(/[\\/]/).pop() || filename;
-  const ext = (base.split('.').pop()||'').toLowerCase();
+  const ext = (base.split('.').pop() || '').toLowerCase();
   const name = EXT_TO_ICON[ext] || EXT_TO_ICON[base.toLowerCase()];
-  const url = name ? MIT_ICON_BASE + name + '.svg' : null;
-  if(!url) {
-    return `<i class="codicon codicon-file" style="flex-shrink:0;vertical-align:middle;font-size:16px;color:#888;margin-right:3px;width:16px;text-align:center;display:inline-block"></i>`;
-  }
-  if(_iconCache[url]) return _iconCache[url];
-  const html = `<img src="${url}" width="16" height="16" style="flex-shrink:0;vertical-align:middle" onerror="this.replaceWith(fileIconFallback())">`;
-  _iconCache[url] = html;
+  if (!name) return `<i class="codicon codicon-file" style="flex-shrink:0;vertical-align:middle;font-size:16px;color:#888;margin-right:3px;width:16px;text-align:center;display:inline-block"></i>`;
+  if (_iconCache[name]) return _iconCache[name];
+  const html = `<img src="${MIT_ICON_BASE}${name}.svg" width="16" height="16" style="flex-shrink:0;vertical-align:middle;margin-right:3px" onerror="this.replaceWith(fileIconFallback())">`;
+  _iconCache[name] = html;
   return html;
 }
 
