@@ -53,6 +53,50 @@ func (h *Handler) handleReveal(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]string{"status": "ok"})
 }
 
+// --- /api/grepnavi ---
+
+const grepnaviFile = ".grepnavi"
+
+func (h *Handler) handleGrepnavi(w http.ResponseWriter, r *http.Request) {
+	h.mu.RLock()
+	root := h.root
+	h.mu.RUnlock()
+
+	switch r.Method {
+	case http.MethodGet:
+		p := filepath.Join(root, grepnaviFile)
+		data, err := os.ReadFile(p)
+		if err != nil {
+			// ファイルなし → 空を返す
+			jsonOK(w, map[string]string{"graph": ""})
+			return
+		}
+		var cfg map[string]string
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			jsonOK(w, map[string]string{"graph": ""})
+			return
+		}
+		jsonOK(w, cfg)
+
+	case http.MethodPost:
+		var body map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			jsonErr(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		data, _ := json.MarshalIndent(body, "", "  ")
+		p := filepath.Join(root, grepnaviFile)
+		if err := os.WriteFile(p, data, 0644); err != nil {
+			jsonErr(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		jsonOK(w, map[string]string{"status": "ok"})
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 // --- /api/root ---
 
 func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {

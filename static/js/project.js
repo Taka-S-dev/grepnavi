@@ -111,11 +111,6 @@ async function setRoot(newRoot) {
     if(!ok) return false;
   }
 
-  // 現在のルートとプロジェクトファイルの対応を保存しておく
-  const prevRoot = projectRoot;
-  const prevPath = getProjectPath();
-  if(prevRoot && prevPath) setRootProjectEntry(prevRoot, prevPath);
-
   const r = await fetch('/api/root', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
@@ -137,16 +132,19 @@ async function setRoot(newRoot) {
   id('dir').value = '';
   updateRootChip();
 
-  // 新しいルートに対応するプロジェクトファイルを自動で切り替える
-  const savedPath = getRootProjectMap()[data.root];
-  if(savedPath) {
-    await openProject(savedPath);
-  } else {
-    localStorage.removeItem(LS_PROJECT_PATH);
-    markClean();
-    updateProjectUI();
-    st('ルート変更: ' + data.root);
-  }
+  // .grepnavi からプロジェクトファイルを自動ロード
+  localStorage.removeItem(LS_PROJECT_PATH);
+  try {
+    const gnRes = await fetch('/api/grepnavi');
+    const gn = await gnRes.json();
+    if(gn.graph) {
+      await openProject(gn.graph);
+      return true;
+    }
+  } catch(_) {}
+  markClean();
+  updateProjectUI();
+  st('ルート変更: ' + data.root);
   return true;
 }
 
@@ -325,18 +323,7 @@ const LS_PROJECT_HISTORY = 'grepnavi_project_history';
 const LS_DIR_HISTORY     = 'grepnavi_dir_history';      // ルート選択専用
 const LS_SAVE_DIR_HISTORY= 'grepnavi_save_dir_history'; // open/save フォルダ専用
 const LS_GLOB_HISTORY    = 'grepnavi_glob_history';
-const LS_ROOT_PROJECT_MAP= 'grepnavi_root_project_map'; // ルート→プロジェクトファイルの対応
 const HISTORY_MAX = 8;
-
-function getRootProjectMap() {
-  try { return JSON.parse(localStorage.getItem(LS_ROOT_PROJECT_MAP) || '{}'); } catch { return {}; }
-}
-function setRootProjectEntry(root, path) {
-  if(!root) return;
-  const map = getRootProjectMap();
-  if(path) map[root] = path; else delete map[root];
-  localStorage.setItem(LS_ROOT_PROJECT_MAP, JSON.stringify(map));
-}
 
 function getProjectPath() {
   return localStorage.getItem(LS_PROJECT_PATH) || '';
@@ -344,7 +331,13 @@ function getProjectPath() {
 function setProjectPath(p) {
   localStorage.setItem(LS_PROJECT_PATH, p);
   addProjectHistory(p);
-  if(projectRoot && p) setRootProjectEntry(projectRoot, p);
+  if(projectRoot && p) {
+    fetch('/api/grepnavi', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({graph: p})
+    }).catch(() => {});
+  }
   updateProjectUI();
 }
 function getProjectHistory() {

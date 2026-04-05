@@ -221,11 +221,12 @@ addEventListener('DOMContentLoaded', async () => {
 
   await loadGraph();
 
-  // 前回開いていたプロジェクトファイルを自動で復元
-  const _lastProject = getProjectPath();
-  if(_lastProject) {
-    try { await openProject(_lastProject); } catch(e) {}
-  }
+  // .grepnavi からプロジェクトファイルを自動ロード
+  try {
+    const gnRes = await fetch('/api/grepnavi');
+    const gn = await gnRes.json();
+    if(gn.graph) await openProject(gn.graph);
+  } catch(_) {}
 
   initSearchBar();
   initFilter();
