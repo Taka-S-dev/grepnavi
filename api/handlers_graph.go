@@ -349,10 +349,11 @@ func (h *Handler) handleGraphExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		LineMemos map[string]string `json:"line_memos"`
+		LineMemos  map[string]string  `json:"line_memos"`
+		RangeMemos []graph.RangeMemo  `json:"range_memos"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
-	data, err := h.store.ExportJSON(req.LineMemos)
+	data, err := h.store.ExportJSON(req.LineMemos, req.RangeMemos)
 	if err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -399,8 +400,9 @@ func (h *Handler) handleGraphSaveAs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Path      string            `json:"path"`
-		LineMemos map[string]string `json:"line_memos"`
+		Path       string            `json:"path"`
+		LineMemos  map[string]string `json:"line_memos"`
+		RangeMemos []graph.RangeMemo `json:"range_memos"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonErr(w, err.Error(), http.StatusBadRequest)
@@ -410,7 +412,7 @@ func (h *Handler) handleGraphSaveAs(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, "path is required", http.StatusBadRequest)
 		return
 	}
-	if err := h.store.SaveAs(req.Path, req.LineMemos); err != nil {
+	if err := h.store.SaveAs(req.Path, req.LineMemos, req.RangeMemos); err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

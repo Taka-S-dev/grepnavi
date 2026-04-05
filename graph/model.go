@@ -68,6 +68,17 @@ type Tree struct {
 	UpdatedAt time.Time        `json:"updated_at"`
 }
 
+// RangeMemo は範囲メモの1件分。
+type RangeMemo struct {
+	ID        string `json:"id"`
+	File      string `json:"file"`
+	StartLine int    `json:"start_line"`
+	StartCol  int    `json:"start_col"`
+	EndLine   int    `json:"end_line"`
+	EndCol    int    `json:"end_col"`
+	Memo      string `json:"memo"`
+}
+
 // ProjectFile はプロジェクトファイルのトップレベル構造（複数ツリー対応）。
 type ProjectFile struct {
 	Version      int               `json:"version"`
@@ -75,6 +86,7 @@ type ProjectFile struct {
 	ActiveTreeID string            `json:"active_tree_id"`
 	Trees        []*Tree           `json:"trees"`
 	LineMemos    map[string]string `json:"line_memos,omitempty"`
+	RangeMemos   []RangeMemo       `json:"range_memos,omitempty"`
 	UpdatedAt    time.Time         `json:"updated_at"`
 }
 
@@ -96,6 +108,7 @@ type GraphResponse struct {
 	Trees        []TreeMeta        `json:"trees"`
 	ActiveTreeID string            `json:"active_tree_id"`
 	LineMemos    map[string]string `json:"line_memos,omitempty"`
+	RangeMemos   []RangeMemo       `json:"range_memos,omitempty"`
 	RootOrder    []string          `json:"root_order,omitempty"`
 }
 

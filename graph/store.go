@@ -138,6 +138,7 @@ func (s *Store) buildResponse(t *Tree) *GraphResponse {
 		Trees:        s.treeMetas(),
 		ActiveTreeID: s.pf.ActiveTreeID,
 		LineMemos:    s.pf.LineMemos,
+		RangeMemos:   s.pf.RangeMemos,
 		RootOrder:    t.RootOrder,
 	}
 }
@@ -495,10 +496,11 @@ func isDescendantRec(t *Tree, target, root string, visited map[string]bool) bool
 
 // ===== プロジェクトファイル保存/読み込み =====
 
-func (s *Store) SaveAs(path string, lineMemos map[string]string) error {
+func (s *Store) SaveAs(path string, lineMemos map[string]string, rangeMemos []RangeMemo) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pf.LineMemos = lineMemos
+	s.pf.RangeMemos = rangeMemos
 	s.pf.UpdatedAt = time.Now()
 	data, err := json.MarshalIndent(s.pf, "", "  ")
 	if err != nil {
@@ -529,14 +531,17 @@ func (s *Store) OpenFile(path string) (*GraphResponse, error) {
 }
 
 // ExportJSON は現在のプロジェクトを JSON バイト列として返す（ファイル書き込みなし）。
-func (s *Store) ExportJSON(lineMemos map[string]string) ([]byte, error) {
+func (s *Store) ExportJSON(lineMemos map[string]string, rangeMemos []RangeMemo) ([]byte, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	prev := s.pf.LineMemos
+	prevL := s.pf.LineMemos
+	prevR := s.pf.RangeMemos
 	s.pf.LineMemos = lineMemos
+	s.pf.RangeMemos = rangeMemos
 	s.pf.UpdatedAt = time.Now()
 	data, err := json.MarshalIndent(s.pf, "", "  ")
-	s.pf.LineMemos = prev
+	s.pf.LineMemos = prevL
+	s.pf.RangeMemos = prevR
 	return data, err
 }
 

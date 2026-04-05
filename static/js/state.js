@@ -54,6 +54,8 @@ let graphDecoIds = [];
 let lineMemoDecoIds = [];
 let showLineMemoInline = false;
 let _lineMemoScrollDispose = null;
+let rangeMemoDecoIds = [];
+let _rangeMemoScrollDispose = null;
 let ifdefDecoIds = [];
 let pinnedHighlights = []; // [{word, colorIdx, modelDecos: Map<uriStr, decoIds[]>}]
 
