@@ -129,7 +129,7 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .float-peek-target-line{background:rgba(255,200,0,0.15)!important;border-left:2px solid #ffc800!important}
 .monaco-static-var{color:#9cdcfe!important;font-style:italic}
 .monaco-local-func{color:#dcdcaa!important}
-.monaco-define-macro{color:#d19a66!important}
+.monaco-define-macro{color:#e5c07b!important}
 .monaco-type-name{color:#4ec9b0!important}
 .ptab.preview>span:first-child{font-style:italic}
 .ptab.error>span:first-child{opacity:0.4}
