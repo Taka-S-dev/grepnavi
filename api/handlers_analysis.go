@@ -72,6 +72,23 @@ func (h *Handler) handleFile(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(sb.String()))
 }
 
+// --- /api/file/mtime ---
+
+func (h *Handler) handleFileMtime(w http.ResponseWriter, r *http.Request) {
+	file := r.URL.Query().Get("file")
+	if file == "" {
+		http.Error(w, "file required", http.StatusBadRequest)
+		return
+	}
+	info, err := os.Stat(file)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	fmt.Fprintf(w, "%d", info.ModTime().UnixMilli())
+}
+
 // --- /api/func-body ---
 
 func (h *Handler) handleFuncBody(w http.ResponseWriter, r *http.Request) {

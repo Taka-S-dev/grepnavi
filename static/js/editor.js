@@ -1079,10 +1079,12 @@ async function openPeek(file, line, {permanent = false} = {}) {
     return;
   }
   const text = await r.text();
+  const mtimeRes = await fetch('/api/file/mtime?' + new URLSearchParams({file}));
+  const mtime = mtimeRes.ok ? parseInt(await mtimeRes.text()) : 0;
   const lang = detectLang(file);
   const uri = monaco.Uri.from({scheme:'grepnavi', path: file.replace(/\\/g,'/')});
   const model = monaco.editor.getModel(uri) || monaco.editor.createModel(text, lang || 'plaintext', uri);
-  const tab = {file, line, label: file.replace(/\\/g,'/').split('/').pop(), model, decoIds: [], preview: !permanent};
+  const tab = {file, line, label: file.replace(/\\/g,'/').split('/').pop(), model, decoIds: [], preview: !permanent, mtime};
 
   // プレビュー開きの場合：既存プレビュータブをこのタブで置き換える
   const previewIdx = permanent ? -1 : tabs.findIndex(t => t.preview);
@@ -1141,15 +1143,52 @@ async function refreshSymbolDecorations() {
   } catch (_) {}
 }
 
+// ===== アクティブタブのファイル変更ポーリング =====
+
+const FILE_POLL_INTERVAL = 2000; // ms
+
+function startFilePolling() {
+  stopFilePolling();
+  if(document.hidden) return;
+  _filePollTimer = setInterval(pollActiveFile, FILE_POLL_INTERVAL);
+}
+
+function stopFilePolling() {
+  if(_filePollTimer !== null) { clearInterval(_filePollTimer); _filePollTimer = null; }
+}
+
+async function pollActiveFile() {
+  const tab = tabs[activeTabIdx];
+  if(!tab || tab.error) return;
+  try {
+    const res = await fetch('/api/file/mtime?' + new URLSearchParams({file: tab.file}));
+    if(!res.ok) return;
+    const mtime = parseInt(await res.text());
+    if(mtime === tab.mtime) return;
+    // ファイルが変更された → 内容を再取得
+    const r = await fetch('/api/file?' + new URLSearchParams({file: tab.file}));
+    if(!r.ok) return;
+    const text = await r.text();
+    tab.mtime = mtime;
+    tab.model.setValue(text);
+  } catch(_) {}
+}
+
+document.addEventListener('visibilitychange', () => {
+  if(document.hidden) stopFilePolling(); else startFilePolling();
+});
+
 async function switchTab(idx) {
   if(idx < 0 || idx >= tabs.length) return;
   if(activeTabIdx >= 0 && activeTabIdx < tabs.length)
     tabs[activeTabIdx].viewState = monacoEditor.saveViewState();
   activeTabIdx = idx;
+  startFilePolling();
   const tab = tabs[idx];
   monacoEditor.setModel(tab.model);
   if(tab.viewState) try { monacoEditor.restoreViewState(tab.viewState); } catch(_) {}
   id('peek-file').value = tab.file.replace(/\\/g, '/');
+  id('peek-open').onclick = () => openFile(tab.file, monacoEditor?.getPosition()?.lineNumber ?? tab.line);
   refreshGraphDecorations();
   refreshLineMemoDecorations();
   refreshRangeMemoDecorations();
@@ -1169,7 +1208,7 @@ function closeTab(idx) {
   if(idx < 0 || idx >= tabs.length) return;
   tabs[idx].model.dispose();
   tabs.splice(idx, 1);
-  if(!tabs.length) { id('peek').classList.remove('visible'); activeTabIdx = -1; renderTabs(); return; }
+  if(!tabs.length) { stopFilePolling(); id('peek').classList.remove('visible'); activeTabIdx = -1; renderTabs(); return; }
   const next = Math.min(idx, tabs.length - 1);
   activeTabIdx = -1;
   switchTab(next);
@@ -1466,6 +1505,8 @@ function openFile(file, line) {
   if(!file) return;
   const params = new URLSearchParams({file});
   if(line) params.set('line', line);
+  const editorCmd = getEditorCmd();
+  if(editorCmd) params.set('editor', editorCmd);
   fetch('/api/open?' + params);
 }
 

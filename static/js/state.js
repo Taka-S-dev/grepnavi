@@ -59,6 +59,9 @@ let _rangeMemoScrollDispose = null;
 let ifdefDecoIds = [];
 let pinnedHighlights = []; // [{word, colorIdx, modelDecos: Map<uriStr, decoIds[]>}]
 
+// File polling
+let _filePollTimer = null;
+
 // Resize
 let peekResizing = false, peekStartY = 0, peekStartH = 0;
 let leftResizing = false, leftStartY = 0, leftStartH = 0;

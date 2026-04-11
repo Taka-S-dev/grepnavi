@@ -57,6 +57,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/reveal", h.handleReveal)
 	mux.HandleFunc("/api/snippet", h.handleSnippet)
 	mux.HandleFunc("/api/file", h.handleFile)
+	mux.HandleFunc("/api/file/mtime", h.handleFileMtime)
 	mux.HandleFunc("/api/func-body", h.handleFuncBody)
 	mux.HandleFunc("/api/symbols", h.handleSymbols)
 	mux.HandleFunc("/api/ifdef", h.handleIfdef)
