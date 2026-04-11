@@ -220,14 +220,23 @@ addEventListener('DOMContentLoaded', async () => {
   if(saved.word)  id('btn-wb').classList.toggle('on', !!saved.word);
   if(saved.enc)   updateEncBtn(saved.enc);
 
-  await loadGraph();
-
-  // .grepnavi からプロジェクトファイルを自動ロード
+  // 起動時のグラフ復元:
+  // 1. localStorage に前回のプロジェクトパスがあればそれを直接ロード（最優先）
+  // 2. なければ .grepnavi からパスを取得してロード
+  // 3. それもなければサーバーのグラフ状態を使用
   try {
-    const gnRes = await fetch('/api/grepnavi');
-    const gn = await gnRes.json();
-    if(gn.graph) await openProject(gn.graph);
-  } catch(_) {}
+    const savedPath = getProjectPath();
+    if(savedPath) {
+      await openProject(savedPath);
+    } else {
+      const gnRes = await fetch('/api/grepnavi');
+      const gn = await gnRes.json();
+      if(gn.graph) await openProject(gn.graph);
+      else await loadGraph();
+    }
+  } catch(_) {
+    await loadGraph();
+  }
 
   initSearchBar();
   initFilter();
