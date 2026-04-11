@@ -130,6 +130,7 @@ function refreshLineMemoDecorations() {
     });
   lineMemoDecoIds = monacoEditor.deltaDecorations(lineMemoDecoIds, decos);
   renderLineMemoOverlay();
+  if (_memoListOpen) renderMemoList();
 }
 
 function renderLineMemoOverlay() {
@@ -259,6 +260,7 @@ function refreshRangeMemoDecorations() {
   }));
   rangeMemoDecoIds = monacoEditor.deltaDecorations(rangeMemoDecoIds, decos);
   renderRangeMemoOverlay();
+  if (_memoListOpen) renderMemoList();
 }
 
 function renderRangeMemoOverlay() {
@@ -386,6 +388,8 @@ function refreshGraphDecorations() {
     }));
   graphDecoIds = monacoEditor.deltaDecorations(graphDecoIds, decos);
 }
+
+// ===== メモ一覧パネル → memo-list.js =====
 
 // ===== Monaco ロード =====
 let _monacoLoadPromise = null;

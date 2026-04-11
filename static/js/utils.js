@@ -186,3 +186,33 @@ function updateEncBtn(enc) {
 function getSearchEnc() {
   return id('enc-btn')?.dataset.enc || '';
 }
+
+// ===== 汎用テキスト入力モーダル =====
+// showInputModal(title, placeholder, defaultVal) → Promise<string|null>
+let _inputModalResolve = null;
+function showInputModal(title, placeholder, defaultVal = '') {
+  return new Promise(resolve => {
+    _inputModalResolve = resolve;
+    id('input-modal-title').textContent = title;
+    const inp = id('input-modal-input');
+    inp.placeholder = placeholder || '';
+    inp.value = defaultVal;
+    id('input-modal').classList.add('open');
+    setTimeout(() => { inp.focus(); inp.select(); }, 30);
+  });
+}
+function _inputModalClose(val) {
+  id('input-modal').classList.remove('open');
+  if (_inputModalResolve) { _inputModalResolve(val); _inputModalResolve = null; }
+}
+document.addEventListener('DOMContentLoaded', () => {
+  id('input-modal-ok').onclick = () => _inputModalClose(id('input-modal-input').value.trim() || null);
+  id('input-modal-cancel').onclick = () => _inputModalClose(null);
+  id('input-modal-input').onkeydown = e => {
+    if (e.key === 'Enter') { e.preventDefault(); _inputModalClose(id('input-modal-input').value.trim() || null); }
+    if (e.key === 'Escape') { e.preventDefault(); _inputModalClose(null); }
+  };
+  id('input-modal').addEventListener('click', e => {
+    if (e.target === id('input-modal')) _inputModalClose(null);
+  });
+});

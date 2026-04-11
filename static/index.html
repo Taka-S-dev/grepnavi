@@ -167,6 +167,7 @@
           <button id="ifdef-clear" class="sec">解除</button>
         </span>
         <button id="btn-line-memo-toggle" title="行メモ表示切り替え (Alt+M)"><i class="codicon codicon-note"></i> メモ</button>
+        <button id="btn-memo-list" onclick="toggleMemoList()" title="メモ一覧"><i class="codicon codicon-notebook"></i> 一覧</button>
         <div style="position:relative">
           <span id="gtags-engine-label" style="display:none;font-size:11px;color:#888;cursor:pointer" title="定義ジャンプエンジン設定"></span>
           <div id="gtags-popover" style="display:none"></div>
@@ -213,6 +214,18 @@
     <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:12px">
       <button id="confirm-modal-ok">OK</button>
       <button class="sec" id="confirm-modal-cancel">キャンセル</button>
+    </div>
+  </div>
+</div>
+
+<!-- 汎用テキスト入力モーダル -->
+<div id="input-modal">
+  <div id="input-modal-box">
+    <div id="input-modal-title"></div>
+    <input id="input-modal-input" type="text" spellcheck="false">
+    <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:12px">
+      <button id="input-modal-ok">OK</button>
+      <button class="sec" id="input-modal-cancel">キャンセル</button>
     </div>
   </div>
 </div>
@@ -271,6 +284,7 @@
   </div>
 </div>
 
+<div id="memo-list-panel"></div>
 <div id="memo-tooltip"></div>
 <div id="level-badge"><span class="lv-arrow"></span><span id="lv-from"></span> → <span id="lv-to" class="lv-num"></span></div>
 <div id="preview-popup">
@@ -336,6 +350,7 @@
 <script src="/js/editor-c.js"></script>
 <script src="/js/editor-snapshot.js"></script>
 <script src="/js/editor.js"></script>
+<script src="/js/memo-list.js"></script>
 <script src="/js/filebrowser.js"></script>
 <script src="/js/project.js"></script>
 <script src="/js/explorer.js"></script>

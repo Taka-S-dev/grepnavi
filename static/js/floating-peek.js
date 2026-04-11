@@ -441,6 +441,7 @@ function initFloatingPeek(getHoverCtx) {
           automaticLayout: true,
           glyphMargin: true,
           hover: { enabled: true },
+          fixedOverflowWidgets: true,
         });
         // enum_member の場合、対象行をハイライト
         if (h.kind === 'enum_member' && h.body) {
@@ -493,6 +494,7 @@ function initFloatingPeek(getHoverCtx) {
       automaticLayout: true,
       glyphMargin: true,
       hover: { enabled: true },
+      fixedOverflowWidgets: true,
     });
     _applyFloatMemoDecos(ed, file, startLine - 1);
     win._floatEditors.push(ed);
@@ -542,6 +544,7 @@ function initFloatingPeek(getHoverCtx) {
         automaticLayout: true,
         glyphMargin: true,
         hover: { enabled: true },
+        fixedOverflowWidgets: true,
       });
 
       // ターゲット行をハイライト

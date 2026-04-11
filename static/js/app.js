@@ -22,6 +22,7 @@ addEventListener('DOMContentLoaded', async () => {
     id('pane-detail').style.display   = isExplorer ? 'none' : '';
     if(isExplorer) explorerShow();
   }
+  window.switchLeftTab = switchLeftTab;
   id('tab-search').onclick   = () => switchLeftTab('search');
   id('tab-explorer').onclick = () => switchLeftTab('explorer');
   initExplorer();
