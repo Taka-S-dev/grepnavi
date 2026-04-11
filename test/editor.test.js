@@ -1,8 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-// stub browser globals required by editor.js at module load time
-global.addEventListener = () => {};
+// setup.js (--require) で browser globals をスタブ済み
 global.id = () => null;
 
 const { fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams } = require('../static/js/editor.js');

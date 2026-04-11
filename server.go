@@ -29,7 +29,7 @@ func newServer(root string, rootExplicit bool, graphFile, addr string) *http.Ser
 	// pprof（診断用）
 	mux.Handle("/debug/pprof/", http.DefaultServeMux)
 
-	return &http.Server{Addr: addr, Handler: csrfMiddleware(mux)}
+	return &http.Server{Addr: addr, Handler: api.CspMiddleware(csrfMiddleware(mux))}
 }
 
 // csrfMiddleware は /api/* へのリクエストに対して Origin ヘッダーを検証する。

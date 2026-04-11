@@ -104,6 +104,24 @@ func (h *Handler) handleMemStats(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// cspMiddleware はすべてのレスポンスに Content-Security-Policy ヘッダーを付与する。
+// connect-src 'self' により、フロントエンドが localhost 以外へ fetch/XHR/WebSocket を
+// 送ることをブラウザレベルでブロックする。
+func CspMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy",
+			"default-src 'self'; "+
+				"connect-src 'self'; "+
+				"script-src 'self' 'unsafe-inline' blob:; "+
+				"style-src 'self' 'unsafe-inline'; "+
+				"font-src 'self' data:; "+
+				"img-src 'self' data:; "+
+				"worker-src blob:;",
+		)
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (h *Handler) serveStatic(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" || r.URL.Path == "/index.html" {
 		http.ServeFile(w, r, "static/index.html")
