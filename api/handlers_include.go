@@ -52,8 +52,8 @@ func (h *Handler) handleIncludeFile(w http.ResponseWriter, r *http.Request) {
 
 	nodes, err := search.GetFileIncludes(file, root)
 	if err != nil {
-		jsonErr(w, err.Error(), http.StatusInternalServerError)
-		return
+		// ファイルが存在しない・読めない場合は空リストを返す（500 にしない）
+		nodes = []search.IncludeNode{}
 	}
 	if nodes == nil {
 		nodes = []search.IncludeNode{}

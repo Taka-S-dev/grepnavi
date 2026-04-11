@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <input id="include-start" type="text" placeholder="起点ファイル (自動セット)" spellcheck="false" title="起点ファイルパス">
           <button id="include-analyze">解析</button>
           <button class="sec" id="include-collapse-all" title="すべて折りたたむ">折りたたむ</button>
+          <button class="sec" id="include-recenter" title="ルートを中央に戻す">中央へ</button>
           <span id="include-count"></span>
           <button class="sec" id="include-export-svg" title="SVG として保存">SVG</button>
           <button class="sec" id="include-export-png" title="PNG として保存">PNG</button>
@@ -46,6 +47,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('include-analyze').onclick      = () => startIncludeGraph();
   document.getElementById('include-collapse-all').onclick = incCollapseAll;
+  document.getElementById('include-recenter').onclick     = _incCenterOnRoot;
   document.getElementById('include-export-svg').onclick   = incExportSvg;
   document.getElementById('include-export-png').onclick   = incExportPng;
   document.getElementById('include-export-drawio').onclick = incExportDrawio;
@@ -76,10 +78,12 @@ async function _incUpdateBtn() {
 let _incRootNode = null;
 const _incNodeMap = new Map(); // id -> node
 let _incSvg = null, _incRootG = null;
+let _incContainerW = 1200;
 let _incLoadingId = null; // 展開中ノードID
+let _incPinnedId  = null; // ハイライト固定中ノードID
+let _incZoomRef   = null; // zoom ハンドラ参照
 let _incAbortCtrl = null; // fetch 中断用
 
-const MAX_INC_REV   = 60; // included-by の表示上限
 const MAX_INC_TRANS = 40; // これ以上のノード数ではトランジションをスキップ
 
 function _mkIncNode(inc) {
@@ -112,7 +116,7 @@ function closeIncludeGraph() {
   _incSvg = null; _incRootG = null;
 }
 
-const _INC_NH = 28, _INC_DY = 90;
+const _INC_NH = 28;
 function _incNodeWidth(label) { return Math.max(120, Math.min(300, label.length * 7.5 + 24)); }
 const _INC_NW = 150;
 
@@ -144,11 +148,9 @@ async function startIncludeGraph(file) {
 
   const container = id('include-graph-container');
   container.innerHTML = '';
-  const W = container.offsetWidth || 900;
-  const H = container.offsetHeight || 600;
 
   const svg = d3.select(container).append('svg')
-    .attr('width', W).attr('height', H).style('display','block');
+    .attr('width', '100%').attr('height', '100%').style('display','block');
   svg.append('defs').append('marker')
     .attr('id','inc-arrow').attr('viewBox','0 -5 10 10')
     .attr('refX', 8).attr('refY', 0)
@@ -157,15 +159,29 @@ async function startIncludeGraph(file) {
   _incRootG = svg.append('g');
   const _incZoom = d3.zoom().scaleExtent([0.1,4]).on('zoom', e => _incRootG.attr('transform', e.transform));
   svg.call(_incZoom);
-  // 初期位置を中央に
-  svg.call(_incZoom.transform, d3.zoomIdentity.translate(W / 2, 60));
+  svg.on('click', () => { if(_incPinnedId) { _incPinnedId = null; _incHighlight(null); } });
   _incSvg = svg;
+  _incZoomRef = _incZoom;
 
   const normFile = _incNormId(file);
   _incRootNode = _mkIncNode({id: normFile, label: normFile.split('/').pop()});
   _incNodeMap.set(normFile, _incRootNode);
 
   await _incExpand(_incRootNode);
+
+  // 初期表示: ルートノードを中央上部に配置
+  requestAnimationFrame(_incCenterOnRoot);
+}
+
+function _incCenterOnRoot() {
+  if(!_incSvg || !_incZoomRef || !_incRootNode) return;
+  const container = document.getElementById('include-graph-container');
+  const rect = container ? container.getBoundingClientRect() : _incSvg.node().getBoundingClientRect();
+  const W = rect.width  || 900;
+  const H = rect.height || 600;
+  const rx = _incRootNode._x ?? 0;
+  const ry = _incRootNode._y ?? 0;
+  _incSvg.call(_incZoomRef.transform, d3.zoomIdentity.translate(W / 2 - rx, H / 4 - ry));
 }
 
 function _incNodeClass(node) {
@@ -189,6 +205,11 @@ function _incCollapse(node) {
   }
   if(_incRootNode) mark(_incRootNode);
   _incNodeMap.forEach((_, id) => { if(!reachable.has(id)) _incNodeMap.delete(id); });
+  // 残存ノードの fwd/rev から削除済みノードへの参照を除去（dangling edge 防止）
+  _incNodeMap.forEach(n => {
+    n.fwd = n.fwd.filter(c => _incNodeMap.has(c.id));
+    n.rev = n.rev.filter(r => _incNodeMap.has(r.id));
+  });
   _incRender();
 }
 
@@ -203,12 +224,12 @@ async function _incExpand(node) {
   _incLoadingBar(true);
 
   try {
-    const [fR, rR] = await Promise.all([
-      fetch('/api/include-file?file=' + encodeURIComponent(node.id), {signal}),
-      fetch('/api/include-by?file='   + encodeURIComponent(node.id), {signal}),
-    ]);
+    const isRoot = node === _incRootNode;
+    const fetches = [fetch('/api/include-file?file=' + encodeURIComponent(node.id), {signal})];
+    if(isRoot) fetches.push(fetch('/api/include-by?file=' + encodeURIComponent(node.id), {signal}));
+    const [fR, rR] = await Promise.all(fetches);
     const fwd = fR.ok ? await fR.json() : [];
-    const rev = rR.ok ? await rR.json() : [];
+    const rev = (isRoot && rR?.ok) ? await rR.json() : [];
 
     node.expanded = true;
     fwd.forEach(inc => {
@@ -217,20 +238,12 @@ async function _incExpand(node) {
       if(!n) { n = _mkIncNode({id: nid, label: inc.label}); _incNodeMap.set(nid, n); }
       if(!node.fwd.includes(n)) node.fwd.push(n);
     });
-    const revList = rev.length > MAX_INC_REV ? rev.slice(0, MAX_INC_REV) : rev;
-    const revOver = rev.length - revList.length;
-    revList.forEach(inc => {
+    rev.forEach(inc => {
       const nid = _incNormId(inc.id);
       let n = _incNodeMap.get(nid);
       if(!n) { n = _mkIncNode({id: nid, label: inc.label}); _incNodeMap.set(nid, n); }
       if(!node.rev.includes(n)) node.rev.push(n);
     });
-    if(revOver > 0) {
-      const overId = '__more_rev_' + node.id;
-      const overNode = _mkIncNode({id: overId, label: `+${revOver} more…`});
-      _incNodeMap.set(overId, overNode);
-      node.rev.push(overNode);
-    }
   } catch(e) {
     if(e.name !== 'AbortError') console.warn('include expand error', e);
   } finally {
@@ -238,14 +251,17 @@ async function _incExpand(node) {
     _incAbortCtrl = null;
     _incLoadingBar(false);
     _incRender();
+    requestAnimationFrame(_incCenterOnRoot);
   }
 }
 
 function _incLayout() {
   if(!_incRootNode) return;
 
+  const container = document.getElementById('include-graph-container');
+  if(container && container.offsetWidth > 0) _incContainerW = container.offsetWidth;
+
   const GAP = 24;
-  const DY = _INC_DY * 1.5;
   const PASSES = 8;
 
   // ── 1. レイヤー割り当て（BFS: fwd=下, rev=上）──────────────
@@ -315,31 +331,62 @@ function _incLayout() {
     }
   }
 
-  // ── 4. 各レイヤーをバリセンター順で横並び ────────────────────
+  // ── 4. 各レイヤーをバリセンター順で横並び（幅超過時は折り返し）──────
+  const ROW_WRAP_W = Math.max(900, _incContainerW - 80);
+  const ROW_H = _INC_NH + 10; // 折り返し行間
+  const LAYER_GAP = 50;       // レイヤー間マージン
+
+  // パス1: 各レイヤーの行数を計算して累積Y座標を決定
+  const layerStartY = new Map();
+  let cumY = 60;
+  sortedL.forEach(l => {
+    layerStartY.set(l, cumY);
+    const nodes = layerArr.get(l);
+    if(!nodes || nodes.length === 0) { cumY += ROW_H + LAYER_GAP; return; }
+    const widths = nodes.map(n => _incNodeWidth(n._dispLabel || n.label));
+    let rowCount = 1, curRowW = 0;
+    widths.forEach(w => {
+      const needed = curRowW === 0 ? w : curRowW + GAP + w;
+      if(curRowW > 0 && needed > ROW_WRAP_W) { rowCount++; curRowW = w; }
+      else curRowW = needed;
+    });
+    cumY += rowCount * ROW_H + LAYER_GAP;
+  });
+
+  // パス2: 各ノードにX/Y座標を割り当て
   sortedL.forEach(l => {
     const nodes = layerArr.get(l);
     if(!nodes) return;
     const widths = nodes.map(n => _incNodeWidth(n._dispLabel || n.label));
-    const totalW = widths.reduce((a, b) => a + b, 0) + GAP * (nodes.length - 1);
-    let cx = -totalW / 2;
+    const startY = layerStartY.get(l);
+
+    // 行に分割
+    const rows = [[]];
+    let curRowW = 0;
     nodes.forEach((n, i) => {
-      n._w = widths[i];
-      n._x = cx + widths[i] / 2;
-      n._y = l * DY + 60;
-      cx += widths[i] + GAP;
+      const w = widths[i];
+      const needed = curRowW === 0 ? w : curRowW + GAP + w;
+      if(rows[rows.length-1].length > 0 && needed > ROW_WRAP_W) {
+        rows.push([]);
+        curRowW = 0;
+      }
+      rows[rows.length-1].push({n, w});
+      curRowW = rows[rows.length-1].length === 1 ? w : curRowW + GAP + w;
+    });
+
+    // 行ごとにX/Y座標を設定
+    rows.forEach((row, ri) => {
+      const totalW = row.reduce((s, {w}) => s + w, 0) + GAP * (row.length - 1);
+      let cx = -totalW / 2;
+      row.forEach(({n, w}) => {
+        n._w = w;
+        n._x = cx + w / 2;
+        n._y = startY + ri * ROW_H;
+        cx += w + GAP;
+      });
     });
   });
 
-  // ── 5. 重なり解消 ────────────────────────────────────────────
-  sortedL.forEach(l => {
-    const nodes = layerArr.get(l);
-    if(!nodes || nodes.length < 2) return;
-    for(let i = 1; i < nodes.length; i++) {
-      const p = nodes[i-1], c = nodes[i];
-      const minX = p._x + p._w / 2 + GAP + c._w / 2;
-      if(c._x < minX) c._x = minX;
-    }
-  });
 }
 
 function _incRender() {
@@ -359,11 +406,18 @@ function _incRender() {
   _incLayout();
 
   const NH = _INC_NH;
-  const allLinks = [];
+  // fwd を優先してリンクを生成し、rev は fwd で未カバーのエッジのみ追加
+  const linkMap = new Map();
   _incNodeMap.forEach(n => {
-    n.fwd.forEach(c => allLinks.push({s:n, t:c, isRev:false}));
-    n.rev.forEach(r => allLinks.push({s:r, t:n, isRev:true}));
+    n.fwd.forEach(c => linkMap.set(n.id+'→'+c.id, {s:n, t:c, isRev:false}));
   });
+  _incNodeMap.forEach(n => {
+    n.rev.forEach(r => {
+      const k = r.id+'→'+n.id;
+      if(!linkMap.has(k)) linkMap.set(k, {s:r, t:n, isRev:true});
+    });
+  });
+  const allLinks = [...linkMap.values()];
 
   const linkSel = _incRootG.selectAll('g.inc-link-g').data([0]);
   const linkG = linkSel.enter().append('g').attr('class','inc-link-g').merge(linkSel);
@@ -392,14 +446,15 @@ function _incRender() {
   nd.exit().remove();
 
   nodeG.selectAll('g.inc-node')
-    .on('click',      (e,d) => { e.stopPropagation(); if(e.ctrlKey||e.metaKey) _incOpenFile(d); else _incExpand(d); })
-    .on('dblclick',   (_e,d) => _incOpenFile(d))
-    .on('mouseenter', (_e,d) => _incHighlight(d))
-    .on('mouseleave', ()     => _incHighlight(null));
-
-  // hasRev を事前に O(n) で計算
-  const _hasRevSet = new Set();
-  _incNodeMap.forEach(n => n.rev.forEach(r => _hasRevSet.add(r.id)));
+    .on('click',       (e,d) => { e.stopPropagation(); if(e.ctrlKey||e.metaKey) _incOpenFile(d); else _incExpand(d); })
+    .on('dblclick',    (_e,d) => _incOpenFile(d))
+    .on('contextmenu', (e,d) => {
+      e.preventDefault(); e.stopPropagation();
+      if(_incPinnedId === d.id) { _incPinnedId = null; _incHighlight(null); }
+      else { _incPinnedId = d.id; _incHighlight(d); }
+    })
+    .on('mouseenter',  (_e,d) => { if(!_incPinnedId) _incHighlight(d); })
+    .on('mouseleave',  ()     => { if(!_incPinnedId) _incHighlight(null); });
 
   const useTransition = allNodes.length <= MAX_INC_TRANS;
   const maybeT = sel => useTransition ? sel.transition().duration(200) : sel;
@@ -408,14 +463,7 @@ function _incRender() {
     .attr('class', d => _incNodeClass(d) + (d.id === _incLoadingId ? ' inc-loading' : ''));
   nodeG.selectAll('g.inc-node rect')
     .attr('width', d => d._w || _incNodeWidth(d.label))
-    .attr('x',     d => -(d._w || _incNodeWidth(d.label)) / 2)
-    .attr('stroke', d => {
-      if(d.id === _incLoadingId) return '#f0a500';
-      return d.expanded ? '#4ec9b0' : (['h','hpp','hh'].includes(d.id.split('.').pop().toLowerCase()) ? '#9cdcfe' : '#555');
-    })
-    .attr('stroke-dasharray', d => {
-      return _hasRevSet.has(d.id) && !d.expanded ? '4,2' : null;
-    });
+    .attr('x',     d => -(d._w || _incNodeWidth(d.label)) / 2);
   nodeG.selectAll('g.inc-node text')
     .text(d => {
       if(d.id === _incLoadingId) return '⏳ ' + (d._dispLabel || d.label);
@@ -465,11 +513,11 @@ function _incHighlight(node) {
   }
   const connectedIds = new Set([node.id]);
   _incRootG.selectAll('path.inc-link').each(function(d) {
-    if(d.s === node || d.t === node) { connectedIds.add(d.s.id); connectedIds.add(d.t.id); }
+    if(d.s.id === node.id || d.t.id === node.id) { connectedIds.add(d.s.id); connectedIds.add(d.t.id); }
   });
   _incRootG.selectAll('path.inc-link')
-    .classed('inc-hi',  d => d.s === node || d.t === node)
-    .classed('inc-dim', d => d.s !== node && d.t !== node);
+    .classed('inc-hi',  d => d.s.id === node.id || d.t.id === node.id)
+    .classed('inc-dim', d => d.s.id !== node.id && d.t.id !== node.id);
   _incRootG.selectAll('g.inc-node')
     .classed('inc-hi',  d => connectedIds.has(d.id))
     .classed('inc-dim', d => !connectedIds.has(d.id));
