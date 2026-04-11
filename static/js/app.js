@@ -79,6 +79,7 @@ addEventListener('DOMContentLoaded', async () => {
   id('pmenu-open').onclick       = () => { id('project-menu').classList.remove('open'); openProjectFilePicker(); };
   id('pmenu-saveas').onclick     = () => { id('project-menu').classList.remove('open'); saveAsProjectFilePicker(); };
   id('pmenu-save').onclick       = () => { id('project-menu').classList.remove('open'); saveProjectFileCurrent(); };
+  id('pmenu-settings').onclick   = () => { id('project-menu').classList.remove('open'); showSettingsModal(); };
 
   document.addEventListener('keydown', async e => {
     if((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {

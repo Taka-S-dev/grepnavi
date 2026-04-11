@@ -129,6 +129,8 @@
               <div class="pmenu-item" id="pmenu-open">開く…</div>
               <div class="pmenu-item" id="pmenu-save">保存 <span class="pmenu-hint">Ctrl+S</span></div>
               <div class="pmenu-item" id="pmenu-saveas">名前を付けて保存…</div>
+              <div class="pmenu-separator"></div>
+              <div class="pmenu-item" id="pmenu-settings">設定…</div>
             </div>
           </div>
         </span>
@@ -226,6 +228,44 @@
     <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:12px">
       <button id="input-modal-ok">OK</button>
       <button class="sec" id="input-modal-cancel">キャンセル</button>
+    </div>
+  </div>
+</div>
+
+<!-- 設定モーダル -->
+<div id="settings-modal">
+  <div id="settings-modal-box">
+    <div style="font-weight:bold;margin-bottom:14px">設定</div>
+
+    <div style="font-size:12px;color:#aaa;margin-bottom:6px">外部エディタ</div>
+
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+      <span style="font-size:12px;color:#ccc;white-space:nowrap">アクティブ</span>
+      <select id="settings-active-editor" style="flex:1">
+        <option value="vscode">VS Code</option>
+        <option value="custom0">カスタム 1</option>
+        <option value="custom1">カスタム 2</option>
+        <option value="custom2">カスタム 3</option>
+      </select>
+    </div>
+
+    <div id="settings-vscode-info" style="font-size:11px;color:#666;margin-bottom:4px">コマンド: <code>code --goto {file}:{line}</code>（固定）</div>
+
+    <div id="settings-custom-fields" style="display:none;flex-direction:column;gap:6px">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="font-size:12px;color:#aaa;width:48px;flex-shrink:0">名前</span>
+        <input id="settings-custom-name" type="text" placeholder="例: Vim" spellcheck="false" style="flex:1">
+      </div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="font-size:12px;color:#aaa;width:48px;flex-shrink:0">コマンド</span>
+        <input id="settings-custom-cmd" type="text" placeholder="例: vim +{line} {file}" spellcheck="false" style="flex:1">
+      </div>
+    </div>
+
+    <div style="font-size:11px;color:#666;margin-top:8px"><code>{file}</code> = ファイルパス　<code>{line}</code> = 行番号</div>
+    <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:14px">
+      <button id="settings-modal-ok">OK</button>
+      <button class="sec" id="settings-modal-cancel">キャンセル</button>
     </div>
   </div>
 </div>

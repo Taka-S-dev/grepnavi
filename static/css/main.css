@@ -475,6 +475,24 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
   color:#ccc;padding:5px 8px;font:13px/1.4 'Segoe UI',sans-serif;outline:none;box-sizing:border-box;
 }
 #input-modal-input:focus{border-color:#007acc}
+#settings-modal{
+  display:none;position:fixed;inset:0;z-index:7000;
+  background:rgba(0,0,0,0.6);align-items:center;justify-content:center;
+}
+#settings-modal.open{display:flex}
+#settings-modal-box{
+  background:#252526;border:1px solid #555;border-radius:4px;
+  padding:16px 20px;min-width:340px;max-width:460px;width:100%;display:flex;flex-direction:column;
+}
+#settings-active-editor{
+  background:#1e1e1e;border:1px solid #555;border-radius:3px;
+  color:#ccc;padding:5px 8px;font:13px/1.4 'Segoe UI',sans-serif;outline:none;
+}
+#settings-custom-name,#settings-custom-cmd{
+  background:#1e1e1e;border:1px solid #555;border-radius:3px;
+  color:#ccc;padding:4px 7px;font:12px/1.4 'Segoe UI',sans-serif;outline:none;width:100%;box-sizing:border-box;
+}
+#settings-custom-name:focus,#settings-custom-cmd:focus{border-color:#007acc}
 #project-history{display:flex;flex-direction:column;gap:1px;margin-top:4px}
 .phist-item{padding:4px 8px;font-size:11px;color:#888;cursor:pointer;border-radius:2px;display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .phist-item:hover{background:#2a3a4a;color:#ccc}

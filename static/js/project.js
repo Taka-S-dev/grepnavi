@@ -576,6 +576,108 @@ async function openProject(path) {
 function openProjectFilePicker()   { showFileBrowser('open'); }
 function saveAsProjectFilePicker() { showFileBrowser('save'); }
 
+// ===== 設定モーダル =====
+
+const LS_SETTINGS = 'grepnavi-app-settings';
+const VSCODE_CMD  = 'code --goto {file}:{line}';
+
+function getSettings() {
+  try { return JSON.parse(localStorage.getItem(LS_SETTINGS) || '{}'); } catch(_) { return {}; }
+}
+function saveSettings(s) {
+  localStorage.setItem(LS_SETTINGS, JSON.stringify(s));
+}
+function getEditorCmd() {
+  const s = getSettings();
+  const active = s.activeEditor || 'vscode';
+  if(active === 'vscode') return VSCODE_CMD;
+  const idx = parseInt(active.replace('custom', ''));
+  return s.customEditors?.[idx]?.cmd || VSCODE_CMD;
+}
+
+// モーダル内の編集バッファ（OK 前の一時データ）
+let _editingCustoms = [];
+
+function _syncDropdownLabels() {
+  const sel = id('settings-active-editor');
+  sel.querySelectorAll('option').forEach((opt, i) => {
+    if(i === 0) return;
+    const name = _editingCustoms[i-1]?.name?.trim();
+    opt.textContent = name || `カスタム ${i}`;
+  });
+}
+
+function _showCustomFields(idx) {
+  // idx: null = VS Code, 0/1/2 = custom slot
+  const fields   = id('settings-custom-fields');
+  const vsinfo   = id('settings-vscode-info');
+  if(idx === null) {
+    vsinfo.style.display  = '';
+    fields.style.display  = 'none';
+  } else {
+    vsinfo.style.display  = 'none';
+    fields.style.display  = 'flex';
+    id('settings-custom-name').value = _editingCustoms[idx]?.name || '';
+    id('settings-custom-cmd').value  = _editingCustoms[idx]?.cmd  || '';
+  }
+}
+
+function _saveCurrentFieldsToBuffer(prevValue) {
+  if(prevValue === 'vscode') return;
+  const idx = parseInt(prevValue.replace('custom', ''));
+  _editingCustoms[idx] = {
+    name: id('settings-custom-name').value.trim(),
+    cmd:  id('settings-custom-cmd').value.trim(),
+  };
+}
+
+function showSettingsModal() {
+  const s = getSettings();
+  _editingCustoms = [0,1,2].map(i => ({ ...(s.customEditors?.[i] || {name:'',cmd:''}) }));
+  const sel = id('settings-active-editor');
+  sel.value = s.activeEditor || 'vscode';
+  _syncDropdownLabels();
+  const active = sel.value;
+  _showCustomFields(active === 'vscode' ? null : parseInt(active.replace('custom', '')));
+  id('settings-modal').classList.add('open');
+}
+
+function hideSettingsModal() {
+  id('settings-modal').classList.remove('open');
+}
+
+(function initSettingsModal() {
+  document.addEventListener('DOMContentLoaded', () => {
+    const sel = id('settings-active-editor');
+    let prevValue = 'vscode';
+
+    sel.addEventListener('change', () => {
+      _saveCurrentFieldsToBuffer(prevValue);
+      prevValue = sel.value;
+      _showCustomFields(sel.value === 'vscode' ? null : parseInt(sel.value.replace('custom', '')));
+    });
+
+    // 名前欄が変わったらドロップダウンのラベルをリアルタイム更新
+    id('settings-custom-name').addEventListener('input', e => {
+      const idx = parseInt(sel.value.replace('custom', ''));
+      if(isNaN(idx)) return;
+      if(!_editingCustoms[idx]) _editingCustoms[idx] = {name:'',cmd:''};
+      _editingCustoms[idx].name = e.target.value;
+      _syncDropdownLabels();
+    });
+
+    id('settings-modal-ok').onclick = () => {
+      _saveCurrentFieldsToBuffer(sel.value);
+      saveSettings({ activeEditor: sel.value, customEditors: _editingCustoms });
+      hideSettingsModal();
+    };
+    id('settings-modal-cancel').onclick = hideSettingsModal;
+    id('settings-modal').addEventListener('mousedown', e => {
+      if(e.target === id('settings-modal')) hideSettingsModal();
+    });
+  });
+})();
+
 async function saveProjectFileCurrent() {
   const p = getProjectPath();
   if(!p) { showFileBrowser('save'); return; }

@@ -21,17 +21,15 @@ import (
 // --- /api/open ---
 
 func (h *Handler) handleOpen(w http.ResponseWriter, r *http.Request) {
-	file := r.URL.Query().Get("file")
-	line := r.URL.Query().Get("line")
+	q := r.URL.Query()
+	file   := q.Get("file")
+	line   := q.Get("line")
+	editor := q.Get("editor")
 	if file == "" {
 		jsonErr(w, "file is required", http.StatusBadRequest)
 		return
 	}
-	target := file
-	if line != "" {
-		target = file + ":" + line
-	}
-	if err := openInEditor(target); err != nil {
+	if err := openInEditor(file, line, editor); err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -355,10 +353,45 @@ func findFreePort(start int) (int, error) {
 	return 0, fmt.Errorf("no available port found in range %d-%d", start, start+99)
 }
 
-func openInEditor(target string) error {
-	cmd := exec.Command("code", "--goto", target)
-	cmd.Start()
+func openInEditor(file, line, editorTmpl string) error {
+	if editorTmpl == "" {
+		editorTmpl = "code --goto {file}:{line}"
+	}
+	quotedFile := `"` + file + `"`
+	// "{file}" と書いてあっても {file} と書いてあっても両方クォート済みパスに置換
+	cmdStr := strings.ReplaceAll(editorTmpl, `"{file}"`, quotedFile)
+	cmdStr  = strings.ReplaceAll(cmdStr,     `{file}`,   quotedFile)
+	cmdStr  = strings.ReplaceAll(cmdStr,     `{line}`,   line)
+	parts := splitShellWords(cmdStr)
+	if len(parts) == 0 {
+		return nil
+	}
+	exec.Command(parts[0], parts[1:]...).Start()
 	return nil
+}
+
+// splitShellWords はダブルクォートを考慮してコマンド文字列をトークンに分割する。
+func splitShellWords(s string) []string {
+	var parts []string
+	var cur strings.Builder
+	inQuote := false
+	for _, r := range s {
+		switch {
+		case r == '"':
+			inQuote = !inQuote
+		case r == ' ' && !inQuote:
+			if cur.Len() > 0 {
+				parts = append(parts, cur.String())
+				cur.Reset()
+			}
+		default:
+			cur.WriteRune(r)
+		}
+	}
+	if cur.Len() > 0 {
+		parts = append(parts, cur.String())
+	}
+	return parts
 }
 
 // revealInExplorer はファイルをOSのファイルマネージャで選択状態で開く。
