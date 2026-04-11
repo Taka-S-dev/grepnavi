@@ -357,6 +357,9 @@ func openInEditor(file, line, editorTmpl string) error {
 	if editorTmpl == "" {
 		editorTmpl = "code --goto {file}:{line}"
 	}
+	if line == "" {
+		line = "1"
+	}
 	quotedFile := `"` + file + `"`
 	// "{file}" と書いてあっても {file} と書いてあっても両方クォート済みパスに置換
 	cmdStr := strings.ReplaceAll(editorTmpl, `"{file}"`, quotedFile)

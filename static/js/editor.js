@@ -696,6 +696,18 @@ async function ensureEditor() {
     }
   });
 
+  monacoEditor.addAction({
+    id: 'grepnavi-open-external', label: '外部エディタで開く',
+    contextMenuGroupId: 'grepnavi-nav',
+    contextMenuOrder: 0,
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyE],
+    run: ed => {
+      const tab = tabs[activeTabIdx];
+      if(!tab) return;
+      openFile(tab.file, ed.getPosition()?.lineNumber ?? tab.line);
+    }
+  });
+
   // 右クリック → grep 検索（カーソル単語）
   monacoEditor.addAction({
     id: 'grepnavi-grep-word', label: 'grep 検索',
@@ -1275,6 +1287,10 @@ function initTabCtxMenu() {
   id('tab-ctx-open-explorer').onclick = () => {
     const i = _tabCtxIdx; hideTabCtxMenu();
     if(i >= 0 && tabs[i]) fetch('/api/reveal?' + new URLSearchParams({file: tabs[i].file}));
+  };
+  id('tab-ctx-open-editor').onclick = () => {
+    const i = _tabCtxIdx; hideTabCtxMenu();
+    if(i >= 0 && tabs[i]) openFile(tabs[i].file);
   };
   document.addEventListener('mousedown', e => {
     if(!id('tab-ctx-menu').contains(e.target)) hideTabCtxMenu();
