@@ -95,6 +95,7 @@ async function fbNavigate(dir, pushHistory = true, focusName = null) {
   const ext = (_fbMode === 'open-file') ? '' : '.json';
   const params = new URLSearchParams({ ext });
   if(dir) params.set('path', dir);
+  if(['dir', 'open', 'save', 'open-file'].includes(_fbMode)) params.set('pick', '1');
   const res = await fetch('/api/browse?' + params).catch(() => null);
   if(!res || !res.ok) { st('ディレクトリを開けませんでした'); return; }
   const data = await res.json();

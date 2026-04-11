@@ -245,6 +245,8 @@ func (h *Handler) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	dir := q.Get("path")
 	ext := q.Get("ext") // e.g. ".json"
 
+	pick := q.Get("pick") == "1" // ルート選択ダイアログからの呼び出し
+	explicitPath := dir != ""
 	if dir == "" {
 		if exe, err := os.Executable(); err == nil {
 			dir = filepath.Dir(exe)
@@ -253,6 +255,16 @@ func (h *Handler) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	dir = filepath.Clean(dir)
+
+	if explicitPath && !pick {
+		h.mu.RLock()
+		root := filepath.Clean(h.root)
+		h.mu.RUnlock()
+		if !strings.HasPrefix(dir+string(filepath.Separator), root+string(filepath.Separator)) {
+			jsonErr(w, "path outside root", http.StatusForbidden)
+			return
+		}
+	}
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
