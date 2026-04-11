@@ -1,7 +1,7 @@
 /* ===== インクルード依存グラフ（C言語アドオン） =====
    このファイルを index.html から除外するだけで機能を無効化できます。 */
 
-#include-overlay{display:none;position:fixed;inset:0;background:#1e1e1e;z-index:200;flex-direction:column}
+#include-overlay{display:none;position:absolute;inset:0;background:#1e1e1e;z-index:200;flex-direction:column}
 #include-overlay.open{display:flex}
 #include-hdr{display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:#252526;border-bottom:1px solid #333;flex-shrink:0;gap:8px}
 #include-title{font-size:13px;color:#ccc;white-space:nowrap}
@@ -9,6 +9,11 @@
 #include-start{background:#3c3c3c;border:1px solid #555;color:#ccc;font-size:12px;padding:2px 6px;border-radius:3px;width:300px}
 #include-count{font-size:11px;color:#666}
 #include-graph-container{flex:1;overflow:hidden;position:relative}
+/* #inc が開いているとき peek パネルを overlay の上に固定 */
+body:has(#include-overlay.open) #peek.visible{
+  position:absolute;bottom:0;left:0;right:0;z-index:201;
+  max-height:50vh;display:flex;
+}
 @keyframes inc-spin{to{transform:rotate(360deg)}}
 #inc-loading-overlay{display:none;position:absolute;inset:0;background:rgba(0,0,0,0.45);z-index:10;align-items:center;justify-content:center;flex-direction:column;gap:10px;pointer-events:none}
 #inc-loading-overlay.active{display:flex}
@@ -34,3 +39,9 @@
 .inc-node.inc-dim{opacity:0.2}
 @keyframes inc-pulse{0%,100%{opacity:1}50%{opacity:0.5}}
 .inc-node.inc-loading rect{animation:inc-pulse 1s ease-in-out infinite}
+#inc-minimap{position:absolute;top:10px;right:10px;width:180px;height:120px;background:rgba(30,30,30,0.88);border:1px solid #444;border-radius:4px;z-index:5;cursor:grab}
+#inc-minimap:active{cursor:grabbing}
+#inc-minimap .mm-node{opacity:0.75}
+#inc-minimap .mm-node.c-file{fill:#4ec9b0}
+#inc-minimap .mm-node.h-file{fill:#9cdcfe}
+#inc-minimap .mm-viewport{fill:rgba(255,255,255,0.1);stroke:#aaa;stroke-width:0.5}

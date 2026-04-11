@@ -78,7 +78,7 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 #pane-left{width:340px;display:flex;flex-direction:row;flex-shrink:0;overflow:hidden}
 #col-resizer{width:4px;background:#2a2a2a;cursor:ew-resize;flex-shrink:0;border-left:1px solid #333;border-right:1px solid #333}
 #col-resizer:hover,#col-resizer.active{background:#007acc}
-#pane-right{flex:1;display:flex;flex-direction:column;overflow:hidden}
+#pane-right{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative}
 #left-resizer{height:4px;background:#2a2a2a;cursor:ns-resize;flex-shrink:0;border-top:1px solid #333;border-bottom:1px solid #333}
 #left-resizer:hover,#left-resizer.active{background:#007acc}
 

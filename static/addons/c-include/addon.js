@@ -9,7 +9,7 @@
 // ----- HTML注入 & イベント登録 -----
 document.addEventListener('DOMContentLoaded', () => {
   // オーバーレイを body に追加
-  document.body.insertAdjacentHTML('beforeend', `
+  (document.getElementById('pane-right') || document.body).insertAdjacentHTML('beforeend', `
     <div id="include-overlay">
       <div id="include-hdr">
         <span id="include-title">インクルード依存グラフ</span>
@@ -77,7 +77,7 @@ async function _incUpdateBtn() {
 // ノード: { id, label, expanded, fwd:[], rev:[] }
 let _incRootNode = null;
 const _incNodeMap = new Map(); // id -> node
-let _incSvg = null, _incRootG = null;
+let _incSvg = null, _incRootG = null, _incMiniSvg = null;
 let _incContainerW = 1200;
 let _incLoadingId = null; // 展開中ノードID
 let _incPinnedId  = null; // ハイライト固定中ノードID
@@ -113,7 +113,7 @@ function closeIncludeGraph() {
   id('include-overlay').classList.remove('open');
   id('include-graph-container').innerHTML = '';
   _incRootNode = null; _incNodeMap.clear();
-  _incSvg = null; _incRootG = null;
+  _incSvg = null; _incRootG = null; _incMiniSvg = null;
 }
 
 const _INC_NH = 28;
@@ -157,11 +157,19 @@ async function startIncludeGraph(file) {
     .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient','auto')
     .append('path').attr('d','M0,-5L10,0L0,5').attr('fill','#555');
   _incRootG = svg.append('g');
-  const _incZoom = d3.zoom().scaleExtent([0.1,4]).on('zoom', e => _incRootG.attr('transform', e.transform));
+  const _incZoom = d3.zoom().scaleExtent([0.1,4]).on('zoom', e => {
+    _incRootG.attr('transform', e.transform);
+    _incRenderMinimap();
+  });
   svg.call(_incZoom);
   svg.on('click', () => { if(_incPinnedId) { _incPinnedId = null; _incHighlight(null); } });
   _incSvg = svg;
   _incZoomRef = _incZoom;
+
+  // ミニマップ SVG（コンテナ内に絶対配置）
+  _incMiniSvg = d3.select(container).append('svg')
+    .attr('id', 'inc-minimap')
+    .on('mousedown', _incMinimapPointerDown);
 
   const normFile = _incNormId(file);
   _incRootNode = _mkIncNode({id: normFile, label: normFile.split('/').pop()});
@@ -484,6 +492,8 @@ function _incRender() {
   id('include-count').textContent = _incLoadingId
     ? '解析中…'
     : `${_incNodeMap.size} ファイル（クリック: 展開/折りたたみ　Ctrl+クリック: ファイルを開く）`;
+
+  _incRenderMinimap();
 }
 
 function incCollapseAll() {
@@ -496,11 +506,12 @@ function incCollapseAll() {
 }
 
 function _incOpenFile(d) {
+  const nid  = d.id.replace(/\\/g, '/');
+  // 絶対パス（C:/ または / 始まり）はそのまま使う
+  const isAbs = /^[A-Za-z]:\//.test(nid) || nid.startsWith('/');
   const root = (projectRoot || '').replace(/\\/g, '/').replace(/\/$/, '');
-  const rel  = d.id.replace(/\\/g, '/').replace(/^\//, '');
-  const p = root ? root + '/' + rel : rel;
-  closeIncludeGraph();
-  openPeek(p, 1);
+  const p = isAbs ? nid : (root ? root + '/' + nid.replace(/^\//, '') : nid);
+  if(typeof openPeek === 'function') openPeek(p, 1);
   st('開く: ' + d.label);
 }
 
@@ -521,6 +532,82 @@ function _incHighlight(node) {
   _incRootG.selectAll('g.inc-node')
     .classed('inc-hi',  d => connectedIds.has(d.id))
     .classed('inc-dim', d => !connectedIds.has(d.id));
+}
+
+// ----- ミニマップ -----
+
+function _incMiniParams() {
+  const NH = _INC_NH, pad = 4, mmW = 180, mmH = 120;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  _incNodeMap.forEach(n => {
+    const hw = (n._w || _incNodeWidth(n._dispLabel || n.label)) / 2;
+    minX = Math.min(minX, (n._x||0) - hw);
+    maxX = Math.max(maxX, (n._x||0) + hw);
+    minY = Math.min(minY, (n._y||0) - NH/2);
+    maxY = Math.max(maxY, (n._y||0) + NH/2);
+  });
+  const gW = maxX - minX || 1, gH = maxY - minY || 1;
+  // グラフ範囲の 60% をパディングとして追加し、viewport 矩形が相対的に小さく見えるようにする
+  const px = gW * 0.6, py = gH * 0.6;
+  minX -= px; maxX += px; minY -= py; maxY += py;
+  const eW = maxX - minX, eH = maxY - minY;
+  const scale = Math.min((mmW - pad*2) / eW, (mmH - pad*2) / eH);
+  const offX = pad - minX * scale + (mmW - pad*2 - eW*scale) / 2;
+  const offY = pad - minY * scale + (mmH - pad*2 - eH*scale) / 2;
+  return {scale, offX, offY, NH, mmW, mmH};
+}
+
+function _incRenderMinimap() {
+  if(!_incMiniSvg || !_incSvg || !_incNodeMap.size) return;
+  const {scale, offX, offY, NH} = _incMiniParams();
+
+  const allNodes = [..._incNodeMap.values()];
+  const rects = _incMiniSvg.selectAll('rect.mm-node').data(allNodes, d => d.id);
+  rects.enter().append('rect')
+    .attr('class', d => {
+      const ext = d.id.split('.').pop().toLowerCase();
+      return 'mm-node ' + (['h','hpp','hh'].includes(ext) ? 'h-file' : 'c-file');
+    })
+    .merge(rects)
+    .attr('x',      d => (d._x||0)*scale + offX - (d._w||_incNodeWidth(d._dispLabel||d.label))/2*scale)
+    .attr('y',      d => (d._y||0)*scale + offY - NH/2*scale)
+    .attr('width',  d => (d._w||_incNodeWidth(d._dispLabel||d.label))*scale)
+    .attr('height', NH*scale);
+  rects.exit().remove();
+
+  const t = d3.zoomTransform(_incSvg.node());
+  const container = document.getElementById('include-graph-container');
+  const cW = container?.offsetWidth || 900;
+  const cH = container?.offsetHeight || 600;
+  const vx1 = (-t.x)/t.k, vy1 = (-t.y)/t.k;
+  const vx2 = (cW-t.x)/t.k, vy2 = (cH-t.y)/t.k;
+  _incMiniSvg.selectAll('rect.mm-viewport').data([0]).join('rect')
+    .attr('class', 'mm-viewport')
+    .attr('x',      vx1*scale + offX)
+    .attr('y',      vy1*scale + offY)
+    .attr('width',  (vx2-vx1)*scale)
+    .attr('height', (vy2-vy1)*scale);
+}
+
+function _incMinimapPointerDown(event) {
+  if(!_incSvg || !_incZoomRef || !_incNodeMap.size) return;
+  event.preventDefault();
+  const mmEl = _incMiniSvg.node();
+
+  function moveTo(clientX, clientY) {
+    const rect = mmEl.getBoundingClientRect();
+    const {scale, offX, offY} = _incMiniParams();
+    const gx = (clientX - rect.left - offX) / scale;
+    const gy = (clientY - rect.top  - offY) / scale;
+    _incSvg.call(_incZoomRef.translateTo, gx, gy);
+  }
+
+  moveTo(event.clientX, event.clientY);
+
+  function onMove(e) { moveTo(e.clientX, e.clientY); }
+  function onUp()    { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup',   onUp);
 }
 
 // ----- エクスポート -----
