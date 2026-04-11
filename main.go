@@ -6,8 +6,10 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"bufio"
 	"os/exec"
 	"runtime"
+	"strings"
 )
 
 func main() {
@@ -45,6 +47,25 @@ func main() {
 
 	addr := fmt.Sprintf("%s:%d", *host, *port)
 	url := fmt.Sprintf("http://localhost:%d", *port)
+
+	if *host != "127.0.0.1" && *host != "localhost" {
+		fmt.Fprintf(os.Stderr, "\n============================================================\n")
+		fmt.Fprintf(os.Stderr, "  [WARNING] SECURITY RISK\n")
+		fmt.Fprintf(os.Stderr, "============================================================\n")
+		fmt.Fprintf(os.Stderr, "  grepnavi is listening on %s (NOT localhost).\n", addr)
+		fmt.Fprintf(os.Stderr, "  This tool has NO authentication.\n")
+		fmt.Fprintf(os.Stderr, "  Anyone on the network can read your files.\n")
+		fmt.Fprintf(os.Stderr, "============================================================\n")
+		fmt.Fprintf(os.Stderr, "  Type \"yes\" to continue, or press Ctrl+C to abort: ")
+		ans, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		ans = strings.TrimSpace(ans)
+		if ans != "yes" {
+			fmt.Fprintln(os.Stderr, "Aborted.")
+			os.Exit(1)
+		}
+		fmt.Fprintln(os.Stderr)
+	}
+
 	srv := newServer(absRoot, rootExplicit, *graphFile, addr)
 
 	slog.Info("grepnavi started", "root", absRoot, "graph", *graphFile)
