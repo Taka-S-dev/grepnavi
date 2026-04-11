@@ -21,24 +21,24 @@ body:has(#include-overlay.open) #peek.visible{
 #inc-loading-cancel{color:#888;font-size:11px;cursor:pointer}
 #inc-loading-cancel:hover{color:#ccc}
 #include-graph-container svg{display:block}
-.inc-node{cursor:pointer}
-.inc-node rect{rx:4;fill:#2d2d2d;stroke:#555;stroke-width:1}
-.inc-node.c-file rect{stroke:#4ec9b0}
-.inc-node.h-file rect{stroke:#9cdcfe}
+.inc-node{cursor:pointer;overflow:visible;transition:opacity 0.15s}
+.inc-node rect:first-child{rx:4;fill:#2d2d2d;stroke:#555;stroke-width:1}
+.inc-node.c-file rect:first-child{stroke:#4ec9b0}
+.inc-node.h-file rect:first-child{stroke:#9cdcfe}
 .inc-node text{fill:#ccc;font-size:11px;font-family:Consolas,monospace;pointer-events:none}
-.inc-node:hover rect{stroke:#fff}
-.inc-node.inc-root rect{stroke:#f0a040;stroke-width:2;fill:#2d2010}
-.inc-node:not(.inc-expanded) rect{opacity:0.5;stroke-dasharray:4,2}
-.inc-node.inc-expanded rect{opacity:1;stroke-dasharray:none}
+.inc-node:hover rect:first-child{stroke:#fff}
+.inc-node.inc-root rect:first-child{stroke:#f0a040;stroke-width:2;fill:#2d2010}
+.inc-node:not(.inc-expanded) rect:first-child{opacity:0.5;stroke-dasharray:4,2}
+.inc-node.inc-expanded rect:first-child{opacity:1;stroke-dasharray:none}
 .inc-link{stroke:#555;stroke-width:1;fill:none;marker-end:url(#inc-arrow);transition:opacity 0.15s,stroke 0.15s}
 .inc-link.reverse{stroke:#666;stroke-dasharray:4,2}
 .inc-link.inc-hi{stroke:#4ec9b0;stroke-width:2;opacity:1}
 .inc-link.inc-dim{opacity:0.1}
-.inc-node{transition:opacity 0.15s}
-.inc-node.inc-hi rect{stroke-width:2}
+.inc-node.inc-hi rect:first-child{stroke-width:2}
 .inc-node.inc-dim{opacity:0.2}
 @keyframes inc-pulse{0%,100%{opacity:1}50%{opacity:0.5}}
 .inc-node.inc-loading rect{animation:inc-pulse 1s ease-in-out infinite}
+.inc-node .inc-dir-stripe{opacity:0.45}
 #inc-minimap{position:absolute;top:10px;right:10px;width:180px;height:120px;background:rgba(30,30,30,0.88);border:1px solid #444;border-radius:4px;z-index:5;cursor:grab}
 #inc-minimap:active{cursor:grabbing}
 #inc-minimap .mm-node{opacity:0.75}

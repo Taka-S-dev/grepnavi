@@ -122,6 +122,73 @@ const _INC_NW = 150;
 
 function _incNormId(id) { return id.replace(/\\/g, '/').replace(/\/+$/, ''); }
 
+// ----- フォルダ色 -----
+
+const _INC_DIR_COLORS = [
+  '#4ec9b0','#9cdcfe','#ce9178','#dcdcaa','#c586c0',
+  '#f44747','#4fc1ff','#b5cea8','#d7ba7d','#569cd6',
+  '#6796e6','#cd9731','#80cb4a','#e06c75','#56b6c2',
+];
+
+function _incFileDir(id) {
+  const i = id.lastIndexOf('/');
+  return i > 0 ? id.slice(0, i) : '';
+}
+
+function _incDirHash(dir) {
+  let h = 0;
+  for(let i = 0; i < dir.length; i++) h = (h * 31 + dir.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+function _incDirColor(dir) {
+  if(!dir) return 'transparent';
+  return _INC_DIR_COLORS[_incDirHash(dir) % _INC_DIR_COLORS.length];
+}
+
+// パターン定義（色 + 模様でフォルダを区別）
+const _INC_STRIPE_PAT_COUNT = 5;
+function _incEnsureStripePattern(dir) {
+  if(!dir || !_incSvg) return _incDirColor(dir);
+  const h = _incDirHash(dir);
+  const col = _INC_DIR_COLORS[h % _INC_DIR_COLORS.length];
+  // 色のインデックスとは独立してパターンを決める
+  const patIdx = Math.floor(h / 97) % _INC_STRIPE_PAT_COUNT;
+  const patId = `inc-sp-${h % 100003}`;
+  if(_incSvg.select(`#${patId}`).empty()) {
+    const defs = _incSvg.select('defs');
+    const p = defs.append('pattern')
+      .attr('id', patId)
+      .attr('patternUnits', 'userSpaceOnUse')
+      .attr('width', 6).attr('height', 6);
+    // 背景色（共通）
+    p.append('rect').attr('width', 6).attr('height', 6).attr('fill', col).attr('opacity', 0.7);
+    switch(patIdx) {
+      case 0: // solid（模様なし）
+        break;
+      case 1: // 白斜線 /
+        p.append('path').attr('d','M-1,7 l8,-8 M-1,1 l2,-2 M5,7 l2,-2')
+          .attr('stroke', 'rgba(255,255,255,0.55)').attr('stroke-width', 1.5);
+        break;
+      case 2: // 白斜線 \
+        p.append('path').attr('d','M7,7 l-8,-8 M1,7 l-2,-2 M7,1 l2,2')
+          .attr('stroke', 'rgba(255,255,255,0.55)').attr('stroke-width', 1.5);
+        break;
+      case 3: // 白ドット
+        p.append('circle').attr('cx', 3).attr('cy', 3).attr('r', 1.2)
+          .attr('fill', 'rgba(255,255,255,0.6)');
+        break;
+      case 4: // 白横線
+        p.append('line').attr('x1',0).attr('y1',2).attr('x2',6).attr('y2',2)
+          .attr('stroke', 'rgba(255,255,255,0.55)').attr('stroke-width', 1.5);
+        p.append('line').attr('x1',0).attr('y1',5).attr('x2',6).attr('y2',5)
+          .attr('stroke', 'rgba(255,255,255,0.55)').attr('stroke-width', 1.5);
+        break;
+    }
+  }
+  return `url(#${patId})`;
+}
+
 function _incLoadingBar(on) {
   let ov = document.getElementById('inc-loading-overlay');
   if(!ov) {
@@ -288,7 +355,6 @@ function _incLayout() {
   let minL = 0;
   layerOf.forEach(d => { if(d < minL) minL = d; });
   if(minL < 0) layerOf.forEach((d, id) => layerOf.set(id, d - minL));
-  // fwd方向も伝播：各ノードのfwd childrenにレイヤーを割り当て
   let changed = true;
   while(changed) {
     changed = false;
@@ -304,7 +370,7 @@ function _incLayout() {
   _incNodeMap.forEach(n => { if(!layerOf.has(n.id)) layerOf.set(n.id, 0); });
 
   // ── 2. レイヤー配列構築 ───────────────────────────────────
-  const layerArr = new Map(); // layerIndex → node[]
+  const layerArr = new Map();
   _incNodeMap.forEach(n => {
     const l = layerOf.get(n.id);
     if(!layerArr.has(l)) layerArr.set(l, []);
@@ -313,7 +379,6 @@ function _incLayout() {
   const sortedL = [...layerArr.keys()].sort((a, b) => a - b);
 
   // ── 3. バリセンター交差削減（上下交互 PASSES 回）──────────
-  // 各ノードの「隣接レイヤーでのインデックス平均」でソート
   function barycenter(nodes, refLayer) {
     const refNodes = layerArr.get(refLayer) || [];
     const idxOf = new Map(refNodes.map((n, i) => [n.id, i]));
@@ -341,10 +406,9 @@ function _incLayout() {
 
   // ── 4. 各レイヤーをバリセンター順で横並び（幅超過時は折り返し）──────
   const ROW_WRAP_W = Math.max(900, _incContainerW - 80);
-  const ROW_H = _INC_NH + 10; // 折り返し行間
-  const LAYER_GAP = 50;       // レイヤー間マージン
+  const ROW_H = _INC_NH + 10;
+  const LAYER_GAP = 50;
 
-  // パス1: 各レイヤーの行数を計算して累積Y座標を決定
   const layerStartY = new Map();
   let cumY = 60;
   sortedL.forEach(l => {
@@ -361,40 +425,30 @@ function _incLayout() {
     cumY += rowCount * ROW_H + LAYER_GAP;
   });
 
-  // パス2: 各ノードにX/Y座標を割り当て
   sortedL.forEach(l => {
     const nodes = layerArr.get(l);
     if(!nodes) return;
     const widths = nodes.map(n => _incNodeWidth(n._dispLabel || n.label));
     const startY = layerStartY.get(l);
-
-    // 行に分割
     const rows = [[]];
     let curRowW = 0;
     nodes.forEach((n, i) => {
       const w = widths[i];
       const needed = curRowW === 0 ? w : curRowW + GAP + w;
-      if(rows[rows.length-1].length > 0 && needed > ROW_WRAP_W) {
-        rows.push([]);
-        curRowW = 0;
-      }
+      if(rows[rows.length-1].length > 0 && needed > ROW_WRAP_W) { rows.push([]); curRowW = 0; }
       rows[rows.length-1].push({n, w});
       curRowW = rows[rows.length-1].length === 1 ? w : curRowW + GAP + w;
     });
-
-    // 行ごとにX/Y座標を設定
     rows.forEach((row, ri) => {
       const totalW = row.reduce((s, {w}) => s + w, 0) + GAP * (row.length - 1);
       let cx = -totalW / 2;
       row.forEach(({n, w}) => {
-        n._w = w;
-        n._x = cx + w / 2;
-        n._y = startY + ri * ROW_H;
+        n._w = w; n._x = cx + w / 2; n._y = startY + ri * ROW_H;
+        n._layer = l; // グループ枠計算用にレイヤー番号を保持
         cx += w + GAP;
       });
     });
   });
-
 }
 
 function _incRender() {
@@ -414,16 +468,14 @@ function _incRender() {
   _incLayout();
 
   const NH = _INC_NH;
-  // fwd を優先してリンクを生成し、rev は fwd で未カバーのエッジのみ追加
+
+  // ── リンク ──
   const linkMap = new Map();
   _incNodeMap.forEach(n => {
     n.fwd.forEach(c => linkMap.set(n.id+'→'+c.id, {s:n, t:c, isRev:false}));
   });
   _incNodeMap.forEach(n => {
-    n.rev.forEach(r => {
-      const k = r.id+'→'+n.id;
-      if(!linkMap.has(k)) linkMap.set(k, {s:r, t:n, isRev:true});
-    });
+    n.rev.forEach(r => { const k = r.id+'→'+n.id; if(!linkMap.has(k)) linkMap.set(k, {s:r, t:n, isRev:true}); });
   });
   const allLinks = [...linkMap.values()];
 
@@ -442,14 +494,18 @@ function _incRender() {
     .attr('marker-end','url(#inc-arrow)');
   lk.exit().remove();
 
+  // ── ノード ──
   const nodeSel = _incRootG.selectAll('g.inc-node-g').data([0]);
   const nodeG = nodeSel.enter().append('g').attr('class','inc-node-g').merge(nodeSel);
+  const glowSel = _incRootG.selectAll('g.inc-glow-layer').data([0]);
+  const glowG = glowSel.enter().append('g').attr('class','inc-glow-layer').merge(glowSel);
   const allNodes = [..._incNodeMap.values()];
   const nd = nodeG.selectAll('g.inc-node').data(allNodes, d => d.id);
   const enter = nd.enter().append('g')
     .attr('class', _incNodeClass)
     .attr('transform', d => `translate(${d._x||0},${d._y||0})`);
   enter.append('rect').attr('height',NH).attr('y',-NH/2);
+  enter.append('rect').attr('class','inc-dir-stripe').attr('y',-NH/2).attr('width',6).attr('height',NH).attr('rx',2);
   enter.append('text').attr('text-anchor','middle').attr('dy','0.35em');
   nd.exit().remove();
 
@@ -461,17 +517,49 @@ function _incRender() {
       if(_incPinnedId === d.id) { _incPinnedId = null; _incHighlight(null); }
       else { _incPinnedId = d.id; _incHighlight(d); }
     })
-    .on('mouseenter',  (_e,d) => { if(!_incPinnedId) _incHighlight(d); })
-    .on('mouseleave',  ()     => { if(!_incPinnedId) _incHighlight(null); });
+    .on('mouseenter', (_e,d) => {
+      if(!_incPinnedId) _incHighlight(d);
+    })
+    .on('mouseleave', () => {
+      if(!_incPinnedId) _incHighlight(null);
+    });
 
   const useTransition = allNodes.length <= MAX_INC_TRANS;
   const maybeT = sel => useTransition ? sel.transition().duration(200) : sel;
   maybeT(nodeG.selectAll('g.inc-node'))
     .attr('transform', d => `translate(${d._x||0},${d._y||0})`)
     .attr('class', d => _incNodeClass(d) + (d.id === _incLoadingId ? ' inc-loading' : ''));
-  nodeG.selectAll('g.inc-node rect')
+  nodeG.selectAll('g.inc-node rect:first-child')
     .attr('width', d => d._w || _incNodeWidth(d.label))
     .attr('x',     d => -(d._w || _incNodeWidth(d.label)) / 2);
+  nodeG.selectAll('g.inc-node .inc-dir-stripe')
+    .attr('x',    d => -(d._w || _incNodeWidth(d.label)) / 2)
+    .style('fill', d => _incEnsureStripePattern(_incFileDir(d.id)))
+    .style('pointer-events', 'all')
+    .style('cursor', 'default')
+    .on('mouseenter', function(_e, d) {
+      _e.stopPropagation();
+      const dir = _incFileDir(d.id);
+      const col = _incDirColor(dir);
+      glowG.selectAll('*').remove();
+      if(dir) {
+        _incRootG.selectAll('g.inc-node').each(function(n) {
+          if(_incFileDir(n.id) !== dir) return;
+          const w = n._w || _incNodeWidth(n.label);
+          glowG.append('rect')
+            .attr('x', n._x - w / 2)
+            .attr('y', n._y - NH / 2)
+            .attr('width', 5).attr('height', NH).attr('rx', 2)
+            .attr('fill', col)
+            .style('filter', `drop-shadow(0 0 8px #fff) brightness(1.5)`)
+            .style('pointer-events', 'none');
+        });
+      }
+    })
+    .on('mouseleave', function(_e) {
+      _e.stopPropagation();
+      glowG.selectAll('*').remove();
+    });
   nodeG.selectAll('g.inc-node text')
     .text(d => {
       if(d.id === _incLoadingId) return '⏳ ' + (d._dispLabel || d.label);
@@ -540,6 +628,7 @@ function _incMiniParams() {
   const NH = _INC_NH, pad = 4, mmW = 180, mmH = 120;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   _incNodeMap.forEach(n => {
+    if(n._x === undefined) return;
     const hw = (n._w || _incNodeWidth(n._dispLabel || n.label)) / 2;
     minX = Math.min(minX, (n._x||0) - hw);
     maxX = Math.max(maxX, (n._x||0) + hw);
@@ -561,7 +650,7 @@ function _incRenderMinimap() {
   if(!_incMiniSvg || !_incSvg || !_incNodeMap.size) return;
   const {scale, offX, offY, NH} = _incMiniParams();
 
-  const allNodes = [..._incNodeMap.values()];
+  const allNodes = [..._incNodeMap.values()].filter(n => n._x !== undefined);
   const rects = _incMiniSvg.selectAll('rect.mm-node').data(allNodes, d => d.id);
   rects.enter().append('rect')
     .attr('class', d => {
