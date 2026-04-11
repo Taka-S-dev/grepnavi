@@ -1174,9 +1174,11 @@ async function pollActiveFile() {
   } catch(_) {}
 }
 
-document.addEventListener('visibilitychange', () => {
-  if(document.hidden) stopFilePolling(); else startFilePolling();
-});
+if(typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if(document.hidden) stopFilePolling(); else startFilePolling();
+  });
+}
 
 async function switchTab(idx) {
   if(idx < 0 || idx >= tabs.length) return;
