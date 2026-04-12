@@ -14,6 +14,8 @@ type CallSite struct {
 	CallLine int    `json:"call_line"` // 実際の呼び出し行（callersのみ）
 }
 
+var reCalleeFunc = regexp.MustCompile(`\b([A-Za-z_]\w*)\s*\(`)
+
 // C 系キーワード（関数呼び出しと誤認しないよう除外）
 var ctKeywords = map[string]bool{
 	"if": true, "else": true, "while": true, "for": true, "switch": true,
@@ -79,7 +81,6 @@ func FindCallees(_ context.Context, file string, line int) ([]string, error) {
 		return nil, nil
 	}
 
-	reFuncCall := regexp.MustCompile(`\b([A-Za-z_]\w*)\s*\(`)
 	seen := map[string]bool{}
 	var result []string
 
@@ -88,7 +89,7 @@ func FindCallees(_ context.Context, file string, line int) ([]string, error) {
 		if idx := strings.Index(l, "//"); idx >= 0 {
 			l = l[:idx]
 		}
-		for _, m := range reFuncCall.FindAllStringSubmatch(l, -1) {
+		for _, m := range reCalleeFunc.FindAllStringSubmatch(l, -1) {
 			name := m[1]
 			if ctKeywords[name] || seen[name] {
 				continue
@@ -108,7 +109,6 @@ func findContainingFunc(lines []string, callLine int) (string, int) {
 		return "", 0
 	}
 
-	reFuncName := regexp.MustCompile(`\b([A-Za-z_]\w*)\s*\(`)
 
 	depth := 0
 	for i := idx; i >= 0 && i > idx-2000; i-- {
@@ -127,7 +127,7 @@ func findContainingFunc(lines []string, callLine int) (string, int) {
 						if len(l) == 0 || l[0] == ' ' || l[0] == '\t' || l[0] == '#' {
 							continue
 						}
-						ms := reFuncName.FindAllStringSubmatch(l, -1)
+						ms := reCalleeFunc.FindAllStringSubmatch(l, -1)
 						for mi := len(ms) - 1; mi >= 0; mi-- {
 							name := ms[mi][1]
 							if !ctKeywords[name] {
