@@ -10,7 +10,7 @@ import (
 	"grepnavi/graph"
 )
 
-func newServer(root string, rootExplicit bool, graphFile, addr string) *http.Server {
+func newServer(root string, rootExplicit bool, graphFile, addr string, debug bool) *http.Server {
 	store := graph.NewStore(graphFile, root)
 
 	// -root フラグが明示されていない場合のみ、保存済みの root_dir を優先する
@@ -26,8 +26,9 @@ func newServer(root string, rootExplicit bool, graphFile, addr string) *http.Ser
 	mux := http.NewServeMux()
 	h := api.NewHandler(store, effectiveRoot)
 	h.Register(mux)
-	// pprof（診断用）
-	mux.Handle("/debug/pprof/", http.DefaultServeMux)
+	if debug {
+		mux.Handle("/debug/pprof/", http.DefaultServeMux)
+	}
 
 	return &http.Server{Addr: addr, Handler: api.CspMiddleware(csrfMiddleware(mux))}
 }

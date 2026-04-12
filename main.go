@@ -19,6 +19,7 @@ func main() {
 	host      := flag.String("host", "127.0.0.1", "bind address (use 0.0.0.0 for LAN access)")
 	noBrowser := flag.Bool("no-browser", false, "suppress automatic browser launch")
 	logLevel  := flag.String("log-level", "info", "log level: debug, info, warn, error")
+	debug     := flag.Bool("debug", false, "enable /debug/pprof endpoint")
 	flag.Parse()
 
 	// slog セットアップ
@@ -66,7 +67,7 @@ func main() {
 		fmt.Fprintln(os.Stderr)
 	}
 
-	srv := newServer(absRoot, rootExplicit, *graphFile, addr)
+	srv := newServer(absRoot, rootExplicit, *graphFile, addr, *debug)
 
 	slog.Info("grepnavi started", "root", absRoot, "graph", *graphFile)
 	slog.Info("listening", "url", url)
