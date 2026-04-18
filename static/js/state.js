@@ -52,6 +52,7 @@ let navIndex = -1;
 let navSkipPush = false;
 let graphDecoIds = [];
 let lineMemoDecoIds = [];
+let bookmarkDecoIds = [];
 let showLineMemoInline = false;
 let _lineMemoScrollDispose = null;
 let rangeMemoDecoIds = [];

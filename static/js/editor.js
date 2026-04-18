@@ -106,6 +106,39 @@ function setLineMemo(file, line, memo) {
   if(typeof markDirty === 'function') markDirty();
 }
 
+function getBookmarks() {
+  try { return JSON.parse(localStorage.getItem('grepnavi-bookmarks') || '{}'); } catch { return {}; }
+}
+function setBookmark(file, line, on, text) {
+  const bm = getBookmarks();
+  const key = file + '::' + line;
+  if(on) bm[key] = text !== undefined ? text : (bm[key] || '');
+  else delete bm[key];
+  localStorage.setItem('grepnavi-bookmarks', JSON.stringify(bm));
+  if(typeof markDirty === 'function') markDirty();
+}
+function refreshBookmarkDecorations() {
+  if(!monacoEditor) return;
+  const file = tabs[activeTabIdx]?.file;
+  if(!file) { bookmarkDecoIds = monacoEditor.deltaDecorations(bookmarkDecoIds, []); return; }
+  const bm = getBookmarks();
+  const decos = Object.keys(bm)
+    .filter(k => k.startsWith(file + '::'))
+    .map(k => {
+      const line = parseInt(k.substring(k.lastIndexOf('::') + 2));
+      return {
+        range: new monaco.Range(line, 1, line, 1),
+        options: {
+          isWholeLine: true,
+          glyphMarginClassName: 'bookmark-glyph',
+          glyphMarginHoverMessage: { value: 'ブックマーク (Alt+B で解除)' },
+        }
+      };
+    });
+  bookmarkDecoIds = monacoEditor.deltaDecorations(bookmarkDecoIds, decos);
+  if(typeof _memoListOpen !== 'undefined' && _memoListOpen) renderMemoList();
+}
+
 function refreshLineMemoDecorations() {
   if(!monacoEditor) return;
   const file = tabs[activeTabIdx]?.file;
@@ -463,12 +496,13 @@ async function ensureEditor() {
     openPeek(file, Number(line));
   });
 
-  // 右クリック → Jump Map に追加
+  // 右クリック → Jump Map に追加 (Alt+J)
   monacoEditor.addAction({
     id: 'grepnavi.addToJumpMap',
     label: 'Add to Jump Map',
     contextMenuGroupId: 'navigation',
     contextMenuOrder: 1.5,
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyJ],
     run(ed) {
       const file = tabs[activeTabIdx]?.file;
       if(!file) return;
@@ -477,6 +511,24 @@ async function ensureEditor() {
       const selectedText = sel && !sel.isEmpty() ? ed.getModel()?.getValueInRange(sel)?.trim() : null;
       const word = selectedText || ed.getModel()?.getWordAtPosition(ed.getPosition())?.word || `L${line}`;
       if(typeof window.addToJumpMap === 'function') window.addToJumpMap(word, file, line);
+    }
+  });
+
+  // ブックマークトグル (Alt+B)
+  monacoEditor.addAction({
+    id: 'grepnavi.toggleBookmark',
+    label: 'Toggle Bookmark',
+    contextMenuGroupId: 'navigation',
+    contextMenuOrder: 1.4,
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyB],
+    run(ed) {
+      const file = tabs[activeTabIdx]?.file;
+      if(!file) return;
+      const line = ed.getPosition()?.lineNumber ?? 1;
+      const bm = getBookmarks();
+      const key = file + '::' + line;
+      setBookmark(file, line, !(key in bm));
+      refreshBookmarkDecorations();
     }
   });
 
@@ -1206,6 +1258,7 @@ async function switchTab(idx) {
   refreshGraphDecorations();
   refreshLineMemoDecorations();
   refreshRangeMemoDecorations();
+  refreshBookmarkDecorations();
   refreshSymbolDecorations();
   pinnedHighlights.forEach(ph => applyPinnedHighlightToModel(ph, tab.model));
   const isC = /\.(c|h|cpp|cc|cxx|hpp)$/i.test(tab.file);
