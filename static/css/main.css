@@ -137,6 +137,8 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .ptab-close:hover{color:#fff;background:#5a1d1d}
 #tab-ctx-menu{display:none;position:fixed;z-index:4500;background:#2d2d2d;border:1px solid #555;border-radius:3px;box-shadow:0 4px 12px rgba(0,0,0,.5);padding:3px 0;min-width:180px;font-size:12px}
 #tab-ctx-menu.open{display:block}
+#node-ctx-menu{display:none;position:fixed;z-index:4500;background:#2d2d2d;border:1px solid #555;border-radius:3px;box-shadow:0 4px 12px rgba(0,0,0,.5);padding:3px 0;min-width:160px;font-size:12px}
+#node-ctx-menu.open{display:block}
 .tab-ctx-item{padding:5px 14px;color:#ccc;cursor:pointer;white-space:nowrap}
 .tab-ctx-item:hover{background:#094771}
 .tab-ctx-item.disabled{color:#555;cursor:default}

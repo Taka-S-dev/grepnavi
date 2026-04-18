@@ -59,10 +59,11 @@ function renderTreeTabs() {
     nameSpan.title = t.name;
     tab.appendChild(nameSpan);
 
-    // ダブルクリックでリネーム
-    nameSpan.ondblclick = (e) => {
+    // 右クリックでリネーム
+    tab.oncontextmenu = (e) => {
+      e.preventDefault();
       e.stopPropagation();
-      startTabRename(tab, t.id, t.name);
+      showTreeTabCtxMenu(tab, t.id, t.name, e.clientX, e.clientY);
     };
 
     // 削除ボタン（複数ある場合）
@@ -84,6 +85,23 @@ function renderTreeTabs() {
     };
     list.appendChild(tab);
   });
+}
+
+function _openNodeCtxMenuAt(x, y) {
+  const menu = document.getElementById("node-ctx-menu");
+  menu.style.left = x + "px";
+  menu.style.top = y + "px";
+  menu.classList.add("open");
+  const r = menu.getBoundingClientRect();
+  if (r.right > window.innerWidth) menu.style.left = (x - (r.right - window.innerWidth) - 4) + "px";
+  if (r.bottom > window.innerHeight) menu.style.top = (y - r.height) + "px";
+}
+
+let _treeTabCtxTarget = null;
+function showTreeTabCtxMenu(tab, treeId, currentName, x, y) {
+  _treeTabCtxTarget = { tab, treeId, currentName };
+  _nodeCtxTarget = null;
+  _openNodeCtxMenuAt(x, y);
 }
 
 function startTabRename(tab, treeId, currentName) {
@@ -985,48 +1003,96 @@ function makeNodeBody(node, m) {
   return { body, lbl };
 }
 
-function attachLabelInlineEdit(lbl, node, m) {
+function startNodeLabelEdit(lbl, node, m) {
   const matchText = (m.text || "").trim();
-  lbl.ondblclick = (e) => {
+  const original = node.label || matchText || labelFrom(m);
+  const inp = document.createElement("input");
+  inp.type = "text";
+  inp.value = original;
+  inp.style.cssText =
+    "width:100%;background:#1a1a1a;border:1px solid #555;color:#e0e0e0;font:12px Consolas,monospace;padding:1px 4px;border-radius:2px;box-sizing:border-box";
+  lbl.textContent = "";
+  lbl.appendChild(inp);
+  inp.focus();
+  inp.select();
+  const save = async () => {
+    const val = inp.value.trim() || original;
+    const r = await fetch("/api/graph/node/" + node.id, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: val }),
+    });
+    const n = await r.json();
+    graph.nodes[node.id] = n;
+    renderCurrent();
+    if (selNode === node.id) showDetail(node.id);
+    st("ラベル保存");
+  };
+  const cancel = () => {
+    lbl.textContent = original;
+  };
+  inp.onblur = save;
+  inp.onkeydown = (e2) => {
+    if (e2.key === "Enter") {
+      e2.preventDefault();
+      inp.blur();
+    }
+    if (e2.key === "Escape") {
+      e2.stopPropagation();
+      inp.onblur = null;
+      cancel();
+    }
+  };
+}
+
+let _nodeCtxTarget = null;
+function showNodeLabelCtxMenu(lbl, node, m, x, y) {
+  _nodeCtxTarget = { lbl, node, m };
+  _treeTabCtxTarget = null;
+  _openNodeCtxMenuAt(x, y);
+}
+
+function hideNodeCtxMenu() {
+  document.getElementById("node-ctx-menu")?.classList.remove("open");
+  _nodeCtxTarget = null;
+  _treeTabCtxTarget = null;
+}
+
+function initNodeCtxMenu() {
+  document.getElementById("node-ctx-rename").onclick = () => {
+    if (_nodeCtxTarget) {
+      const { lbl, node, m } = _nodeCtxTarget;
+      hideNodeCtxMenu();
+      startNodeLabelEdit(lbl, node, m);
+    } else if (_treeTabCtxTarget) {
+      const { tab, treeId, currentName } = _treeTabCtxTarget;
+      hideNodeCtxMenu();
+      startTabRename(tab, treeId, currentName);
+    }
+  };
+  document.addEventListener("mousedown", (e) => {
+    if (!document.getElementById("node-ctx-menu")?.contains(e.target)) hideNodeCtxMenu();
+  }, true);
+}
+
+function triggerRenameSelectedNode() {
+  if (!selNode) return;
+  const row = document.querySelector(`.node-row[data-id="${selNode}"]`);
+  if (!row) return;
+  const lbl = row.querySelector(".node-label");
+  if (!lbl) return;
+  const node = graph.nodes[selNode];
+  if (!node) return;
+  const m = node.match || {};
+  startNodeLabelEdit(lbl, node, m);
+}
+
+function attachLabelInlineEdit(lbl, node, m) {
+  lbl.oncontextmenu = (e) => {
+    e.preventDefault();
     e.stopPropagation();
-    const original = node.label || matchText || labelFrom(m);
-    const inp = document.createElement("input");
-    inp.type = "text";
-    inp.value = original;
-    inp.style.cssText =
-      "width:100%;background:#1a1a1a;border:1px solid #555;color:#e0e0e0;font:12px Consolas,monospace;padding:1px 4px;border-radius:2px;box-sizing:border-box";
-    lbl.textContent = "";
-    lbl.appendChild(inp);
-    inp.focus();
-    inp.select();
-    const save = async () => {
-      const val = inp.value.trim() || original;
-      const r = await fetch("/api/graph/node/" + node.id, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label: val }),
-      });
-      const n = await r.json();
-      graph.nodes[node.id] = n;
-      renderCurrent();
-      if (selNode === node.id) showDetail(node.id);
-      st("ラベル保存");
-    };
-    const cancel = () => {
-      lbl.textContent = original;
-    };
-    inp.onblur = save;
-    inp.onkeydown = (e2) => {
-      if (e2.key === "Enter") {
-        e2.preventDefault();
-        inp.blur();
-      }
-      if (e2.key === "Escape") {
-        e2.stopPropagation();
-        inp.onblur = null;
-        cancel();
-      }
-    };
+    selectNode(node.id);
+    showNodeLabelCtxMenu(lbl, node, m, e.clientX, e.clientY);
   };
 }
 

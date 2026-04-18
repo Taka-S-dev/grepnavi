@@ -27,6 +27,8 @@ addEventListener('DOMContentLoaded', async () => {
   id('tab-explorer').onclick = () => switchLeftTab('explorer');
   initExplorer();
 
+  initNodeCtxMenu();
+
   id('btn-stop').onclick = stopSearch;
   id('btn-clr').onclick = clearGraph;
   id('btn-tree-add').onclick = createTree;
@@ -183,6 +185,15 @@ addEventListener('DOMContentLoaded', async () => {
       ? rows[Math.max(0, curIdx <= 0 ? 0 : curIdx - 1)]
       : rows[Math.min(rows.length - 1, curIdx < 0 ? 0 : curIdx + 1)];
     if(next) { selectNode(next.dataset.id); next.scrollIntoView({block: 'nearest'}); }
+  });
+
+  document.addEventListener('keydown', e => {
+    if(e.key !== 'F2') return;
+    const tag = document.activeElement?.tagName;
+    if(tag === 'INPUT' || tag === 'TEXTAREA') return;
+    if(viewMode !== 'tree') return;
+    e.preventDefault();
+    triggerRenameSelectedNode();
   });
 
   // ツリー内の隙間でも "禁止" カーソルを出さない
