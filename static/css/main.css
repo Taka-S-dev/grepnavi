@@ -708,7 +708,9 @@ body.panel-mode #ct-sidebar.open{display:flex!important}
 .def-peek-txt{color:#d4d4d4;overflow:hidden;text-overflow:ellipsis}
 .float-peek-target-line { background: #094771; }
 .float-peek-word-highlight { background: rgba(234,92,0,.4); border-radius: 2px; }
-#memo-list-panel{position:fixed;right:0;top:0;width:320px;height:100vh;background:#1e1e1e;border-left:1px solid #333;z-index:300;flex-direction:column;display:none}
+#memo-list-panel{position:fixed;right:0;top:0;width:320px;height:100vh;background:#1e1e1e;border-left:1px solid #333;z-index:300;flex-direction:column;display:none;min-width:200px;max-width:700px}
+#memo-list-width-resizer{position:absolute;left:0;top:0;width:5px;height:100%;cursor:ew-resize;z-index:1}
+#memo-list-width-resizer:hover,#memo-list-width-resizer:active{background:rgba(0,122,204,0.4)}
 #memo-list-panel.visible{display:flex}
 #memo-list-hdr{display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-bottom:1px solid #333;font-size:12px;color:#ccc;flex-shrink:0}
 #memo-list-hdr button{background:none;border:none;color:#888;cursor:pointer;padding:2px 4px;border-radius:2px}
@@ -724,12 +726,17 @@ body.panel-mode #ct-sidebar.open{display:flex!important}
 .memo-list-loc{color:#9cdcfe;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .memo-list-lineno{color:#888}
 .memo-list-text{color:#ccc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#memo-list-filter-bar{display:flex;align-items:center;gap:4px;padding:4px 8px;border-bottom:1px solid #333;flex-shrink:0}
+#memo-list-filter-bar{display:flex;align-items:center;gap:4px;padding:4px 8px;border-bottom:1px solid #222;flex-shrink:0}
+#memo-list-type-bar{display:flex;align-items:center;gap:3px;padding:3px 8px;border-bottom:1px solid #333;flex-shrink:0}
+.memo-type-btn{background:none;border:1px solid #3a3a3a;color:#666;cursor:pointer;font-size:12px;width:26px;height:22px;padding:0;border-radius:3px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.memo-type-btn:hover{border-color:#666;color:#ccc}
+.memo-type-btn.active{border-color:#007acc;color:#4fc3f7;background:rgba(0,122,204,0.15)}
 #memo-list-filter-input{flex:1;background:#2a2a2a;border:1px solid #444;color:#ccc;font-size:11px;padding:3px 6px;border-radius:2px;outline:none}
 #memo-list-filter-input:focus{border-color:#007acc}
 #memo-list-filter-clear{background:none;border:none;color:#666;cursor:pointer;font-size:12px;padding:2px 4px;border-radius:2px}
 #memo-list-filter-clear:hover{color:#ccc;background:#2a2d2e}
 .memo-list-item{grid-template-columns:16px 16px auto 1fr 16px}
+.memo-list-item--bm{grid-template-columns:16px auto 1fr 16px}
 .memo-list-del{background:none;border:none;color:transparent;cursor:pointer;font-size:13px;padding:0 2px;border-radius:2px;line-height:1}
 .memo-list-item:hover .memo-list-del{color:#555}
 .memo-list-del:hover{color:#f44!important;background:rgba(244,68,68,0.1)}
@@ -771,3 +778,5 @@ body.panel-mode #ct-sidebar.open{display:flex!important}
 .memo-group-ungrouped-hdr{cursor:default}
 .memo-group-ungrouped-hdr:hover{background:none}
 .memo-group-hdr.memo-group-dragover{background:#094771;border:1px dashed #007acc}
+.memo-list-item.dnd-before{border-top:2px solid #007acc}
+.memo-list-item.dnd-after{border-bottom:2px solid #007acc}
