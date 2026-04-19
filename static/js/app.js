@@ -13,19 +13,26 @@ addEventListener('DOMContentLoaded', async () => {
   // ===== 左パネルタブ切り替え =====
   function switchLeftTab(tab) {
     const isExplorer = tab === 'explorer';
-    id('tab-search').classList.toggle('active', !isExplorer);
+    const isProjects = tab === 'projects';
+    const isSearch   = !isExplorer && !isProjects;
+    id('tab-search').classList.toggle('active', isSearch);
     id('tab-explorer').classList.toggle('active', isExplorer);
+    id('tab-projects').classList.toggle('active', isProjects);
     id('explorer-panel').classList.toggle('visible', isExplorer);
-    id('search-panel').style.display  = isExplorer ? 'none' : '';
-    id('pane-search').style.display   = isExplorer ? 'none' : '';
-    id('left-resizer').style.display  = isExplorer ? 'none' : '';
-    id('pane-detail').style.display   = isExplorer ? 'none' : '';
+    id('projects-panel').classList.toggle('visible', isProjects);
+    id('search-panel').style.display  = isSearch ? '' : 'none';
+    id('pane-search').style.display   = isSearch ? '' : 'none';
+    id('left-resizer').style.display  = isSearch ? '' : 'none';
+    id('pane-detail').style.display   = isSearch ? '' : 'none';
     if(isExplorer) explorerShow();
+    if(isProjects) _renderProjectsPanel();
   }
   window.switchLeftTab = switchLeftTab;
   id('tab-search').onclick   = () => switchLeftTab('search');
   id('tab-explorer').onclick = () => switchLeftTab('explorer');
+  id('tab-projects').onclick = () => switchLeftTab('projects');
   initExplorer();
+  initProjectsPanel();
 
   initNodeCtxMenu();
 
@@ -75,9 +82,19 @@ addEventListener('DOMContentLoaded', async () => {
   id('btn-project-menu').onclick = e => {
     e.stopPropagation();
     id('project-menu').classList.toggle('open');
+    if(id('project-menu').classList.contains('open')) _updateTopMenuGraphs();
   };
   document.addEventListener('click', () => id('project-menu').classList.remove('open'));
   id('pmenu-new-window').onclick = () => { id('project-menu').classList.remove('open'); openNewWindow(); };
+  id('pmenu-new').onclick        = async () => {
+    id('project-menu').classList.remove('open');
+    const r = await fetch('/api/graph', { method: 'DELETE' });
+    const d = await r.json();
+    if(!d.error) { selNode = null; showDetail(null); applyGraphResponse(d); }
+    if(typeof setProjectPath === 'function') setProjectPath('');
+    localStorage.removeItem('grepnavi_project_root');
+    updateProjectUI();
+  };
   id('pmenu-open').onclick       = () => { id('project-menu').classList.remove('open'); openProjectFilePicker(); };
   id('pmenu-saveas').onclick     = () => { id('project-menu').classList.remove('open'); saveAsProjectFilePicker(); };
   id('pmenu-save').onclick       = () => { id('project-menu').classList.remove('open'); saveProjectFileCurrent(); };
@@ -233,14 +250,19 @@ addEventListener('DOMContentLoaded', async () => {
   if(saved.enc)   updateEncBtn(saved.enc);
 
   // 起動時のグラフ復元:
-  // 1. localStorage に前回のプロジェクトパスがあればそれを直接ロード（最優先）
-  // 2. なければ .grepnavi からパスを取得してロード
-  // 3. それもなければサーバーのグラフ状態を使用
+  // savedPath は前回のセッションのもの。サーバーの root と一致する場合のみ使う。
+  // root が変わっていれば .grepnavi を優先し、savedPath は破棄する。
   try {
     const savedPath = getProjectPath();
-    if(savedPath) {
+    const savedRoot = localStorage.getItem('grepnavi_project_root') || '';
+    const rootRes   = await fetch('/api/root');
+    const { root: serverRoot } = await rootRes.json();
+    const normServer = (serverRoot || '').replace(/\\/g, '/');
+    const normSaved  = savedRoot.replace(/\\/g, '/');
+    if(savedPath && normSaved && normServer && normServer === normSaved) {
       await openProject(savedPath);
     } else {
+      if(savedPath) setProjectPath('');
       const gnRes = await fetch('/api/grepnavi');
       const gn = await gnRes.json();
       if(gn.graph) await openProject(gn.graph);

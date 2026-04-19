@@ -31,8 +31,12 @@
       <button class="activity-btn" id="tab-explorer" title="エクスプローラ">
         <i class="codicon codicon-folder"></i>
       </button>
+      <button class="activity-btn" id="tab-projects" title="プロジェクト">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><rect x="1" y="5" width="6" height="5" rx="1"/><rect x="9" y="5" width="6" height="5" rx="1"/><rect x="1" y="1" width="6" height="3" rx="1"/><rect x="9" y="1" width="6" height="3" rx="1"/><rect x="1" y="11" width="6" height="4" rx="1"/><rect x="9" y="11" width="6" height="4" rx="1"/></svg>
+      </button>
     </div>
     <div id="left-content">
+    <div id="projects-panel"></div>
     <div id="explorer-panel">
       <div id="explorer-root-header">
         <span id="explorer-root-name">EXPLORER</span>
@@ -126,6 +130,7 @@
             <div id="project-menu">
               <div class="pmenu-item" id="pmenu-new-window">新しいウィンドウ <span class="pmenu-hint">Ctrl+Shift+N</span></div>
               <div class="pmenu-separator"></div>
+              <div class="pmenu-item" id="pmenu-new">新規JSON</div>
               <div class="pmenu-item" id="pmenu-open">開く…</div>
               <div class="pmenu-item" id="pmenu-save">保存 <span class="pmenu-hint">Ctrl+S</span></div>
               <div class="pmenu-item" id="pmenu-saveas">名前を付けて保存…</div>
@@ -400,6 +405,7 @@
 <script src="/js/filebrowser.js"></script>
 <script src="/js/project.js"></script>
 <script src="/js/explorer.js"></script>
+<script src="/js/projects.js"></script>
 <script src="/js/app.js"></script>
 <!-- アドオン JS（DOMContentLoaded 内で HTML 注入・イベント登録を自己完結） -->
 <script>
