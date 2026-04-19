@@ -558,18 +558,15 @@ func (s *Store) OpenFile(path string) (*GraphResponse, error) {
 }
 
 // ExportJSON は現在のプロジェクトを JSON バイト列として返す（ファイル書き込みなし）。
-func (s *Store) ExportJSON(lineMemos map[string]string, rangeMemos []RangeMemo) ([]byte, error) {
+func (s *Store) ExportJSON(lineMemos map[string]string, rangeMemos []RangeMemo, bookmarks map[string]string) ([]byte, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	prevL := s.pf.LineMemos
-	prevR := s.pf.RangeMemos
-	s.pf.LineMemos = lineMemos
-	s.pf.RangeMemos = rangeMemos
-	s.pf.UpdatedAt = time.Now()
-	data, err := json.MarshalIndent(s.pf, "", "  ")
-	s.pf.LineMemos = prevL
-	s.pf.RangeMemos = prevR
-	return data, err
+	pf := *s.pf
+	pf.LineMemos = lineMemos
+	pf.RangeMemos = rangeMemos
+	pf.Bookmarks = bookmarks
+	pf.UpdatedAt = time.Now()
+	return json.MarshalIndent(&pf, "", "  ")
 }
 
 // ImportJSON は JSON バイト列をパースしてプロジェクトとしてロードする（ファイル読み込みなし）。

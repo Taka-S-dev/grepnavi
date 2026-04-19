@@ -341,7 +341,7 @@ function _makeMemoRow(item) {
     `<span class="memo-list-icon">${icon}</span>` +
     `<span class="memo-list-loc" title="${esc(item.file)}">${esc(fileName)}<span class="memo-list-lineno">:${lineLabel}</span></span>` +
     `<span class="memo-list-text" ${isBm ? 'style="color:#666"' : ''}>${textContent}</span>` +
-    `<button class="memo-list-del" title="削除"><i class="codicon codicon-trash"></i></button>`;
+    `<button class="memo-list-del" title="削除"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><polyline points="2,4 14,4"/><path d="M5 4V2h6v2"/><path d="M3 4l1 10h8l1-10"/></svg></button>`;
   row.addEventListener('click', e => {
     if (e.target.closest('.memo-list-drag') || e.target.closest('.memo-list-del')) return;
     _showMemoPreview(item);
