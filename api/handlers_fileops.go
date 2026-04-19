@@ -55,40 +55,103 @@ func (h *Handler) handleReveal(w http.ResponseWriter, r *http.Request) {
 
 const grepnaviFile = ".grepnavi"
 
+func addGraphToGrepnavi(root, graphPath string) {
+	if root == "" || graphPath == "" {
+		return
+	}
+	p := filepath.Join(root, grepnaviFile)
+	cfg := readGrepnavi(p)
+	cfg.Root = root
+	clean := filepath.Clean(graphPath)
+	for _, g := range cfg.Graphs {
+		if filepath.Clean(g) == clean {
+			return
+		}
+	}
+	cfg.Graphs = append(cfg.Graphs, graphPath)
+	_ = writeGrepnavi(p, cfg)
+}
+
+type grepnaviCfg struct {
+	Root   string   `json:"root"`
+	Graphs []string `json:"graphs"`
+}
+
+func readGrepnavi(path string) grepnaviCfg {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return grepnaviCfg{}
+	}
+	// new format
+	var cfg grepnaviCfg
+	if json.Unmarshal(data, &cfg) == nil && cfg.Graphs != nil {
+		return cfg
+	}
+	// legacy format: {root, graph}
+	var old map[string]string
+	if json.Unmarshal(data, &old) == nil {
+		c := grepnaviCfg{Root: old["root"]}
+		if g := old["graph"]; g != "" {
+			c.Graphs = []string{g}
+		}
+		return c
+	}
+	return grepnaviCfg{}
+}
+
+func writeGrepnavi(path string, cfg grepnaviCfg) error {
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
 func (h *Handler) handleGrepnavi(w http.ResponseWriter, r *http.Request) {
 	h.mu.RLock()
 	root := h.root
 	h.mu.RUnlock()
 
+	p := filepath.Join(root, grepnaviFile)
+
 	switch r.Method {
 	case http.MethodGet:
-		p := filepath.Join(root, grepnaviFile)
-		data, err := os.ReadFile(p)
-		if err != nil {
-			// ファイルなし → 空を返す
-			jsonOK(w, map[string]string{"graph": ""})
-			return
-		}
-		var cfg map[string]string
-		if err := json.Unmarshal(data, &cfg); err != nil {
-			jsonOK(w, map[string]string{"graph": ""})
-			return
-		}
+		cfg := readGrepnavi(p)
+		cfg.Root = root
 		jsonOK(w, cfg)
 
 	case http.MethodPost:
-		var body map[string]string
+		// body: {root, graph} — graph を追加、または {graphs:[...]} で直接上書き
+		var body struct {
+			Root   string   `json:"root"`
+			Graph  string   `json:"graph"`
+			Graphs []string `json:"graphs"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			jsonErr(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		data, _ := json.MarshalIndent(body, "", "  ")
-		p := filepath.Join(root, grepnaviFile)
-		if err := os.WriteFile(p, data, 0644); err != nil {
+		cfg := readGrepnavi(p)
+		cfg.Root = root
+		if body.Graphs != nil {
+			cfg.Graphs = body.Graphs
+		} else if body.Graph != "" {
+			exists := false
+			for _, g := range cfg.Graphs {
+				if filepath.Clean(g) == filepath.Clean(body.Graph) {
+					exists = true
+					break
+				}
+			}
+			if !exists {
+				cfg.Graphs = append(cfg.Graphs, body.Graph)
+			}
+		}
+		if err := writeGrepnavi(p, cfg); err != nil {
 			jsonErr(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		jsonOK(w, map[string]string{"status": "ok"})
+		jsonOK(w, cfg)
 
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

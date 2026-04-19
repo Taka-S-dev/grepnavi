@@ -68,6 +68,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/dirs", h.handleDirs)
 	mux.HandleFunc("/api/pick-dir", h.handlePickDir)
 	mux.HandleFunc("/api/root", h.handleRoot)
+	mux.HandleFunc("/api/projects", h.handleProjects)
+	mux.HandleFunc("/api/projects/", h.handleProjectByID)
+	mux.HandleFunc("/api/grepnavi/open", h.handleGrepnaviOpen)
+	mux.HandleFunc("/api/grepnavi/graphs", h.handleGrepnaviGraphs)
 	mux.HandleFunc("/api/grepnavi", h.handleGrepnavi)
 	mux.HandleFunc("/api/files", h.handleFiles)
 	// call tree
