@@ -235,6 +235,12 @@ func (s *Store) SetRootDir(root string) {
 	_ = s.save()
 }
 
+func (s *Store) SetRootDirNoSave(root string) {
+	s.mu.Lock()
+	s.pf.RootDir = root
+	s.mu.Unlock()
+}
+
 func (s *Store) GetFilePath() string {
 	return s.filePath
 }

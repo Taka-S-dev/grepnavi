@@ -466,7 +466,7 @@ func (h *Handler) handleGraphOpenFile(w http.ResponseWriter, r *http.Request) {
 			h.mu.Lock()
 			h.root = g.RootDir
 			h.mu.Unlock()
-			h.store.SetRootDir(g.RootDir)
+			h.store.SetRootDirNoSave(g.RootDir)
 			newRoot = g.RootDir
 			if search.CtagsIndexed(g.RootDir) {
 				search.CtagsMacroWarmup(g.RootDir)
