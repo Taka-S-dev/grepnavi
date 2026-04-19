@@ -105,12 +105,6 @@ function highlightMatch(text, query) {
 
 // ===== ルート設定 =====
 async function setRoot(newRoot) {
-  // 未保存の変更がある場合は確認
-  if(_dirty) {
-    const ok = await showConfirm('未保存の変更があります。保存せずにルートを切り替えますか？');
-    if(!ok) return false;
-  }
-
   const r = await fetch('/api/root', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
@@ -327,13 +321,14 @@ function markDirty() { _dirty = true;  updateProjectUI(); }
 function markClean() { _dirty = false; updateProjectUI(); }
 
 // グラフ・ツリーを変更する API 呼び出しで自動的に dirty にする
+const _SKIP_DIRTY_ENDPOINTS = new Set(['/api/graph/clear', '/api/graph/openfile', '/api/graph/import', '/api/graph/saveas', '/api/graph/export', '/api/graph/memos']);
 (function() {
   const _orig = window.fetch;
   window.fetch = function(url, opts) {
     const method = ((opts && opts.method) || 'GET').toUpperCase();
     if(method !== 'GET' && typeof url === 'string' &&
        (url.startsWith('/api/graph') || url.startsWith('/api/trees')) &&
-       url !== '/api/graph/clear') {
+       !_SKIP_DIRTY_ENDPOINTS.has(url)) {
       markDirty();
     }
     return _orig.apply(this, arguments);
