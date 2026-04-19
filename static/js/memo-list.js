@@ -80,6 +80,7 @@ function _deleteMemoItem(item) {
     saveRangeMemos(arr);
     refreshRangeMemoDecorations();
   }
+  renderMemoList();
 }
 
 function _saveMemoItemText(item, newText) {

@@ -87,6 +87,7 @@ type ProjectFile struct {
 	Trees        []*Tree           `json:"trees"`
 	LineMemos    map[string]string `json:"line_memos,omitempty"`
 	RangeMemos   []RangeMemo       `json:"range_memos,omitempty"`
+	Bookmarks    map[string]string `json:"bookmarks,omitempty"`
 	UpdatedAt    time.Time         `json:"updated_at"`
 }
 
@@ -109,6 +110,7 @@ type GraphResponse struct {
 	ActiveTreeID string            `json:"active_tree_id"`
 	LineMemos    map[string]string `json:"line_memos,omitempty"`
 	RangeMemos   []RangeMemo       `json:"range_memos,omitempty"`
+	Bookmarks    map[string]string `json:"bookmarks,omitempty"`
 	RootOrder    []string          `json:"root_order,omitempty"`
 }
 

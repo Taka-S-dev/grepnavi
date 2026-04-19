@@ -49,6 +49,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/graph/clear", h.handleGraphClear)
 	mux.HandleFunc("/api/graph/saveas", h.handleGraphSaveAs)
 	mux.HandleFunc("/api/graph/openfile", h.handleGraphOpenFile)
+	mux.HandleFunc("/api/graph/memos", h.handleGraphMemos)
 	mux.HandleFunc("/api/graph/export", h.handleGraphExport)
 	mux.HandleFunc("/api/graph/import", h.handleGraphImport)
 	mux.HandleFunc("/api/trees", h.handleTrees)

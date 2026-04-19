@@ -139,6 +139,7 @@ func (s *Store) buildResponse(t *Tree) *GraphResponse {
 		ActiveTreeID: s.pf.ActiveTreeID,
 		LineMemos:    s.pf.LineMemos,
 		RangeMemos:   s.pf.RangeMemos,
+		Bookmarks:    s.pf.Bookmarks,
 		RootOrder:    t.RootOrder,
 	}
 }
@@ -512,11 +513,21 @@ func isDescendantRec(t *Tree, target, root string, visited map[string]bool) bool
 
 // ===== プロジェクトファイル保存/読み込み =====
 
-func (s *Store) SaveAs(path string, lineMemos map[string]string, rangeMemos []RangeMemo) error {
+func (s *Store) UpdateMemos(lineMemos map[string]string, rangeMemos []RangeMemo, bookmarks map[string]string) error {
+	s.mu.Lock()
+	s.pf.LineMemos = lineMemos
+	s.pf.RangeMemos = rangeMemos
+	s.pf.Bookmarks = bookmarks
+	s.mu.Unlock()
+	return s.save()
+}
+
+func (s *Store) SaveAs(path string, lineMemos map[string]string, rangeMemos []RangeMemo, bookmarks map[string]string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pf.LineMemos = lineMemos
 	s.pf.RangeMemos = rangeMemos
+	s.pf.Bookmarks = bookmarks
 	s.pf.UpdatedAt = time.Now()
 	data, err := json.MarshalIndent(s.pf, "", "  ")
 	if err != nil {

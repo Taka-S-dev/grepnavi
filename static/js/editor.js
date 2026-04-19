@@ -94,7 +94,25 @@ function renderPinnedChips() {
   });
 }
 
-// ===== 行メモ (localStorage) =====
+// ===== 行メモ / ブックマーク (localStorage + JSON自動保存) =====
+
+let _memoSaveTimer = null;
+function _cancelMemoSave() { clearTimeout(_memoSaveTimer); _memoSaveTimer = null; }
+function _scheduleMemoSave() {
+  clearTimeout(_memoSaveTimer);
+  _memoSaveTimer = setTimeout(() => {
+    fetch('/api/graph/memos', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        line_memos: getLineMemos(),
+        range_memos: getRangeMemos(),
+        bookmarks: getBookmarks(),
+      }),
+    });
+  }, 500);
+}
+
 function getLineMemos() {
   try { return JSON.parse(localStorage.getItem('grepnavi-line-memos') || '{}'); } catch { return {}; }
 }
@@ -103,7 +121,7 @@ function setLineMemo(file, line, memo) {
   const key = file + '::' + line;
   if(memo) memos[key] = memo; else delete memos[key];
   localStorage.setItem('grepnavi-line-memos', JSON.stringify(memos));
-  if(typeof markDirty === 'function') markDirty();
+  _scheduleMemoSave();
 }
 
 function getBookmarks() {
@@ -115,7 +133,7 @@ function setBookmark(file, line, on, text) {
   if(on) bm[key] = text !== undefined ? text : (bm[key] || '');
   else delete bm[key];
   localStorage.setItem('grepnavi-bookmarks', JSON.stringify(bm));
-  if(typeof markDirty === 'function') markDirty();
+  _scheduleMemoSave();
 }
 function refreshBookmarkDecorations() {
   if(!monacoEditor) return;
@@ -273,7 +291,7 @@ function getRangeMemos() {
 }
 function saveRangeMemos(arr) {
   localStorage.setItem('grepnavi-range-memos', JSON.stringify(arr));
-  if(typeof markDirty === 'function') markDirty();
+  _scheduleMemoSave();
 }
 
 function refreshRangeMemoDecorations() {

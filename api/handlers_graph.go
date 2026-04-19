@@ -352,6 +352,29 @@ func (h *Handler) handleRootOrder(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]string{"status": "ok"})
 }
 
+// --- /api/graph/memos ---
+
+func (h *Handler) handleGraphMemos(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "PUT only", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		LineMemos  map[string]string `json:"line_memos"`
+		RangeMemos []graph.RangeMemo `json:"range_memos"`
+		Bookmarks  map[string]string `json:"bookmarks"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonErr(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := h.store.UpdateMemos(req.LineMemos, req.RangeMemos, req.Bookmarks); err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, map[string]string{"status": "ok"})
+}
+
 // --- /api/graph/export ---
 
 func (h *Handler) handleGraphExport(w http.ResponseWriter, r *http.Request) {
@@ -360,11 +383,12 @@ func (h *Handler) handleGraphExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		LineMemos  map[string]string  `json:"line_memos"`
-		RangeMemos []graph.RangeMemo  `json:"range_memos"`
+		LineMemos  map[string]string `json:"line_memos"`
+		RangeMemos []graph.RangeMemo `json:"range_memos"`
+		Bookmarks  map[string]string `json:"bookmarks"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
-	data, err := h.store.ExportJSON(req.LineMemos, req.RangeMemos)
+	data, err := h.store.ExportJSON(req.LineMemos, req.RangeMemos, req.Bookmarks)
 	if err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -417,6 +441,7 @@ func (h *Handler) handleGraphSaveAs(w http.ResponseWriter, r *http.Request) {
 		Path       string            `json:"path"`
 		LineMemos  map[string]string `json:"line_memos"`
 		RangeMemos []graph.RangeMemo `json:"range_memos"`
+		Bookmarks  map[string]string `json:"bookmarks"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonErr(w, err.Error(), http.StatusBadRequest)
@@ -426,7 +451,7 @@ func (h *Handler) handleGraphSaveAs(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, "path is required", http.StatusBadRequest)
 		return
 	}
-	if err := h.store.SaveAs(req.Path, req.LineMemos, req.RangeMemos); err != nil {
+	if err := h.store.SaveAs(req.Path, req.LineMemos, req.RangeMemos, req.Bookmarks); err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

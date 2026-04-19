@@ -565,7 +565,16 @@ async function openProject(path) {
   projectRoot = '';
   const resultsEl = id('results'); if (resultsEl) resultsEl.innerHTML = '';
   const paneSearch = id('pane-search'); if (paneSearch) paneSearch.style.display = '';
+  // applyGraphResponse より前にlocalStorageを上書きして古いデータが描画されないようにする
+  _cancelMemoSave();
+  localStorage.setItem('grepnavi-line-memos',  JSON.stringify(d.graph.line_memos  || {}));
+  localStorage.setItem('grepnavi-range-memos', JSON.stringify(d.graph.range_memos || []));
+  localStorage.setItem('grepnavi-bookmarks',   JSON.stringify(d.graph.bookmarks   || {}));
   applyGraphResponse(d.graph);
+  refreshLineMemoDecorations();
+  refreshRangeMemoDecorations();
+  refreshBookmarkDecorations();
+  renderMemoList();
   _dirty = false;
   // サーバーがrootを切り替えた場合はUIに反映
   if (d.root) {
