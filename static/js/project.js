@@ -352,6 +352,11 @@ function getProjectPath() {
 }
 function setProjectPath(p) {
   localStorage.setItem(LS_PROJECT_PATH, p);
+  if (p) {
+    fetch('/api/root').then(r => r.json()).then(({ root }) => {
+      if (root) localStorage.setItem('grepnavi_project_root', root.replace(/\\/g, '/'));
+    }).catch(() => {});
+  }
   addProjectHistory(p);
   updateProjectUI();
 }
@@ -563,8 +568,21 @@ async function openProject(path) {
   renderTabs();
   fzfFiles = null;
   projectRoot = '';
+  const resultsEl = id('results'); if (resultsEl) resultsEl.innerHTML = '';
+  const paneSearch = id('pane-search'); if (paneSearch) paneSearch.style.display = '';
   applyGraphResponse(d.graph);
   _dirty = false;
+  // サーバーがrootを切り替えた場合はUIに反映
+  if (d.root) {
+    projectRoot = d.root;
+    const parts = d.root.replace(/\\/g, '/').split('/');
+    id('root-label').textContent = parts[parts.length - 1] || d.root;
+    id('root-label').title = d.root + ' (クリックで変更)';
+    dirList = null; fzfFiles = null;
+    if (typeof explorerInvalidate === 'function') explorerInvalidate();
+    updateRootChip();
+    localStorage.setItem('grepnavi_project_root', d.root.replace(/\\/g, '/'));
+  }
   setProjectPath(path);
   addSaveDirHistory(path.replace(/\\/g, '/').split('/').slice(0, -1).join('/'));
   st('読み込みました: ' + path);

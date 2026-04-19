@@ -390,17 +390,20 @@ func (h *Handler) handleGraphImport(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	newRoot := ""
 	if g.RootDir != "" {
 		if info, statErr := os.Stat(g.RootDir); statErr == nil && info.IsDir() {
 			h.mu.Lock()
 			h.root = g.RootDir
 			h.mu.Unlock()
+			h.store.SetRootDir(g.RootDir)
+			newRoot = g.RootDir
 			if search.CtagsIndexed(g.RootDir) {
 				search.CtagsMacroWarmup(g.RootDir)
 			}
 		}
 	}
-	jsonOK(w, map[string]interface{}{"graph": g})
+	jsonOK(w, map[string]interface{}{"graph": g, "root": newRoot})
 }
 
 // --- /api/graph/saveas ---
@@ -427,6 +430,10 @@ func (h *Handler) handleGraphSaveAs(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	h.mu.RLock()
+	root := h.root
+	h.mu.RUnlock()
+	addGraphToGrepnavi(root, req.Path)
 	jsonOK(w, map[string]string{"file_path": req.Path})
 }
 
@@ -453,15 +460,25 @@ func (h *Handler) handleGraphOpenFile(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	newRoot := ""
 	if g.RootDir != "" {
 		if info, statErr := os.Stat(g.RootDir); statErr == nil && info.IsDir() {
 			h.mu.Lock()
 			h.root = g.RootDir
 			h.mu.Unlock()
+			h.store.SetRootDir(g.RootDir)
+			newRoot = g.RootDir
 			if search.CtagsIndexed(g.RootDir) {
 				search.CtagsMacroWarmup(g.RootDir)
 			}
 		}
 	}
-	jsonOK(w, map[string]interface{}{"graph": g, "file_path": req.Path})
+	effectiveRoot := newRoot
+	if effectiveRoot == "" {
+		h.mu.RLock()
+		effectiveRoot = h.root
+		h.mu.RUnlock()
+	}
+	addGraphToGrepnavi(effectiveRoot, req.Path)
+	jsonOK(w, map[string]interface{}{"graph": g, "file_path": req.Path, "root": newRoot})
 }
