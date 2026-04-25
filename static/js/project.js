@@ -553,10 +553,10 @@ async function openProject(path) {
     d = await r.json();
   } catch(e) {
     st('読み込みエラー: ' + e.message);
-    return;
+    return false;
   }
-  if(!d || d.error) { st('読み込みエラー: ' + (d?.error || '不明なエラー')); return; }
-  if(!d.graph)      { st('読み込みエラー: レスポンスにグラフデータがありません'); return; }
+  if(!d || d.error) { st('読み込みエラー: ' + (d?.error || '不明なエラー')); return false; }
+  if(!d.graph)      { st('読み込みエラー: レスポンスにグラフデータがありません'); return false; }
   selNode = null; showDetail(null);
   tabs.forEach(t => { try { t.model?.dispose(); } catch(_) {} });
   tabs = []; activeTabIdx = -1;
@@ -586,10 +586,12 @@ async function openProject(path) {
     if (typeof explorerInvalidate === 'function') explorerInvalidate();
     updateRootChip();
     localStorage.setItem('grepnavi_project_root', d.root.replace(/\\/g, '/'));
+    if (typeof loadPinnedHighlights === 'function') loadPinnedHighlights();
   }
   setProjectPath(path);
   addSaveDirHistory(path.replace(/\\/g, '/').split('/').slice(0, -1).join('/'));
   st('読み込みました: ' + path);
+  return true;
 }
 
 // ===== ファイルブラウザ =====

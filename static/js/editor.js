@@ -27,6 +27,33 @@ function applyPinnedHighlightToModel(ph, model) {
   ph.modelDecos.set(uriStr, ids);
 }
 
+function _pinnedHighlightsKey() {
+  return 'grepnavi-pinned-highlights:' + (localStorage.getItem('grepnavi_project_root') || '');
+}
+
+function savePinnedHighlights() {
+  localStorage.setItem(_pinnedHighlightsKey(), JSON.stringify(
+    pinnedHighlights.map(ph => ({
+      word: ph.word, wholeWord: ph.wholeWord, colorIdx: ph.colorIdx,
+      originFile: ph.originFile, originLine: ph.originLine,
+    }))
+  ));
+}
+
+function loadPinnedHighlights() {
+  try {
+    const data = JSON.parse(localStorage.getItem(_pinnedHighlightsKey()) || '[]');
+    pinnedHighlights = [];
+    data.forEach(d => {
+      const ph = { word: d.word, wholeWord: d.wholeWord ?? true, colorIdx: d.colorIdx,
+                   modelDecos: new Map(), originFile: d.originFile, originLine: d.originLine };
+      pinnedHighlights.push(ph);
+      applyPinnedHighlightToModel(ph, monacoEditor?.getModel());
+    });
+    renderPinnedChips();
+  } catch {}
+}
+
 function togglePinnedHighlight(word, wholeWord = true) {
   const idx = pinnedHighlights.findIndex(p => p.word === word);
   if(idx >= 0) {
@@ -48,7 +75,19 @@ function togglePinnedHighlight(word, wholeWord = true) {
     pinnedHighlights.push(ph);
     applyPinnedHighlightToModel(ph, monacoEditor?.getModel());
   }
+  savePinnedHighlights();
   renderPinnedChips();
+}
+
+let _jumpFlashIds = [];
+function flashJumpTarget(range) {
+  _jumpFlashIds = monacoEditor.deltaDecorations(_jumpFlashIds, [{
+    range,
+    options: { inlineClassName: 'pinned-hl-jump' },
+  }]);
+  setTimeout(() => {
+    _jumpFlashIds = monacoEditor.deltaDecorations(_jumpFlashIds, []);
+  }, 600);
 }
 
 function jumpPinnedHighlight(ph, dir) {
@@ -69,6 +108,7 @@ function jumpPinnedHighlight(ph, dir) {
   const target = matches[idx];
   monacoEditor.revealLineInCenter(target.range.startLineNumber);
   monacoEditor.setPosition({ lineNumber: target.range.startLineNumber, column: target.range.startColumn });
+  flashJumpTarget(target.range);
 }
 
 function renderPinnedChips() {
@@ -82,7 +122,7 @@ function renderPinnedChips() {
     chip.className = 'pinned-chip';
     chip.title = ph.wholeWord ? '単語一致' : '部分一致';
     chip.style.cssText = `--chip-color:${c.chip};border-color:${c.border};background:${c.rgba}`;
-    chip.innerHTML = `<span class="pinned-chip-nav" title="前の出現箇所">&#8249;</span><span class="pinned-chip-word">${ph.word}</span><span class="pinned-chip-nav" title="次の出現箇所">&#8250;</span><span class="pinned-chip-x">×</span>`;
+    chip.innerHTML = `<span class="pinned-chip-nav" title="前の出現箇所">&#8249;</span><span class="pinned-chip-word">${ph.word}</span><span class="pinned-chip-count"></span><span class="pinned-chip-nav" title="次の出現箇所">&#8250;</span><span class="pinned-chip-x">×</span>`;
     const [btnPrev, btnNext] = chip.querySelectorAll('.pinned-chip-nav');
     btnPrev.onclick = () => jumpPinnedHighlight(ph, -1);
     btnNext.onclick = () => jumpPinnedHighlight(ph, +1);
@@ -91,6 +131,37 @@ function renderPinnedChips() {
     };
     chip.querySelector('.pinned-chip-x').onclick = () => togglePinnedHighlight(ph.word);
     panel.appendChild(chip);
+  });
+  updatePinnedCounts();
+}
+
+function getPinnedHighlightStats(ph) {
+  const model = monacoEditor?.getModel();
+  if (!model) return { total: 0, current: 0 };
+  const wordSeps = ph.wholeWord ? WORD_SEPARATORS : null;
+  const matches = model.findMatches(ph.word, false, false, true, wordSeps, false);
+  const total = matches.length;
+  if (!total) return { total: 0, current: 0 };
+  const pos = monacoEditor.getPosition();
+  const curLine = pos?.lineNumber ?? 0;
+  const curCol  = pos?.column ?? 0;
+  let current = matches.findIndex(m =>
+    m.range.startLineNumber > curLine ||
+    (m.range.startLineNumber === curLine && m.range.startColumn >= curCol)
+  );
+  current = current < 0 ? total : current + 1;
+  return { total, current };
+}
+
+function updatePinnedCounts() {
+  const panel = id('pinned-hl-panel');
+  if (!panel || !pinnedHighlights.length) return;
+  const chips = panel.querySelectorAll('.pinned-chip');
+  pinnedHighlights.forEach((ph, i) => {
+    const el = chips[i]?.querySelector('.pinned-chip-count');
+    if (!el) return;
+    const { total, current } = getPinnedHighlightStats(ph);
+    el.textContent = total ? `${current}/${total}` : '';
   });
 }
 
@@ -482,7 +553,7 @@ async function ensureEditor() {
     readOnly: true,
     minimap: {enabled: true, scale: 1, showSlider: 'mouseover'},
     scrollBeyondLastLine: false,
-    fontSize: 12,
+    fontSize: parseInt(localStorage.getItem('grepnavi-font-size')) || 12,
     lineNumbers: 'on',
     wordWrap: 'off',
     occurrencesHighlight: 'singleFile',
@@ -497,8 +568,23 @@ async function ensureEditor() {
   });
   new ResizeObserver(() => monacoEditor.layout()).observe(id('monaco-container'));
 
+  window.addEventListener('wheel', e => {
+    if (!e.ctrlKey || !monacoEditor) return;
+    const dom = monacoEditor.getDomNode();
+    if (!dom) return;
+    const r = dom.getBoundingClientRect();
+    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return;
+    e.stopPropagation(); e.preventDefault();
+    const cur = monacoEditor.getOption(monaco.editor.EditorOption.fontSize);
+    const next = e.deltaY < 0 ? Math.min(cur + 1, 32) : Math.max(cur - 1, 8);
+    monacoEditor.updateOptions({ fontSize: next });
+    localStorage.setItem('grepnavi-font-size', next);
+  }, { capture: true, passive: false });
+
   // ===== C/C++ 言語固有拡張 (editor-c.js) =====
   const { resolveLocalVar } = initEditorC(monacoEditor, monaco);
+
+  monacoEditor.onDidChangeCursorPosition(() => updatePinnedCounts());
 
   // 編集時にプレビュータブを固定に昇格
   monacoEditor.onDidChangeModelContent(() => {
@@ -950,6 +1036,7 @@ async function ensureEditor() {
     });
   });
 
+  loadPinnedHighlights();
   _resolve();
 }
 
@@ -1279,6 +1366,7 @@ async function switchTab(idx) {
   refreshBookmarkDecorations();
   refreshSymbolDecorations();
   pinnedHighlights.forEach(ph => applyPinnedHighlightToModel(ph, tab.model));
+  updatePinnedCounts();
   const isC = /\.(c|h|cpp|cc|cxx|hpp)$/i.test(tab.file);
   id('ifdef-ui').style.display = isC ? 'flex' : 'none';
   if(!isC) clearIfdefHighlight();
@@ -1287,6 +1375,7 @@ async function switchTab(idx) {
   if(document.getElementById('explorer-panel')?.classList.contains('visible')) {
     window.explorerRevealFile?.(tab.file);
   }
+  monacoEditor.layout();
 }
 
 function closeTab(idx) {

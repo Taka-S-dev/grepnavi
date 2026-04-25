@@ -89,7 +89,7 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
   background:#1e1e1e;
   display:none;
   flex-direction:column;
-  min-height:120px;max-height:70vh;
+  height:35vh;min-height:120px;max-height:70vh;
 }
 #peek.visible{display:flex}
 #peek-hdr{
@@ -177,6 +177,9 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .pinned-chip-nav:hover{opacity:1}
 .pinned-chip-word{cursor:pointer;font-family:Consolas,monospace}
 .pinned-chip-word:hover{text-decoration:underline}
+.pinned-chip-count{opacity:0.55;font-size:10px;font-family:Consolas,monospace;display:inline-block;width:4em;text-align:center}
+@keyframes pinned-jump-flash{0%{background:rgba(255,255,200,0.35);box-shadow:0 0 0 2px rgba(255,255,200,0.25)}100%{background:rgba(255,255,200,0);box-shadow:0 0 0 2px rgba(255,255,200,0)}}
+.pinned-hl-jump{border-radius:2px;animation:pinned-jump-flash 800ms ease-out}
 .pinned-chip-x{cursor:pointer;opacity:0.6;font-size:12px;line-height:1;padding-left:2px}
 .pinned-chip-x:hover{opacity:1;color:#ff6b6b}
 
@@ -217,9 +220,9 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 
 /* center: node tree */
 #pane-tree{flex:1;display:flex;flex-direction:column;border-right:1px solid rgba(255,255,255,0.18);overflow:hidden;position:relative;min-height:0}
-#tree-hdr{padding:4px 8px;background:#2d2d2d;border-bottom:1px solid #444;font-size:11px;color:#999;display:flex;align-items:center;justify-content:space-between}
+#tree-hdr{padding:4px 8px;background:#2d2d2d;border-bottom:1px solid #444;font-size:11px;color:#999;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 #addon-buttons{display:flex;gap:4px;align-items:center;margin-left:8px;padding-left:8px;border-left:1px solid #444}
-#tree{flex:1;overflow:auto;padding:6px 4px}
+#tree{flex:1;overflow:auto;padding:6px 4px;min-height:0}
 
 /* ノードカード */
 .node{margin:3px 0;position:relative}
