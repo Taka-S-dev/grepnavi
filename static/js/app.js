@@ -250,22 +250,18 @@ addEventListener('DOMContentLoaded', async () => {
   if(saved.enc)   updateEncBtn(saved.enc);
 
   // 起動時のグラフ復元:
-  // savedPath は前回のセッションのもの。サーバーの root と一致する場合のみ使う。
-  // root が変わっていれば .grepnavi を優先し、savedPath は破棄する。
+  // savedPath がある場合はまず開く。失敗時は /api/grepnavi にフォールバック。
   try {
     const savedPath = getProjectPath();
-    const savedRoot = localStorage.getItem('grepnavi_project_root') || '';
-    const rootRes   = await fetch('/api/root');
-    const { root: serverRoot } = await rootRes.json();
-    const normServer = (serverRoot || '').replace(/\\/g, '/');
-    const normSaved  = savedRoot.replace(/\\/g, '/');
-    if(savedPath && normSaved && normServer && normServer === normSaved) {
-      await openProject(savedPath);
-    } else {
-      if(savedPath) setProjectPath('');
+    let restored = false;
+    if (savedPath) {
+      restored = await openProject(savedPath);
+    }
+    if (!restored) {
+      if (savedPath) setProjectPath('');
       const gnRes = await fetch('/api/grepnavi');
       const gn = await gnRes.json();
-      if(gn.graph) await openProject(gn.graph);
+      if (gn.graph) await openProject(gn.graph);
       else await loadGraph();
     }
   } catch(_) {
