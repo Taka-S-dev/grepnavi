@@ -8,6 +8,11 @@ window.addEventListener('unhandledrejection', e => {
 
 // ===== BOOT =====
 addEventListener('DOMContentLoaded', async () => {
+  id('tree').addEventListener('wheel', e => {
+    e.preventDefault();
+    id('tree').scrollTop += e.deltaY * 0.4;
+  }, { passive: false });
+
   id('btn-s').onclick = doSearch;
 
   // ===== 左パネルタブ切り替え =====
