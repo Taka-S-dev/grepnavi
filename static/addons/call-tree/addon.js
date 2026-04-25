@@ -204,7 +204,7 @@ async function ctSearch() {
       }
       _ctTree = {
         func: word, file: '', line: 0,
-        children: hits.map(h => ({ func: h.func, file: h.file, line: h.line, callLine: h.call_line, children: null, expanded: false })),
+        children: hits.map(h => ({ func: h.func, file: h.file, line: h.line, callLine: h.call_line, indirect: h.indirect, children: null, expanded: false })),
         expanded: true,
       };
       _ctTrees.callers = _ctTree;
@@ -347,6 +347,13 @@ function makeNodeEl(node, depth, isCycle = false) {
   const fn = document.createElement('span');
   fn.className = _ctMode === 'callers' ? 'ct-func' : 'ct-callee-name';
   fn.textContent = node.func;
+  if (node.indirect) {
+    fn.style.opacity = '0.6';
+    const badge = document.createElement('span');
+    badge.textContent = '(ptr)';
+    badge.style.cssText = 'font-size:10px;opacity:0.5;margin-left:4px;font-family:monospace';
+    fn.appendChild(badge);
+  }
   if (isCycle) fn.style.opacity = '0.5';
   else fn.onclick = () => ctJumpToFunc(node);
 
@@ -392,11 +399,11 @@ async function ctToggle(node, el) {
     const params = new URLSearchParams({ word: node.func });
     if (dir)  params.set('dir', dir);
     if (glob) params.set('glob', glob);
-    if (typeof gtagsEnabled === 'function' && !gtagsEnabled()) params.set('gtags', '0');
+    if (typeof gtagsAvailable === 'function' && !gtagsAvailable()) params.set('gtags', '0');
     const res = await fetch('/api/callers?' + params).catch(() => null);
     if (res && res.ok) {
       const hits = await res.json();
-      node.children = hits.map(h => ({ func: h.func, file: h.file, line: h.line, callLine: h.call_line, children: null, expanded: false, _callerCached: true }));
+      node.children = hits.map(h => ({ func: h.func, file: h.file, line: h.line, callLine: h.call_line, indirect: h.indirect, children: null, expanded: false, _callerCached: true }));
     } else {
       node.children = [];
     }

@@ -350,6 +350,10 @@ func (h *Handler) handleCallers(w http.ResponseWriter, r *http.Request) {
 	var err error
 	if useGtags {
 		hits, err = search.GtagsFindRefs(r.Context(), word, hroot)
+		if err != nil || len(hits) == 0 {
+			err = nil
+			hits, err = search.FindCallers(r.Context(), word, dir, q.Get("glob"))
+		}
 	} else {
 		hits, err = search.FindCallers(r.Context(), word, dir, q.Get("glob"))
 	}
