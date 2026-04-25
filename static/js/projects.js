@@ -226,18 +226,27 @@ async function _addCurrentProject() {
   const name = await showInputModal('プロジェクトを保存', 'プロジェクト名', suggested);
   if (!name) return;
 
-  await fetch('/api/grepnavi', {
+  const gnRes = await fetch('/api/grepnavi', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ root, graph: graphPath }),
   });
+  if (!gnRes.ok) {
+    const gnErr = await gnRes.json().catch(() => ({}));
+    alert('.grepnaviの書き込みに失敗しました: ' + (gnErr.error || gnRes.status));
+    return;
+  }
 
   const res = await fetch('/api/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, grepnaviFile: gnPath }),
   });
-  if (!res.ok) { alert('保存に失敗しました'); return; }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    alert('保存に失敗しました: ' + (err.error || res.status));
+    return;
+  }
   _projectsData = await res.json();
   const added = _projectsData.find(p => (p.grepnaviFile || '').replace(/\\/g, '/') === gnPath);
   if (added) _expandedProjects.add(added.id);
