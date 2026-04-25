@@ -1070,9 +1070,62 @@ function initNodeCtxMenu() {
       startTabRename(tab, treeId, currentName);
     }
   };
+  document.getElementById("node-ctx-duplicate").onclick = async () => {
+    if (!_nodeCtxTarget) return;
+    const { node } = _nodeCtxTarget;
+    hideNodeCtxMenu();
+    await duplicateNode(node.id);
+  };
   document.addEventListener("mousedown", (e) => {
     if (!document.getElementById("node-ctx-menu")?.contains(e.target)) hideNodeCtxMenu();
   }, true);
+}
+
+async function duplicateNode(nodeId) {
+  const node = graph.nodes[nodeId];
+  if (!node) return;
+  const parentId = findParent(nodeId, graph.nodes);
+  const newId = crypto.randomUUID?.() ?? Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b => b.toString(16).padStart(2,'0')).join('');
+  const r = await fetch("/api/graph/node", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      match: { ...(node.match || {}), id: newId },
+      parent_id: parentId || "",
+      edge_label: "ref",
+      label: node.label || "",
+    }),
+  });
+  const d = await r.json();
+  if (d.error) { st("エラー: " + d.error); return; }
+  graph.nodes[d.node.id] = d.node;
+  if (d.edge) graph.edges.push(d.edge);
+  if (node.memo) {
+    await fetch("/api/graph/node/" + d.node.id, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ memo: node.memo }),
+    });
+    graph.nodes[d.node.id].memo = node.memo;
+  }
+  if (parentId && graph.nodes[parentId]) {
+    const children = graph.nodes[parentId].children || [];
+    const idx = children.indexOf(nodeId);
+    children.splice(idx + 1, 0, d.node.id);
+    await saveChildrenOrder(parentId, children, { skipRender: true });
+  } else {
+    const hp = new Set();
+    Object.values(graph.nodes).forEach(n => (n.children || []).forEach(c => hp.add(c)));
+    const order = (graph._rootOrder || []).filter(id => graph.nodes[id] && !hp.has(id));
+    const idx = order.indexOf(nodeId);
+    order.splice(idx + 1, 0, d.node.id);
+    graph._rootOrder = order;
+    await saveRootOrder(order, { skipRender: true });
+  }
+  selNode = d.node.id;
+  renderCurrent();
+  selectNode(d.node.id);
+  st("ノードを複製しました");
 }
 
 function triggerRenameSelectedNode() {
@@ -1089,6 +1142,16 @@ function triggerRenameSelectedNode() {
 
 function attachLabelInlineEdit(lbl, node, m) {
   lbl.oncontextmenu = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    selectNode(node.id);
+    showNodeLabelCtxMenu(lbl, node, m, e.clientX, e.clientY);
+  };
+}
+
+function attachRowCtxMenu(row, lbl, node, m) {
+  row.oncontextmenu = (e) => {
+    if (e.target === lbl || lbl.contains(e.target)) return; // lbl 側のハンドラに任せる
     e.preventDefault();
     e.stopPropagation();
     selectNode(node.id);
@@ -1254,6 +1317,7 @@ function makeNodeEl(node, depth, visited = new Set()) {
     toggleNode(node.id);
   };
   attachLabelInlineEdit(lbl, node, m);
+  attachRowCtxMenu(row, lbl, node, m);
   if (node.memo) {
     row.addEventListener("mouseenter", (e) => showMemoTip(e, node));
     row.addEventListener("mousemove", (e) => moveMemoTip(e));
@@ -1437,7 +1501,7 @@ async function reorderNode(nodeId, refNodeId, position, reorderOnly = false) {
   }
 }
 
-async function saveChildrenOrder(parentId, children) {
+async function saveChildrenOrder(parentId, children, { skipRender = false } = {}) {
   const r = await fetch("/api/graph/node/" + parentId, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -1449,17 +1513,17 @@ async function saveChildrenOrder(parentId, children) {
     return;
   }
   graph.nodes[parentId].children = children;
-  renderCurrent();
+  if (!skipRender) renderCurrent();
   stGraph();
 }
 
-async function saveRootOrder(order) {
+async function saveRootOrder(order, { skipRender = false } = {}) {
   await fetch("/api/graph/rootorder", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ order }),
   });
-  renderCurrent();
+  if (!skipRender) renderCurrent();
 }
 
 async function reparent(nodeId, newParentId) {
