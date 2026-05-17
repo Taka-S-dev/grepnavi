@@ -277,11 +277,12 @@ function flushBatch(q) {
     const file = m.file;
     let header = _virtHeaderMap.get(file);
     if(!header) {
-      header = {type: 'header', file, count: 0};
+      header = {type: 'header', file, count: 0, nonUTF8: false};
       _virtHeaderMap.set(file, header);
       _virtItems.push(header);
     }
     header.count++;
+    if(m.non_utf8) header.nonUTF8 = true;
     _virtItems.push({type: 'row', match: m, file});
   }
   _virtNeedRebuild = true;
@@ -479,6 +480,13 @@ function makeVirtRow(item) {
     fcount.className = 'rg-fcount';
     fcount.textContent = item._visibleCount + '件';
     div.append(toggle, iconEl, fname, fcount);
+    if(item.nonUTF8) {
+      const badge = document.createElement('span');
+      badge.className = 'rg-enc-badge';
+      badge.textContent = '非UTF-8';
+      badge.title = 'このファイルは UTF-8 として復号できず、SJIS/EUC-JP として表示しています。\n日本語キーワードで検索したい場合は左下のエンコーディング設定を切り替えてください。';
+      div.append(badge);
+    }
     toggle.onclick = () => {
       if(_collapsedGroups.has(item.file)) _collapsedGroups.delete(item.file);
       else _collapsedGroups.add(item.file);

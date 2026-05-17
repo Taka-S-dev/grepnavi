@@ -217,6 +217,7 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .rg-fname{color:#569cd6;font-size:12px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rg-fcount{color:#666;font-size:10px;flex-shrink:0}
 .rg-fcount{color:#666;font-size:10px;flex-shrink:0}
+.rg-enc-badge{font-size:9px;color:#e0b060;background:rgba(224,176,96,0.15);border:1px solid rgba(224,176,96,0.4);border-radius:2px;padding:0 4px;flex-shrink:0;cursor:help;font-family:Consolas,monospace}
 
 /* center: node tree */
 #pane-tree{flex:1;display:flex;flex-direction:column;border-right:1px solid rgba(255,255,255,0.18);overflow:hidden;position:relative;min-height:0}

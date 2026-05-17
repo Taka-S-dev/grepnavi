@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha1"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -120,8 +121,23 @@ type rgContextData struct {
 	Lines      rgText `json:"lines"`
 }
 
+// rgText は ripgrep の JSON 出力の文字列フィールド。
+// UTF-8 として有効なら text、無効なら bytes（base64）が入る。
 type rgText struct {
-	Text string `json:"text"`
+	Text  string `json:"text"`
+	Bytes string `json:"bytes"`
+}
+
+// Decode は text を優先し、無ければ bytes を base64 デコードして
+// SJIS/EUC-JP フォールバック付きで UTF-8 に変換する。
+// 2 つ目の戻り値は bytes フィールド経由（非 UTF-8）だったかを示す。
+func (t rgText) Decode() (string, bool) {
+	if t.Bytes != "" {
+		if b, err := base64.StdEncoding.DecodeString(t.Bytes); err == nil {
+			return string(toUTF8(b)), true
+		}
+	}
+	return t.Text, false
 }
 
 type rgSubmatch struct {
@@ -175,9 +191,10 @@ func parseOutput(data []byte, query string, ctxLines int) ([]graph.Match, error)
 			if err := json.Unmarshal(ev.Data, &d); err != nil {
 				continue
 			}
+			text, _ := d.Lines.Decode()
 			snippetBuf = append(snippetBuf, graph.SnippetLine{
 				Line:    d.LineNumber,
-				Text:    strings.TrimRight(d.Lines.Text, "\n"),
+				Text:    strings.TrimRight(text, "\n"),
 				IsMatch: false,
 			})
 
@@ -192,21 +209,24 @@ func parseOutput(data []byte, query string, ctxLines int) ([]graph.Match, error)
 			if len(d.Submatches) > 0 {
 				col = d.Submatches[0].Start + 1
 			}
-			id := matchID(d.Path.Text, d.LineNumber, col)
+			path, pathFB := d.Path.Decode()
+			lineText, lineFB := d.Lines.Decode()
+			id := matchID(path, d.LineNumber, col)
 			m := graph.Match{
-				ID:    id,
-				File:  d.Path.Text,
-				Line:  d.LineNumber,
-				Col:   col,
-				Text:  strings.TrimRight(d.Lines.Text, "\n"),
-				Query: query,
+				ID:      id,
+				File:    path,
+				Line:    d.LineNumber,
+				Col:     col,
+				Text:    strings.TrimRight(lineText, "\n"),
+				Query:   query,
+				NonUTF8: pathFB || lineFB,
 			}
 			// 直前の context 行をスニペットに含める
 			snip := make([]graph.SnippetLine, len(snippetBuf))
 			copy(snip, snippetBuf)
 			snip = append(snip, graph.SnippetLine{
 				Line:    d.LineNumber,
-				Text:    strings.TrimRight(d.Lines.Text, "\n"),
+				Text:    strings.TrimRight(lineText, "\n"),
 				IsMatch: true,
 			})
 			currentMatch = &m
@@ -335,9 +355,10 @@ func scanRgOutput(ctx context.Context, stdout io.Reader, matchCh chan<- graph.Ma
 			if err := json.Unmarshal(ev.Data, &d); err != nil {
 				continue
 			}
+			text, _ := d.Lines.Decode()
 			snippetBuf = append(snippetBuf, graph.SnippetLine{
 				Line:    d.LineNumber,
-				Text:    strings.TrimRight(d.Lines.Text, "\n"),
+				Text:    strings.TrimRight(text, "\n"),
 				IsMatch: false,
 			})
 
@@ -354,20 +375,23 @@ func scanRgOutput(ctx context.Context, stdout io.Reader, matchCh chan<- graph.Ma
 			if len(d.Submatches) > 0 {
 				col = d.Submatches[0].Start + 1
 			}
-			id := matchID(d.Path.Text, d.LineNumber, col)
+			path, pathFB := d.Path.Decode()
+			lineText, lineFB := d.Lines.Decode()
+			id := matchID(path, d.LineNumber, col)
 			m := graph.Match{
-				ID:    id,
-				File:  d.Path.Text,
-				Line:  d.LineNumber,
-				Col:   col,
-				Text:  strings.TrimRight(d.Lines.Text, "\n"),
-				Query: pattern,
+				ID:      id,
+				File:    path,
+				Line:    d.LineNumber,
+				Col:     col,
+				Text:    strings.TrimRight(lineText, "\n"),
+				Query:   pattern,
+				NonUTF8: pathFB || lineFB,
 			}
 			snip := make([]graph.SnippetLine, len(snippetBuf))
 			copy(snip, snippetBuf)
 			snip = append(snip, graph.SnippetLine{
 				Line:    d.LineNumber,
-				Text:    strings.TrimRight(d.Lines.Text, "\n"),
+				Text:    strings.TrimRight(lineText, "\n"),
 				IsMatch: true,
 			})
 			currentMatch = &m

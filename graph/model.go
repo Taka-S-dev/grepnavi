@@ -25,6 +25,7 @@ type Match struct {
 	Snippet    []SnippetLine `json:"snippet"`
 	IfdefStack []IfdefFrame  `json:"ifdef_stack"`
 	Query      string        `json:"query"`
+	NonUTF8    bool          `json:"non_utf8,omitempty"` // ripgrep が UTF-8 として復号できず SJIS/EUC-JP フォールバックを使用
 }
 
 // SnippetLine はスニペットの1行。
