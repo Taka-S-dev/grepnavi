@@ -3,6 +3,7 @@
 
 # ソースコード
 !.gitignore
+!.gitattributes
 !README.md
 !.github/
 !.github/**
