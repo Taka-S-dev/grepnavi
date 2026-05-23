@@ -39,6 +39,50 @@
   background: #ffffff;
   border-radius: 0 2px 2px 0;
 }
+.activity-btn-bottom { margin-top: auto; margin-bottom: 4px; }
+
+/* ノードタブは pane-right が隠れるモード（search / panel）でのみ意味がある */
+#tab-nodes { display: none; }
+body.search-mode #tab-nodes,
+body.panel-mode  #tab-nodes { display: flex; }
+
+/* ノードタブのカウントバッジ + 追加時のパルス */
+.activity-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 4px;
+  background: #2ea043;
+  color: #fff;
+  font-size: 9px;
+  font-weight: bold;
+  line-height: 1;
+  border-radius: 7px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.activity-badge.visible { display: flex; }
+@keyframes activity-pulse {
+  0%   { transform: scale(1);   filter: drop-shadow(0 0 0 rgba(46,160,67,0)); }
+  30%  { transform: scale(1.18); filter: drop-shadow(0 0 6px rgba(46,160,67,0.7)); }
+  100% { transform: scale(1);   filter: drop-shadow(0 0 0 rgba(46,160,67,0)); }
+}
+.activity-btn.pulse { animation: activity-pulse var(--anim-pulse-tab) ease-out; }
+
+/* ===== Nodes Panel =====
+   switchLeftTab が #pane-tree をここへ DOM 移動させて表示する。 */
+#nodes-panel {
+  display: none;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+#nodes-panel.visible { display: flex; }
 #left-content {
   display: flex;
   flex-direction: column;

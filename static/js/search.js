@@ -122,7 +122,7 @@ function doSearch() {
   allMatches=[]; pending=[]; fileGroupMap={};
   _virtItems=[]; _visibleItems=[]; _collapsedGroups=new Set(); _collapsedFolders=new Set(); _selectedKey=''; _virtHeaderMap=new Map(); _virtNeedRebuild=false;
   id('results').innerHTML='';
-  id('filter-input').value=''; filterTokens=[]; id('filter-input').classList.remove('active'); id('filter-clear').style.display='none';
+  id('filter-input').value=''; id('filter-input').classList.remove('active'); id('filter-clear').style.display='none';
   id('sh-title').textContent='検索中... "'+q+'"';
   id('sh-over').textContent='';
   id('btn-stop').style.display='';
@@ -153,6 +153,7 @@ function doSearch() {
     id('sh-over').textContent = overText;
     st(`${d.count} 件ヒット  F3: 次へ  Shift+F3: 前へ`);
     saveSearchTab(q, d.count, title, overText);
+    if(typeof updateSearchTitle === 'function') updateSearchTitle(q, d.count);
   });
   sse.onerror = () => { stopSearch(); flushBatch(q); st('完了'); };
 }
@@ -187,22 +188,43 @@ function hlText(text, query, isRegex, cs) {
 }
 
 // ===== フィルター =====
+// 各トークンは {target, text} の形に正規化:
+//   plain "foo"     → {target:'all',  text:'foo'} ＝ パス + マッチテキスト全体
+//   "file:foo"      → {target:'file', text:'foo'} ＝ ファイル名（basename）のみ
+//   "path:foo"      → {target:'path', text:'foo'} ＝ パス全体（ディレクトリ含む）
+//   "-foo" / "-file:foo" などは not に追加（target は同じく解釈）
+// matchFilter は {all, file, path} の haystack を受け取り、target ごとに includes 判定する。
 function parseFilter(raw) {
   if(!raw.trim()) return null;
   const orGroups = raw.toLowerCase().split(/\s*\|\s*/).map(g => {
     const tokens = g.trim().split(/\s+/).filter(Boolean);
-    const must = tokens.filter(t => !t.startsWith('-'));
-    const not  = tokens.filter(t => t.startsWith('-')).map(t => t.slice(1)).filter(Boolean);
+    const must = [];
+    const not  = [];
+    for(const tok of tokens) {
+      const negate = tok.startsWith('-');
+      const body   = negate ? tok.slice(1) : tok;
+      if(!body) continue;
+      const m = body.match(/^(file|path):(.+)$/);
+      let target = 'all';
+      let text   = body;
+      if(m) {
+        target = m[1] === 'path' ? 'path' : 'file';
+        text   = m[2];
+      }
+      if(!text) continue;
+      (negate ? not : must).push({target, text});
+    }
     return {must, not};
   }).filter(g => g.must.length > 0 || g.not.length > 0);
-  return orGroups;
+  return orGroups.length ? orGroups : null;
 }
 
-function matchFilter(haystack, orGroups) {
+function matchFilter(fields, orGroups) {
   if(!orGroups || orGroups.length === 0) return true;
+  const get = t => fields[t.target] || '';
   return orGroups.some(g =>
-    g.must.every(t => haystack.includes(t)) &&
-    g.not.every(t => !haystack.includes(t))
+    g.must.every(t => get(t).includes(t.text)) &&
+    g.not.every(t => !get(t).includes(t.text))
   );
 }
 
@@ -239,20 +261,6 @@ function initFilter() {
   });
   btn.onclick = () => { inp.value=''; applyFilter(); inp.focus(); };
 
-  const scopeBtn = id('filter-scope');
-  if(scopeBtn) {
-    scopeBtn.onclick = () => {
-      const fileOnly = scopeBtn.classList.toggle('on');
-      scopeBtn.innerHTML = fileOnly
-        ? '<i class="codicon codicon-file"></i>'
-        : '<i class="codicon codicon-file"></i>';
-      scopeBtn.title = fileOnly
-        ? '絞り込み対象: ファイル名のみ (クリックで全体に戻す)'
-        : '絞り込み対象: 全体 (クリックでファイル名のみに切り替え)';
-      scopeBtn.style.background = fileOnly ? '#094771' : '';
-      applyFilter();
-    };
-  }
 
   // イベント委譲: #results に1つだけ click リスナーを登録し、
   // DOM の作り直し（renderVirtual）に影響されないようにする
@@ -302,7 +310,6 @@ function scheduleRender() {
 function buildVisibleItems() {
   const filterStr = id('filter-input').value.trim();
   const filter = parseFilter(filterStr);
-  const fileOnly = id('filter-scope')?.classList.contains('on');
 
   _visibleItems = [];
 
@@ -323,10 +330,13 @@ function buildVisibleItems() {
 
       let visibleRows = groupRows;
       if(filter) {
-        visibleRows = groupRows.filter(r => matchFilter(
-          (item.file + (fileOnly ? '' : ' ' + (r.match.text || ''))).toLowerCase(),
-          filter
-        ));
+        const pathLc = item.file.toLowerCase();
+        const baseLc = pathLc.split(/[\\/]/).pop() || '';
+        visibleRows = groupRows.filter(r => matchFilter({
+          all:  pathLc + ' ' + (r.match.text || '').toLowerCase(),
+          file: baseLc,
+          path: pathLc,
+        }, filter));
       }
 
       if(filter && visibleRows.length === 0) { i = j; continue; }
@@ -362,10 +372,13 @@ function buildVisibleItems() {
         const rows = fileRows.get(file) || [];
         let visRows = rows;
         if(filter) {
-          visRows = rows.filter(r => matchFilter(
-            (file + (fileOnly ? '' : ' ' + (r.match.text || ''))).toLowerCase(),
-            filter
-          ));
+          const pathLc = file.toLowerCase();
+          const baseLc = pathLc.split(/[\\/]/).pop() || '';
+          visRows = rows.filter(r => matchFilter({
+            all:  pathLc + ' ' + (r.match.text || '').toLowerCase(),
+            file: baseLc,
+            path: pathLc,
+          }, filter));
         }
         if(filter && visRows.length === 0) continue;
 
@@ -551,7 +564,15 @@ function makeRI(m, compact=false) {
       badge+
       `<button class="ri-add">+</button>`;
   }
-  div.querySelector('.ri-add').onclick = e => { e.stopPropagation(); addToGraph(m,null,'ref'); };
+  div.querySelector('.ri-add').onclick = async e => {
+    e.stopPropagation();
+    await addToGraph(m, null, 'ref');
+    // 連打時もアニメを再生し、display:none で隠れたまま終わるケースのためクラスは明示的に剥がす。
+    div.classList.remove('node-added-flash');
+    void div.offsetWidth;
+    div.classList.add('node-added-flash');
+    setTimeout(() => div.classList.remove('node-added-flash'), cssDurationMs('--anim-flash-row') + 100);
+  };
   div.querySelector('.ri-open').onclick = e => { e.stopPropagation(); if(e.ctrlKey || e.metaKey) openFile(m.file, m.line); };
   div.onclick = () => previewMatch(m);
   div.ondblclick = () => { if(m.file) openPeekPermanent(m.file, m.line); };
@@ -633,10 +654,10 @@ function switchSearchTab(idx) {
   id('sh-title').textContent = tab.title;
   id('sh-over').textContent = tab.overText || '';
   st(`${tab.count} 件ヒット  F3: 次へ  Shift+F3: 前へ`);
+  if(typeof updateSearchTitle === 'function') updateSearchTitle(tab.query, tab.count);
 
   const filterVal = tab.filterValue || '';
   id('filter-input').value = filterVal;
-  filterTokens = [];
   if(filterVal) {
     applyFilter();
   } else {
@@ -758,7 +779,6 @@ function switchSearchStack(idx) {
   st(`${entry.count} 件ヒット`);
   const filterVal = entry.filterValue || '';
   id('filter-input').value = filterVal;
-  filterTokens = [];
   if(filterVal) applyFilter();
   else { id('filter-input').classList.remove('active'); id('filter-clear').style.display = 'none'; }
   id('search-stack-bar').classList.remove('open');

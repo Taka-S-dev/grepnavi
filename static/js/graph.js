@@ -184,6 +184,30 @@ async function deleteTree(treeId) {
 function renderCurrent() {
   if (viewMode === "graph") renderGraph();
   else renderTree();
+  updateNodesTabBadge();
+}
+
+// アクティビティバー「ノード」タブの件数バッジを更新（renderCurrent から呼ばれる）。
+function updateNodesTabBadge() {
+  const badge = document.getElementById('tab-nodes-badge');
+  if (!badge) return;
+  const count = Object.keys(graph.nodes || {}).length;
+  if (count > 0) {
+    badge.textContent = count > 99 ? '99+' : String(count);
+    badge.classList.add('visible');
+  } else {
+    badge.classList.remove('visible');
+  }
+}
+
+// addToGraph から明示的に呼ぶ。renderCurrent に組み込まないのは、ロード時にも発火してしまうため。
+function pulseNodesTab() {
+  const btn = document.getElementById('tab-nodes');
+  if (!btn) return;
+  btn.classList.remove('pulse');
+  void btn.offsetWidth;
+  btn.classList.add('pulse');
+  setTimeout(() => btn.classList.remove('pulse'), cssDurationMs('--anim-pulse-tab') + 100);
 }
 
 function renderTree() {
@@ -371,7 +395,7 @@ async function renderGraph() {
   container.style.position = "relative";
   const toolbar = document.createElement("div");
   toolbar.style.cssText =
-    "position:absolute;top:6px;right:8px;display:flex;gap:4px;z-index:10;pointer-events:all";
+    "position:absolute;top:6px;right:8px;display:flex;gap:4px;z-index:var(--z-overlay);pointer-events:all";
   const btnMemo = document.createElement("button");
   btnMemo.innerHTML = '<i class="codicon codicon-comment" style="font-size:12px;margin-right:4px"></i>メモ';
   btnMemo.style.cssText = `font-size:11px;padding:2px 8px;background:${showMemos ? "#094771" : "#3c3c3c"};color:#ccc;border:1px solid #555;border-radius:3px;cursor:pointer`;
@@ -861,7 +885,7 @@ function showEdgeMenu(e, edgeData) {
   menu.className = "edge-menu";
   menu.style.cssText = `position:fixed;left:${e.clientX}px;top:${e.clientY}px;
     background:#2d2d2d;border:1px solid #555;border-radius:3px;
-    padding:4px 0;z-index:3000;font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,0.5)`;
+    padding:4px 0;z-index:var(--z-context-menu);font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,0.5)`;
   const del = document.createElement("div");
   del.textContent = "× エッジを削除";
   del.style.cssText = "padding:4px 12px;cursor:pointer;color:#f88";
@@ -1003,52 +1027,145 @@ function makeNodeBody(node, m) {
   return { body, lbl };
 }
 
-function startNodeLabelEdit(lbl, node, m) {
-  const matchText = (m.text || "").trim();
-  const original = node.label || matchText || labelFrom(m);
-  const inp = document.createElement("input");
-  inp.type = "text";
-  inp.value = original;
-  inp.style.cssText =
-    "width:100%;background:#1a1a1a;border:1px solid #555;color:#e0e0e0;font:12px Consolas,monospace;padding:1px 4px;border-radius:2px;box-sizing:border-box";
-  lbl.textContent = "";
-  lbl.appendChild(inp);
-  inp.focus();
-  inp.select();
-  const save = async () => {
-    const val = inp.value.trim() || original;
-    const r = await fetch("/api/graph/node/" + node.id, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label: val }),
+// ===== ノードフィールド編集モーダル：共通ファクトリ =====
+// PUT /api/graph/node/<id> でフィールドを更新するモーダル群（ラベル/メモ/行番号）の生成。
+function createNodeFieldModal({
+  modalId, inputId, okId, cancelId,
+  enterSubmits = true,      // false: Ctrl+Enter で保存（textarea 用途）
+  initInput,                // (node, inputEl) => void  モーダルを開く時の初期化
+  buildBody,                // (inputEl, node) => object | null  PUT body、null=バリデーション失敗
+  successToast,             // (inputEl, updatedNode) => string  成功時の status bar 文言
+}) {
+  let editingId = null;
+  const $       = (id_) => document.getElementById(id_);
+  const $modal  = () => $(modalId);
+  const $input  = () => $(inputId);
+
+  function open(node) {
+    if (!node) return;
+    editingId = node.id;
+    initInput(node, $input());
+    $modal().classList.add('open');
+    setTimeout(() => $input().focus(), 0);
+  }
+
+  function close() {
+    $modal()?.classList.remove('open');
+    editingId = null;
+  }
+
+  async function save() {
+    if (!editingId) { close(); return; }
+    const id_  = editingId;
+    const node = graph.nodes[id_];
+    const body = buildBody($input(), node);
+    if (!body) return; // バリデーション失敗時はモーダルを閉じない
+    const r = await fetch('/api/graph/node/' + id_, {
+      method:  'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
     });
     const n = await r.json();
-    graph.nodes[node.id] = n;
+    if (n.error) { st('エラー: ' + n.error); return; }
+    graph.nodes[id_] = n;
+    close();
     renderCurrent();
-    if (selNode === node.id) showDetail(node.id);
-    st("ラベル保存");
-  };
-  const cancel = () => {
-    lbl.textContent = original;
-  };
-  inp.onblur = save;
-  inp.onkeydown = (e2) => {
-    if (e2.key === "Enter") {
-      e2.preventDefault();
-      inp.blur();
+    if (selNode === id_) showDetail(id_);
+    st(successToast($input(), n));
+  }
+
+  function init() {
+    $(okId).onclick = save;
+    $(cancelId).onclick = close;
+    $modal().addEventListener('click', (e) => {
+      if (e.target === $modal()) close();
+    });
+    $input().addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); close(); }
+      const submit = enterSubmits
+        ? e.key === 'Enter'
+        : (e.ctrlKey || e.metaKey) && e.key === 'Enter';
+      if (submit) { e.preventDefault(); save(); }
+    });
+  }
+
+  return { open, close, init };
+}
+
+// ノードラベル編集（F2 / 右クリック「名前を変更」から）
+const nodeLabelEditor = createNodeFieldModal({
+  modalId: 'node-label-modal',
+  inputId: 'node-label-modal-input',
+  okId:    'node-label-modal-ok',
+  cancelId:'node-label-modal-cancel',
+  enterSubmits: true,
+  initInput: (node, inp) => {
+    const m = node.match || {};
+    inp.value = node.label || (m.text || '').trim() || labelFrom(m);
+    setTimeout(() => inp.select(), 0);
+  },
+  buildBody: (inp, node) => {
+    const m = node?.match || {};
+    const original = node?.label || (m.text || '').trim() || labelFrom(m);
+    return { label: inp.value.trim() || original };
+  },
+  successToast: () => 'ラベル保存',
+});
+
+// ノードメモ編集（右クリック「メモを編集 / 追加」から）
+const nodeMemoEditor = createNodeFieldModal({
+  modalId: 'node-memo-modal',
+  inputId: 'node-memo-modal-ta',
+  okId:    'node-memo-modal-ok',
+  cancelId:'node-memo-modal-cancel',
+  enterSubmits: false,  // textarea: Enter は改行用、Ctrl+Enter で保存
+  initInput: (node, ta) => {
+    const title = document.getElementById('node-memo-modal-title');
+    if (title) title.textContent = (node.memo && node.memo.trim()) ? 'メモを編集' : 'メモを追加';
+    ta.value = node.memo || '';
+    setTimeout(() => ta.setSelectionRange(ta.value.length, ta.value.length), 0);
+  },
+  buildBody: (ta) => ({ memo: ta.value }),
+  successToast: () => 'メモ保存',
+});
+
+// ノード行番号編集（右クリック「行番号を変更」から）
+const nodeLineEditor = createNodeFieldModal({
+  modalId: 'node-line-modal',
+  inputId: 'node-line-modal-input',
+  okId:    'node-line-modal-ok',
+  cancelId:'node-line-modal-cancel',
+  enterSubmits: true,
+  initInput: (node, inp) => {
+    const m = node.match || {};
+    const fileE = document.getElementById('node-line-modal-file');
+    inp.value = String(m.line || 1);
+    if (fileE) fileE.textContent = m.file || '';
+    setTimeout(() => inp.select(), 0);
+  },
+  buildBody: (inp) => {
+    const line = parseInt(inp.value.trim(), 10);
+    if (!Number.isInteger(line) || line < 1) {
+      st('1 以上の整数を入力してください');
+      return null;
     }
-    if (e2.key === "Escape") {
-      e2.stopPropagation();
-      inp.onblur = null;
-      cancel();
-    }
-  };
+    return { line };
+  },
+  successToast: (inp) => '行番号を ' + parseInt(inp.value.trim(), 10) + ' に変更しました',
+});
+
+// F2 / 右クリック「名前を変更」のエントリポイント。lbl/m は API 互換のため残置。
+function startNodeLabelEdit(lbl, node, m) {
+  nodeLabelEditor.open(node);
 }
 
 let _nodeCtxTarget = null;
 function showNodeLabelCtxMenu(lbl, node, m, x, y) {
   _nodeCtxTarget = { lbl, node, m };
   _treeTabCtxTarget = null;
+  // メモ項目のラベルをノード状態に応じて切替（追加 / 編集）
+  const memoItem = document.getElementById("node-ctx-memo");
+  if (memoItem) memoItem.textContent = (node.memo && node.memo.trim()) ? "メモを編集" : "メモを追加";
   _openNodeCtxMenuAt(x, y);
 }
 
@@ -1061,14 +1178,26 @@ function hideNodeCtxMenu() {
 function initNodeCtxMenu() {
   document.getElementById("node-ctx-rename").onclick = () => {
     if (_nodeCtxTarget) {
-      const { lbl, node, m } = _nodeCtxTarget;
+      const { node } = _nodeCtxTarget;
       hideNodeCtxMenu();
-      startNodeLabelEdit(lbl, node, m);
+      nodeLabelEditor.open(node);
     } else if (_treeTabCtxTarget) {
       const { tab, treeId, currentName } = _treeTabCtxTarget;
       hideNodeCtxMenu();
       startTabRename(tab, treeId, currentName);
     }
+  };
+  document.getElementById("node-ctx-memo").onclick = () => {
+    if (!_nodeCtxTarget) return;
+    const { node } = _nodeCtxTarget;
+    hideNodeCtxMenu();
+    nodeMemoEditor.open(node);
+  };
+  document.getElementById("node-ctx-line").onclick = () => {
+    if (!_nodeCtxTarget) return;
+    const { node } = _nodeCtxTarget;
+    hideNodeCtxMenu();
+    nodeLineEditor.open(node);
   };
   document.getElementById("node-ctx-duplicate").onclick = async () => {
     if (!_nodeCtxTarget) return;
@@ -1079,6 +1208,11 @@ function initNodeCtxMenu() {
   document.addEventListener("mousedown", (e) => {
     if (!document.getElementById("node-ctx-menu")?.contains(e.target)) hideNodeCtxMenu();
   }, true);
+
+  // 各フィールドモーダルの DOM 配線（OK / キャンセル / Esc / Enter / モーダル外クリック）
+  nodeLabelEditor.init();
+  nodeMemoEditor.init();
+  nodeLineEditor.init();
 }
 
 async function duplicateNode(nodeId) {
@@ -1144,7 +1278,7 @@ function attachLabelInlineEdit(lbl, node, m) {
   lbl.oncontextmenu = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    selectNode(node.id);
+    selectNode(node.id, { skipOpen: true });
     showNodeLabelCtxMenu(lbl, node, m, e.clientX, e.clientY);
   };
 }
@@ -1154,7 +1288,7 @@ function attachRowCtxMenu(row, lbl, node, m) {
     if (e.target === lbl || lbl.contains(e.target)) return; // lbl 側のハンドラに任せる
     e.preventDefault();
     e.stopPropagation();
-    selectNode(node.id);
+    selectNode(node.id, { skipOpen: true });
     showNodeLabelCtxMenu(lbl, node, m, e.clientX, e.clientY);
   };
 }
@@ -1303,7 +1437,10 @@ function makeNodeEl(node, depth, visited = new Set()) {
   if (node.memo) {
     const memoIcon = document.createElement("span");
     memoIcon.className = "node-memo-dot codicon codicon-comment";
-    memoIcon.title = node.memo;
+    // ツールチップはアイコン上のホバー時だけ表示（行全体ではなくピンポイント）
+    memoIcon.addEventListener("mouseenter", (e) => showMemoTip(e, node));
+    memoIcon.addEventListener("mousemove",  (e) => moveMemoTip(e));
+    memoIcon.addEventListener("mouseleave", hideMemoTip);
     row.appendChild(memoIcon);
   }
   row.appendChild(delBtn);
@@ -1318,11 +1455,6 @@ function makeNodeEl(node, depth, visited = new Set()) {
   };
   attachLabelInlineEdit(lbl, node, m);
   attachRowCtxMenu(row, lbl, node, m);
-  if (node.memo) {
-    row.addEventListener("mouseenter", (e) => showMemoTip(e, node));
-    row.addEventListener("mousemove", (e) => moveMemoTip(e));
-    row.addEventListener("mouseleave", hideMemoTip);
-  }
   attachNodeDragDrop(row, wrap, node);
 
   wrap.appendChild(row);
@@ -1343,7 +1475,7 @@ function makeNodeEl(node, depth, visited = new Set()) {
   return wrap;
 }
 
-function selectNode(id_) {
+function selectNode(id_, opts) {
   selNode = id_;
   document.querySelectorAll(".node-row").forEach((el) => {
     el.classList.toggle("sel", el.dataset.id === id_);
@@ -1365,7 +1497,8 @@ function selectNode(id_) {
   }
   const n = graph.nodes[id_];
   showDetail(n);
-  if (n && n.match && n.match.file) openPeekPermanent(n.match.file, n.match.line);
+  // opts.skipOpen=true の場合はファイルを開かない（右クリック経路でのエディタ誤起動を防止）
+  if (!opts?.skipOpen && n && n.match && n.match.file) openPeekPermanent(n.match.file, n.match.line);
 }
 
 function findParent(nodeId, nodes) {
@@ -1814,9 +1947,10 @@ async function addToGraph(match, parentId, edgeLabel, label) {
     await saveRootOrder(graph._rootOrder);
   }
   renderCurrent();
-  selectNode(d.node.id);
+  selectNode(d.node.id, { skipOpen: true }); // 選択ハイライトのみ。ファイルは開かない
   stGraph();
   refreshGraphDecorations();
+  pulseNodesTab();
 }
 
 // ===== CLEAR =====

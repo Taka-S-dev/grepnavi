@@ -90,6 +90,7 @@ func (h *Handler) handleNodeByID(w http.ResponseWriter, r *http.Request) {
 			Children   []string `json:"children"`
 			BadgeColor *string  `json:"badge_color"`
 			BadgeText  *string  `json:"badge_text"`
+			Line       *int     `json:"line"` // Match.Line を手動補正するための後付けフィールド
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			jsonErr(w, err.Error(), http.StatusBadRequest)
@@ -137,6 +138,9 @@ func (h *Handler) handleNodeByID(w http.ResponseWriter, r *http.Request) {
 			}
 			if req.BadgeText != nil {
 				n.BadgeText = *req.BadgeText
+			}
+			if req.Line != nil && *req.Line > 0 {
+				n.Match.Line = *req.Line
 			}
 		})
 		if err != nil {

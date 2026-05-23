@@ -1,7 +1,38 @@
+/* ===== z-index 階層 =====
+   z-index は必ず var(--z-*) を介して指定する。新しい階層はここに追加してから使う。 */
+:root {
+  --z-content:         1;     /* peek-placeholder 等、コンテンツ最背面 */
+  --z-overlay:        10;     /* drop markers, tree-toolbar 等の位置決め */
+  --z-overlay-high:   20;     /* indent-guide */
+  --z-popover-low:   200;     /* gtags-popover（ボタン近くの吹き出し） */
+  --z-side-panel:    300;     /* search-stack-bar, search-tab-bar, memo-list-panel */
+  --z-preview:      1000;     /* preview-popup（コードプレビューの浮き出し） */
+  --z-tooltip:      2000;     /* memo-tooltip（マウス追従） */
+  --z-floating:     3000;     /* floating-peek 常時前面パネル */
+  --z-dropdown:     4000;     /* project-menu, filter-help */
+  --z-context-menu: 4500;     /* 右クリックメニュー */
+  --z-modal-low:    5000;     /* project-modal（他モーダルが上に重なる側） */
+  --z-modal:        6000;     /* confirm, fzf, node-* モーダル（標準） */
+  --z-modal-high:   7000;     /* input, file-browser モーダル（他モーダルの上） */
+  --z-diagnostic:   9000;     /* ctags/gtags console（デバッグ表示、最前面相当） */
+  --z-autocomplete: 9999;     /* dir-drop, glob-drop（オートコンプリート、最前面） */
+
+  /* ===== アニメーション時間（CSS / JS 共有、JS は cssDurationMs() で取得） ===== */
+  --anim-flash-row: 700ms;     /* 検索結果行のフラッシュ */
+  --anim-pulse-tab: 500ms;     /* ノードタブのパルス */
+}
+
 *{box-sizing:border-box;margin:0;padding:0}
 input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus{-webkit-box-shadow:0 0 0 30px #3c3c3c inset!important;-webkit-text-fill-color:#ccc!important;caret-color:#ccc}
 @keyframes search-flash{0%{border-color:#007acc;box-shadow:0 0 0 2px rgba(0,122,204,0.5)}100%{border-color:#007acc;box-shadow:none}}
 #q-wrap.search-flash{animation:search-flash 0.6s ease-out}
+
+/* + ボタンでノード追加成功時の行フラッシュ */
+@keyframes node-added-flash{
+  0%   { background:rgba(46,160,67,0.45); box-shadow:inset 3px 0 0 #2ea043; }
+  100% { background:transparent;          box-shadow:inset 3px 0 0 transparent; }
+}
+.ri.node-added-flash{animation:node-added-flash var(--anim-flash-row) ease-out}
 /* Codicon サイズ調整 */
 .codicon{font-size:13px;line-height:1;vertical-align:middle}
 button .codicon{font-size:13px}
@@ -55,8 +86,8 @@ body{font:13px/1.4 'Consolas','Courier New',monospace;background:#1e1e1e;color:#
 #dir-clear:hover{color:#ccc}
 #dir{flex:1;min-width:0;border:none;background:transparent;padding:2px 0}
 #dir:focus{outline:none}
-#dir-drop{display:none;position:fixed;width:320px;max-height:280px;overflow-y:auto;background:#252526;border:1px solid #555;border-radius:3px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.5)}
-#glob-drop{display:none;position:absolute;top:100%;left:0;right:0;max-height:280px;overflow-y:auto;background:#252526;border:1px solid #555;border-radius:3px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.5);margin-top:2px}
+#dir-drop{display:none;position:fixed;width:320px;max-height:280px;overflow-y:auto;background:#252526;border:1px solid #555;border-radius:3px;z-index:var(--z-autocomplete);box-shadow:0 4px 12px rgba(0,0,0,.5)}
+#glob-drop{display:none;position:absolute;top:100%;left:0;right:0;max-height:280px;overflow-y:auto;background:#252526;border:1px solid #555;border-radius:3px;z-index:var(--z-autocomplete);box-shadow:0 4px 12px rgba(0,0,0,.5);margin-top:2px}
 #glob-drop.open{display:block}
 #dir-drop.open{display:block}
 .dir-filter{width:100%;box-sizing:border-box;padding:4px 8px;background:#1e1e1e;border:none;border-bottom:1px solid #444;color:#ccc;font-size:11px;outline:none;font-family:Consolas,monospace}
@@ -135,9 +166,9 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .ptab.error>span:first-child{opacity:0.4}
 .ptab-close{color:#555;font-size:12px;line-height:1;padding:0 2px;border-radius:2px}
 .ptab-close:hover{color:#fff;background:#5a1d1d}
-#tab-ctx-menu{display:none;position:fixed;z-index:4500;background:#2d2d2d;border:1px solid #555;border-radius:3px;box-shadow:0 4px 12px rgba(0,0,0,.5);padding:3px 0;min-width:180px;font-size:12px}
+#tab-ctx-menu{display:none;position:fixed;z-index:var(--z-context-menu);background:#2d2d2d;border:1px solid #555;border-radius:3px;box-shadow:0 4px 12px rgba(0,0,0,.5);padding:3px 0;min-width:180px;font-size:12px}
 #tab-ctx-menu.open{display:block}
-#node-ctx-menu{display:none;position:fixed;z-index:4500;background:#2d2d2d;border:1px solid #555;border-radius:3px;box-shadow:0 4px 12px rgba(0,0,0,.5);padding:3px 0;min-width:160px;font-size:12px}
+#node-ctx-menu{display:none;position:fixed;z-index:var(--z-context-menu);background:#2d2d2d;border:1px solid #555;border-radius:3px;box-shadow:0 4px 12px rgba(0,0,0,.5);padding:3px 0;min-width:160px;font-size:12px}
 #node-ctx-menu.open{display:block}
 .tab-ctx-item{padding:5px 14px;color:#ccc;cursor:pointer;white-space:nowrap}
 .tab-ctx-item:hover{background:#094771}
@@ -146,7 +177,7 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .tab-ctx-sep{height:1px;background:#444;margin:3px 0}
 #peek-body{flex:1;overflow:hidden;padding:0;position:relative}
 #monaco-container{position:absolute;top:0;left:0;right:0;bottom:0}
-#peek-placeholder{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:1}
+#peek-placeholder{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:var(--z-content)}
 #peek-placeholder.hidden{display:none}
 #peek-placeholder-inner{text-align:center;color:#444;font-size:13px;line-height:1.8}
 #peek-placeholder-inner kbd{background:#2a2a2a;border:1px solid #444;border-radius:3px;padding:1px 5px;font-size:11px;font-family:Consolas,monospace;color:#888}
@@ -188,8 +219,24 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 #search-hdr{padding:4px 8px;background:#1a1a1a;border-top:1px solid #333;border-bottom:1px solid #333;display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#999;position:relative;flex-wrap:nowrap}
 #sh-title{font-size:10px;font-weight:600;letter-spacing:.08em;color:#666;text-transform:uppercase;pointer-events:none;user-select:none}
 #filter-bar{display:flex;align-items:center;gap:4px;padding:3px 8px;background:#1e1e1e;border-bottom:1px solid #333}
-#filter-scope,#btn-group-view{font-size:11px;padding:2px 6px;background:#3a3a3a;border:1px solid #555;border-radius:3px;color:#aaa;cursor:pointer;flex-shrink:0;white-space:nowrap;line-height:1.4}
-#filter-scope:hover,#btn-group-view:hover{color:#ccc}
+#btn-group-view,#btn-filter-help{font-size:11px;padding:2px 6px;background:#3a3a3a;border:1px solid #555;border-radius:3px;color:#aaa;cursor:pointer;flex-shrink:0;white-space:nowrap;line-height:1.4}
+#btn-group-view:hover,#btn-filter-help:hover{color:#ccc}
+
+/* 絞り込み構文ヘルプの popover */
+#filter-help-wrap{position:relative;display:inline-flex;flex-shrink:0}
+#filter-help{
+  display:none;position:absolute;top:100%;right:0;z-index:var(--z-dropdown);
+  background:#2d2d2d;border:1px solid #555;border-radius:3px;
+  margin-top:4px;padding:6px 0;min-width:240px;
+  box-shadow:0 4px 12px rgba(0,0,0,0.5);
+  font-size:11px;color:#ccc;
+}
+#filter-help.open{display:block}
+.fh-section{padding:5px 12px 2px;font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.5px}
+.fh-section:not(:first-child){border-top:1px solid #3a3a3a;margin-top:3px;padding-top:6px}
+.fh-row{padding:3px 12px;display:flex;justify-content:space-between;align-items:center;gap:12px;white-space:nowrap}
+.fh-row code{background:#1e1e1e;color:#9cdcfe;padding:1px 5px;border-radius:2px;font-family:Consolas,monospace;font-size:11px}
+.fh-row span{color:#aaa;font-size:10px}
 #btn-group-view.on{background:#094771;color:#fff;border-color:#007acc}
 #filter-input{flex:1;background:#3c3c3c;border:1px solid #555;color:#ccc;font-size:11px;padding:2px 6px;border-radius:3px;outline:none;font-family:Consolas,monospace}
 #filter-input:focus{border-color:#007acc}
@@ -242,19 +289,19 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 /* 挿入位置インジケーター */
 .node.insert-before > .node-row::before{
   content:'';position:absolute;left:0;right:0;top:-2px;height:3px;
-  background:#4ec9b0;border-radius:1px;pointer-events:none;z-index:10;
+  background:#4ec9b0;border-radius:1px;pointer-events:none;z-index:var(--z-overlay);
   box-shadow:0 0 4px rgba(78,201,176,0.6);
 }
 .node.insert-after > .node-row::after{
   content:'';position:absolute;left:0;right:0;bottom:-2px;height:3px;
-  background:#4ec9b0;border-radius:1px;pointer-events:none;z-index:10;
+  background:#4ec9b0;border-radius:1px;pointer-events:none;z-index:var(--z-overlay);
   box-shadow:0 0 4px rgba(78,201,176,0.6);
 }
 /* レベル変更ガイド縦線 */
 #indent-guide{
   position:absolute;top:0;bottom:0;width:2px;
   background:#4ec9b0;opacity:0.8;border-radius:1px;
-  pointer-events:none;z-index:20;display:none;
+  pointer-events:none;z-index:var(--z-overlay-high);display:none;
 }
 /* インデントハンドル（ホバー時のみ表示） */
 .indent-handle{
@@ -265,7 +312,7 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .node-row:hover .indent-handle{color:#555}
 /* ドラッグ中のレベルバッジ */
 #level-badge{
-  position:fixed;display:none;z-index:2000;
+  position:fixed;display:none;z-index:var(--z-tooltip);
   background:#1e1e1e;border:1px solid #888;border-radius:4px;
   padding:4px 10px;font-size:12px;pointer-events:none;
   white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.6);
@@ -331,10 +378,17 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 #btn-tree-add:hover{color:#ccc;background:#333}
 #tree-tab-actions{display:flex;align-items:center;gap:3px;margin-left:auto;padding:0 4px;border-left:1px solid #333;flex-shrink:0}
 #tree-tab-actions button{padding:2px 7px;font-size:11px}
-#tree-toolbar{position:absolute;top:66px;right:8px;display:flex;gap:4px;z-index:10;pointer-events:all}
+#tree-toolbar{position:absolute;top:66px;right:8px;display:flex;gap:4px;z-index:var(--z-overlay);pointer-events:all}
 #tree-toolbar button{font-size:11px;padding:2px 7px;background:#3c3c3c;color:#ccc;border:1px solid #555;border-radius:3px;cursor:pointer}
 #tree-toolbar button:hover{background:#505050}
 #tree-toolbar button.on{background:#094771;color:#fff;border-color:#007acc}
+
+/* nodes-panel 内では tree-toolbar をインライン配置に（ナロー幅でツリー先頭行と重なるのを回避） */
+#nodes-panel #tree-toolbar{
+  position:static;top:auto;right:auto;
+  padding:4px 8px;background:#2d2d2d;border-bottom:1px solid #444;
+  justify-content:flex-end;
+}
 #btn-view{font-size:11px}
 #btn-clr{background:none;border:1px solid #5a3030;color:#c07070;border-radius:3px;cursor:pointer;font-size:11px}
 #btn-clr:hover{background:#3a1a1a;border-color:#a05050;color:#e09090}
@@ -379,7 +433,7 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 
 /* フローティングコードプレビュー */
 #preview-popup{
-  position:fixed;display:none;z-index:1000;
+  position:fixed;display:none;z-index:var(--z-preview);
   background:#1e1e1e;border:1px solid #555;border-radius:4px;
   box-shadow:0 4px 20px rgba(0,0,0,0.6);
   max-width:600px;min-width:360px;
@@ -396,7 +450,7 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 
 /* メモツールチップ */
 #memo-tooltip{
-  position:fixed;display:none;z-index:3000;
+  position:fixed;display:none;z-index:var(--z-floating);
   background:#1e2a1e;border:1px solid #4a7a4a;border-left:3px solid #f0c040;
   border-radius:4px;padding:7px 10px;font-size:12px;color:#ddd;
   max-width:340px;white-space:pre-wrap;word-break:break-word;line-height:1.6;
@@ -411,7 +465,7 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 #btn-project-menu:hover{background:#3c3c3c;border-color:#666;color:#ccc}
 #btn-project-menu #project-name{overflow:hidden;text-overflow:ellipsis;max-width:110px;display:inline-block;vertical-align:middle}
 #project-menu{
-  display:none;position:absolute;top:100%;right:0;z-index:4000;
+  display:none;position:absolute;top:100%;right:0;z-index:var(--z-dropdown);
   background:#2d2d2d;border:1px solid #555;border-radius:3px;
   min-width:180px;margin-top:2px;box-shadow:0 4px 12px rgba(0,0,0,0.5);
 }
@@ -423,7 +477,7 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 .pmenu-separator{height:1px;background:#444;margin:3px 0}
 
 /* fzf ファイルクイックオープン */
-#fzf-overlay{display:none;position:fixed;inset:0;z-index:6000;background:rgba(0,0,0,0.5);align-items:flex-start;justify-content:center;padding-top:80px}
+#fzf-overlay{display:none;position:fixed;inset:0;z-index:var(--z-modal);background:rgba(0,0,0,0.5);align-items:flex-start;justify-content:center;padding-top:80px}
 #fzf-overlay.open{display:flex}
 #fzf-box{background:#1e1e1e;border:1px solid #555;border-radius:6px;width:560px;max-width:90vw;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.6)}
 #fzf-input-wrap{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid #333}
@@ -439,19 +493,44 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 
 /* 汎用確認ダイアログ */
 #confirm-modal{
-  display:none;position:fixed;inset:0;z-index:6000;
+  display:none;position:fixed;inset:0;z-index:var(--z-modal);
   background:rgba(0,0,0,0.6);align-items:center;justify-content:center;
 }
 #confirm-modal.open{display:flex}
 #confirm-modal-box{
   background:#252526;border:1px solid #555;border-radius:4px;
-  padding:16px 20px;min-width:280px;max-width:420px;display:flex;flex-direction:column;gap:4px;
+  padding:16px 20px;display:flex;flex-direction:column;gap:4px;
+  min-width:min(280px,calc(100vw - 24px));max-width:min(420px,calc(100vw - 24px));
 }
 #confirm-modal-msg{font-size:13px;color:#ccc;line-height:1.5}
 
+/* ===== ノードフィールド編集モーダル（共通基底）。サイズは ID で個別上書き ===== */
+.node-modal{
+  display:none;position:fixed;inset:0;z-index:var(--z-modal);
+  background:rgba(0,0,0,0.6);align-items:center;justify-content:center;
+}
+.node-modal.open{display:flex}
+.node-modal-box{
+  background:#252526;border:1px solid #555;border-radius:4px;
+  padding:16px 20px;display:flex;flex-direction:column;gap:8px;
+}
+.node-modal-title{font-size:13px;color:#ccc;font-weight:bold}
+.node-modal-input,.node-modal-textarea{
+  width:100%;background:#1e1e1e;border:1px solid #555;border-radius:3px;
+  color:#ccc;padding:6px 8px;font:13px Consolas,monospace;outline:none;
+}
+.node-modal-textarea{min-height:120px;resize:vertical;font-size:12px}
+.node-modal-input:focus,.node-modal-textarea:focus{border-color:#007acc}
+.node-modal-btns{display:flex;gap:6px;justify-content:flex-end;margin-top:4px}
+
+/* モーダル別サイズ（min() でビューポート幅にクランプ） */
+#node-label-modal-box{min-width:min(480px,calc(100vw - 24px));max-width:min(720px,calc(100vw - 24px))}
+#node-memo-modal-box {min-width:min(420px,calc(100vw - 24px));max-width:min(560px,calc(100vw - 24px))}
+#node-line-modal-box {min-width:min(300px,calc(100vw - 24px));max-width:min(480px,calc(100vw - 24px))}
+
 /* プロジェクトモーダル */
 #project-modal{
-  display:none;position:fixed;inset:0;z-index:5000;
+  display:none;position:fixed;inset:0;z-index:var(--z-modal-low);
   background:rgba(0,0,0,0.6);align-items:center;justify-content:center;
 }
 #project-modal.open{display:flex}
@@ -468,7 +547,7 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 
 /* 汎用入力モーダル */
 #input-modal{
-  display:none;position:fixed;inset:0;z-index:7000;
+  display:none;position:fixed;inset:0;z-index:var(--z-modal-high);
   background:rgba(0,0,0,0.6);align-items:center;justify-content:center;
 }
 #input-modal.open{display:flex}
@@ -483,13 +562,14 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 }
 #input-modal-input:focus{border-color:#007acc}
 #settings-modal{
-  display:none;position:fixed;inset:0;z-index:7000;
+  display:none;position:fixed;inset:0;z-index:var(--z-modal-high);
   background:rgba(0,0,0,0.6);align-items:center;justify-content:center;
 }
 #settings-modal.open{display:flex}
 #settings-modal-box{
   background:#252526;border:1px solid #555;border-radius:4px;
-  padding:16px 20px;min-width:340px;max-width:460px;width:100%;display:flex;flex-direction:column;
+  padding:16px 20px;width:100%;display:flex;flex-direction:column;
+  min-width:min(340px,calc(100vw - 24px));max-width:min(460px,calc(100vw - 24px));
 }
 #settings-active-editor{
   background:#1e1e1e;border:1px solid #555;border-radius:3px;
@@ -507,7 +587,7 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 .phist-item .phist-path{overflow:hidden;text-overflow:ellipsis;color:#666}
 
 /* ===== ファイルブラウザ ===== */
-#fb-overlay{display:none;position:fixed;inset:0;z-index:5000;background:rgba(0,0,0,.6);align-items:center;justify-content:center}
+#fb-overlay{display:none;position:fixed;inset:0;z-index:var(--z-modal-low);background:rgba(0,0,0,.6);align-items:center;justify-content:center}
 #fb-overlay.open{display:flex}
 #fb-box{background:#252526;border:1px solid #555;border-radius:4px;width:560px;max-width:94vw;height:70vh;display:flex;flex-direction:column;overflow:hidden}
 #fb-header{display:flex;align-items:center;padding:8px 12px;border-bottom:1px solid #333;gap:8px}
@@ -543,7 +623,7 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 #fb-recent-section{display:none;border-top:1px solid #333;max-height:150px;overflow-y:auto;flex-shrink:0}
 #fb-recent-section::-webkit-scrollbar{width:6px}
 #fb-recent-section::-webkit-scrollbar-thumb{background:#444;border-radius:3px}
-#fb-recent-section .fb-section-label{position:sticky;top:0;background:#1e1e1e;z-index:1}
+#fb-recent-section .fb-section-label{position:sticky;top:0;background:#1e1e1e;z-index:var(--z-content)}
 #fb-filename-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-top:1px solid #2a2a2a}
 #fb-filename-row label{font-size:11px;color:#888;flex-shrink:0}
 #fb-filename{flex:1;background:#1e1e1e;border:1px solid #454545;border-radius:3px;color:#d4d4d4;padding:3px 7px;font:12px Consolas,monospace;outline:none}
@@ -558,7 +638,7 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 /* ===== 検索履歴ドロップダウン ===== */
 #btn-search-hist{margin-left:auto;font-size:10px;padding:1px 6px;background:#3a3a3a;border:1px solid #555;border-radius:3px;color:#aaa;cursor:pointer;flex-shrink:0;white-space:nowrap}
 #btn-search-hist:hover{background:#4a4a4a;color:#ccc}
-#search-tab-bar,#search-stack-bar{display:none;position:absolute;top:calc(100% + 4px);right:0;width:360px;max-height:340px;overflow-y:auto;z-index:300;background:#1e1e1e;border:1px solid #444;border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,0.7);padding:4px;flex-direction:column;gap:0}
+#search-tab-bar,#search-stack-bar{display:none;position:absolute;top:calc(100% + 4px);right:0;width:360px;max-height:340px;overflow-y:auto;z-index:var(--z-side-panel);background:#1e1e1e;border:1px solid #444;border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,0.7);padding:4px;flex-direction:column;gap:0}
 #search-tab-bar.open,#search-stack-bar.open{display:flex}
 #search-stack-wrap{display:inline-flex}
 #btn-stack-add{font-size:10px;padding:1px 5px;background:#3a3a3a;border:1px solid #555;border-right:none;color:#aaa;border-radius:3px 0 0 3px;cursor:pointer;white-space:nowrap}
@@ -597,22 +677,40 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 .panel-tab{background:none;border:none;border-bottom:2px solid transparent;color:#888;cursor:pointer;padding:7px 18px;font:inherit;font-size:12px}
 .panel-tab:hover{color:#ccc}
 .panel-tab.active{color:#ccc;border-bottom-color:#007acc}
+/* ===== モード別レイアウト（重複は :is() で集約、固有指令だけ個別セレクタ） ===== */
+
+/* 3モード共通 */
+body:is(.panel-mode, .search-mode, .calltree-mode) #col-resizer{display:none!important}
+
+/* panel + search 共通: 右ペインを隠して左ペインを全幅化 */
+body:is(.panel-mode, .search-mode) #pane-right  {display:none!important}
+body:is(.panel-mode, .search-mode) #pane-left   {width:100%!important;flex:1}
+body:is(.panel-mode, .search-mode) #pane-detail {display:none!important}
+body:is(.panel-mode, .search-mode) #left-resizer{display:none!important}
+
+/* panel モード固有 */
 body.panel-mode #panel-tabs{display:flex}
-body.panel-mode #pane-right{display:none!important}
-body.panel-mode #col-resizer{display:none!important}
-body.panel-mode #pane-left{width:100%!important;flex:1}
-body.panel-mode #pane-detail{display:none!important}
-body.panel-mode #left-resizer{display:none!important}
 body.panel-mode #pane-left{display:flex;flex-direction:column}
 body.panel-mode .ri-add{display:none!important}
 body.panel-mode #ct-sidebar{position:relative!important;transform:none!important;width:100%!important;flex:1;min-height:0;border:none!important;box-shadow:none!important;display:none;flex-direction:column;top:auto!important;right:auto!important}
 body.panel-mode #ct-sidebar.open{display:flex!important}
 
+/* search モード固有 */
+body.search-mode #pane-search{flex:1!important;height:auto!important}
+
+/* search モードのナロー幅対応: 主要ボタンの min-width を解除して縮められるように */
+body.search-mode #btn-s,
+body.search-mode #btn-toggle-sub{min-width:auto;padding-left:6px;padding-right:6px}
+body.search-mode #root-chip{min-width:0}
+
+/* calltree モード固有: 左ペインごと隠して右ペインのコールツリーだけ */
+body.calltree-mode #pane-left{display:none!important}
+
 /* statusbar */
 #sb{height:20px;background:#007acc;display:flex;align-items:center;padding:0 8px;font-size:11px;color:#fff;flex-shrink:0}
 
 /* ショートカットヘルプ */
-#help-overlay{display:none;position:fixed;inset:0;z-index:7000;background:rgba(0,0,0,0.5);align-items:center;justify-content:center}
+#help-overlay{display:none;position:fixed;inset:0;z-index:var(--z-modal-high);background:rgba(0,0,0,0.5);align-items:center;justify-content:center}
 #help-overlay.open{display:flex}
 #help-box{background:#252526;border:1px solid #555;border-radius:6px;width:480px;max-width:94vw;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.6)}
 #help-hdr{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #333;font-size:13px;font-weight:bold;color:#ccc;flex-shrink:0}
@@ -633,7 +731,7 @@ body.panel-mode #ct-sidebar.open{display:flex!important}
 #gtags-engine-label{padding:2px 6px;border-radius:3px}
 #gtags-engine-label:hover{background:#333;color:#ccc !important}
 /* ===== GNU Global ポップオーバー ===== */
-#gtags-popover{position:absolute;top:calc(100% + 4px);right:0;z-index:200;background:#252526;border:1px solid #454545;border-radius:4px;padding:8px;min-width:200px;box-shadow:0 4px 12px rgba(0,0,0,0.4)}
+#gtags-popover{position:absolute;top:calc(100% + 4px);right:0;z-index:var(--z-popover-low);background:#252526;border:1px solid #454545;border-radius:4px;padding:8px;min-width:200px;box-shadow:0 4px 12px rgba(0,0,0,0.4)}
 .gtags-pop-title{font-size:11px;color:#888;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #333}
 .gtags-pop-row{display:flex;align-items:center;gap:6px;padding:4px 2px;cursor:pointer;color:#ccc;font-size:12px}
 .gtags-pop-row:hover{color:#fff}
@@ -648,7 +746,7 @@ body.panel-mode #ct-sidebar.open{display:flex!important}
 .gtags-pop-btn.primary:hover{background:#1a6aaa}
 .gtags-pop-btn:disabled{opacity:0.5;cursor:default}
 /* ===== gtags コンソールオーバーレイ ===== */
-#gtags-console{display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);width:420px;max-width:90vw;background:#1e1e1e;border:1px solid #3a3a3a;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.7);z-index:9000;font-family:Consolas,monospace;font-size:12px;overflow:hidden}
+#gtags-console{display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);width:420px;max-width:90vw;background:#1e1e1e;border:1px solid #3a3a3a;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.7);z-index:var(--z-diagnostic);font-family:Consolas,monospace;font-size:12px;overflow:hidden}
 #gtags-console.open{display:flex;flex-direction:column}
 #gtags-console-header{display:flex;align-items:center;gap:8px;padding:8px 12px;color:#9ab;font-size:12px;flex-shrink:0}
 #gtags-console-title{flex:1;font-weight:500;color:#ccc}
@@ -675,7 +773,7 @@ body.panel-mode #ct-sidebar.open{display:flex!important}
 #gtags-console-body{max-height:180px;overflow-y:auto;padding:0 12px 8px;color:#ccc;white-space:pre-wrap;word-break:break-all;border-top:1px solid #2a2a2a}
 #gtags-console-body .con-err{color:#f88}
 #gtags-console-body .con-done{color:#6f6}
-#ctags-console{display:none;position:fixed;bottom:20px;left:calc(50% + 220px);transform:translateX(-50%);width:380px;max-width:90vw;background:#1e1e1e;border:1px solid #3a3a3a;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.7);z-index:9000;font-family:Consolas,monospace;font-size:12px;overflow:hidden}
+#ctags-console{display:none;position:fixed;bottom:20px;left:calc(50% + 220px);transform:translateX(-50%);width:380px;max-width:90vw;background:#1e1e1e;border:1px solid #3a3a3a;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.7);z-index:var(--z-diagnostic);font-family:Consolas,monospace;font-size:12px;overflow:hidden}
 #ctags-console.open{display:flex;flex-direction:column}
 #ctags-console-header{display:flex;align-items:center;gap:8px;padding:8px 12px;color:#9ab;font-size:12px;flex-shrink:0}
 #ctags-console-title{flex:1;font-weight:500;color:#ccc}
@@ -712,8 +810,8 @@ body.panel-mode #ct-sidebar.open{display:flex!important}
 .def-peek-txt{color:#d4d4d4;overflow:hidden;text-overflow:ellipsis}
 .float-peek-target-line { background: #094771; }
 .float-peek-word-highlight { background: rgba(234,92,0,.4); border-radius: 2px; }
-#memo-list-panel{position:fixed;right:0;top:0;width:320px;height:100vh;background:#1e1e1e;border-left:1px solid #333;z-index:300;flex-direction:column;display:none;min-width:200px;max-width:700px}
-#memo-list-width-resizer{position:absolute;left:0;top:0;width:5px;height:100%;cursor:ew-resize;z-index:1}
+#memo-list-panel{position:fixed;right:0;top:0;width:320px;height:100vh;background:#1e1e1e;border-left:1px solid #333;z-index:var(--z-side-panel);flex-direction:column;display:none;min-width:200px;max-width:700px}
+#memo-list-width-resizer{position:absolute;left:0;top:0;width:5px;height:100%;cursor:ew-resize;z-index:var(--z-content)}
 #memo-list-width-resizer:hover,#memo-list-width-resizer:active{background:rgba(0,122,204,0.4)}
 #memo-list-panel.visible{display:flex}
 #memo-list-hdr{display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-bottom:1px solid #333;font-size:12px;color:#ccc;flex-shrink:0}

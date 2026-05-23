@@ -25,7 +25,6 @@ let sse = null, batchTimer = null, spinnerTimer = null;
 let spinnerFrame = 0;
 let pending = [], allMatches = [];
 let fileGroupMap = {};
-let filterTokens = [];
 
 // Virtual scroll state
 let _virtItems = [];       // [{type:'header', file, count}, {type:'row', match, file}]

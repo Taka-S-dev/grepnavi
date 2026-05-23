@@ -19,23 +19,42 @@ addEventListener('DOMContentLoaded', async () => {
   function switchLeftTab(tab) {
     const isExplorer = tab === 'explorer';
     const isProjects = tab === 'projects';
-    const isSearch   = !isExplorer && !isProjects;
+    const isNodes    = tab === 'nodes';
+    const isSearch   = !isExplorer && !isProjects && !isNodes;
     id('tab-search').classList.toggle('active', isSearch);
     id('tab-explorer').classList.toggle('active', isExplorer);
     id('tab-projects').classList.toggle('active', isProjects);
+    id('tab-nodes')?.classList.toggle('active', isNodes);
     id('explorer-panel').classList.toggle('visible', isExplorer);
     id('projects-panel').classList.toggle('visible', isProjects);
+    id('nodes-panel')?.classList.toggle('visible', isNodes);
     id('search-panel').style.display  = isSearch ? '' : 'none';
     id('pane-search').style.display   = isSearch ? '' : 'none';
     id('left-resizer').style.display  = isSearch ? '' : 'none';
     id('pane-detail').style.display   = isSearch ? '' : 'none';
     if(isExplorer) explorerShow();
     if(isProjects) _renderProjectsPanel();
+    // #pane-tree 自体を DOM 移動させて使う（リスナー・状態が DOM に紐付いてるので付いてくる）。
+    const paneTree = id('pane-tree');
+    if(paneTree) {
+      if(isNodes) {
+        const dest = id('nodes-panel');
+        if(dest && paneTree.parentElement !== dest) dest.appendChild(paneTree);
+      } else {
+        const paneRight = id('pane-right');
+        const peek = id('peek');
+        if(paneRight && peek && paneTree.parentElement !== paneRight) {
+          paneRight.insertBefore(paneTree, peek);
+        }
+      }
+      if(typeof renderCurrent === 'function') renderCurrent();
+    }
   }
   window.switchLeftTab = switchLeftTab;
-  id('tab-search').onclick   = () => switchLeftTab('search');
-  id('tab-explorer').onclick = () => switchLeftTab('explorer');
-  id('tab-projects').onclick = () => switchLeftTab('projects');
+  document.querySelectorAll('.activity-btn[data-tab]').forEach(btn => {
+    btn.onclick = () => switchLeftTab(btn.dataset.tab);
+  });
+  id('act-settings').onclick = () => showSettingsModal();
   initExplorer();
   initProjectsPanel();
 
@@ -90,6 +109,12 @@ addEventListener('DOMContentLoaded', async () => {
     if(id('project-menu').classList.contains('open')) _updateTopMenuGraphs();
   };
   document.addEventListener('click', () => id('project-menu').classList.remove('open'));
+
+  id('btn-filter-help')?.addEventListener('click', e => {
+    e.stopPropagation();
+    id('filter-help')?.classList.toggle('open');
+  });
+  document.addEventListener('click', () => id('filter-help')?.classList.remove('open'));
   id('pmenu-new-window').onclick = () => { id('project-menu').classList.remove('open'); openNewWindow(); };
   id('pmenu-new').onclick        = async () => {
     id('project-menu').classList.remove('open');
@@ -287,7 +312,7 @@ addEventListener('DOMContentLoaded', async () => {
   if(!rootOk || rootOk.length === 0) showRootDialog();
 
   // URL モードに応じたレイアウト適用
-  if(pageMode === 'panel') {
+  if(pageMode === PAGE_MODES.PANEL) {
     document.body.classList.add('panel-mode');
     id('pane-right').style.display = 'none';
     id('col-resizer').style.display = 'none';
@@ -306,14 +331,12 @@ addEventListener('DOMContentLoaded', async () => {
     // 登録済みパネルをタブに反映（app.js より先に registerPanel した分）
     flushPanelRegistry();
     // まだ登録されていない分は registerPanel 内で自動追加される
-  } else if(pageMode === 'search') {
-    id('pane-right')?.style.setProperty('display', 'none', 'important');
-    id('col-resizer')?.style.setProperty('display', 'none', 'important');
-    id('pane-left').style.width = '100%';
+  } else if(pageMode === PAGE_MODES.SEARCH) {
+    document.body.classList.add('search-mode');
     id('peek').classList.remove('visible');
-  } else if(pageMode === 'calltree') {
-    id('pane-left')?.style.setProperty('display', 'none', 'important');
-    id('col-resizer')?.style.setProperty('display', 'none', 'important');
+    setTimeout(() => { id('q')?.focus(); id('q')?.select(); }, 0);
+  } else if(pageMode === PAGE_MODES.CALLTREE) {
+    document.body.classList.add('calltree-mode');
     id('peek').classList.remove('visible');
     setTimeout(() => window.openCallTree?.(), 300);
   } else {

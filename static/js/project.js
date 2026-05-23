@@ -23,12 +23,31 @@ function updateTitle(file) {
   const rootName = projectRoot
     ? projectRoot.replace(/\\/g, '/').split('/').filter(Boolean).pop() || projectRoot
     : '';
+  if (pageMode === PAGE_MODES.SEARCH) {
+    updateSearchTitle();
+    return;
+  }
   if (file) {
     const fileName = file.replace(/\\/g, '/').split('/').pop();
     document.title = rootName ? fileName + ' \u2013 ' + rootName : fileName;
   } else {
     document.title = rootName || 'コードビューア';
   }
+}
+
+// search モードのタブタイトルを `"query" (N) – ProjectName` 形式に設定。
+function updateSearchTitle(query, count) {
+  if (pageMode !== PAGE_MODES.SEARCH) return;
+  const rootName = projectRoot
+    ? projectRoot.replace(/\\/g, '/').split('/').filter(Boolean).pop() || projectRoot
+    : '';
+  if (!query) {
+    document.title = rootName || 'grepnavi';
+    return;
+  }
+  const q = query.length > 40 ? query.slice(0, 39) + '…' : query;
+  const countStr = count != null ? ' (' + count + ')' : '';
+  document.title = '"' + q + '"' + countStr + (rootName ? ' – ' + rootName : '');
 }
 
 // ===== 汎用確認ダイアログ =====
