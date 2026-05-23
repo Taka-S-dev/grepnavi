@@ -266,7 +266,7 @@ function renderLineMemoOverlay() {
   const container = id('monaco-container');
   const overlay = document.createElement('div');
   overlay.id = 'line-memo-overlay';
-  overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:hidden;z-index:5';
+  overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:hidden;z-index:var(--z-overlay)';
   container.style.position = 'relative';
   container.appendChild(overlay);
 
@@ -311,7 +311,7 @@ function showLineMemoInput(file, line) {
   const current = getLineMemos()[file + '::' + line] || '';
   const popup = document.createElement('div');
   popup.id = 'line-memo-popup';
-  popup.style.cssText = 'position:fixed;z-index:9999;background:#2d2d2d;border:1px solid #555;border-radius:4px;padding:8px;box-shadow:0 4px 12px rgba(0,0,0,0.6);width:300px';
+  popup.style.cssText = 'position:fixed;z-index:var(--z-autocomplete);background:#2d2d2d;border:1px solid #555;border-radius:4px;padding:8px;box-shadow:0 4px 12px rgba(0,0,0,0.6);width:300px';
   const edRect = id('monaco-container').getBoundingClientRect();
   const lineH = monacoEditor.getOption(monaco.editor.EditorOption.lineHeight);
   const top = Math.min(edRect.top + (line - 1) * lineH - monacoEditor.getScrollTop() + lineH, window.innerHeight - 140);
@@ -396,7 +396,7 @@ function renderRangeMemoOverlay() {
   const container = id('monaco-container');
   const overlay = document.createElement('div');
   overlay.id = 'range-memo-overlay';
-  overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:hidden;z-index:5';
+  overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:hidden;z-index:var(--z-overlay)';
   container.style.position = 'relative';
   container.appendChild(overlay);
 
@@ -436,7 +436,7 @@ function showRangeMemoInput(file, startLine, startCol, endLine, endCol) {
 
   const popup = document.createElement('div');
   popup.id = 'range-memo-popup';
-  popup.style.cssText = 'position:fixed;z-index:9999;background:#2d2d2d;border:1px solid #555;border-radius:4px;padding:8px;box-shadow:0 4px 12px rgba(0,0,0,0.6);width:300px';
+  popup.style.cssText = 'position:fixed;z-index:var(--z-autocomplete);background:#2d2d2d;border:1px solid #555;border-radius:4px;padding:8px;box-shadow:0 4px 12px rgba(0,0,0,0.6);width:300px';
   const edRect = id('monaco-container').getBoundingClientRect();
   const lineH = monacoEditor.getOption(monaco.editor.EditorOption.lineHeight);
   const topPx = Math.min(edRect.top + (endLine - 1) * lineH - monacoEditor.getScrollTop() + lineH, window.innerHeight - 140);
@@ -1525,7 +1525,7 @@ function showDefPeek(hits, word, pixelPos) {
   const dom = document.createElement('div');
   dom.className = 'def-peek-zone';
   // エディタコンテナ基準で固定位置に配置
-  dom.style.cssText = `position:absolute;z-index:100;top:${pixelPos.top}px;left:${pixelPos.left}px;min-width:400px;max-width:700px`;
+  dom.style.cssText = `position:absolute;z-index:var(--z-popover-low);top:${pixelPos.top}px;left:${pixelPos.left}px;min-width:400px;max-width:700px`;
 
   const hdr = document.createElement('div');
   hdr.className = 'def-peek-hdr';

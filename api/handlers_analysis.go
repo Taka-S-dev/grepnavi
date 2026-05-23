@@ -15,6 +15,11 @@ import (
 	"grepnavi/search"
 )
 
+const (
+	_hoverSearchTimeout    = 8 * time.Second // hover シンボル検索の全体タイムアウト
+	_defaultSnippetContext = 15              // /api/snippet で行番号周辺を返す文脈行数の既定値
+)
+
 var reIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 // --- /api/file ---
@@ -307,7 +312,7 @@ func (h *Handler) handleHover(w http.ResponseWriter, r *http.Request) {
 		includeChain[file] = true
 	}
 	tInc := time.Since(t0)
-	ctx, cancel := context.WithTimeout(r.Context(), 8000*time.Millisecond)
+	ctx, cancel := context.WithTimeout(r.Context(), _hoverSearchTimeout)
 	defer cancel()
 	hits, hoverEngine, err := search.FindHover(ctx, word, dir, glob, hroot, includeChain)
 	slog.Debug("hover", "word", word, "hits", len(hits), "engine", hoverEngine, "include", tInc, "search", time.Since(t0)-tInc, "total", time.Since(t0))
@@ -402,7 +407,7 @@ func (h *Handler) handleSnippet(w http.ResponseWriter, r *http.Request) {
 	}
 	line := 0
 	fmt.Sscanf(lineStr, "%d", &line)
-	ctx := 15
+	ctx := _defaultSnippetContext
 	fmt.Sscanf(ctxStr, "%d", &ctx)
 
 	lines, err := search.CachedLines(file)

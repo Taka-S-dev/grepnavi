@@ -20,6 +20,14 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode"
+)
+
+const (
+	// shim (gtags-shell.bat 等の wrapper) 検出閾値（バイト）。本物は数百 KB〜MB、shim は数 KB 以下。
+	_gtagsShimSizeThreshold = 2048
+	// 進捗ログをまとめてフラッシュするバッチ件数。
+	_gtagsLogFlushBatchSize = 100
 )
 
 // localBinDir はアプリ実行ファイルと同階層の bin/ ディレクトリを返す。
@@ -140,7 +148,7 @@ func GtagsBuildIndex(ctx context.Context, dir string) error {
 
 func isNonASCII(s string) bool {
 	for _, r := range s {
-		if r > 127 {
+		if r > unicode.MaxASCII {
 			return true
 		}
 	}
@@ -240,9 +248,9 @@ func GtagsBuildIndexStream(ctx context.Context, dir string, w io.Writer) error {
 		if strings.Contains(line, "extracting tags of") {
 			logBuf = append(logBuf, line)
 			fileCount++
-			if len(logBuf) >= 100 {
+			if len(logBuf) >= _gtagsLogFlushBatchSize {
 				flushLog()
-				// 100件ごとに進捗をブラウザへ送る
+				// バッチごとに進捗をブラウザへ送る
 				fmt.Fprintln(w, line)
 			}
 			continue
@@ -593,7 +601,7 @@ func GtagsDiagnose(dir, word string) {
 	bin := resolveGlobalBin()
 	globalVer := "(取得失敗)"
 	if fi, err := os.Stat(bin); err == nil {
-		shim := fi.Size() < 2048
+		shim := fi.Size() < _gtagsShimSizeThreshold
 		shimNote := ""
 		if shim {
 			shimNote = " ★ shim の可能性あり（環境変数が渡らない場合がある）"
@@ -610,7 +618,7 @@ func GtagsDiagnose(dir, word string) {
 	gtagsBin := resolveGtagsBin()
 	gtagsVer := "(取得失敗)"
 	if fi, err := os.Stat(gtagsBin); err == nil {
-		slog.Info("gtags-diag [2] gtags bin", "path", gtagsBin, "size", fi.Size(), "possible_shim", fi.Size() < 2048)
+		slog.Info("gtags-diag [2] gtags bin", "path", gtagsBin, "size", fi.Size(), "possible_shim", fi.Size() < _gtagsShimSizeThreshold)
 	}
 	if out, err := exec.Command(gtagsBin, "--version").Output(); err == nil {
 		gtagsVer = firstLine(strings.TrimSpace(string(out)))

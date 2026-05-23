@@ -74,6 +74,16 @@ function extractSym(text) {
   return m ? m[1] + '(' : '';
 }
 
+// ===== CSS 変数経由のアニメ時間取得 =====
+// CSS animation の duration と JS の cleanup setTimeout を同じ値で動かすためのヘルパ。
+// "700ms" / "0.7s" どちらの単位でも ms に正規化。
+function cssDurationMs(varName) {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+  if (v.endsWith('ms')) return parseFloat(v);
+  if (v.endsWith('s'))  return parseFloat(v) * 1000;
+  return parseFloat(v) || 0;
+}
+
 // ===== STATUS =====
 function st(msg){ id('st').textContent=msg; }
 function stGraph(){

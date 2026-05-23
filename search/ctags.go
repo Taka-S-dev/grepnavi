@@ -25,6 +25,13 @@ import (
 	"time"
 )
 
+const (
+	// tags ファイル冒頭の `!_TAG_*` メタ行を読む最大行数。
+	_ctagsHeaderScanLines = 20
+	// バイナリサーチ後に同名シンボルを取りこぼさないための線形スキャン窓（バイト）。
+	_ctagsLinearScanWindowBytes = 256 * 1024
+)
+
 // CtagsIndexed は dir 配下に tags ファイルが存在するか確認する。
 func CtagsIndexed(dir string) bool {
 	_, err := os.Stat(filepath.Join(dir, "tags"))
@@ -220,7 +227,7 @@ func ctagsReadSortedFlag(tagsPath string) int {
 	defer f.Close()
 
 	scanner := bufio.NewScanner(f)
-	for i := 0; i < 20 && scanner.Scan(); i++ {
+	for i := 0; i < _ctagsHeaderScanLines && scanner.Scan(); i++ {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "!") {
 			break
@@ -456,7 +463,7 @@ func ctagsFindStart(f *os.File, fileSize int64, word string) int64 {
 	}
 
 	if lo > 0 {
-		lo -= 256 * 1024
+		lo -= _ctagsLinearScanWindowBytes
 		if lo < 0 {
 			lo = 0
 		}

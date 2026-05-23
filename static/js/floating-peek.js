@@ -74,7 +74,7 @@ function initFloatingPeek(getHoverCtx) {
   // ===== ウィンドウマネージャー =====
   const _floatMgr = (() => {
     const panel = document.createElement('div');
-    panel.style.cssText = 'position:fixed;bottom:32px;right:8px;z-index:9999;background:#252526;border:1px solid #555;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.5);font:12px sans-serif;min-width:160px;max-width:240px;display:none';
+    panel.style.cssText = 'position:fixed;bottom:32px;right:8px;z-index:var(--z-floating);background:#252526;border:1px solid #555;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.5);font:12px sans-serif;min-width:160px;max-width:240px;display:none';
 
     const titleBar = document.createElement('div');
     titleBar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:4px 8px;background:#2d2d2d;border-radius:4px 4px 0 0;color:#aaa;user-select:none;border-bottom:1px solid #444';
@@ -601,7 +601,7 @@ function initFloatingPeek(getHoverCtx) {
     document.getElementById(_wordCtxMenuId)?.remove();
     const menu = document.createElement('div');
     menu.id = _wordCtxMenuId;
-    menu.style.cssText = 'position:fixed;z-index:9999;background:#2d2d2d;border:1px solid #444;border-radius:4px;padding:2px 0;font:12px sans-serif;box-shadow:0 4px 12px rgba(0,0,0,.6);min-width:180px';
+    menu.style.cssText = 'position:fixed;z-index:var(--z-context-menu);background:#2d2d2d;border:1px solid #444;border-radius:4px;padding:2px 0;font:12px sans-serif;box-shadow:0 4px 12px rgba(0,0,0,.6);min-width:180px';
     menu.style.left = x + 'px';
     menu.style.top  = y + 'px';
 

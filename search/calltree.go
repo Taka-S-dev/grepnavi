@@ -8,6 +8,12 @@ import (
 	"grepnavi/graph"
 )
 
+const (
+	_directCallerLimitPerCall   = 50 // 直接呼び出し（`foo()`）の1ファイル上限
+	_indirectCallerLimitPerCall = 30 // 間接呼び出し（`.ops = &foo`）の1ファイル上限
+	_callerTotalCap             = 80 // 1リクエストで返す呼び出し元の全体上限
+)
+
 // CallSite はコール関係の1件。
 type CallSite struct {
 	Func     string `json:"func"`      // 関数名
@@ -72,12 +78,12 @@ func FindCallers(ctx context.Context, word, dir, glob string) ([]CallSite, error
 	seen := map[string]bool{} // "func\x00file" → 登録済み
 
 	collect := func(matches []graph.Match, indirect bool) {
-		limit := 50
+		limit := _directCallerLimitPerCall
 		if indirect {
-			limit = 30
+			limit = _indirectCallerLimitPerCall
 		}
 		for _, m := range matches {
-			if len(results) >= 80 {
+			if len(results) >= _callerTotalCap {
 				break
 			}
 			lines, err := CachedLines(m.File)

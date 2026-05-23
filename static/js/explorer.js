@@ -321,7 +321,7 @@ let _ctxMenu = null;
 function createCtxMenu() {
   if (_ctxMenu) return;
   _ctxMenu = document.createElement('div');
-  _ctxMenu.style.cssText = 'display:none;position:fixed;z-index:9000;background:#2d2d2d;border:1px solid #555;border-radius:3px;box-shadow:0 4px 12px rgba(0,0,0,.5);padding:3px 0;min-width:180px;font-size:12px;user-select:none';
+  _ctxMenu.style.cssText = 'display:none;position:fixed;z-index:var(--z-context-menu);background:#2d2d2d;border:1px solid #555;border-radius:3px;box-shadow:0 4px 12px rgba(0,0,0,.5);padding:3px 0;min-width:180px;font-size:12px;user-select:none';
   document.body.appendChild(_ctxMenu);
   document.addEventListener('mousedown', e => {
     if (!_ctxMenu.contains(e.target)) hideCtxMenu();

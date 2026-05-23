@@ -5,7 +5,7 @@ const _panelRegistry = [];
 
 function registerPanel({ id: panelId, label, containerId, onOpen }) {
   _panelRegistry.push({ id: panelId, label, containerId, onOpen });
-  if(pageMode === 'panel') _applyPanelEntry({ id: panelId, label, containerId, onOpen });
+  if(pageMode === PAGE_MODES.PANEL) _applyPanelEntry({ id: panelId, label, containerId, onOpen });
 }
 
 // panel-tabs が存在する場合のみタブを追加する

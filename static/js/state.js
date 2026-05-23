@@ -1,6 +1,12 @@
 // ===== GLOBAL STATE =====
 
-// URL mode: 'search' | 'calltree' | '' (通常)
+// URL mode の定数化: 文字列リテラルの散在を防ぐ。新モード追加時はここに足す。
+const PAGE_MODES = Object.freeze({
+  SEARCH:   'search',
+  PANEL:    'panel',
+  CALLTREE: 'calltree',
+});
+// 現在のページモード (PAGE_MODES のいずれか、または '' = 通常モード)
 const pageMode = new URLSearchParams(location.search).get('mode') || '';
 
 // Graph
