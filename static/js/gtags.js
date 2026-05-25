@@ -235,7 +235,8 @@ function renderPopover() {
   if (!pop) return;
 
   const eng = window.getDefEngine();
-  const ctagsIndexed = typeof window._ctagsIndexed === 'function' ? window._ctagsIndexed() : false;
+  const ctagsIndexed   = typeof window._ctagsIndexed   === 'function' ? window._ctagsIndexed()   : false;
+  const ctagsInstalled = typeof window._ctagsInstalled === 'function' ? window._ctagsInstalled() : false;
 
   const gtagsBadge = _indexed ? '<span style="color:#4ec9b0;font-size:10px"> ✓</span>' : '<span class="gtags-pop-hint">（未生成）</span>';
   const ctagsBadge = ctagsIndexed ? '<span style="color:#4ec9b0;font-size:10px"> ✓</span>' : '<span class="gtags-pop-hint">（未生成）</span>';
@@ -256,24 +257,22 @@ function renderPopover() {
     <span>ripgrep</span>
   </label>`;
 
-  // インデックス操作
-  html += `<div class="gtags-pop-divider"></div>`;
-  if (eng === 'ctags' || (!_installed && ctagsIndexed)) {
-    // ctags インデックス操作
+  // インデックス操作: ctags と GNU Global は独立して表示する（両方インストール済みなら両方出す）。
+  const showCtagsSection = eng === 'ctags' || ctagsInstalled;
+  const showGtagsSection = _installed;
+
+  if (showCtagsSection) {
+    html += `<div class="gtags-pop-divider"></div>`;
     html += `<div class="gtags-pop-section">ctags インデックス</div>`;
     if (ctagsIndexed) {
       html += `<button class="gtags-pop-btn" id="ctags-pop-rebuild-main" style="width:100%">再生成</button>`;
     } else {
       html += `<button class="gtags-pop-btn primary" id="ctags-pop-build-main" style="width:100%">生成</button>`;
     }
-    // GNU Global がインストール済みで未生成の場合、選択できるよう生成ボタンも表示
-    if (_installed && !_indexed) {
-      html += `<div class="gtags-pop-divider"></div>`;
-      html += `<div class="gtags-pop-section">GNU Global インデックス</div>`;
-      html += `<button class="gtags-pop-btn primary" id="gtags-pop-build" style="width:100%">生成</button>`;
-    }
-  } else if (_installed) {
-    // gtags インデックス操作
+  }
+
+  if (showGtagsSection) {
+    html += `<div class="gtags-pop-divider"></div>`;
     html += `<div class="gtags-pop-section">GNU Global インデックス</div>`;
     if (_opRunning) {
       html += `<div style="display:flex;gap:4px;align-items:center">`;

@@ -159,6 +159,7 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 		dir = filepath.Join(hroot, dir)
 	}
 	glob := q.Get("glob")
+	currentFile := q.Get("file")
 	gtagsParam     := q.Get("gtags") != "0"
 	gtagsInstalled := search.GtagsInPath()
 	gtagsIndexed   := search.GtagsIndexed(hroot)
@@ -166,7 +167,7 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 	useCtagsParam := q.Get("ctags") != "0"
 	ctagsIndexed  := search.CtagsIndexed(hroot)
 	useCtags := useCtagsParam && ctagsIndexed && !useGtags
-	slog.Debug("definition", "word", word, "hroot", hroot, "gtags_param", gtagsParam, "installed", gtagsInstalled, "indexed", gtagsIndexed, "useGtags", useGtags, "ctagsIndexed", ctagsIndexed, "useCtags", useCtags)
+	slog.Debug("definition", "word", word, "currentFile", currentFile, "dir", dir, "glob", glob, "hroot", hroot, "gtags_param", gtagsParam, "installed", gtagsInstalled, "indexed", gtagsIndexed, "useGtags", useGtags, "ctagsIndexed", ctagsIndexed, "useCtags", useCtags)
 	engine := "rg"
 	if useGtags {
 		engine = "gtags"
