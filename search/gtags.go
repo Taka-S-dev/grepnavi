@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 	"unicode"
@@ -179,18 +180,125 @@ func GtagsUpdateIndex(ctx context.Context, dir string) error {
 }
 
 // englishEnv は文字化け防止のため LANG=C を追加した環境変数を返す。
+// extra に同名の変数があれば os.Environ() 側の既存値は除去する
+// （シェルで GTAGSDBPATH 等を設定されていた場合の重複を防ぐ）。
 func englishEnv(extra ...string) []string {
-	env := os.Environ()
-	// LANG/LC_ALL を C に上書きして英語出力に統一
-	filtered := env[:0:0]
-	for _, e := range env {
-		if !strings.HasPrefix(e, "LANG=") && !strings.HasPrefix(e, "LC_ALL=") {
-			filtered = append(filtered, e)
+	override := map[string]bool{"LANG": true, "LC_ALL": true}
+	for _, e := range extra {
+		if i := strings.Index(e, "="); i > 0 {
+			override[e[:i]] = true
 		}
+	}
+	env := os.Environ()
+	filtered := make([]string, 0, len(env)+len(extra)+2)
+	for _, e := range env {
+		if i := strings.Index(e, "="); i > 0 && override[e[:i]] {
+			continue
+		}
+		filtered = append(filtered, e)
 	}
 	filtered = append(filtered, "LANG=C", "LC_ALL=C")
 	filtered = append(filtered, extra...)
 	return filtered
+}
+
+// gtagsEnv は GTAGSDBPATH / GTAGSROOT を設定した環境変数を返す。
+// パスは ToSlash しない: Cygwin ビルドの global.exe は Windows パス
+// (バックスラッシュ) を受け付けるが、フォワードスラッシュだと検索が
+// 空を返す症状が実機で確認されている。
+func gtagsEnv(dir string) []string {
+	return englishEnv("GTAGSDBPATH="+dir, "GTAGSROOT="+dir)
+}
+
+// ===== Cygwin bash フォールバック =====
+//
+// 同梱の Cygwin ビルド global.exe が native Windows プロセス(Go) が作成した
+// pipe に書き込めず stdout が空になる症状への対策。
+// Cygwin bash を経由して /tmp に出力させ、それを読み戻すことで回避する。
+//
+// bash が PATH に無い環境ではフォールバックを無効化し、従来通り cmd.Output()
+// の結果（空かもしれない）をそのまま使う。Cygwin 必須化はしない。
+
+var (
+	_bashOnce          sync.Once
+	_bashPath          string // Cygwin bash.exe のフルパス、未検出なら ""
+	_cygTmpWindowsPath string // Cygwin /tmp の Windows パス、未検出なら ""
+)
+
+// initBashRun は bash の検出と /tmp の Windows パス取得を一度だけ実行する。
+func initBashRun() {
+	_bashOnce.Do(func() {
+		p, err := exec.LookPath("bash")
+		if err != nil {
+			slog.Info("gtags-bash-fallback", "msg", "bash not found in PATH, fallback disabled")
+			return
+		}
+		out, err := exec.Command(p, "-c", "cygpath -w /tmp").Output()
+		if err != nil {
+			slog.Info("gtags-bash-fallback", "msg", "cygpath failed, fallback disabled", "err", err)
+			return
+		}
+		_bashPath = p
+		_cygTmpWindowsPath = strings.TrimSpace(string(out))
+		slog.Info("gtags-bash-fallback", "msg", "ready", "bash", _bashPath, "tmp_win", _cygTmpWindowsPath)
+	})
+}
+
+// windowsToCygwinPath は Windows パス (C:\foo\bar) を
+// Cygwin POSIX パス (/cygdrive/c/foo/bar) に変換する。
+func windowsToCygwinPath(p string) string {
+	p = filepath.ToSlash(p)
+	if len(p) >= 2 && p[1] == ':' {
+		return "/cygdrive/" + strings.ToLower(p[0:1]) + p[2:]
+	}
+	return p
+}
+
+// shellQuote は bash 用にシングルクォートで囲む。
+// 文字列内の ' を '\'' で escape する標準テクニック。
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// runGlobalViaBash は global.exe を Cygwin bash 経由で実行し結果バイト列を返す。
+// 戻り値の第2引数 attempted が true なら bash 経路を試みた（成功/失敗問わず）。
+// false の場合は bash が無いので呼び出し側はフォールバック断念。
+//
+// mode は global の検索オプション (`-xd` 定義 / `-xr` 参照 等)。
+func runGlobalViaBash(globalBin, dir, word, mode string) (data []byte, attempted bool) {
+	initBashRun()
+	if _bashPath == "" {
+		return nil, false
+	}
+	tmpName := fmt.Sprintf("grepnavi-gtags-%d-%d.txt", os.Getpid(), time.Now().UnixNano())
+	cygTmp := "/tmp/" + tmpName
+	winTmp := filepath.Join(_cygTmpWindowsPath, tmpName)
+	defer os.Remove(winTmp)
+
+	globalCyg := windowsToCygwinPath(globalBin)
+	// GTAGSDBPATH/GTAGSROOT は Windows パスのまま (Cygwin global は両方解釈する)。
+	// global.exe の実行パスは Cygwin パス (/cygdrive/...) でなければ bash が認識しない。
+	// 出力先は Cygwin パス (/tmp/...): bash の > リダイレクトは POSIX パス前提。
+	cmdStr := fmt.Sprintf("GTAGSDBPATH=%s GTAGSROOT=%s %s %s %s > %s 2>/dev/null",
+		shellQuote(dir), shellQuote(dir),
+		shellQuote(globalCyg),
+		mode,
+		shellQuote(word),
+		shellQuote(cygTmp))
+
+	cmd := exec.Command(_bashPath, "-c", cmdStr)
+	// exit=1 は「ヒットなし」なので情報的、それ以外は警告
+	if err := cmd.Run(); err != nil {
+		if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 1 {
+			slog.Debug("gtags-bash-fallback exec", "err", err, "cmd", cmdStr)
+		}
+	}
+	out, rerr := os.ReadFile(winTmp)
+	if rerr != nil {
+		// ファイル無し = 結果なし (global が "no results" で何も書かなかった等)
+		return nil, true
+	}
+	return out, true
 }
 
 // sanitizeLine はShift-JIS等の不正バイト列を除去してUTF-8安全な文字列に変換する。
@@ -275,8 +383,9 @@ func GtagsBuildIndexStream(ctx context.Context, dir string, w io.Writer) error {
 // Windows ではパイプバッファリングにより出力が遅延するため、5 秒ごとにハートビートを送る。
 func GtagsUpdateIndexStream(ctx context.Context, dir string, w io.Writer) error {
 	cmd := exec.CommandContext(ctx, resolveGlobalBin(), "-u", "-v")
-	gtagsPathU := filepath.ToSlash(dir)
-	cmd.Env = englishEnv("GTAGSDBPATH="+gtagsPathU, "GTAGSROOT="+gtagsPathU)
+	// Cygwin global.exe は Windows パス (バックスラッシュ) を受け付ける。
+	// ToSlash でフォワードスラッシュ化すると検索が空を返す症状が出るため使わない。
+	cmd.Env = gtagsEnv(dir)
 
 	pr, pw := io.Pipe()
 	cmd.Stdout = pw
@@ -391,10 +500,7 @@ func GtagsFindDefinitions(ctx context.Context, word, dir string) ([]DefHit, erro
 	// キャンセルされても結果はキャッシュに入るので次回即返せる。
 	cmd := exec.CommandContext(context.Background(), globalBin, "-xd", word)
 	cmd.Dir = dir
-	// MSYS2版 global.exe はバックスラッシュを解釈できないためフォワードスラッシュに変換する
-	gtagsPath := filepath.ToSlash(dir)
-	env := append(os.Environ(), "GTAGSDBPATH="+gtagsPath, "GTAGSROOT="+gtagsPath)
-	cmd.Env = env
+	cmd.Env = gtagsEnv(dir)
 	if devNull, err := os.Open(os.DevNull); err == nil {
 		cmd.Stdin = devNull
 		defer devNull.Close()
@@ -432,6 +538,19 @@ func GtagsFindDefinitions(ctx context.Context, word, dir string) ([]DefHit, erro
 		"stdout", strings.TrimSpace(string(out)),
 		"stderr", strings.TrimSpace(stderr.String()),
 		"err", err)
+
+	// Cygwin global.exe が native Windows pipe に書けず stdout が空のことがある。
+	// exit=0 かつ stdout が空 = この症状の可能性 → bash 経由で再実行を試みる。
+	if err == nil && len(bytes.TrimSpace(out)) == 0 {
+		if bashOut, attempted := runGlobalViaBash(globalBin, dir, word, "-xd"); attempted {
+			if len(bytes.TrimSpace(bashOut)) > 0 {
+				slog.Info("gtags-find", "msg", "bash fallback succeeded", "word", word, "bytes", len(bashOut))
+				out = bashOut
+			} else {
+				slog.Debug("gtags-find", "msg", "bash fallback also empty (truly no results)", "word", word)
+			}
+		}
+	}
 
 	if err != nil {
 		if exitCode == 1 {
@@ -643,7 +762,7 @@ func GtagsDiagnose(dir, word string) {
 	}
 
 	// ---- 4. DB読み取りテスト（共通シンボルで疎通確認）----
-	env := append(os.Environ(), "GTAGSDBPATH="+dir, "GTAGSROOT="+dir)
+	env := gtagsEnv(dir)
 	cmdLine := fmt.Sprintf("%s -xd <word>  (GTAGSDBPATH=%s  GTAGSROOT=%s)", bin, dir, dir)
 	slog.Info("gtags-diag [4] command-line", "cmd", cmdLine, "note", "以下のコマンドをターミナルで実行して同じ結果か確認してください")
 
@@ -864,10 +983,10 @@ func GtagsFindHoverHits(ctx context.Context, word, dir string) ([]DefHit, error)
 // GtagsFindRefs は GNU Global で word の参照箇所を検索する（callers 用）。
 // 各参照行を囲む関数名・定義行を findContainingFunc で解決して返す。
 func GtagsFindRefs(ctx context.Context, word, dir string) ([]CallSite, error) {
-	cmd := exec.CommandContext(context.Background(), resolveGlobalBin(), "-xr", word)
+	globalBin := resolveGlobalBin()
+	cmd := exec.CommandContext(context.Background(), globalBin, "-xr", word)
 	cmd.Dir = dir
-	gtagsRefPath := filepath.ToSlash(dir)
-	cmd.Env = append(os.Environ(), "GTAGSDBPATH="+gtagsRefPath, "GTAGSROOT="+gtagsRefPath)
+	cmd.Env = gtagsEnv(dir)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -878,6 +997,15 @@ func GtagsFindRefs(ctx context.Context, word, dir string) ([]CallSite, error) {
 		}
 		slog.Warn("gtags-find-refs error", "word", word, "err", err, "stderr", stderr.String())
 		return nil, err
+	}
+	// Cygwin global.exe が native pipe に書けず stdout が空のことがある（GtagsFindDefinitions と同症状）。
+	if len(bytes.TrimSpace(out)) == 0 {
+		if bashOut, attempted := runGlobalViaBash(globalBin, dir, word, "-xr"); attempted {
+			if len(bytes.TrimSpace(bashOut)) > 0 {
+				slog.Info("gtags-find-refs", "msg", "bash fallback succeeded", "word", word, "bytes", len(bashOut))
+				out = bashOut
+			}
+		}
 	}
 	hits := gtagsParseOutput(out, "ref", dir)
 	slog.Debug("gtags-find-refs raw hits", "word", word, "count", len(hits))
