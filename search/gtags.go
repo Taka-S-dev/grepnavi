@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -83,6 +84,15 @@ var srcExts = map[string]bool{
 	".hpp": true, ".hh": true, ".java": true,
 }
 
+// staleSkipDirs はサイズの大きい依存物・成果物ディレクトリ。
+// gtags は元々これらを索引対象にしないので、stale 判定でも歩く必要がない。
+var staleSkipDirs = map[string]bool{
+	".git": true, ".hg": true, ".svn": true,
+	"node_modules": true, "vendor": true, "third_party": true,
+	"build": true, "out": true, "dist": true, "target": true,
+	"obj": true, ".cache": true, ".vscode": true, ".idea": true,
+}
+
 func GtagsCheckStaleAsync(dir string) {
 	go func() {
 		gtagsFile := filepath.Join(dir, "GTAGS")
@@ -92,11 +102,21 @@ func GtagsCheckStaleAsync(dir string) {
 		}
 		gtagsMtime := info.ModTime()
 
-		_ = filepath.Walk(dir, func(path string, fi os.FileInfo, err error) error {
-			if err != nil || fi.IsDir() {
+		_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				if path != dir && staleSkipDirs[d.Name()] {
+					return filepath.SkipDir
+				}
 				return nil
 			}
 			if !srcExts[strings.ToLower(filepath.Ext(path))] {
+				return nil
+			}
+			fi, ferr := d.Info()
+			if ferr != nil {
 				return nil
 			}
 			if fi.ModTime().After(gtagsMtime) {
@@ -109,8 +129,24 @@ func GtagsCheckStaleAsync(dir string) {
 }
 
 // GtagsResetStale はインデックス更新後にstaleフラグをリセットする。
+// インデックスが書き換わるため、定義・参照のキャッシュも破棄する。
 func GtagsResetStale() {
 	atomic.StoreInt32(&_gtagsStale, 0)
+	gtagsClearResultCaches()
+}
+
+// 定義・参照の結果キャッシュ。キーは "dir\x00word"。インデックス更新で全消し。
+// シンボル単位で連打したり、ホバー→Ctrl+click と続けても 2 回目以降は即返る。
+var (
+	_gtagsDefCache  sync.Map // value: []DefHit
+	_gtagsRefsCache sync.Map // value: []CallSite
+)
+
+func gtagsCacheKey(dir, word string) string { return dir + "\x00" + word }
+
+func gtagsClearResultCaches() {
+	_gtagsDefCache.Range(func(k, _ any) bool { _gtagsDefCache.Delete(k); return true })
+	_gtagsRefsCache.Range(func(k, _ any) bool { _gtagsRefsCache.Delete(k); return true })
 }
 
 
@@ -493,7 +529,12 @@ func gtagsParseOutput(out []byte, kind, dir string) []DefHit {
 
 // GtagsFindDefinitions は GNU Global で word の定義を検索する。
 // 宣言(.h)と実装(.c/.cpp)が両方ヒットした場合は実装を優先する。
+// 結果は (dir,word) でキャッシュされ、インデックス更新まで保持される。
 func GtagsFindDefinitions(ctx context.Context, word, dir string) ([]DefHit, error) {
+	cacheKey := gtagsCacheKey(dir, word)
+	if v, ok := _gtagsDefCache.Load(cacheKey); ok {
+		return v.([]DefHit), nil
+	}
 	globalBin := resolveGlobalBin()
 	// global.exe は高速（数十ms）なので HTTP キャンセルに巻き込まれないよう
 	// context をデタッチして最後まで実行させる。
@@ -555,6 +596,7 @@ func GtagsFindDefinitions(ctx context.Context, word, dir string) ([]DefHit, erro
 	if err != nil {
 		if exitCode == 1 {
 			slog.Debug("gtags-find", "msg", "exit=1 not found (normal)")
+			_gtagsDefCache.Store(cacheKey, []DefHit(nil))
 			return nil, nil
 		}
 		return nil, err
@@ -568,6 +610,7 @@ func GtagsFindDefinitions(ctx context.Context, word, dir string) ([]DefHit, erro
 	for i, h := range hits {
 		slog.Debug("gtags-find hit", "i", i, "file", h.File, "line", h.Line, "text", h.Text)
 	}
+	_gtagsDefCache.Store(cacheKey, hits)
 	return hits, nil
 }
 
@@ -969,20 +1012,29 @@ func GtagsFindHoverHits(ctx context.Context, word, dir string) ([]DefHit, error)
 	if err != nil || len(hits) == 0 {
 		return hits, err
 	}
-	for i, h := range hits {
+	// GtagsFindDefinitions の戻り値はキャッシュと共有されているため、
+	// ここで複製してから書き換える（kind/text の上書きが汚染しないように）。
+	out := make([]DefHit, len(hits))
+	copy(out, hits)
+	for i, h := range out {
 		lines, lerr := CachedLines(h.File)
 		if lerr != nil || h.Line <= 0 || h.Line > len(lines) {
 			continue
 		}
-		hits[i].Kind = gtagsClassifyKind(lines[h.Line-1])
-		hits[i].Text = strings.TrimSpace(lines[h.Line-1])
+		out[i].Kind = gtagsClassifyKind(lines[h.Line-1])
+		out[i].Text = strings.TrimSpace(lines[h.Line-1])
 	}
-	return hits, nil
+	return out, nil
 }
 
 // GtagsFindRefs は GNU Global で word の参照箇所を検索する（callers 用）。
 // 各参照行を囲む関数名・定義行を findContainingFunc で解決して返す。
+// 結果は (dir,word) でキャッシュされ、インデックス更新まで保持される。
 func GtagsFindRefs(ctx context.Context, word, dir string) ([]CallSite, error) {
+	cacheKey := gtagsCacheKey(dir, word)
+	if v, ok := _gtagsRefsCache.Load(cacheKey); ok {
+		return v.([]CallSite), nil
+	}
 	globalBin := resolveGlobalBin()
 	cmd := exec.CommandContext(context.Background(), globalBin, "-xr", word)
 	cmd.Dir = dir
@@ -993,6 +1045,7 @@ func GtagsFindRefs(ctx context.Context, word, dir string) ([]CallSite, error) {
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
 			slog.Debug("gtags-find-refs no results", "word", word)
+			_gtagsRefsCache.Store(cacheKey, []CallSite(nil))
 			return nil, nil
 		}
 		slog.Warn("gtags-find-refs error", "word", word, "err", err, "stderr", stderr.String())
@@ -1042,5 +1095,6 @@ func GtagsFindRefs(ctx context.Context, word, dir string) ([]CallSite, error) {
 	}
 	slog.Debug("gtags-find-refs result", "word", word, "results", len(results),
 		"skipped_no_func", skippedNoFunc, "skipped_self", skippedSelf, "skipped_dup", skippedDup)
+	_gtagsRefsCache.Store(cacheKey, results)
 	return results, nil
 }
