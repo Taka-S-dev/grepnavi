@@ -45,6 +45,25 @@ function getAllMemosOrdered() {
     items.push({ kind: 'bookmark', id: 'bookmark::' + key, file, line, memo: text || '' });
   }
 
+  // ツリーノード: memo が付いている＝ユーザがその場所を「注釈付き重要箇所」として
+  // 扱っているサイン。マーク一覧の世界観 (注釈付き位置) と一致するので合流させる。
+  // 編集・削除はグラフ側で行う前提（マーク一覧側からは jump only）。
+  if (typeof graph !== 'undefined' && graph?.nodes) {
+    for (const n of Object.values(graph.nodes)) {
+      if (n.memo && n.memo.trim() && n.match?.file) {
+        items.push({
+          kind: 'node',
+          id: 'node::' + n.id,
+          file: n.match.file,
+          line: n.match.line || 1,
+          memo: n.memo,
+          label: n.label || '',
+          _nodeId: n.id,
+        });
+      }
+    }
+  }
+
   const order = getMemoListOrder();
   if (order) {
     const orderMap = new Map(order.map((id, i) => [id, i]));
@@ -65,6 +84,8 @@ function getAllMemosOrdered() {
 }
 
 function _deleteMemoItem(item) {
+  // ノードは graph 側のライフサイクルで管理。マーク一覧からは削除不可。
+  if (item.kind === 'node') return;
   if (item.kind === 'bookmark') {
     const key = item.id.slice('bookmark::'.length);
     const idx = key.lastIndexOf('::');
@@ -84,6 +105,8 @@ function _deleteMemoItem(item) {
 }
 
 function _saveMemoItemText(item, newText) {
+  // ノードの memo は graph 側で編集する前提。マーク一覧側からは書き換えない。
+  if (item.kind === 'node') return;
   if (item.kind === 'line') {
     const key = item.id.slice('line::'.length);
     const idx = key.lastIndexOf('::');
@@ -156,6 +179,7 @@ function renderMemoList() {
       { kind: 'bookmark', label: bmSvg,  title: 'ブックマーク' },
       { kind: 'line',     label: '✎',   title: 'ラインメモ' },
       { kind: 'range',    label: '▤',   title: '範囲メモ' },
+      { kind: 'node',     label: '◎',   title: 'ツリーノード（memo 付き）' },
     ];
     typeButtons.forEach(({ kind, label, title }) => {
       const btn = document.createElement('button');
@@ -252,7 +276,26 @@ function _showMemoPreview(item) {
   const lineLabel = item.kind === 'range' ? `L${item.line}–${item.endLine}` : `L${item.line}`;
   const icon = item.kind === 'bookmark'
     ? `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 16 16" style="vertical-align:middle"><path d="M5 2h6a1 1 0 0 1 1 1v10l-4-2.5L4 13V3a1 1 0 0 1 1-1z" fill="none" stroke="#888" stroke-width="1.5" stroke-linejoin="round"/></svg>`
-    : item.kind === 'range' ? '▤' : '✎';
+    : item.kind === 'range' ? '▤'
+    : item.kind === 'node'  ? '◎' : '✎';
+
+  // ツリーノードは jump only の read-only preview。
+  // memo の編集・ノード削除はグラフ側のみ（マーク一覧との二重管理を避ける）。
+  if (item.kind === 'node') {
+    const labelLine = item.label ? `<div style="color:#888;font-size:11px;margin-top:2px">${esc(item.label)}</div>` : '';
+    preview.innerHTML =
+      `<div id="memo-preview-hdr">` +
+        `<span class="memo-preview-icon">${icon}</span>` +
+        `<span class="memo-preview-loc" title="${esc(item.file)}">${esc(fileName)}<span style="color:#666">:${lineLabel}</span></span>` +
+        `<button id="memo-preview-jump" title="この行へジャンプ"><i class="codicon codicon-go-to-file"></i></button>` +
+      `</div>` +
+      labelLine +
+      `<textarea id="memo-preview-ta" spellcheck="false" readonly></textarea>` +
+      `<div id="memo-preview-actions"><span style="color:#666;font-size:10px">ノードはツリー側で編集・削除します</span></div>`;
+    id('memo-preview-ta').value = item.memo;
+    id('memo-preview-jump').onclick = () => openPeek(item.file, item.line);
+    return;
+  }
 
   if (item.kind === 'bookmark') {
     preview.innerHTML =
@@ -327,7 +370,8 @@ function _makeMemoRow(item) {
   const memoPreview = item.memo.split('\n')[0].substring(0, 60);
   const icon = item.kind === 'bookmark'
     ? `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 16 16" style="vertical-align:middle"><path d="M5 2h6a1 1 0 0 1 1 1v10l-4-2.5L4 13V3a1 1 0 0 1 1-1z" fill="none" stroke="#888" stroke-width="1.5" stroke-linejoin="round"/></svg>`
-    : item.kind === 'range' ? '▤' : '✎';
+    : item.kind === 'range' ? '▤'
+    : item.kind === 'node'  ? '◎' : '✎';
   const row = document.createElement('div');
   const isBm = item.kind === 'bookmark';
   row.className = 'memo-list-item' + (_memoListSelectedId === item.id ? ' memo-list-selected' : '');
