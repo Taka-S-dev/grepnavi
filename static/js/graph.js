@@ -2200,18 +2200,39 @@ function calcDragTarget(nodeId, fromDepth, toDepth) {
     return pid;
   } else {
     const parent = findParent(nodeId, graph.nodes);
+    // ルートレベルの兄弟は graph._rootOrder (= 表示順) で並んでいる。
+    // Object.values(graph.nodes) のオブジェクト挿入順ではユーザがドラッグや
+    // Shift+Alt 系で並べ替えた後の順序と一致しないので、視覚的に隣ではない
+    // ノードを「前兄弟」として返してしまっていた。
     const siblings = parent
       ? graph.nodes[parent]?.children || []
-      : Object.values(graph.nodes)
-          .filter(
-            (n) =>
-              !Object.values(graph.nodes).some((p) =>
-                (p.children || []).includes(n.id),
-              ),
-          )
-          .map((n) => n.id);
+      : (() => {
+          const hasParent = new Set();
+          Object.values(graph.nodes).forEach((n) =>
+            (n.children || []).forEach((c) => hasParent.add(c)),
+          );
+          const rootIds = new Set(
+            Object.values(graph.nodes)
+              .filter((n) => !hasParent.has(n.id))
+              .map((n) => n.id),
+          );
+          const ordered = (graph._rootOrder || []).filter((id) => rootIds.has(id));
+          const missing = [...rootIds].filter((id) => !ordered.includes(id));
+          return [...ordered, ...missing];
+        })();
     const idx = siblings.indexOf(nodeId);
-    return idx > 0 ? siblings[idx - 1] : undefined;
+    if (idx <= 0) return undefined;
+    // 多段下げ: 前兄弟 (1 段下げ) からさらに「最後の子」へ降りていくことで、
+    // ノードを「視覚的に直前にあった subtree の末尾」に位置させる。
+    // children が無いノードに当たったらそこで止める (それ以上深くできない)。
+    const stepsDown = toDepth - fromDepth;
+    let target = siblings[idx - 1];
+    for (let i = 1; i < stepsDown; i++) {
+      const children = graph.nodes[target]?.children || [];
+      if (!children.length) break;
+      target = children[children.length - 1];
+    }
+    return target;
   }
 }
 
