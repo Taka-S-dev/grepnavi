@@ -37,7 +37,7 @@ input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus
 .codicon{font-size:13px;line-height:1;vertical-align:middle}
 button .codicon{font-size:13px}
 #root-chip .codicon,#btn-project-menu .codicon{font-size:12px;opacity:0.75}
-#root-chip .codicon-chevron-down,#btn-project-menu .codicon-chevron-down{font-size:10px;opacity:0.5}
+#btn-project-menu .codicon-chevron-down{font-size:10px;opacity:0.5}
 #btn-nav-back .codicon,#btn-nav-fwd .codicon,#peek-open .codicon{font-size:14px}
 #btn-line-memo-toggle .codicon{font-size:12px;vertical-align:middle}
 ::-webkit-scrollbar{width:8px;height:8px}
@@ -64,13 +64,18 @@ body{font:13px/1.4 'Consolas','Courier New',monospace;background:#1e1e1e;color:#
 #btn-toggle-sub{background:none;border:1px solid transparent;border-radius:3px;color:#858585;cursor:pointer;font-size:13px;padding:3px 10px;line-height:1;flex-shrink:0;text-align:center;min-width:52px}
 #btn-toggle-sub:hover{color:#ccc}
 #btn-toggle-sub.open{color:#007acc}
-#root-chip{display:flex;align-items:center;gap:4px;background:#1e2d38;border:1px solid #2a5a7a;border-left:3px solid #007acc;border-radius:3px;padding:3px 8px 3px 7px;font-size:11px;color:#9ec8e8;cursor:pointer;flex:1;min-width:0;white-space:nowrap;overflow:hidden;user-select:none}
-#root-chip:hover{background:#1e3548;border-color:#3a7aaa;color:#c8e8ff}
-#root-chip:active{background:#152535}
-#root-chip.has-subdir{border-color:#3a7aaa;color:#9ec8e8;background:#1e2d38}
-#root-chip .codicon-chevron-down{font-size:11px;opacity:0.8;margin-left:auto;flex-shrink:0}
-#root-chip-text{overflow:hidden;text-overflow:ellipsis}
-#root-chip-text .chip-subdir{font-size:10px;color:#5a8aaa;opacity:0.85;margin-left:1px}
+/* chip 本体は中立色の context indicator として周囲に馴染ませる。
+   左の青ライン (border-left) だけが「現在 scope」を示す唯一のアクセント。 */
+#root-chip{display:flex;align-items:center;gap:4px;background:#252526;border:1px solid #333;border-left:3px solid #007acc;border-radius:3px;padding:3px 4px 3px 7px;font-size:11px;color:#9a9a9a;flex:1;min-width:0;white-space:nowrap;overflow:hidden;user-select:none}
+#root-chip.has-subdir{border-color:#333;color:#9a9a9a;background:#252526}
+#root-chip-text{overflow:hidden;text-overflow:ellipsis;flex:1}
+#root-chip-change{margin-left:auto;flex-shrink:0;background:none;border:none;color:#aaa;cursor:pointer;padding:0 4px;border-radius:2px;display:flex;align-items:center;transition:color 0.12s, background 0.12s}
+/* chip 全体を hover した時にも ⚙ を明るくして「ここに操作がある」を伝える。
+   実際のクリックは ⚙ ボタン本体のみ受け付ける（VSCode の discoverable control 流儀）。 */
+#root-chip:hover #root-chip-change{color:#ddd}
+#root-chip-change:hover{background:#3c3c3c;color:#fff}
+#root-chip-change .codicon{font-size:12px}
+#root-chip-text .chip-subdir{font-size:10px;color:#777;opacity:0.85;margin-left:1px}
 #btn-s{padding:4px 10px;font-size:12px;min-width:52px;text-align:center}
 #btn-stop{padding:3px 8px;font-size:12px}
 #enc-btn{background:none;border:none;color:rgba(255,255,255,0.4);font-size:11px;padding:0 6px;cursor:pointer;font-family:inherit;flex-shrink:0}

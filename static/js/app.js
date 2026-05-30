@@ -64,7 +64,9 @@ addEventListener('DOMContentLoaded', async () => {
   id('btn-clr').onclick = clearGraph;
   id('btn-tree-add').onclick = createTree;
   id('btn-view').onclick = toggleView;
-  id('root-chip').onclick = () => showRootDialog();
+  // chip 本体は表示専用。変更は ⚙ ボタンを意図的に押した時のみ
+  // （narrow-scope のつもりで誤って chip 全体を押す事故を防ぐ）
+  id('root-chip-change').onclick = e => { e.stopPropagation(); showRootDialog(); };
   id('btn-nav-back').onclick = navBack;
   id('btn-nav-fwd').onclick  = navForward;
 
