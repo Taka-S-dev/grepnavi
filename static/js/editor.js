@@ -1237,7 +1237,8 @@ async function openPeek(file, line, {permanent = false} = {}) {
       const oldModel = tabs[previewIdx2].model;
       tabs[previewIdx2] = errTab;
       await switchTab(previewIdx2);
-      if(oldModel !== errModel) oldModel.dispose();
+      // 並行 openPeek で先に dispose 済みになっていることがあるため二重 dispose を避ける
+      if(oldModel !== errModel && !oldModel?.isDisposed?.()) oldModel.dispose();
     } else {
       tabs.push(errTab);
       await switchTab(tabs.length - 1);
@@ -1261,8 +1262,9 @@ async function openPeek(file, line, {permanent = false} = {}) {
     const oldModel = tabs[previewIdx].model;
     tabs[previewIdx] = tab;
     await switchTab(previewIdx);
-    // switchTab で新モデルをセットした後に dispose する
-    if(oldModel !== tab.model) oldModel.dispose();
+    // switchTab で新モデルをセットした後に dispose する。
+    // 並行 openPeek で先に dispose 済みになっていることがあるため二重 dispose を避ける
+    if(oldModel !== tab.model && !oldModel?.isDisposed?.()) oldModel.dispose();
   } else {
     tabs.push(tab);
     await switchTab(tabs.length - 1);
@@ -1288,11 +1290,16 @@ async function refreshSymbolDecorations() {
   if (!monacoEditor) return;
   const tab = tabs[activeTabIdx];
   if (!tab) return;
+  const model = tab.model;
   try {
     const r = await fetch('/api/symbols?' + new URLSearchParams({ file: tab.file }));
     if (!r.ok) return;
     const symbols = await r.json();
-    const model = tab.model;
+    // fetch 中に別タブへ切替・preview 置換が起きたら以降は無意味なので早期 return:
+    //   - モデルが dispose 済み: アクセスすると Monaco が例外を投げる
+    //   - エディタに別モデルが乗っている: deltaDecorations しても画面に出ない
+    // どちらの場合も再び switchTab されたときに refreshSymbolDecorations が呼び直されるので問題ない。
+    if (model.isDisposed?.() || monacoEditor.getModel() !== model) return;
     const decos = [];
     for (const sym of symbols) {
       const line = sym.start_line;
@@ -1351,11 +1358,18 @@ if(typeof document !== 'undefined') {
 
 async function switchTab(idx) {
   if(idx < 0 || idx >= tabs.length) return;
+  const tab = tabs[idx];
+  // 並行 openPeek で当該タブのモデルがすでに dispose 済みだった場合の防御。
+  // setModel すると Monaco 内部の isDominatedByLongLines 等が
+  // _assertNotDisposed で投げる → コンソールに大量エラーが出る症状を回避。
+  if(tab.model?.isDisposed?.()) {
+    console.warn('switchTab: tab.model is disposed, skipping', tab.file);
+    return;
+  }
   if(activeTabIdx >= 0 && activeTabIdx < tabs.length)
     tabs[activeTabIdx].viewState = monacoEditor.saveViewState();
   activeTabIdx = idx;
   startFilePolling();
-  const tab = tabs[idx];
   monacoEditor.setModel(tab.model);
   if(tab.viewState) try { monacoEditor.restoreViewState(tab.viewState); } catch(_) {}
   id('peek-file').value = tab.file.replace(/\\/g, '/');
