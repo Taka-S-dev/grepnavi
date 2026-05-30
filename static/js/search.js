@@ -609,13 +609,70 @@ function jumpResult(delta) {
 // ===== 検索履歴タブ =====
 function saveSearchTab(query, count, title, overText) {
   const filterValue = id('filter-input').value;
-  const data = { count, title, overText, filterValue, allMatches: [...allMatches] };
+  const conditions = captureSearchConditions();
+  const data = { count, title, overText, filterValue, allMatches: [...allMatches], conditions };
   const result = upsertSearchTab(searchTabs, query, data, MAX_SEARCH_TABS);
   searchTabs = result.tabs;
   activeSearchTab = result.activeIdx;
   renderSearchTabs();
   const wrap = id('search-stack-wrap');
   if(wrap) wrap.style.display = '';
+}
+
+// captureSearchConditions は現在の検索フォーム / フラグ / エンコーディング設定を
+// 1 つのオブジェクトにまとめて返す。スタック・タブのどちらでも同じ形式で保持する。
+function captureSearchConditions() {
+  return {
+    dir: id('dir').value.trim(),
+    glob: id('glob').value.trim(),
+    regex: id('btn-re').classList.contains('on'),
+    caseSensitive: id('btn-cs').classList.contains('on'),
+    word: id('btn-wb').classList.contains('on'),
+    enc: getSearchEnc(),
+  };
+}
+
+// formatConditions は conditions を改行区切りの人間可読テキストに変換する。
+// スタックエントリの tooltip に使う。条件が無い (旧データ等) 場合は空文字。
+function formatConditions(c) {
+  if(!c) return '';
+  const lines = [];
+  lines.push('ルート: ' + (c.dir || '(全体)'));
+  if(c.glob) lines.push('glob: ' + c.glob);
+  const flags = [
+    c.caseSensitive && '大小区別',
+    c.word          && '単語境界',
+    c.regex         && '正規表現',
+    c.enc           && (ENC_LABELS[c.enc] || c.enc),
+  ].filter(Boolean);
+  if(flags.length) lines.push('オプション: ' + flags.join(' / '));
+  return lines.join('\n');
+}
+
+// conditionsDiffer は entry の保存条件が今の検索フォームと違うかを判定する。
+// スタックエントリに差分マーカーを出すかどうかの判断に使う。
+function conditionsDiffer(saved) {
+  if(!saved) return false;
+  const cur = captureSearchConditions();
+  return saved.dir !== cur.dir || saved.glob !== cur.glob ||
+         saved.regex !== cur.regex || saved.caseSensitive !== cur.caseSensitive ||
+         saved.word !== cur.word || saved.enc !== cur.enc;
+}
+
+// annotateEntryWithConditions は履歴・スタック共通で:
+//   1. ラベル要素の tooltip にタイトル + 検索条件詳細を載せる
+//   2. 現在の検索フォームと条件が違うエントリには微小マーカー (＊) を表示
+// 旧データ (conditions 未保存) は tooltip がタイトルのみ・マーカー無しになる。
+function annotateEntryWithConditions(rowEl, lblEl, conditions, baseTitle, insertBefore) {
+  const condText = formatConditions(conditions);
+  lblEl.title = condText ? baseTitle + '\n\n' + condText : baseTitle;
+  if(conditionsDiffer(conditions)) {
+    const diff = document.createElement('span');
+    diff.className = 'stab-diff';
+    diff.textContent = '＊';
+    diff.title = '保存時の検索条件が現在のフォームと異なります（hover で詳細）';
+    rowEl.insertBefore(diff, insertBefore);
+  }
 }
 
 function pinSearchTab(idx) {
@@ -630,6 +687,7 @@ function _savePinnedTabs() {
     query: t.query, count: t.count, title: t.title,
     overText: t.overText, filterValue: t.filterValue,
     allMatches: t.allMatches, pinned: true,
+    conditions: t.conditions,
   }));
   try { localStorage.setItem(LS_PINNED_TABS, JSON.stringify(pinned)); } catch {}
 }
@@ -717,7 +775,6 @@ function renderSearchTabs() {
     const lbl = document.createElement('span');
     lbl.className = 'stab-lbl';
     lbl.textContent = tab.query;
-    lbl.title = tab.title;
 
     const cnt = document.createElement('span');
     cnt.className = 'stab-cnt';
@@ -734,6 +791,7 @@ function renderSearchTabs() {
     cls.onclick = e => { e.stopPropagation(); closeSearchTab(i); };
 
     el.append(dot, lbl, cnt, cls);
+    annotateEntryWithConditions(el, lbl, tab.conditions, tab.title, cls);
     el.onclick = () => { switchSearchTab(i); bar.classList.remove('open'); };
     bar.appendChild(el);
   };
@@ -757,7 +815,8 @@ function addToSearchStack() {
     return;
   }
   searchStack.push({ query: tab.query, count: tab.count, title: tab.title,
-    overText: tab.overText, filterValue: tab.filterValue, allMatches: [...tab.allMatches] });
+    overText: tab.overText, filterValue: tab.filterValue, allMatches: [...tab.allMatches],
+    conditions: tab.conditions });
   _saveSearchStack();
   renderSearchStack();
   st('スタックに追加: ' + tab.query);
@@ -840,7 +899,6 @@ function renderSearchStack() {
     const lbl = document.createElement('span');
     lbl.className = 'stab-lbl';
     lbl.textContent = entry.query;
-    lbl.title = entry.title;
 
     const labelEl = document.createElement('span');
     labelEl.className = 'sstack-label' + (entry.label ? ' has-label' : '');
@@ -879,6 +937,7 @@ function renderSearchStack() {
 
     body.append(lbl, labelEl);
     el.append(handle, body, cnt, cls);
+    annotateEntryWithConditions(el, lbl, entry.conditions, entry.title, cls);
     el.onclick = () => switchSearchStack(i);
     bar.appendChild(el);
   });
