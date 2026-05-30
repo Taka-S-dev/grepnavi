@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -24,15 +25,14 @@ var reIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 // --- /api/file ---
 
-// 開くことを拒否するバイナリ拡張子
+// 拡張子だけでバイナリと確定できるもの。拡張子なしの判定はここに入れない
+// （Makefile / README / LICENSE / Dockerfile 等の拡張子なしテキストが巻き添えになる）。
 var binaryExts = map[string]bool{
 	".o": true, ".a": true, ".so": true, ".dll": true, ".exe": true,
 	".bin": true, ".elf": true, ".out": true,
 	".zip": true, ".tar": true, ".gz": true, ".xz": true, ".bz2": true,
 	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".bmp": true, ".ico": true,
 	".pdf": true, ".pyc": true, ".class": true,
-	// GNU Global / ctags インデックスファイル
-	"": true, // 拡張子なしのバイナリ（GTAGS, GRTAGS, GPATH 等）
 }
 
 // 拡張子なしで既知のバイナリファイル名
@@ -40,7 +40,32 @@ var binaryNames = map[string]bool{
 	"GTAGS": true, "GRTAGS": true, "GPATH": true, "tags": true,
 }
 
-const maxFileSize = 10 * 1024 * 1024 // 10MB
+const (
+	maxFileSize      = 10 * 1024 * 1024 // 10MB
+	binarySniffBytes = 512              // content-based バイナリ判定で読む先頭バイト数
+)
+
+// looksBinaryContent はファイルの先頭バイトを見て中身がバイナリか判定する。
+// 通常のテキスト（UTF-8 / Shift-JIS / EUC-JP / UTF-16 BOM）は NUL を含まない/
+// BOM で始まるため、NUL バイトの存在を主たるシグナルにする。
+func looksBinaryContent(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	buf := make([]byte, binarySniffBytes)
+	n, _ := f.Read(buf)
+	if n == 0 {
+		return false
+	}
+	buf = buf[:n]
+	// UTF-16 BOM はテキスト扱い（中身に NUL が頻出するため早めに除外）
+	if bytes.HasPrefix(buf, []byte{0xFF, 0xFE}) || bytes.HasPrefix(buf, []byte{0xFE, 0xFF}) {
+		return false
+	}
+	return bytes.IndexByte(buf, 0) >= 0
+}
 
 func (h *Handler) handleFile(w http.ResponseWriter, r *http.Request) {
 	file := r.URL.Query().Get("file")
@@ -51,13 +76,18 @@ func (h *Handler) handleFile(w http.ResponseWriter, r *http.Request) {
 
 	base := filepath.Base(file)
 	ext := strings.ToLower(filepath.Ext(file))
-	if binaryNames[base] || (ext == "" && binaryNames[base]) || binaryExts[ext] {
+	if binaryNames[base] || binaryExts[ext] {
 		http.Error(w, "binary file not supported", http.StatusUnsupportedMediaType)
 		return
 	}
 
 	if info, err := os.Stat(file); err == nil && info.Size() > maxFileSize {
 		http.Error(w, "file too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+
+	if looksBinaryContent(file) {
+		http.Error(w, "binary file not supported", http.StatusUnsupportedMediaType)
 		return
 	}
 
