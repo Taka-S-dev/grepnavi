@@ -1379,10 +1379,11 @@ async function openPeek(file, line, {permanent = false} = {}) {
     const msg = r.status === 415 ? 'バイナリファイルは表示できません'
               : r.status === 413 ? 'ファイルが大きすぎます (10MB超)'
               : `ファイルを開けません (${r.status})`;
-    // エラー内容をエディタ上に表示するためダミーモデルでタブを開く
+    // エラータブを開く: 空のダミーモデル + tab.error フラグでオーバーレイ表示。
+    // switchTab が error タブを検出して中央メッセージ + アクションを出す。
     const errUri = monaco.Uri.from({scheme:'grepnavi-err', path: file.replace(/\\/g,'/')});
-    const errModel = monaco.editor.getModel(errUri) || monaco.editor.createModel(`// ${msg}\n// ${file}`, 'plaintext', errUri);
-    const errTab = {file, line: 1, label: file.replace(/\\/g,'/').split('/').pop(), model: errModel, decoIds: [], preview: !permanent, error: true};
+    const errModel = monaco.editor.getModel(errUri) || monaco.editor.createModel('', 'plaintext', errUri);
+    const errTab = {file, line: 1, label: file.replace(/\\/g,'/').split('/').pop(), model: errModel, decoIds: [], preview: !permanent, error: true, errorStatus: r.status, errorMsg: msg};
     const previewIdx2 = permanent ? -1 : tabs.findIndex(t => t.preview);
     if(previewIdx2 >= 0) {
       const oldModel = tabs[previewIdx2].model;
@@ -1511,6 +1512,53 @@ if(typeof document !== 'undefined') {
   });
 }
 
+// エラータブ用オーバーレイ。Monaco エディタの上に被せて中央に
+// エラー内容 + 対処アクションを大きく表示する。
+// status 別アクション: 415/413 は「外部エディタで開く」、それ以外は「再試行」も追加。
+function _ensureFileErrorOverlay() {
+  let overlay = document.getElementById('file-error-overlay');
+  if (overlay) return overlay;
+  const body = document.getElementById('peek-body');
+  if (!body) return null;
+  overlay = document.createElement('div');
+  overlay.id = 'file-error-overlay';
+  body.appendChild(overlay);
+  return overlay;
+}
+function showFileErrorOverlay(tab) {
+  const overlay = _ensureFileErrorOverlay();
+  if (!overlay) return;
+  const iconClass = tab.errorStatus === 415 ? 'codicon-file-binary'
+                  : tab.errorStatus === 413 ? 'codicon-file-zip'
+                  : 'codicon-warning';
+  const buttons = [];
+  if (tab.errorStatus !== 415 && tab.errorStatus !== 413) {
+    buttons.push({label: '再試行', cmd: 'retry'});
+  }
+  buttons.push({label: '外部エディタで開く', cmd: 'external'});
+  overlay.innerHTML =
+    `<i class="codicon ${iconClass}"></i>` +
+    `<div class="file-error-msg">${esc(tab.errorMsg || 'ファイルを開けません')}</div>` +
+    `<div class="file-error-path" title="${esc(tab.file)}">${esc(tab.file)}</div>` +
+    `<div class="file-error-actions">` +
+      buttons.map(b => `<button data-cmd="${b.cmd}">${esc(b.label)}</button>`).join('') +
+    `</div>`;
+  overlay.classList.add('visible');
+  overlay.querySelectorAll('button').forEach(btn => {
+    btn.onclick = () => {
+      if (btn.dataset.cmd === 'retry') {
+        _unopenableFiles.delete(tab.file);
+        openPeek(tab.file, tab.line, {permanent: true});
+      } else if (btn.dataset.cmd === 'external') {
+        openFile(tab.file, tab.line);
+      }
+    };
+  });
+}
+function hideFileErrorOverlay() {
+  document.getElementById('file-error-overlay')?.classList.remove('visible');
+}
+
 async function switchTab(idx) {
   if(idx < 0 || idx >= tabs.length) return;
   const tab = tabs[idx];
@@ -1529,6 +1577,9 @@ async function switchTab(idx) {
   if(tab.viewState) try { monacoEditor.restoreViewState(tab.viewState); } catch(_) {}
   id('peek-file').value = tab.file.replace(/\\/g, '/');
   id('peek-open').onclick = () => openFile(tab.file, monacoEditor?.getPosition()?.lineNumber ?? tab.line);
+  // エラータブはオーバーレイで中央に大きく表示。通常タブは消す。
+  if (tab.error) showFileErrorOverlay(tab);
+  else           hideFileErrorOverlay();
   refreshGraphDecorations();
   refreshLineMemoDecorations();
   refreshRangeMemoDecorations();
@@ -1551,7 +1602,7 @@ function closeTab(idx) {
   if(idx < 0 || idx >= tabs.length) return;
   tabs[idx].model.dispose();
   tabs.splice(idx, 1);
-  if(!tabs.length) { stopFilePolling(); id('peek').classList.remove('visible'); activeTabIdx = -1; renderTabs(); return; }
+  if(!tabs.length) { stopFilePolling(); id('peek').classList.remove('visible'); activeTabIdx = -1; hideFileErrorOverlay(); renderTabs(); return; }
   const next = Math.min(idx, tabs.length - 1);
   activeTabIdx = -1;
   switchTab(next);
