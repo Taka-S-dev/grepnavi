@@ -549,7 +549,15 @@ window.explorerShow = async function() {
   await explorerLoad();
   _tree = buildTree(_files);
   updateRootName();
-  render();
+  // 現在 monaco で開いているファイルがあればツリーで reveal + 選択状態に。
+  // VSCode の「Reveal in Explorer」と同等の体験。
+  // revealFolderInTree は内部で renderTree() するので、ここでの render() は省略。
+  const activeFile = typeof tabs !== 'undefined' && tabs[activeTabIdx]?.file;
+  if (activeFile) {
+    revealFolderInTree(activeFile);
+  } else {
+    render();
+  }
   document.getElementById('explorer-filter')?.focus();
 };
 
