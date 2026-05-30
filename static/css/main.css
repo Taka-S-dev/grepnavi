@@ -169,7 +169,7 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .monaco-type-name{color:#4ec9b0!important}
 .ptab.preview>span:first-child{font-style:italic}
 .ptab.error>span:first-child{opacity:0.4}
-.ptab-close{color:#555;font-size:12px;line-height:1;padding:0 2px;border-radius:2px}
+.ptab-close{color:#555;font-size:13px;line-height:1;padding:3px 6px;margin-left:2px;border-radius:3px;display:inline-flex;align-items:center;justify-content:center;min-width:18px;min-height:18px}
 .ptab-close:hover{color:#fff;background:#5a1d1d}
 #tab-ctx-menu{display:none;position:fixed;z-index:var(--z-context-menu);background:#2d2d2d;border:1px solid #555;border-radius:3px;box-shadow:0 4px 12px rgba(0,0,0,.5);padding:3px 0;min-width:180px;font-size:12px}
 #tab-ctx-menu.open{display:block}

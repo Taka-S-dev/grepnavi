@@ -175,8 +175,8 @@
         <div id="tree-tab-list"></div>
         <button id="btn-tree-add" title="ツリーを追加"><i class="codicon codicon-add"></i></button>
         <div id="tree-tab-actions">
-          <button class="sec" id="btn-view">グラフ</button>
-          <button id="btn-clr">消去</button>
+          <button class="sec" id="btn-view" title="ツリー表示 / D3.js フォースグラフを切り替え">グラフ</button>
+          <button id="btn-clr" title="現在のツリーのノードを全削除（確認ダイアログあり）">消去</button>
         </div>
       </div>
       <div id="tree-toolbar">
@@ -199,9 +199,9 @@
         <input class="peek-file" id="peek-file" readonly spellcheck="false">
         <span id="peek-hint">Ctrl+クリック/F12: 定義ジャンプ　Alt+クリック: grep検索</span>
         <span id="ifdef-ui" style="display:none;gap:4px;align-items:center">
-          <input id="ifdef-cond" type="text" placeholder="#ifdef 条件: WIN32=1 DEBUG=0">
-          <button id="ifdef-apply">適用</button>
-          <button id="ifdef-clear" class="sec">解除</button>
+          <input id="ifdef-cond" type="text" placeholder="例: WIN32=1 DEBUG=0" title="#ifdef ブロックの色分け条件。&#10;スペース区切りで複数指定:&#10;  WIN32=1 → #ifdef WIN32 を真として扱う&#10;  DEBUG=0 → #ifdef DEBUG を偽として扱う&#10;適用すると、条件に基づいて生きてる / 死んでるブロックを色分けします">
+          <button id="ifdef-apply" title="入力した条件で #ifdef ブロックを色分け">適用</button>
+          <button id="ifdef-clear" class="sec" title="色分けを解除">解除</button>
         </span>
         <button id="btn-line-memo-toggle" title="行メモ表示切り替え (Alt+M)"><i class="codicon codicon-note"></i> メモ</button>
         <button id="btn-memo-list" onclick="toggleMemoList()" title="マーク一覧"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 16 16" style="vertical-align:-2px"><rect x="1" y="2" width="14" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><line x1="4" y1="6" x2="12" y2="6" stroke="currentColor" stroke-width="1.2"/><line x1="4" y1="9" x2="12" y2="9" stroke="currentColor" stroke-width="1.2"/><line x1="4" y1="12" x2="9" y2="12" stroke="currentColor" stroke-width="1.2"/></svg> マーク</button>
