@@ -1400,14 +1400,17 @@ function makeNodeEl(node, depth, visited = new Set()) {
   wrap.className = `node depth-${Math.min(depth, 4)}`;
   wrap.dataset.id = node.id;
 
+  const isCollapsed = children.length > 0 && node.expanded === false;
   const row = document.createElement("div");
-  row.className = "node-row" + (selNode === node.id ? " sel" : "");
+  row.className = "node-row"
+    + (selNode === node.id ? " sel" : "")
+    + (isCollapsed ? " collapsed" : "");
   row.dataset.id = node.id;
 
   const tog = document.createElement("div");
-  tog.className = "tog";
+  tog.className = "tog" + (isCollapsed ? " collapsed" : "");
   tog.textContent = children.length
-    ? node.expanded === false
+    ? isCollapsed
       ? "▶"
       : "▼"
     : " ";
@@ -1447,6 +1450,14 @@ function makeNodeEl(node, depth, visited = new Set()) {
     memoIcon.addEventListener("mousemove",  (e) => moveMemoTip(e));
     memoIcon.addEventListener("mouseleave", hideMemoTip);
     row.appendChild(memoIcon);
+  }
+  if (isCollapsed) {
+    const total = countDescendants(node.id);
+    const cnt = document.createElement("span");
+    cnt.className = "node-collapsed-count";
+    cnt.textContent = total;
+    cnt.title = `${total} 個の子孫を含む (折り畳み中)`;
+    row.appendChild(cnt);
   }
   row.appendChild(delBtn);
   row.onclick = (e) => {
@@ -1511,6 +1522,25 @@ function findParent(nodeId, nodes) {
     if ((n.children || []).includes(nodeId)) return n.id;
   }
   return "";
+}
+
+// 子孫総数を返す (折り畳み時の「隠れているノード数」表示用)。
+// visited は循環参照の保険。
+function countDescendants(nodeId) {
+  let count = 0;
+  const visited = new Set();
+  function walk(id) {
+    if (visited.has(id)) return;
+    visited.add(id);
+    const n = graph.nodes[id];
+    if (!n) return;
+    for (const cid of n.children || []) {
+      count++;
+      walk(cid);
+    }
+  }
+  walk(nodeId);
+  return count;
 }
 
 function findGrandparent(nodeId, nodes) {

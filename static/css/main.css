@@ -301,6 +301,9 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 }
 .node-row:hover{background:#2d2d2e;border-color:#555}
 .node-row.sel{background:#0d3a5c;border-color:#1177bb}
+/* 選択中 (.sel) は青の選択色を優先するため .collapsed:not(.sel) で限定 */
+.node-row.collapsed:not(.sel){background:#252b27;border-color:#3a4a3a}
+.node-row.collapsed:not(.sel):hover{background:#2d352f;border-color:#4a5a4a}
 .node-row.drag-over{background:#1a3a2a;outline:1px dashed #4ec9b0;outline-offset:-1px}
 .node-row.dragging{opacity:0.4}
 /* 挿入位置インジケーター */
@@ -347,8 +350,10 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .node-del{margin-left:auto;color:transparent;background:none;border:none;cursor:pointer;padding:0 2px;font-size:13px;line-height:1;flex-shrink:0}
 .node-row:hover .node-del{color:#555}
 .node-del:hover{color:#f48!important}
-.tog{width:14px;flex-shrink:0;color:#555;font-size:10px;cursor:pointer;padding-top:3px;text-align:center}
+.tog{width:14px;flex-shrink:0;color:#888;font-size:10px;cursor:pointer;padding-top:3px;text-align:center}
+.tog.collapsed{color:#7a9a7a}
 .tog:hover{color:#ccc}
+.node-collapsed-count{flex-shrink:0;color:#888;background:#3c3c3c;padding:0 6px;border-radius:8px;font-size:9px;line-height:14px;margin-left:auto;cursor:help}
 .node-body{min-width:0;max-width:360px}
 .node-label{color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}
 .node-row.sel .node-label{color:#fff}
