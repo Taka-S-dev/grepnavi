@@ -560,6 +560,15 @@ function _samePath(a, b) {
   return a.replace(/\//g, '\\').toLowerCase() === b.replace(/\//g, '\\').toLowerCase();
 }
 
+// _revealLineSmart は openPeek で行ジャンプ時に「意図の強さに応じた reveal」を行う:
+//   - line > 1 (検索結果 / マーク / 定義ジャンプ)        → 常に中央表示
+//   - line = 1 (エクスプローラからの browse, デフォルト) → 既に見えていれば no-op
+// browse 時にカーソル行を中央へ強制移動して先頭が下がる症状を防ぐ。
+function _revealLineSmart(line) {
+  if (line > 1) monacoEditor.revealLineInCenter(line);
+  else          monacoEditor.revealLineInCenterIfOutsideViewport(line);
+}
+
 function refreshGraphDecorations() {
   if(!monacoEditor) return;
   const file = tabs[activeTabIdx]?.file;
@@ -1273,7 +1282,7 @@ async function fzfOpen(relPath) {
 function navPush(file, line) {
   if(navSkipPush) return;
   const last = navHistory[navIndex];
-  if(last && last.file === file && last.line === line) return;
+  if(last && _samePath(last.file, file) && last.line === line) return;
   navHistory.splice(navIndex + 1);
   navHistory.push({file, line});
   if(navHistory.length > 100) { navHistory.shift(); }
@@ -1331,7 +1340,9 @@ async function openPeek(file, line, {permanent = false} = {}) {
   id('peek-open').onclick = () => openFile(file, monacoEditor?.getPosition()?.lineNumber ?? line);
 
   // 同一ファイルが既に開いている場合はそこへ移動
-  const existIdx = tabs.findIndex(t => t.file === file);
+  // _samePath で正規化比較しないと、エクスプローラ/定義ジャンプ/検索結果で
+  // パス形式 (スラッシュ方向・大小文字) が違うときに同じファイルが重複タブで開く。
+  const existIdx = tabs.findIndex(t => _samePath(t.file, file));
   if(existIdx >= 0) {
     const wasActive = activeTabIdx === existIdx;
     const matchLine = parseInt(line) || 1;
@@ -1344,15 +1355,15 @@ async function openPeek(file, line, {permanent = false} = {}) {
     // （エクスプローラのダブルクリックで click + click + dblclick が来た時に
     //  3 回スクロールが走って画面がブレるのを防ぐ）
     if(lineChanged) {
-      tabs[existIdx].decoIds = monacoEditor.deltaDecorations(tabs[existIdx].decoIds || [], [{
+      // line=1 (エクスプローラからの browse) では「マッチした行」が存在しないので
+      // 黄色ハイライトを出さない。古い decoration があれば消す。
+      const decoSet = matchLine > 1 ? [{
         range: new monaco.Range(matchLine, 1, matchLine, 1),
         options: {isWholeLine: true, className: 'peek-match-decoration'}
-      }]);
+      }] : [];
+      tabs[existIdx].decoIds = monacoEditor.deltaDecorations(tabs[existIdx].decoIds || [], decoSet);
       monacoEditor.setPosition({lineNumber: matchLine, column: 1});
-      // すでに見えている行（先頭含む）には触らない。
-      // エクスプローラのクリックは line=1 で来るので、先頭が画面中央に強制移動
-      // して空白が広がる症状を防ぐ。検索結果ジャンプ等で外側にある時のみ中央へ。
-      monacoEditor.revealLineInCenterIfOutsideViewport(matchLine);
+      _revealLineSmart(matchLine);
       await new Promise(r => setTimeout(r, 0));
       monacoEditor.layout();
     }
@@ -1411,14 +1422,16 @@ async function openPeek(file, line, {permanent = false} = {}) {
   }
 
   const matchLine = parseInt(line) || 1;
-  tab.decoIds = monacoEditor.deltaDecorations([], [{
-    range: new monaco.Range(matchLine, 1, matchLine, 1),
-    options: {isWholeLine: true, className: 'peek-match-decoration'}
-  }]);
+  // line=1 (エクスプローラからの browse) では「マッチした行」が無いので
+  // 黄色ハイライト (peek-match-decoration) を出さない。
+  if (matchLine > 1) {
+    tab.decoIds = monacoEditor.deltaDecorations([], [{
+      range: new monaco.Range(matchLine, 1, matchLine, 1),
+      options: {isWholeLine: true, className: 'peek-match-decoration'}
+    }]);
+  }
   monacoEditor.setPosition({lineNumber: matchLine, column: 1});
-  // line=1 (エクスプローラからのクリック) では既に先頭が見えているのでスクロール
-  // しない。検索結果ジャンプ等で見えていない行に限り中央表示。
-  monacoEditor.revealLineInCenterIfOutsideViewport(matchLine);
+  _revealLineSmart(matchLine);
   // Monaco がレイアウトを確実に更新するまで待つ
   await new Promise(r => setTimeout(r, 0));
   monacoEditor.layout();
