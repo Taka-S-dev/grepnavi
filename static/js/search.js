@@ -497,7 +497,12 @@ function makeVirtRow(item) {
       const badge = document.createElement('span');
       badge.className = 'rg-enc-badge';
       badge.textContent = '非UTF-8';
-      badge.title = 'このファイルは UTF-8 として復号できず、SJIS/EUC-JP として表示しています。\n日本語キーワードで検索したい場合は左下のエンコーディング設定を切り替えてください。';
+      badge.title = 'このファイルは UTF-8 として復号できず、SJIS/EUC-JP として表示しています。\nクリックで検索エンコーディングを切り替え (SJIS → EUC-JP → UTF-16) して再検索します。';
+      badge.style.cursor = 'pointer';
+      badge.addEventListener('click', e => {
+        e.stopPropagation();
+        cycleSearchEncFromBadge();
+      });
       div.append(badge);
     }
     toggle.onclick = () => {

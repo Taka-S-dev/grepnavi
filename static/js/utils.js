@@ -186,6 +186,7 @@ function hideMemoTip() { id('memo-tooltip').style.display = 'none'; }
 
 // ===== ENCODING BUTTON =====
 const ENC_LABELS = { '': 'UTF-8', 'sjis': 'SJIS', 'euc-jp': 'EUC-JP', 'utf-16le': 'UTF-16' };
+const ENC_CYCLE  = ['', 'sjis', 'euc-jp', 'utf-16le'];
 function updateEncBtn(enc) {
   const btn = id('enc-btn');
   if(!btn) return;
@@ -195,6 +196,23 @@ function updateEncBtn(enc) {
 }
 function getSearchEnc() {
   return id('enc-btn')?.dataset.enc || '';
+}
+// setSearchEnc は検索エンコーディングを変更して保存し、クエリがあれば再検索する。
+function setSearchEnc(enc) {
+  updateEncBtn(enc);
+  const saved = JSON.parse(localStorage.getItem('grepnavi-settings') || '{}');
+  saved.enc = enc;
+  localStorage.setItem('grepnavi-settings', JSON.stringify(saved));
+  if(id('q')?.value.trim() && typeof doSearch === 'function') doSearch();
+}
+// cycleSearchEncFromBadge は SJIS バッジ等から呼ばれ、非 UTF-8 系のみを循環する。
+// 最初の遷移は SJIS（日本語コードベースで最も多い）にジャンプする。
+function cycleSearchEncFromBadge() {
+  const cur = getSearchEnc();
+  const nonUtf8 = ['sjis', 'euc-jp', 'utf-16le'];
+  const idx = nonUtf8.indexOf(cur);
+  const next = idx < 0 ? 'sjis' : nonUtf8[(idx + 1) % nonUtf8.length];
+  setSearchEnc(next);
 }
 
 // ===== 汎用テキスト入力モーダル =====

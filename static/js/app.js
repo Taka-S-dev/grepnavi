@@ -345,17 +345,13 @@ addEventListener('DOMContentLoaded', async () => {
 
   st('準備完了');
 
-  // エンコーディングボタン初期化
+  // エンコーディングボタン初期化（クリックで UTF-8 → SJIS → EUC-JP → UTF-16 を循環）
   const encBtn = id('enc-btn');
   if(encBtn) {
     encBtn.addEventListener('click', () => {
-      const cycle = ['', 'sjis', 'euc-jp', 'utf-16le'];
       const cur = encBtn.dataset.enc || '';
-      const next = cycle[(cycle.indexOf(cur) + 1) % cycle.length];
-      updateEncBtn(next);
-      const saved = JSON.parse(localStorage.getItem('grepnavi-settings') || '{}');
-      saved.enc = next;
-      localStorage.setItem('grepnavi-settings', JSON.stringify(saved));
+      const next = ENC_CYCLE[(ENC_CYCLE.indexOf(cur) + 1) % ENC_CYCLE.length];
+      setSearchEnc(next);
     });
   }
 });
