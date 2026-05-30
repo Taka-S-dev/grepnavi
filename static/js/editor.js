@@ -1208,18 +1208,33 @@ async function openPeek(file, line, {permanent = false} = {}) {
   // 同一ファイルが既に開いている場合はそこへ移動
   const existIdx = tabs.findIndex(t => t.file === file);
   if(existIdx >= 0) {
+    const wasActive = activeTabIdx === existIdx;
+    const matchLine = parseInt(line) || 1;
+    const previewChanged = permanent && tabs[existIdx].preview;
+    const lineChanged = !wasActive || monacoEditor.getPosition()?.lineNumber !== matchLine;
     if(permanent) tabs[existIdx].preview = false;
     tabs[existIdx].line = line;
-    await switchTab(existIdx);
-    const matchLine = parseInt(line) || 1;
-    tabs[existIdx].decoIds = monacoEditor.deltaDecorations(tabs[existIdx].decoIds || [], [{
-      range: new monaco.Range(matchLine, 1, matchLine, 1),
-      options: {isWholeLine: true, className: 'peek-match-decoration'}
-    }]);
-    monacoEditor.setPosition({lineNumber: matchLine, column: 1});
-    monacoEditor.revealLineInCenter(matchLine);
-    await new Promise(r => setTimeout(r, 0));
-    monacoEditor.layout();
+    if(!wasActive) await switchTab(existIdx);
+    // 同じ行を表示中のままなら decoration / scroll / layout を再実行しない
+    // （エクスプローラのダブルクリックで click + click + dblclick が来た時に
+    //  3 回スクロールが走って画面がブレるのを防ぐ）
+    if(lineChanged) {
+      tabs[existIdx].decoIds = monacoEditor.deltaDecorations(tabs[existIdx].decoIds || [], [{
+        range: new monaco.Range(matchLine, 1, matchLine, 1),
+        options: {isWholeLine: true, className: 'peek-match-decoration'}
+      }]);
+      monacoEditor.setPosition({lineNumber: matchLine, column: 1});
+      // すでに見えている行（先頭含む）には触らない。
+      // エクスプローラのクリックは line=1 で来るので、先頭が画面中央に強制移動
+      // して空白が広がる症状を防ぐ。検索結果ジャンプ等で外側にある時のみ中央へ。
+      monacoEditor.revealLineInCenterIfOutsideViewport(matchLine);
+      await new Promise(r => setTimeout(r, 0));
+      monacoEditor.layout();
+    }
+    // preview→permanent の昇格があったらタブの斜体表示を消す。
+    // wasActive のとき switchTab をスキップする＝そのなかの renderTabs も呼ばれない
+    // ため、ここで明示的に呼ぶ必要がある。
+    if(previewChanged) renderTabs();
     return;
   }
 
@@ -1276,7 +1291,9 @@ async function openPeek(file, line, {permanent = false} = {}) {
     options: {isWholeLine: true, className: 'peek-match-decoration'}
   }]);
   monacoEditor.setPosition({lineNumber: matchLine, column: 1});
-  monacoEditor.revealLineInCenter(matchLine);
+  // line=1 (エクスプローラからのクリック) では既に先頭が見えているのでスクロール
+  // しない。検索結果ジャンプ等で見えていない行に限り中央表示。
+  monacoEditor.revealLineInCenterIfOutsideViewport(matchLine);
   // Monaco がレイアウトを確実に更新するまで待つ
   await new Promise(r => setTimeout(r, 0));
   monacoEditor.layout();

@@ -421,7 +421,16 @@ function revealFolderInTree(abs) {
   const fileIdx = _allItems.findIndex(it => it.type === 'file' && it.abs.replace(/\\/g, '/') === _selPath);
   const scrollToIdx = fileIdx >= 0 ? fileIdx : _allItems.findIndex(it => it.type === 'dir' && it.dirPath === dirPath);
   if (scrollToIdx >= 0) {
-    _scrollEl.scrollTop = Math.max(0, scrollToIdx * ITEM_H - Math.floor((_scrollEl.clientHeight || 400) / 2));
+    // すでにビューポート内に見えている場合はスクロールしない。
+    // (ユーザがエクスプローラ上で自分でクリックしたファイルが、
+    //  switchTab → explorerRevealFile 経由で勝手に中央へ移動する症状を防ぐ)
+    const itemTop  = scrollToIdx * ITEM_H;
+    const viewH    = _scrollEl.clientHeight || 400;
+    const curTop   = _scrollEl.scrollTop;
+    const visible  = itemTop >= curTop && itemTop + ITEM_H <= curTop + viewH;
+    if (!visible) {
+      _scrollEl.scrollTop = Math.max(0, itemTop - Math.floor(viewH / 2));
+    }
   }
 }
 
