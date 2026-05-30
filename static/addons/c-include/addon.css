@@ -15,9 +15,11 @@ body:has(#include-overlay.open) #peek.visible{
   max-height:50vh;display:flex;
 }
 @keyframes inc-spin{to{transform:rotate(360deg)}}
-#inc-loading-overlay{display:none;position:absolute;inset:0;background:rgba(0,0,0,0.45);z-index:10;align-items:center;justify-content:center;flex-direction:column;gap:10px;pointer-events:none}
+/* padding-bottom は JS から peek panel の被さり量で動的に上書きされる */
+#inc-loading-overlay{display:none;position:absolute;inset:0;background:rgba(0,0,0,0.45);z-index:10;align-items:center;justify-content:center;flex-direction:column;gap:10px;pointer-events:none;box-sizing:border-box}
 #inc-loading-overlay.active{display:flex}
 #inc-loading-ring{width:36px;height:36px;border:3px solid #444;border-top-color:#4ec9b0;border-radius:50%;animation:inc-spin 0.7s linear infinite}
+#inc-loading-elapsed{color:#aaa;font-size:11px;font-variant-numeric:tabular-nums;font-family:Consolas,monospace}
 #inc-loading-cancel{color:#888;font-size:11px;cursor:pointer}
 #inc-loading-cancel:hover{color:#ccc}
 #include-graph-container svg{display:block}

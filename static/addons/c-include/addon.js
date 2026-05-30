@@ -44,6 +44,14 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-include-graph').onclick    = openIncludeGraph;
   // オーバーレイ内のキー操作がメインアプリに漏れないようにする
   document.getElementById('include-overlay').addEventListener('keydown', e => e.stopPropagation());
+  // Monaco のアクティブファイルが変わったら include-start も追従させる
+  // (overlay 表示中のみ)。自動再解析はしない (ユーザが「解析」を押す前提)。
+  document.addEventListener('grepnavi:active-file-changed', e => {
+    const overlay = document.getElementById('include-overlay');
+    if(!overlay?.classList.contains('open')) return;
+    const f = (e.detail || '').replace(/\\/g, '/');
+    if(f) document.getElementById('include-start').value = f;
+  });
 
   document.getElementById('include-analyze').onclick      = () => startIncludeGraph();
   document.getElementById('include-collapse-all').onclick = incCollapseAll;
@@ -189,18 +197,65 @@ function _incEnsureStripePattern(dir) {
   return `url(#${patId})`;
 }
 
+// peek panel が下から overlay を覆ってる量だけ padding-bottom を入れて、
+// スピナーが「peek の上の見える範囲」の中央に来るようにする。
+function _incUpdateSpinnerCenter() {
+  const ov = document.getElementById('inc-loading-overlay');
+  const container = document.getElementById('include-graph-container');
+  if(!ov || !container) return;
+  const peek = document.getElementById('peek');
+  if(!peek || !peek.classList.contains('visible')) {
+    ov.style.paddingBottom = '';
+    return;
+  }
+  const cr = container.getBoundingClientRect();
+  const pr = peek.getBoundingClientRect();
+  const overlap = Math.max(0, cr.bottom - pr.top);
+  ov.style.paddingBottom = overlap + 'px';
+}
+let _incPeekResizeObs = null;
+function _ensurePeekResizeWatch() {
+  if(_incPeekResizeObs || !window.ResizeObserver) return;
+  const peek = document.getElementById('peek');
+  if(!peek) return;
+  _incPeekResizeObs = new ResizeObserver(_incUpdateSpinnerCenter);
+  _incPeekResizeObs.observe(peek);
+}
+
+let _incLoadingTimer = null;
+let _incLoadingStart = 0;
 function _incLoadingBar(on) {
   let ov = document.getElementById('inc-loading-overlay');
   if(!ov) {
     ov = document.createElement('div');
     ov.id = 'inc-loading-overlay';
-    ov.innerHTML = '<div id="inc-loading-ring"></div><div id="inc-loading-cancel">ESC でキャンセル</div>';
+    ov.innerHTML = '<div id="inc-loading-ring"></div>'
+                 + '<div id="inc-loading-elapsed"></div>'
+                 + '<div id="inc-loading-cancel">ESC でキャンセル</div>';
     ov.style.pointerEvents = 'auto';
     ov.onclick = () => _incCancelExpand();
     const c = document.getElementById('include-graph-container');
     if(c) c.appendChild(ov);
   }
   ov.classList.toggle('active', on);
+  if(on) { _ensurePeekResizeWatch(); _incUpdateSpinnerCenter(); }
+
+  const elapsed = document.getElementById('inc-loading-elapsed');
+  if(_incLoadingTimer) { clearInterval(_incLoadingTimer); _incLoadingTimer = null; }
+  if(on) {
+    _incLoadingStart = performance.now();
+    const tick = () => {
+      const s = (performance.now() - _incLoadingStart) / 1000;
+      const msg = s >= 5
+        ? `${s.toFixed(1)} 秒経過 — 大規模プロジェクトでは時間がかかります`
+        : `${s.toFixed(1)} 秒経過`;
+      if(elapsed) elapsed.textContent = msg;
+    };
+    tick();
+    _incLoadingTimer = setInterval(tick, 200);
+  } else if(elapsed) {
+    elapsed.textContent = '';
+  }
 }
 
 async function startIncludeGraph(file) {
@@ -242,9 +297,13 @@ async function startIncludeGraph(file) {
   _incRootNode = _mkIncNode({id: normFile, label: normFile.split('/').pop()});
   _incNodeMap.set(normFile, _incRootNode);
 
+  // 解析中も root が中央上部に表示されるよう、先にレンダー + 中央配置してから fetch。
+  _incRender();
+  requestAnimationFrame(_incCenterOnRoot);
+
   await _incExpand(_incRootNode);
 
-  // 初期表示: ルートノードを中央上部に配置
+  // 子ノードが入るとレイアウトが変わるので再センタリング。
   requestAnimationFrame(_incCenterOnRoot);
 }
 
@@ -254,9 +313,14 @@ function _incCenterOnRoot() {
   const rect = container ? container.getBoundingClientRect() : _incSvg.node().getBoundingClientRect();
   const W = rect.width  || 900;
   const H = rect.height || 600;
+  // peek panel が下から container を覆っている分を可視高から引く
+  const peek = document.getElementById('peek');
+  const pr = (peek?.classList.contains('visible')) ? peek.getBoundingClientRect() : null;
+  const overlap = pr ? Math.max(0, rect.bottom - pr.top) : 0;
+  const Hv = Math.max(60, H - overlap);
   const rx = _incRootNode._x ?? 0;
   const ry = _incRootNode._y ?? 0;
-  _incSvg.call(_incZoomRef.transform, d3.zoomIdentity.translate(W / 2 - rx, H / 4 - ry));
+  _incSvg.call(_incZoomRef.transform, d3.zoomIdentity.translate(W / 2 - rx, Hv / 4 - ry));
 }
 
 function _incNodeClass(node) {

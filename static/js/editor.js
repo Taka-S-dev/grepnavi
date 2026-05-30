@@ -1576,6 +1576,8 @@ async function switchTab(idx) {
   monacoEditor.setModel(tab.model);
   if(tab.viewState) try { monacoEditor.restoreViewState(tab.viewState); } catch(_) {}
   id('peek-file').value = tab.file.replace(/\\/g, '/');
+  // アドオン (インクルードグラフ等) が現在ファイルに追従できるよう通知
+  document.dispatchEvent(new CustomEvent('grepnavi:active-file-changed', { detail: tab.file }));
   id('peek-open').onclick = () => openFile(tab.file, monacoEditor?.getPosition()?.lineNumber ?? tab.line);
   // エラータブはオーバーレイで中央に大きく表示。通常タブは消す。
   if (tab.error) showFileErrorOverlay(tab);
