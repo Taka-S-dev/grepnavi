@@ -1067,10 +1067,15 @@ function createNodeFieldModal({
     });
     const n = await r.json();
     if (n.error) { st('エラー: ' + n.error); return; }
+    const prevDef = graph.nodes[id_]?._def;
     graph.nodes[id_] = n;
+    // _def は label 編集を跨いで保持する。「シンボル名で追加 → 後で式に編集」
+    // 運用で sync 対象を最初の解決結果に固定でき、heuristic の誤爆も回避できる。
+    if (prevDef !== undefined) graph.nodes[id_]._def = prevDef;
     close();
     renderCurrent();
     if (selNode === id_) showDetail(id_);
+    if (typeof refreshGraphDecorations === 'function') refreshGraphDecorations();
     st(successToast($input(), n));
   }
 

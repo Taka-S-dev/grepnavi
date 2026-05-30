@@ -190,6 +190,9 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .symbol-fn-hl{color:#dcdcaa!important}
 .graph-node-line{background:rgba(78,201,176,0.07);border-left:2px solid #4ec9b0}
 .graph-node-glyph{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Ccircle cx='8' cy='8' r='4' fill='%234ec9b0'/%3E%3C/svg%3E") center/10px no-repeat}
+/* def site: call site と同じ teal だが、glyph を中空円にして「呼び出された側の実態」を視覚的に区別 */
+.graph-node-def-line{background:rgba(78,201,176,0.07);border-left:2px solid #4ec9b0}
+.graph-node-def-glyph{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Ccircle cx='8' cy='8' r='3.5' fill='none' stroke='%234ec9b0' stroke-width='1.5'/%3E%3C/svg%3E") center/10px no-repeat}
 .line-memo-inline{color:#666;font-style:italic}
 .line-memo-overlay-item{color:#666;font-style:italic;font-family:Consolas,monospace;white-space:nowrap;pointer-events:none}
 .line-memo-glyph{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M10 3l3 3-7 7H3v-3z' fill='none' stroke='%23999' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") center/12px no-repeat}

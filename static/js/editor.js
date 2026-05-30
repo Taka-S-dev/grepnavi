@@ -493,13 +493,83 @@ function showRangeMemoInput(file, startLine, startCol, endLine, endCol) {
 }
 
 // ===== グラフ登録済み行のデコレーション =====
+// extractFuncName は label から「同期対象の関数名」を抽出する。
+// パターン:
+//   "foo"                  → "foo"   (単純識別子そのまま)
+//   "foo(args)"            → "foo"   (最外側の呼び出し)
+//   "if (foo(x))"          → "foo"   (制御構文の予約語はスキップ)
+//   "a = b(c())"           → "b"     (左から最初の関数呼び出し)
+//   "obj->method()"        → "method"
+// 後で label を式に編集しても _def が保持されるため、誤爆しても挙動はリカバリ可能。
+const _SKIP_KEYWORDS = new Set([
+  'if','while','for','switch','return','sizeof','typeof','do','else','goto','case','defined',
+]);
+function extractFuncName(label) {
+  if (!label) return null;
+  const re = /\b([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
+  let m;
+  while ((m = re.exec(label)) !== null) {
+    if (!_SKIP_KEYWORDS.has(m[1])) return m[1];
+  }
+  // 括弧なしの単純識別子も受け入れる（シンボルだけ追加したケース）
+  const single = label.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)$/);
+  return single ? single[1] : null;
+}
+
+// ノードの定義位置（実態）を /api/definition で解決して node._def にキャッシュする。
+// memo 付きノードのみ対象（mark list / def site decoration の方針と一致）。
+// 解決済み (cached) / 解決失敗 (null) / 未解決 (undefined) を区別。
+//
+// 誤爆ガード:
+//   A. 識別子が短すぎる場合 (4 文字未満) は skip。
+//      "len" / "tmp" / "buf" / "i" / "idx" 等の汎用変数名は gtags で多数ヒットして
+//      先頭が意図と違う場所になりがち。typical な実用関数は 4 文字以上。
+//   B. ヒット数が多すぎる場合 (> 5) は曖昧と判定して skip。
+//      多義シンボルに対しては「sync しない」のが安全。
+const _SYNC_MIN_WORD_LEN = 4;
+const _SYNC_MAX_HITS     = 5;
+async function resolveNodeDef(node) {
+  if (node._def !== undefined) return;
+  if (!node.memo || !node.memo.trim() || !node.label) return;
+  const word = extractFuncName(node.label);
+  if (!word) { node._def = null; return; }
+  if (word.length < _SYNC_MIN_WORD_LEN) { node._def = null; return; }
+  try {
+    const p = new URLSearchParams({word});
+    if (node.match?.file) p.set('file', node.match.file);
+    const r = await fetch('/api/definition?' + p);
+    if (!r.ok) { node._def = null; return; }
+    const hits = await r.json();
+    if (!hits.length) { node._def = null; return; }
+    if (hits.length > _SYNC_MAX_HITS) { node._def = null; return; }
+    // 最初のヒット = 実装ファイル優先（preferDefinitionHits 済）
+    node._def = { file: hits[0].file, line: hits[0].line };
+  } catch (_) {
+    node._def = null;
+  }
+}
+
+// _samePath はファイルパスを正規化して比較する。
+// 入力ソース別の差異 (スラッシュ方向、大小文字、末尾スラッシュ) を吸収:
+//   - エクスプローラ:        "C:\path\to\file.c"
+//   - /api/definition:       "C:\path\to\file.c" or with mixed slashes
+//   - 検索結果:              "C:\path\to\file.c"
+// Windows 想定で大小文字無視、スラッシュ正規化。
+function _samePath(a, b) {
+  if (!a || !b) return false;
+  return a.replace(/\//g, '\\').toLowerCase() === b.replace(/\//g, '\\').toLowerCase();
+}
+
 function refreshGraphDecorations() {
   if(!monacoEditor) return;
   const file = tabs[activeTabIdx]?.file;
   if(!file) { graphDecoIds = monacoEditor.deltaDecorations(graphDecoIds, []); return; }
-  const decos = Object.values(graph.nodes)
-    .filter(n => n.match?.file === file && n.match?.line)
-    .map(n => ({
+  const decos = [];
+
+  // 1. call site decoration (既存): node.match の位置
+  Object.values(graph.nodes)
+    .filter(n => _samePath(n.match?.file, file) && n.match?.line)
+    .forEach(n => decos.push({
       range: new monaco.Range(n.match.line, 1, n.match.line, 1),
       options: {
         isWholeLine: true,
@@ -508,7 +578,51 @@ function refreshGraphDecorations() {
         glyphMarginHoverMessage: {value: `**グラフ登録済み** ${n.label || ''}${n.memo ? '\n\n' + n.memo : ''}`},
       }
     }));
+
+  // 2. def site decoration (新規): memo 付きノードの「関数実態」の位置に
+  //    同じ memo を表示する。「呼び出し ↔ 実態」を視覚的にリンク。
+  //    実態と call site が同じ行になる場合は重複を避ける。
+  //    同じ def 行に複数ノードが sync する場合は 1 つの decoration にまとめる
+  //    (Monaco は同一行に複数 decoration の hover を 1 件しか出さないことがあるため)。
+  const defLineGroups = new Map(); // key: line → [{node, callFile}, ...]
+  Object.values(graph.nodes)
+    .filter(n => n.memo && n.memo.trim()
+              && _samePath(n._def?.file, file) && n._def?.line
+              && !(_samePath(n.match?.file, file) && n.match?.line === n._def.line))
+    .forEach(n => {
+      const callFile = (n.match?.file || '').replace(/\\/g, '/').split('/').pop();
+      const arr = defLineGroups.get(n._def.line) || [];
+      arr.push({ node: n, callFile });
+      defLineGroups.set(n._def.line, arr);
+    });
+  defLineGroups.forEach((entries, line) => {
+    const header = entries.length > 1
+      ? `**ツリーノード (${entries.length}件) のメモ**`
+      : `**ツリーノード "${entries[0].node.label || ''}" のメモ**`;
+    const body = entries.map(({node, callFile}) => {
+      const labelLine = entries.length > 1 ? `**"${node.label || ''}"** ` : '';
+      return `${labelLine}呼び出し: ${callFile}:${node.match?.line}\n\n${node.memo}`;
+    }).join('\n\n---\n\n');
+    decos.push({
+      range: new monaco.Range(line, 1, line, 1),
+      options: {
+        isWholeLine: true,
+        className: 'graph-node-def-line',
+        glyphMarginClassName: 'graph-node-def-glyph',
+        glyphMarginHoverMessage: {value: `${header}\n\n${body}`},
+      }
+    });
+  });
+
   graphDecoIds = monacoEditor.deltaDecorations(graphDecoIds, decos);
+
+  // 未解決の memo 付きノードを非同期で resolve → 解決後、該当ファイルが
+  // 今見えていれば再 refresh で def site decoration を反映。
+  Object.values(graph.nodes)
+    .filter(n => n.memo && n.memo.trim() && n._def === undefined)
+    .forEach(n => resolveNodeDef(n).then(() => {
+      if (_samePath(n._def?.file, tabs[activeTabIdx]?.file)) refreshGraphDecorations();
+    }));
 }
 
 // ===== メモ一覧パネル → memo-list.js =====
@@ -688,14 +802,25 @@ async function ensureEditor() {
           const contents = [];
 
           // 1. グラフノードのメモ（キャッシュ不要・ローカル処理）
+          //   - call site (同行 or 同ファイルで text に word 含む) のノード
+          //   - def site (resolveNodeDef で解決した実態行) に sync しているノード
+          //   def site にいる場合は呼び出し元 (call site) の情報を追記してリンク感を出す。
           const memoNodes = Object.values(graph.nodes).filter(n => n.memo && (
-            (n.match?.file === currentFile && n.match?.line === position.lineNumber) ||
-            (n.match?.file === currentFile && (n.match?.text||'').includes(word.word))
+            (_samePath(n.match?.file, currentFile) && n.match?.line === position.lineNumber) ||
+            (_samePath(n.match?.file, currentFile) && (n.match?.text||'').includes(word.word)) ||
+            (_samePath(n._def?.file, currentFile) && n._def?.line === position.lineNumber)
           ));
           if(memoNodes.length) {
             memoNodes.forEach(n => {
+              const isDefSite = _samePath(n._def?.file, currentFile) && n._def?.line === position.lineNumber
+                             && !(_samePath(n.match?.file, currentFile) && n.match?.line === position.lineNumber);
+              let suffix = '';
+              if (isDefSite && n.match?.file) {
+                const callFile = n.match.file.replace(/\\/g, '/').split('/').pop();
+                suffix = `\n\n*呼び出し: ${callFile}:${n.match.line}*`;
+              }
               contents.push({value:
-                `💬 **${n.label || shortPath(n.match?.file||'')+':'+(n.match?.line||'')}**\n\n${n.memo}`
+                `💬 **${n.label || shortPath(n.match?.file||'')+':'+(n.match?.line||'')}**\n\n${n.memo}${suffix}`
               });
             });
             contents.push({value: '---'});
