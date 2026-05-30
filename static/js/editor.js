@@ -1745,7 +1745,10 @@ addEventListener('DOMContentLoaded', () => {
       const newH = Math.max(28, Math.min(peekStartH + delta, id('pane-right').offsetHeight * 0.95));
       id('peek').style.height = newH + 'px';
       id('peek').style.maxHeight = 'none';
-      if(monacoEditor) monacoEditor.layout();
+      // style.height を書いた直後に layout() を呼ぶと、まだブラウザが reflow して
+      // いないためコンテナサイズを古い値で読んでしまい、最下部までスクロールできなく
+      // なる症状が出る。次フレーム（reflow 後）に呼ぶことで実際のサイズを認識させる。
+      if(monacoEditor) requestAnimationFrame(() => monacoEditor.layout());
     }
     if(leftResizing) {
       const newH = Math.max(80, leftStartH + (e.clientY - leftStartY));
@@ -1760,6 +1763,8 @@ addEventListener('DOMContentLoaded', () => {
       document.body.style.cursor = '';
       const h = id('peek').offsetHeight;
       if(h) localStorage.setItem('grepnavi-peek-h', h);
+      // drag 終了時にも最終 layout を保証（mousemove の最後の layout が stale な状態で固定されるのを防ぐ）
+      if(monacoEditor) requestAnimationFrame(() => monacoEditor.layout());
     }
     if(leftResizing) {
       leftResizing = false;
