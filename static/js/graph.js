@@ -1567,7 +1567,12 @@ async function moveNodeLevelUp() {
   if (!selNode) return;
   const parentId = findParent(selNode, graph.nodes);
   if (!parentId) return;
-  await reparent(selNode, findParent(parentId, graph.nodes));
+  const grandparentId = findParent(parentId, graph.nodes);
+  await reparent(selNode, grandparentId);
+  // reparent はノードを新親の子リストの末尾に追加してしまうので、
+  // 元の親の直後に移動し直す（ユーザの視覚的位置を保つ）。
+  // root 昇格 (grandparentId === null) も reorderNode 内で _rootOrder 経由で扱える。
+  await reorderNode(selNode, parentId, "after", true);
 }
 
 async function moveNodeLevelDown() {
@@ -2330,7 +2335,7 @@ function attachIndentDrag(handle, row, nodeId, depth) {
     showDragFeedback(e, calcNewDepth(e.clientX));
   }
 
-  function onUp(e) {
+  async function onUp(e) {
     dragging = false;
     document.removeEventListener("mousemove", onMove);
     row.removeEventListener("dragstart", preventDragStart);
@@ -2350,7 +2355,22 @@ function attachIndentDrag(handle, row, nodeId, depth) {
     const newDepth = calcNewDepth(e.clientX);
     if (newDepth === depth) return;
     const targetParentId = calcDragTarget(nodeId, depth, newDepth);
-    if (targetParentId !== undefined) reparent(nodeId, targetParentId);
+    if (targetParentId === undefined) return;
+
+    // レベル UP の場合は、新親の子リスト末尾に追加されると視覚位置が大きくズレる。
+    // ノードの新しい深さと同じ depth にいる旧祖先 (＝新親の子で、ノードの元の系統)
+    // の直後に位置させると「その場でレベルだけ変わった」感が出る。
+    let refForOrder = null;
+    if (newDepth < depth) {
+      const stepsUp = depth - newDepth;
+      refForOrder = findParent(nodeId, graph.nodes);
+      for (let i = 1; i < stepsUp && refForOrder; i++) {
+        refForOrder = findParent(refForOrder, graph.nodes);
+      }
+    }
+
+    await reparent(nodeId, targetParentId);
+    if (refForOrder) await reorderNode(nodeId, refForOrder, "after", true);
   }
 }
 
