@@ -489,9 +489,9 @@ function _renderMemoListBody(allItems) {
     });
 
     // グループ削除（メモはそのまま未分類へ）
-    ghdr.querySelector('.memo-group-del').addEventListener('click', e => {
+    ghdr.querySelector('.memo-group-del').addEventListener('click', async e => {
       e.stopPropagation();
-      if (!confirm(`グループ「${group.name}」を削除しますか？\nメモは未分類に移動します。`)) return;
+      if (!await showConfirm(`グループ「${group.name}」を削除しますか？\nメモは未分類に移動します。`, { danger: true })) return;
       const grps = getMemoGroups().filter(g => g.id !== group.id);
       saveMemoGroups(grps);
       _renderMemoListBody(getAllMemosOrdered());

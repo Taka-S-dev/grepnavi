@@ -583,6 +583,24 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
   color:#ccc;padding:5px 8px;font:13px/1.4 'Segoe UI',sans-serif;outline:none;box-sizing:border-box;
 }
 #input-modal-input:focus{border-color:#007acc}
+
+/* 汎用 確認/通知 モーダル */
+#gn-dialog{
+  display:none;position:fixed;inset:0;z-index:var(--z-modal-high);
+  background:rgba(0,0,0,0.6);align-items:center;justify-content:center;
+}
+#gn-dialog.open{display:flex}
+#gn-dialog-box{
+  background:#252526;border:1px solid #555;border-radius:4px;
+  padding:16px 20px;min-width:320px;max-width:480px;display:flex;flex-direction:column;gap:14px;
+}
+#gn-dialog-body{
+  font-size:13px;color:#ccc;line-height:1.5;white-space:pre-line;
+}
+#gn-dialog-actions{display:flex;gap:6px;justify-content:flex-end}
+#gn-dialog-ok.danger{background:#a33;border-color:#c44}
+#gn-dialog-ok.danger:hover{background:#c44}
+
 #settings-modal{
   display:none;position:fixed;inset:0;z-index:var(--z-modal-high);
   background:rgba(0,0,0,0.6);align-items:center;justify-content:center;

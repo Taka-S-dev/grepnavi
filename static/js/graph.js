@@ -176,7 +176,7 @@ async function renameTree(treeId, name) {
 }
 
 async function deleteTree(treeId) {
-  if (!confirm("このツリーを削除しますか？")) return;
+  if (!await showConfirm("このツリーを削除しますか？", { danger: true })) return;
   const r = await fetch("/api/trees/" + treeId, { method: "DELETE" });
   const d = await r.json();
   if (d.error) {
@@ -1949,7 +1949,7 @@ async function removeNode(nid) {
 
 async function deleteNode() {
   if (!selNode) return;
-  if (!confirm("削除しますか？")) return;
+  if (!await showConfirm("削除しますか？", { danger: true })) return;
   await removeNode(selNode);
 }
 
@@ -2002,7 +2002,7 @@ async function addToGraph(match, parentId, edgeLabel, label) {
 
 // ===== CLEAR =====
 async function clearGraph() {
-  if (!confirm("このツリーのノードを全消去しますか？")) return;
+  if (!await showConfirm("このツリーのノードを全消去しますか？", { danger: true })) return;
   const r = await fetch("/api/graph", { method: "DELETE" });
   const d = await r.json();
   if (d.error) {

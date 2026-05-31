@@ -196,10 +196,10 @@ async function _removeGraphFromProject(proj, graphPath) {
 async function _addCurrentProject() {
   const rootRes = await fetch('/api/root');
   const { root } = await rootRes.json();
-  if (!root) { alert('ルートが設定されていません'); return; }
+  if (!root) { await showAlert('ルートが設定されていません'); return; }
 
   const graphPath = (typeof getProjectPath === 'function') ? getProjectPath() : '';
-  if (!graphPath) { alert('開いているJSONがありません'); return; }
+  if (!graphPath) { await showAlert('開いているJSONがありません'); return; }
 
   const gnPath = root.replace(/\\/g, '/') + '/.grepnavi';
   const existing = _projectsData.find(p =>
@@ -233,7 +233,7 @@ async function _addCurrentProject() {
   });
   if (!gnRes.ok) {
     const gnErr = await gnRes.json().catch(() => ({}));
-    alert('.grepnaviの書き込みに失敗しました: ' + (gnErr.error || gnRes.status));
+    await showAlert('.grepnaviの書き込みに失敗しました: ' + (gnErr.error || gnRes.status));
     return;
   }
 
@@ -244,7 +244,7 @@ async function _addCurrentProject() {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    alert('保存に失敗しました: ' + (err.error || res.status));
+    await showAlert('保存に失敗しました: ' + (err.error || res.status));
     return;
   }
   _projectsData = await res.json();

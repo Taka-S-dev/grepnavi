@@ -244,3 +244,58 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.target === id('input-modal')) _inputModalClose(null);
   });
 });
+
+// ===== 汎用 確認/通知 モーダル =====
+// showConfirm(message, {okText, cancelText, danger}) → Promise<boolean>
+// showAlert(message, {okText})                        → Promise<void>
+//
+// native confirm()/alert() 置換用。dark theme で UI 一貫性を保つ。
+// Esc / 背景クリック = キャンセル相当、Enter = OK 相当。
+let _gnDialogResolve = null;
+function _gnDialogClose(value) {
+  id('gn-dialog').classList.remove('open');
+  if (_gnDialogResolve) { _gnDialogResolve(value); _gnDialogResolve = null; }
+}
+function showConfirm(message, opts = {}) {
+  const { okText = 'OK', cancelText = 'キャンセル', danger = false } = opts;
+  return new Promise(resolve => {
+    _gnDialogResolve = resolve;
+    id('gn-dialog-body').textContent = message;
+    const ok = id('gn-dialog-ok');
+    ok.textContent = okText;
+    ok.classList.toggle('danger', danger);
+    const cancel = id('gn-dialog-cancel');
+    cancel.textContent = cancelText;
+    cancel.style.display = '';
+    id('gn-dialog').classList.add('open');
+    setTimeout(() => ok.focus(), 30);
+  });
+}
+function showAlert(message, opts = {}) {
+  const { okText = 'OK' } = opts;
+  return new Promise(resolve => {
+    // alert は値を返さないため resolve は引数無視
+    _gnDialogResolve = () => resolve();
+    id('gn-dialog-body').textContent = message;
+    const ok = id('gn-dialog-ok');
+    ok.textContent = okText;
+    ok.classList.remove('danger');
+    id('gn-dialog-cancel').style.display = 'none';
+    id('gn-dialog').classList.add('open');
+    setTimeout(() => ok.focus(), 30);
+  });
+}
+document.addEventListener('DOMContentLoaded', () => {
+  id('gn-dialog-ok').onclick = () => _gnDialogClose(true);
+  id('gn-dialog-cancel').onclick = () => _gnDialogClose(false);
+  id('gn-dialog').addEventListener('click', e => {
+    if (e.target === id('gn-dialog')) _gnDialogClose(false);
+  });
+  document.addEventListener('keydown', e => {
+    const dlg = id('gn-dialog');
+    if (!dlg.classList.contains('open')) return;
+    if (e.key === 'Escape') { e.preventDefault(); _gnDialogClose(false); }
+    // Enter は ok/cancel ボタンに focus が当たっていれば native click が拾うので
+    // global handler では拾わない (二重発火防止)
+  });
+});
