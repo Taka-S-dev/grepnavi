@@ -30,6 +30,13 @@ function applyGraphResponse(g) {
   renderTreeTabs();
   renderCurrent();
   stGraph();
+  // graph 再 fetch 後に Monaco decoration を即時反映する。activateTab を待つと、
+  // バックグラウンドで graph が更新された場合に decoration が古いままになる。
+  // 初回 loadGraph では editor.js 未ロードのため typeof guard で守る。
+  if (typeof refreshGraphDecorations === 'function')      refreshGraphDecorations();
+  if (typeof refreshLineMemoDecorations === 'function')   refreshLineMemoDecorations();
+  if (typeof refreshRangeMemoDecorations === 'function')  refreshRangeMemoDecorations();
+  if (typeof refreshBookmarkDecorations === 'function')   refreshBookmarkDecorations();
 }
 
 async function loadGraph() {

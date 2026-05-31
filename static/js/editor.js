@@ -496,6 +496,7 @@ function showRangeMemoInput(file, startLine, startCol, endLine, endCol) {
 // extractFuncName は label から「同期対象の関数名」を抽出する。
 // パターン:
 //   "foo"                  → "foo"   (単純識別子そのまま)
+//   "foo:42"               → "foo"   (末尾 ":<行番号>" は label として無視)
 //   "foo(args)"            → "foo"   (最外側の呼び出し)
 //   "if (foo(x))"          → "foo"   (制御構文の予約語はスキップ)
 //   "a = b(c())"           → "b"     (左から最初の関数呼び出し)
@@ -506,13 +507,15 @@ const _SKIP_KEYWORDS = new Set([
 ]);
 function extractFuncName(label) {
   if (!label) return null;
+  // 末尾の `:<digits>` は行番号扱いで関数名抽出の対象から外す
+  const trimmed = label.replace(/:\d+\s*$/, '');
   const re = /\b([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
   let m;
-  while ((m = re.exec(label)) !== null) {
+  while ((m = re.exec(trimmed)) !== null) {
     if (!_SKIP_KEYWORDS.has(m[1])) return m[1];
   }
-  // 括弧なしの単純識別子も受け入れる（シンボルだけ追加したケース）
-  const single = label.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)$/);
+  // 括弧なしの単純識別子も受け入れる（シンボルだけ追加したケース / `foo:42` 剥がし後）
+  const single = trimmed.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)$/);
   return single ? single[1] : null;
 }
 
@@ -530,7 +533,10 @@ const _SYNC_MIN_WORD_LEN = 4;
 const _SYNC_MAX_HITS     = 5;
 async function resolveNodeDef(node) {
   if (node._def !== undefined) return;
-  if (!node.memo || !node.memo.trim() || !node.label) return;
+  // 旧版は memo 必須だったが、「先に pin、後で memo」flow や memo 無しの pin
+  // だけ使うケースで sync が動かず混乱した。label さえあれば常に解決し、
+  // memo の有無は表示側 (hover) で出し分ける。
+  if (!node.label) return;
   const word = extractFuncName(node.label);
   if (!word) { node._def = null; return; }
   if (word.length < _SYNC_MIN_WORD_LEN) { node._def = null; return; }
@@ -595,8 +601,7 @@ function refreshGraphDecorations() {
   //    (Monaco は同一行に複数 decoration の hover を 1 件しか出さないことがあるため)。
   const defLineGroups = new Map(); // key: line → [{node, callFile}, ...]
   Object.values(graph.nodes)
-    .filter(n => n.memo && n.memo.trim()
-              && _samePath(n._def?.file, file) && n._def?.line
+    .filter(n => _samePath(n._def?.file, file) && n._def?.line
               && !(_samePath(n.match?.file, file) && n.match?.line === n._def.line))
     .forEach(n => {
       const callFile = (n.match?.file || '').replace(/\\/g, '/').split('/').pop();
@@ -606,11 +611,12 @@ function refreshGraphDecorations() {
     });
   defLineGroups.forEach((entries, line) => {
     const header = entries.length > 1
-      ? `**ツリーノード (${entries.length}件) のメモ**`
-      : `**ツリーノード "${entries[0].node.label || ''}" のメモ**`;
+      ? `**ツリーノード (${entries.length}件)** _クリックで sync 元 (先頭) へ_`
+      : `**ツリーノード "${entries[0].node.label || ''}"** _クリックで sync 元へ_`;
     const body = entries.map(({node, callFile}) => {
       const labelLine = entries.length > 1 ? `**"${node.label || ''}"** ` : '';
-      return `${labelLine}呼び出し: ${callFile}:${node.match?.line}\n\n${node.memo}`;
+      const memoSection = node.memo && node.memo.trim() ? `\n\n${node.memo}` : '';
+      return `${labelLine}呼び出し: ${callFile}:${node.match?.line}${memoSection}`;
     }).join('\n\n---\n\n');
     decos.push({
       range: new monaco.Range(line, 1, line, 1),
@@ -625,10 +631,11 @@ function refreshGraphDecorations() {
 
   graphDecoIds = monacoEditor.deltaDecorations(graphDecoIds, decos);
 
-  // 未解決の memo 付きノードを非同期で resolve → 解決後、該当ファイルが
+  // 未解決ノードを非同期で resolve → 解決後、該当ファイルが
   // 今見えていれば再 refresh で def site decoration を反映。
+  // memo 有無問わず resolve する (memo 後付け flow / pin だけの利用にも対応)。
   Object.values(graph.nodes)
-    .filter(n => n.memo && n.memo.trim() && n._def === undefined)
+    .filter(n => n._def === undefined)
     .forEach(n => resolveNodeDef(n).then(() => {
       if (_samePath(n._def?.file, tabs[activeTabIdx]?.file)) refreshGraphDecorations();
     }));
@@ -940,6 +947,25 @@ async function ensureEditor() {
   monacoEditor.onMouseDown(e => {
     const pos = e.target.position;
     if(!pos) return;
+
+    // glyph margin の sync 装飾 (def site) クリックで sync 元 (call site) にジャンプ。
+    // Ctrl+Click (定義へ) の逆方向。複数 source ある場合は最初の 1 件採用。
+    if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) {
+      const currentFile = tabs[activeTabIdx]?.file;
+      if (currentFile) {
+        const syncSources = Object.values(graph.nodes).filter(n =>
+          _samePath(n._def?.file, currentFile) && n._def?.line === pos.lineNumber
+          && !(_samePath(n.match?.file, currentFile) && n.match?.line === pos.lineNumber)
+        );
+        if (syncSources.length > 0) {
+          e.event.preventDefault();
+          const n = syncSources[0];
+          openPeek(n.match.file, n.match.line);
+          return;
+        }
+      }
+    }
+
     const word = monacoEditor.getModel()?.getWordAtPosition(pos);
     if(!word) return;
     if(e.event.ctrlKey) { e.event.preventDefault(); jumpToDefinition(word.word); }
@@ -1978,4 +2004,4 @@ addEventListener('DOMContentLoaded', () => {
   }
 });
 
-if (typeof module !== 'undefined') module.exports = { fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams };
+if (typeof module !== 'undefined') module.exports = { fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName };

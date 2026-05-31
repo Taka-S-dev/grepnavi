@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 // setup.js (--require) で browser globals をスタブ済み
 global.id = () => null;
 
-const { fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams } = require('../static/js/editor.js');
+const { fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName } = require('../static/js/editor.js');
 
 test('fzfMatchToken - exact match', () => {
   const r = fzfMatchToken('foobar', 'foo');
@@ -76,4 +76,49 @@ test('buildDefinitionParams - with dir and glob', () => {
 test('buildDefinitionParams - escapes regex special chars', () => {
   const p = buildDefinitionParams('foo.bar', '', '', false);
   assert.ok(p.get('q').includes('foo\\.bar'));
+});
+
+// ----- extractFuncName -----
+// call ↔ def sync の起点。label 形式が崩れると黙って sync が動かなくなる ため
+// パターンごとに固定しておく。
+
+test('extractFuncName - simple identifier', () => {
+  assert.equal(extractFuncName('foo'), 'foo');
+});
+
+test('extractFuncName - <word>:<line> label form', () => {
+  // 末尾 `:<line>` 形式の label から関数名を抽出する。
+  // 取りこぼすと call ↔ def sync 装飾が全 ノード で動かなくなる。
+  assert.equal(extractFuncName('ceph_inc_mds_stopping_blocker:51'), 'ceph_inc_mds_stopping_blocker');
+  assert.equal(extractFuncName('foo:42'), 'foo');
+});
+
+test('extractFuncName - function call form', () => {
+  assert.equal(extractFuncName('foo(args)'), 'foo');
+});
+
+test('extractFuncName - skip control keywords', () => {
+  assert.equal(extractFuncName('if (foo(x))'), 'foo');
+  assert.equal(extractFuncName('while (bar())'), 'bar');
+});
+
+test('extractFuncName - nested calls picks leftmost', () => {
+  assert.equal(extractFuncName('a = b(c())'), 'b');
+});
+
+test('extractFuncName - method-like call', () => {
+  assert.equal(extractFuncName('obj->method()'), 'method');
+});
+
+test('extractFuncName - returns null for empty / non-identifier', () => {
+  assert.equal(extractFuncName(''), null);
+  assert.equal(extractFuncName(null), null);
+  assert.equal(extractFuncName(':42'), null);
+  assert.equal(extractFuncName('123'), null);
+});
+
+test('extractFuncName - identifier with line plus call form still works', () => {
+  // 「label を編集して `<word>:<line> ...` の後ろに何か足した」ケースは対象外
+  // (この時は最初の identifier を func 名とみなす)
+  assert.equal(extractFuncName('foo(x):42'), 'foo');
 });
