@@ -20,6 +20,7 @@ func main() {
 	noBrowser := flag.Bool("no-browser", false, "suppress automatic browser launch")
 	logLevel  := flag.String("log-level", "info", "log level: debug, info, warn, error")
 	debug     := flag.Bool("debug", false, "enable /debug/pprof endpoint")
+	mcp       := flag.Bool("mcp", false, "allow non-browser API access (required for external bridges like grepnavi-mcp)")
 	flag.Parse()
 
 	// slog セットアップ
@@ -67,9 +68,12 @@ func main() {
 		fmt.Fprintln(os.Stderr)
 	}
 
-	srv := newServer(absRoot, rootExplicit, *graphFile, addr, *debug)
+	srv := newServer(absRoot, rootExplicit, *graphFile, addr, *debug, *mcp)
 
 	slog.Info("grepnavi started", "root", absRoot, "graph", *graphFile)
+	if *mcp {
+		slog.Warn("--mcp enabled: non-browser (Origin-less) API access is allowed")
+	}
 	slog.Info("listening", "url", url)
 
 	if !*noBrowser {

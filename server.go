@@ -10,7 +10,7 @@ import (
 	"grepnavi/graph"
 )
 
-func newServer(root string, rootExplicit bool, graphFile, addr string, debug bool) *http.Server {
+func newServer(root string, rootExplicit bool, graphFile, addr string, debug, mcpEnabled bool) *http.Server {
 	store := graph.NewStore(graphFile, root)
 
 	// -root フラグが明示されていない場合のみ、保存済みの root_dir を優先する
@@ -30,19 +30,29 @@ func newServer(root string, rootExplicit bool, graphFile, addr string, debug boo
 		mux.Handle("/debug/pprof/", http.DefaultServeMux)
 	}
 
-	return &http.Server{Addr: addr, Handler: api.CspMiddleware(csrfMiddleware(mux))}
+	return &http.Server{Addr: addr, Handler: api.CspMiddleware(csrfMiddleware(mux, mcpEnabled))}
 }
 
-// csrfMiddleware は /api/* へのリクエストに対して Origin ヘッダーを検証する。
-// Origin が存在する場合、localhost または 127.0.0.1 からのリクエストのみ許可する。
-// ブラウザは cross-origin リクエスト時に必ず Origin を付与するため、
-// 悪意あるサイトからの CSRF を防げる。
-func csrfMiddleware(next http.Handler) http.Handler {
+// csrfMiddleware は /api/* へのリクエストの呼び出し元を検証する。
+//
+//   - Origin あり: localhost / 127.0.0.1 origin のみ許可（cross-site CSRF 対策）。
+//   - Origin なし: 非ブラウザクライアント（curl, MCP bridge 等）。
+//     --mcp で opt-in した場合のみ通す。
+//
+// 限界: これは「CSRF 対策 + 外部ツール利用の明示 opt-in gate」であって、
+// 同一 UID で動く同一マシン上のプロセスに対する認証境界ではない。
+// 「localhost 上の同一ユーザのプロセスは信頼する」trust model を前提とする。
+// 強い分離が必要な場合は token 認証 / Unix socket / SSH tunnel を検討。
+func csrfMiddleware(next http.Handler, mcpEnabled bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			origin := r.Header.Get("Origin")
-			if origin != "" &&
-				!strings.HasPrefix(origin, "http://localhost") &&
+			if origin == "" {
+				if !mcpEnabled {
+					http.Error(w, "forbidden: external API access requires --mcp flag", http.StatusForbidden)
+					return
+				}
+			} else if !strings.HasPrefix(origin, "http://localhost") &&
 				!strings.HasPrefix(origin, "http://127.0.0.1") {
 				http.Error(w, "forbidden", http.StatusForbidden)
 				return
