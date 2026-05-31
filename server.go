@@ -36,8 +36,11 @@ func newServer(root string, rootExplicit bool, graphFile, addr string, debug, mc
 // csrfMiddleware は /api/* へのリクエストの呼び出し元を検証する。
 //
 //   - Origin あり: localhost / 127.0.0.1 origin のみ許可（cross-site CSRF 対策）。
-//   - Origin なし: 非ブラウザクライアント（curl, MCP bridge 等）。
-//     --mcp で opt-in した場合のみ通す。
+//   - Origin なし + Sec-Fetch-Site あり: ブラウザの same-origin GET/HEAD は仕様上
+//     Origin を付けないが、Fetch Metadata の Sec-Fetch-Site は全 fetch に付与
+//     される。ブラウザ起源と判定して許可。
+//   - Origin なし + Sec-Fetch-Site なし: 非ブラウザクライアント（curl, MCP bridge
+//     等）。--mcp で opt-in した場合のみ通す。
 //
 // 限界: これは「CSRF 対策 + 外部ツール利用の明示 opt-in gate」であって、
 // 同一 UID で動く同一マシン上のプロセスに対する認証境界ではない。
@@ -48,7 +51,8 @@ func csrfMiddleware(next http.Handler, mcpEnabled bool) http.Handler {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			origin := r.Header.Get("Origin")
 			if origin == "" {
-				if !mcpEnabled {
+				// Sec-Fetch-Site があれば browser 起源とみなす (Chrome 76+ / Firefox 90+ / Safari 16+)
+				if r.Header.Get("Sec-Fetch-Site") == "" && !mcpEnabled {
 					http.Error(w, "forbidden: external API access requires --mcp flag", http.StatusForbidden)
 					return
 				}
