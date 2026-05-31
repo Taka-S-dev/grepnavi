@@ -630,7 +630,28 @@ func ExtractFuncBody(file string, targetLine int) (string, int, int, error) {
 	}
 foundStart:
 	if blockStartIdx < 0 {
-		// { が見つからない → targetLine 周辺だけ返す
+		// targetLine が関数シグネチャ行 (Linux kernel スタイル:
+		//   void foo(...)
+		//   {                ← { は次行以降
+		// ) のとき、上方向 scan は失敗する。下方向に lookAhead 行だけ { を探す。
+		// 途中で ; に当たったら関数定義ではない (prototype 呼び出し等) ので諦める。
+		const lookAheadLines = 30
+		for i := idx; i < len(lines) && i < idx+lookAheadLines; i++ {
+			line := lines[i]
+			scIdx := strings.IndexRune(line, ';')
+			brIdx := strings.IndexRune(line, '{')
+			if scIdx >= 0 && (brIdx < 0 || scIdx < brIdx) {
+				// ; が先 (または { 無し) → 関数定義ではない
+				break
+			}
+			if brIdx >= 0 {
+				blockStartIdx = i
+				break
+			}
+		}
+	}
+	if blockStartIdx < 0 {
+		// 上下どちらにも { が無い → targetLine 周辺だけ返す
 		s := funcMax(0, idx-2)
 		e := funcMin(len(lines)-1, idx+2)
 		return strings.Join(lines[s:e+1], "\n"), s + 1, e + 1, nil
