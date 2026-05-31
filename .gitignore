@@ -29,3 +29,16 @@
 !static/addons/**
 !test/
 !test/**
+
+# grepnavi-mcp (Node.js bridge)
+!.mcp.json
+!mcp/
+!mcp/.gitignore
+!mcp/README.md
+!mcp/package.json
+!mcp/package-lock.json
+!mcp/tsconfig.json
+!mcp/src/
+!mcp/src/**
+!mcp/test/
+!mcp/test/**

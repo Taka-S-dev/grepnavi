@@ -1,0 +1,27 @@
+{
+  "name": "grepnavi-mcp",
+  "version": "0.13.0",
+  "description": "MCP bridge that lets AI agents pin findings to grepnavi's investigation graph",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "grepnavi-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch",
+    "test": "tsc && node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

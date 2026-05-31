@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "grepnavi": {
+      "command": "node",
+      "args": ["./mcp/dist/index.js"],
+      "env": {
+        "GREPNAVI_URL": "http://localhost:8080"
+      }
+    }
+  }
+}
