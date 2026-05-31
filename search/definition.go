@@ -17,10 +17,11 @@ import (
 
 // DefHit は定義箇所の1件。
 type DefHit struct {
-	File string `json:"file"`
-	Line int    `json:"line"`
-	Text string `json:"text"`
-	Kind string `json:"kind"` // "define" / "struct" / "enum" / "union" / "typedef" / "func"
+	File   string `json:"file"`
+	Line   int    `json:"line"`
+	Text   string `json:"text"`
+	Kind   string `json:"kind"`             // "define" / "struct" / "enum" / "union" / "typedef" / "func"
+	Engine string `json:"engine,omitempty"` // 解決に使ったバックエンド ("gtags" / "ctags" / "rg")。API レイヤで後付けされる
 }
 
 // FindDefinitions は word の定義候補を ripgrep で検索して返す。

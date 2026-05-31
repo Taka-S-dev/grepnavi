@@ -147,7 +147,13 @@ func FindCallers(ctx context.Context, word, dir, glob string) ([]CallSite, error
 }
 
 // FindCallees は file の line から始まる関数が呼び出す関数名一覧を返す（最大80件）。
-func FindCallees(_ context.Context, file string, line int) ([]string, error) {
+// CalleeHit は FindCallees が返す 1 件。重複名は最初の出現行を採用する。
+type CalleeHit struct {
+	Name     string `json:"name"`
+	CallLine int    `json:"call_line"` // 呼び出し行（1-indexed）
+}
+
+func FindCallees(_ context.Context, file string, line int) ([]CalleeHit, error) {
 	lines, err := CachedLines(file)
 	if err != nil {
 		return nil, err
@@ -158,10 +164,11 @@ func FindCallees(_ context.Context, file string, line int) ([]string, error) {
 	}
 
 	seen := map[string]bool{}
-	var result []string
+	var result []CalleeHit
 
-	for _, l := range strings.Split(body, "\n") {
-		// 行コメント除去
+	// body の i 行目は元ファイルの (line + i) 行目に対応する
+	// （extractBraceBlock は startLine から順に行を append する）。
+	for i, l := range strings.Split(body, "\n") {
 		if idx := strings.Index(l, "//"); idx >= 0 {
 			l = l[:idx]
 		}
@@ -171,7 +178,7 @@ func FindCallees(_ context.Context, file string, line int) ([]string, error) {
 				continue
 			}
 			seen[name] = true
-			result = append(result, name)
+			result = append(result, CalleeHit{Name: name, CallLine: line + i})
 		}
 	}
 	return result, nil

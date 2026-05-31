@@ -294,6 +294,9 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 	if hits == nil {
 		hits = []search.DefHit{}
 	}
+	for i := range hits {
+		hits[i].Engine = usedEngine
+	}
 	w.Header().Set("X-Engine", usedEngine)
 	jsonOK(w, hits)
 }
@@ -415,15 +418,15 @@ func (h *Handler) handleCallees(w http.ResponseWriter, r *http.Request) {
 	}
 	line := 0
 	fmt.Sscanf(lineStr, "%d", &line)
-	names, err := search.FindCallees(r.Context(), file, line)
+	hits, err := search.FindCallees(r.Context(), file, line)
 	if err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if names == nil {
-		names = []string{}
+	if hits == nil {
+		hits = []search.CalleeHit{}
 	}
-	jsonOK(w, names)
+	jsonOK(w, hits)
 }
 
 // --- /api/snippet ---
