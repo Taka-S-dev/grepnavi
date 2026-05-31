@@ -476,7 +476,7 @@ func (s *Store) Reparent(nodeID, newParentID, edgeLabel string) error {
 			edgeLabel = "ref"
 		}
 		t.Edges = append(t.Edges, &Edge{
-			ID:    fmt.Sprintf("%s->%s", newParentID[:8], nodeID[:8]),
+			ID:    fmt.Sprintf("%s->%s", head(newParentID, 8), head(nodeID, 8)),
 			From:  newParentID,
 			To:    nodeID,
 			Label: edgeLabel,

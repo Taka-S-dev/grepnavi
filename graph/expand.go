@@ -56,5 +56,13 @@ func (s *Store) AddMatchAsNode(m *Match, parentID, edgeLabel, label string) (*No
 }
 
 func edgeID(from, to, label string) string {
-	return fmt.Sprintf("%s->%s[%s]@%d", from[:8], to[:8], label, time.Now().UnixNano())
+	// 外部 API から 8 文字未満の短い ID も渡り得るため、固定 [:8] では panic する。
+	return fmt.Sprintf("%s->%s[%s]@%d", head(from, 8), head(to, 8), label, time.Now().UnixNano())
+}
+
+func head(s string, n int) string {
+	if len(s) > n {
+		return s[:n]
+	}
+	return s
 }
