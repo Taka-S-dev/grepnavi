@@ -257,11 +257,25 @@ function refreshLineMemoDecorations() {
 
 function renderLineMemoOverlay() {
   document.getElementById('line-memo-overlay')?.remove();
+  _lineMemoScrollDispose?.dispose(); _lineMemoScrollDispose = null;
   if(!monacoEditor || !showLineMemoInline) return;
   const file = tabs[activeTabIdx]?.file;
   if(!file) return;
-  const memos = Object.entries(getLineMemos()).filter(([k]) => k.startsWith(file + '::'));
-  if(!memos.length) return;
+
+  const lineMemos = Object.entries(getLineMemos())
+    .filter(([k]) => k.startsWith(file + '::'))
+    .map(([k, memo]) => ({ line: parseInt(k.split('::')[1]), memo, kind: 'line' }));
+  const nodeMemos = Object.values(graph.nodes || {})
+    .filter(n => _samePath(n.match?.file, file) && n.match?.line && n.memo?.trim())
+    .map(n => ({ line: n.match.line, memo: n.memo, kind: 'node' }));
+  const allMemos = [...lineMemos, ...nodeMemos];
+  if (!allMemos.length) return;
+
+  const byLine = new Map();
+  allMemos.forEach(m => {
+    if (!byLine.has(m.line)) byLine.set(m.line, []);
+    byLine.get(m.line).push(m);
+  });
 
   const container = id('monaco-container');
   const overlay = document.createElement('div');
@@ -272,30 +286,34 @@ function renderLineMemoOverlay() {
 
   const lineH    = monacoEditor.getOption(monaco.editor.EditorOption.lineHeight);
   const fontSize = monacoEditor.getOption(monaco.editor.EditorOption.fontSize);
-  const layoutInfo = monacoEditor.getLayoutInfo();
-  const contentLeft = layoutInfo.contentLeft;
 
   function positionItems() {
     overlay.innerHTML = '';
     const scrollTop = monacoEditor.getScrollTop();
-    memos.forEach(([key, memo]) => {
-      const line = parseInt(key.split('::')[1]);
+    byLine.forEach((items, line) => {
       const top  = monacoEditor.getTopForLineNumber(line) - scrollTop;
       if(top < -lineH || top > container.offsetHeight) return;
       const model   = monacoEditor.getModel();
       const endCol  = model ? model.getLineMaxColumn(line) : 1;
       const pos     = monacoEditor.getScrolledVisiblePosition({lineNumber: line, column: endCol});
-      const left    = pos ? pos.left : contentLeft + 200;
+      const left    = pos ? pos.left : 200;
       const el = document.createElement('div');
       el.className = 'line-memo-overlay-item';
       el.style.cssText = `position:absolute;top:${top}px;left:${left + 8}px;height:${lineH}px;line-height:${lineH}px;font-size:${fontSize}px`;
-      el.textContent = '// ' + memo.split('\n').join(' ↵ ');
+      const maxLen = items.length > 1 ? 50 : 80;
+      const text = items.map(m => {
+        const prefix = m.kind === 'node' ? '◎ ' : '';
+        const oneLine = m.memo.replace(/\s+/g, ' ');
+        const truncated = oneLine.length > maxLen ? oneLine.slice(0, maxLen) + '…' : oneLine;
+        return prefix + truncated;
+      }).join('  │  ');
+      // prefix は emoji 不使用 (フォント / OS 依存を避ける)。
+      el.textContent = '▸ ' + text;
       overlay.appendChild(el);
     });
   }
 
   positionItems();
-  _lineMemoScrollDispose?.dispose();
   _lineMemoScrollDispose = monacoEditor.onDidScrollChange(positionItems);
 }
 
