@@ -63,6 +63,10 @@ func (h *Handler) handleNode(w http.ResponseWriter, r *http.Request) {
 			jsonErr(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		h.events.Publish("graph.node_added", map[string]interface{}{
+			"node_id":   node.ID,
+			"parent_id": req.ParentID,
+		})
 		jsonOK(w, map[string]interface{}{"node": node, "edge": edge})
 	default:
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -376,6 +380,12 @@ func (h *Handler) handleGraphMemos(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// 外部 writer (別タブ / 別プロセス) からの更新も browser に反映するため発火。
+	// 自分自身の POST でも届くが、loadGraph は冪等なので再 fetch は無害。
+	h.events.Publish("memos.updated", map[string]interface{}{
+		"line_count":  len(req.LineMemos),
+		"range_count": len(req.RangeMemos),
+	})
 	jsonOK(w, map[string]string{"status": "ok"})
 }
 
