@@ -8,11 +8,26 @@ export const definitions: ToolDef[] = [
       "Return grepnavi's current root directory (absolute path) and bridge_version. The root may DIFFER from your working directory — anchor all subsequent file paths to this root.",
     inputSchema: { type: "object", properties: {} },
   },
+  {
+    name: "grepnavi_editor_state",
+    description:
+      "Return a snapshot of the user's Monaco editor: `active_file`, `cursor` (line / column), `selection` (range or omitted), `viewport` (visible line range), plus `fresh` and `last_updated_ms_ago` for staleness signaling. Use this to handle requests like \"explain this function\" or \"add a memo to this range\" without making the user spell out file:line.\n\n" +
+      "**MANDATORY safety checks before any destructive op (grepnavi_set_line_memo, grepnavi_set_range_memo, grepnavi_graph_add_node, grepnavi_graph_update_node, grepnavi_graph_delete_node, grepnavi_graph_move_node) anchored on this response**:\n" +
+      "1. If `fresh` is false (no editor activity in the last ~20 s — browser closed, idle, or backgrounded), DO NOT silently use the cached state. Ask the user what they want.\n" +
+      "2. Echo back the resolved `file`, `line` and any range you intend to act on, and get explicit confirmation from the user before invoking the destructive tool.\n" +
+      "3. Compare `root` to grepnavi_root — the user may have multiple grepnavi tabs, and `editor_state` reflects whichever pushed last. If they differ, ask which instance to target.\n\n" +
+      "**Non-destructive reads (grepnavi_read_file, grepnavi_func_body, grepnavi_definition, grepnavi_callers, grepnavi_callees, grepnavi_search, grepnavi_symbols, grepnavi_list_memos)** may use `editor_state` without explicit confirmation, but still respect `fresh=false` by mentioning the staleness to the user when summarizing results.\n\n" +
+      "If the response includes `server_supported: false`, the running grepnavi predates this endpoint — fall back to asking the user for file:line and tell them to rebuild grepnavi.",
+    inputSchema: { type: "object", properties: {} },
+  },
 ];
 
 export const handlers: Record<string, ToolHandler> = {
   grepnavi_root: async () => {
     const r = await client.root();
     return ok({ ...r, bridge_version: BRIDGE_VERSION });
+  },
+  grepnavi_editor_state: async () => {
+    return ok(await client.editorState());
   },
 };

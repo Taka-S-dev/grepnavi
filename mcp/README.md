@@ -4,7 +4,9 @@
 
 AI が `grepnavi_graph_add_node` を呼ぶと grepnavi の GUI がリアルタイムで更新され、ユーザはそのノードをクリックして Monaco エディタの該当 file:line にジャンプできる。ブリッジはコードベースに対して**読み取り専用**で、ソースファイルを編集することはない。
 
-> ⚠️ **データ送信に関する注意**: このブリッジ自体は grepnavi (localhost) としか通信しない。しかしブリッジを呼び出す AI エージェント (Claude Code / Copilot CLI 等) は、ツール結果 (**ファイル内容・検索結果・関数本体・グラフメモ等**) を自身の AI サービス (Anthropic / GitHub / OpenAI 等) に送信する。機密コード・プロプライエタリなソースを扱う場合は、利用する AI クライアントのデータ取り扱いポリシーを事前に確認すること。
+> ⚠️ **データ送信に関する注意**: このブリッジ自体は grepnavi (localhost) としか通信しない。しかしブリッジを呼び出す AI エージェント (Claude Code / Copilot CLI 等) は、ツール結果 (**ファイル内容・検索結果・関数本体・グラフメモ・現在開いているファイルやカーソル位置等**) を自身の AI サービス (Anthropic / GitHub / OpenAI 等) に送信する。機密コード・プロプライエタリなソースを扱う場合は、利用する AI クライアントのデータ取り扱いポリシーを事前に確認すること。
+>
+> `grepnavi_editor_state` を有効化すると、AI が呼び出すたびに現在開いているファイル名・カーソル位置・選択範囲・表示中の行範囲がメタデータとして AI サービスに送信される (ソース内容自体は `grepnavi_read_file` を別途呼ばないと送信されない)。
 
 ## アーキテクチャ
 
@@ -24,6 +26,7 @@ flowchart TD
 | ツール | 役割 |
 |---|---|
 | `grepnavi_root` | grepnavi が現在開いているルートディレクトリの絶対パス + bridge version |
+| `grepnavi_editor_state` | ブラウザ Monaco エディタの現在状態 (active file / cursor / selection / viewport) を返す。「この関数を説明して」「この範囲にメモ」のような指示を file:line 指定なしで処理するため。`fresh: false` (browser 切断 / 背景タブ / 操作なし 20 秒以上) のときは AI が user に確認する設計 |
 | `grepnavi_read_file` | ファイル内容を取得 (SJIS / EUC-JP 自動 decode、相対パスは root 相対で解決、cat -n 形式) |
 | `grepnavi_search` | 横断テキスト/正規表現検索 (encoding 自動 decode)。AI 自前 ripgrep の代替 |
 | `grepnavi_func_body` | 関数本体を file+line から一発取得 (read_file の line 範囲推測が不要) |

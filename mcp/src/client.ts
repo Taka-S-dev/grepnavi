@@ -487,6 +487,44 @@ export class GrepnaviClient {
     return (await r.json()) as Symbol[];
   }
 
+  // /api/editor-state は browser の Monaco editor 現在状態 (active_file,
+  // cursor, selection, viewport) を返す snapshot 系。古い grepnavi binary
+  // (このエンドポイント未実装) は 404 を返すため、それは特別扱いして
+  // bridge 側で空 state + 警告メッセージに正規化する。
+  async editorState(): Promise<{
+    fresh: boolean;
+    last_updated_ms_ago: number;
+    root?: string;
+    active_file?: string;
+    cursor?: { line: number; column: number };
+    selection?: {
+      start_line: number;
+      start_column: number;
+      end_line: number;
+      end_column: number;
+    };
+    viewport?: { top_line: number; bottom_line: number };
+    server_supported?: boolean;
+    error_hint?: string;
+  }> {
+    try {
+      const r = await this.req("/api/editor-state");
+      const data = (await r.json()) as Record<string, unknown>;
+      return { server_supported: true, ...data } as ReturnType<GrepnaviClient["editorState"]> extends Promise<infer T> ? T : never;
+    } catch (err) {
+      if (err instanceof GrepnaviError && /HTTP 404/.test(err.message)) {
+        return {
+          fresh: false,
+          last_updated_ms_ago: -1,
+          server_supported: false,
+          error_hint:
+            "The running grepnavi binary predates /api/editor-state. Ask the user to rebuild and restart grepnavi, then retry; meanwhile fall back to asking for file:line directly.",
+        };
+      }
+      throw err;
+    }
+  }
+
   // memo は line_memos / range_memos / bookmarks の 3 つを 1 つの PUT で全置換する
   // API なので、bridge 側で「現在値を fetch → 差分 merge → PUT」を畳む。
   // GUI が同時編集していた場合、bridge と GUI の間で短い race window があるが、

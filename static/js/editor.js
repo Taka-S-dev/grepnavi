@@ -793,6 +793,8 @@ async function ensureEditor() {
     guides: { bracketPairs: true },
   });
   new ResizeObserver(() => monacoEditor.layout()).observe(id('monaco-container'));
+  // editor-state sync (MCP bridge 経由で AI が editor 状態を取れるようにする)
+  if (typeof startEditorStateSync === 'function') startEditorStateSync();
 
   window.addEventListener('wheel', e => {
     if (!e.ctrlKey || !monacoEditor) return;
@@ -1720,6 +1722,8 @@ async function switchTab(idx) {
     window.explorerRevealFile?.(tab.file);
   }
   monacoEditor.layout();
+  // タブ切替で active_file が変わったため editor-state を即時 push する。
+  if (typeof bumpEditorStateSync === 'function') bumpEditorStateSync();
 }
 
 function closeTab(idx) {

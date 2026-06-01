@@ -12,14 +12,15 @@ import (
 
 // Handler はすべての REST ハンドラをまとめる。
 type Handler struct {
-	store  *graph.Store
-	root   string
-	events *EventBus
-	mu     sync.RWMutex
+	store       *graph.Store
+	root        string
+	events      *EventBus
+	editorState *editorStateCache
+	mu          sync.RWMutex
 }
 
 func NewHandler(store *graph.Store, root string) *Handler {
-	h := &Handler{store: store, root: root, events: NewEventBus()}
+	h := &Handler{store: store, root: root, events: NewEventBus(), editorState: newEditorStateCache()}
 	if search.GtagsAvailable(root) {
 		search.GtagsCheckStaleAsync(root)
 	}
@@ -96,6 +97,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/memstats", h.handleMemStats)
 	// ブラウザ向け SSE push チャンネル (graph / memo 更新通知)。
 	mux.HandleFunc("/api/events", h.handleEvents)
+	mux.HandleFunc("/api/editor-state", h.handleEditorState)
 }
 
 func (h *Handler) handleMemStats(w http.ResponseWriter, r *http.Request) {
