@@ -5,6 +5,7 @@ import {
   resolveWordToLocation,
   callersTree,
   resolveAndEnrichCallees,
+  normalizeInputPath,
 } from "../helpers.js";
 
 export const definitions: ToolDef[] = [
@@ -83,7 +84,11 @@ export const definitions: ToolDef[] = [
         },
         limit: {
           type: "integer",
-          description: "Cap on number of matches returned (default unlimited up to server cap).",
+          description: "Cap on number of matches returned. Set this when you only need a sample; response includes `has_more` and `next_offset` for pagination.",
+        },
+        offset: {
+          type: "integer",
+          description: "Skip this many matches before returning (pagination). Use with `limit`. Default 0.",
         },
       },
       required: ["pattern"],
@@ -172,7 +177,7 @@ export const definitions: ToolDef[] = [
 export const handlers: Record<string, ToolHandler> = {
   grepnavi_read_file: async (args) => {
     const a = args as { file: string; start_line?: number; end_line?: number };
-    const r = await client.readFile(a.file, {
+    const r = await client.readFile(normalizeInputPath(a.file), {
       startLine: a.start_line,
       endLine: a.end_line,
     });
@@ -180,15 +185,18 @@ export const handlers: Record<string, ToolHandler> = {
   },
   grepnavi_definition: async (args) => {
     const a = args as { word: string; file?: string; dir?: string };
-    return ok(await client.definition(a.word, { file: a.file, dir: a.dir }));
+    return ok(await client.definition(a.word, {
+      file: normalizeInputPath(a.file),
+      dir: normalizeInputPath(a.dir),
+    }));
   },
   grepnavi_search: async (args) => {
     const a = args as Parameters<typeof client.search>[0];
-    return ok(await client.search(a));
+    return ok(await client.search({ ...a, dir: normalizeInputPath(a.dir) }));
   },
   grepnavi_func_body: async (args) => {
     const a = args as { word?: string; file?: string; line?: number };
-    let file = a.file;
+    let file = normalizeInputPath(a.file);
     let line = a.line;
     if (!file || !line) {
       if (!a.word)
@@ -201,7 +209,7 @@ export const handlers: Record<string, ToolHandler> = {
   },
   grepnavi_symbols: async (args) => {
     const a = args as { file: string };
-    return ok(await client.symbols(a.file));
+    return ok(await client.symbols(normalizeInputPath(a.file)));
   },
   grepnavi_callers: async (args) => {
     const a = args as {
@@ -210,7 +218,7 @@ export const handlers: Record<string, ToolHandler> = {
       glob?: string;
       depth?: number;
     };
-    return ok(await callersTree(a));
+    return ok(await callersTree({ ...a, dir: normalizeInputPath(a.dir) }));
   },
   grepnavi_callees: async (args) => {
     const a = args as {
@@ -223,6 +231,6 @@ export const handlers: Record<string, ToolHandler> = {
       with_preview?: boolean;
       preview_lines?: number;
     };
-    return ok(await resolveAndEnrichCallees(a));
+    return ok(await resolveAndEnrichCallees({ ...a, file: normalizeInputPath(a.file) }));
   },
 };

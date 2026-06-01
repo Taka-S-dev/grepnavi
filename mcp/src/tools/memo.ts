@@ -1,6 +1,6 @@
 import { ok } from "../shared.js";
 import type { ToolDef, ToolHandler } from "../shared.js";
-import { setLineMemo, setRangeMemo, listMemos } from "../helpers.js";
+import { setLineMemo, setRangeMemo, listMemos, normalizeInputPath } from "../helpers.js";
 
 export const definitions: ToolDef[] = [
   {
@@ -65,7 +65,7 @@ export const definitions: ToolDef[] = [
 export const handlers: Record<string, ToolHandler> = {
   grepnavi_set_line_memo: async (args) => {
     const a = args as { file: string; line: number; memo: string };
-    const result = await setLineMemo(a.file, a.line, a.memo);
+    const result = await setLineMemo(normalizeInputPath(a.file), a.line, a.memo);
     return ok(result);
   },
   grepnavi_set_range_memo: async (args) => {
@@ -78,11 +78,11 @@ export const handlers: Record<string, ToolHandler> = {
       start_col?: number;
       end_col?: number;
     };
-    const result = await setRangeMemo(a);
+    const result = await setRangeMemo({ ...a, file: normalizeInputPath(a.file) });
     return ok(result);
   },
   grepnavi_list_memos: async (args) => {
     const a = args as { file?: string };
-    return ok(await listMemos(a.file));
+    return ok(await listMemos(normalizeInputPath(a.file)));
   },
 };

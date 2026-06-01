@@ -1,6 +1,6 @@
 import { client, ok } from "../shared.js";
 import type { BatchNodeInput, ToolDef, ToolHandler } from "../shared.js";
-import { addNodesBatch } from "../helpers.js";
+import { addNodesBatch, normalizeInputPath } from "../helpers.js";
 
 export const definitions: ToolDef[] = [
   {
@@ -203,7 +203,7 @@ export const handlers: Record<string, ToolHandler> = {
     // word が来てるのに label 空なら、シンボル名:line を default に使う
     // (grepnavi の自動 label は basename:line で tree 上の可読性が悪い)
     const effectiveLabel = a.label || (a.word ? `${a.word}:${a.line}` : undefined);
-    const r = await client.addNode({ ...a, label: effectiveLabel });
+    const r = await client.addNode({ ...a, file: normalizeInputPath(a.file), label: effectiveLabel });
     return ok({
       node_id: r.node.id,
       label: r.node.label,
@@ -215,7 +215,8 @@ export const handlers: Record<string, ToolHandler> = {
   },
   grepnavi_graph_add_nodes: async (args) => {
     const a = args as { nodes: BatchNodeInput[] };
-    return ok(await addNodesBatch(a.nodes));
+    const normalized = a.nodes.map((n) => ({ ...n, file: normalizeInputPath(n.file) }));
+    return ok(await addNodesBatch(normalized));
   },
   grepnavi_graph_set_memo: async (args) => {
     const a = args as { node_id: string; memo: string };

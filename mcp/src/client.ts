@@ -430,7 +430,13 @@ export class GrepnaviClient {
     regex?: boolean;
     encoding?: string;
     limit?: number;
-  }): Promise<{ matches: SearchMatch[] }> {
+    offset?: number;
+  }): Promise<{
+    matches: SearchMatch[];
+    count: number;
+    has_more?: boolean;
+    next_offset?: number;
+  }> {
     const params = new URLSearchParams({ q: opts.pattern });
     if (opts.dir) params.set("dir", opts.dir);
     if (opts.glob) params.set("glob", opts.glob);
@@ -439,8 +445,14 @@ export class GrepnaviClient {
     if (opts.regex) params.set("regex", "1");
     if (opts.encoding) params.set("enc", opts.encoding);
     if (opts.limit && opts.limit > 0) params.set("limit", String(opts.limit));
+    if (opts.offset && opts.offset > 0) params.set("offset", String(opts.offset));
     const r = await this.req("/api/search?" + params.toString());
-    return (await r.json()) as { matches: SearchMatch[] };
+    return (await r.json()) as {
+      matches: SearchMatch[];
+      count: number;
+      has_more?: boolean;
+      next_offset?: number;
+    };
   }
 
   async funcBody(

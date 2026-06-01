@@ -123,6 +123,19 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 	if ls := q.Get("limit"); ls != "" {
 		fmt.Sscanf(ls, "%d", &limit)
 	}
+	offset := 0
+	if ofs := q.Get("offset"); ofs != "" {
+		fmt.Sscanf(ofs, "%d", &offset)
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	// limit > 0 のときは 1 件多めに取って has_more を判定する。
+	maxFetch := 0
+	if limit > 0 {
+		maxFetch = offset + limit + 1
+	}
 	opts := search.Options{
 		Pattern:       pattern,
 		Dir:           dir,
@@ -131,7 +144,7 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 		Regex:         q.Get("regex") == "1",
 		FileGlob:      q.Get("glob"),
 		ContextLines:  8,
-		MaxResults:    limit,
+		MaxResults:    maxFetch,
 	}
 
 	matches, err := search.Search(r.Context(), opts)
@@ -139,6 +152,16 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	hasMore := false
+	if limit > 0 && len(matches) > offset+limit {
+		hasMore = true
+		matches = matches[:offset+limit]
+	}
+	if offset > len(matches) {
+		offset = len(matches)
+	}
+	matches = matches[offset:]
 
 	// #ifdef スタックを付加（C/C++ ファイルのみ）
 	for i := range matches {
@@ -155,10 +178,17 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	jsonOK(w, map[string]interface{}{
+	resp := map[string]interface{}{
 		"matches": matches,
 		"count":   len(matches),
-	})
+	}
+	if limit > 0 {
+		resp["has_more"] = hasMore
+		if hasMore {
+			resp["next_offset"] = offset + limit
+		}
+	}
+	jsonOK(w, resp)
 }
 
 func isCLike(path string) bool {

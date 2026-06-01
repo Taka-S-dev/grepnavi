@@ -3,6 +3,16 @@ import type { GrepnaviClient } from "./client.js";
 import { client } from "./shared.js";
 import type { BatchNodeInput, CallerTreeNode } from "./shared.js";
 
+// AI が hand-build した Windows パス (バックスラッシュ区切り、drive letter 小文字)
+// を grepnavi が受け取れる形に正規化する。definition / callers / callees が返した
+// path をそのまま渡せば本来不要だが、AI は時々 hand-build するため safety net。
+export function normalizeInputPath<T extends string | undefined>(p: T): T {
+  if (!p) return p;
+  return p
+    .replace(/\\/g, "/")
+    .replace(/^([a-z]):/, (_, d) => d.toUpperCase() + ":") as T;
+}
+
 // Claude Code の Read tool と同じ「行番号 + tab + 内容」フォーマットで返す。
 // AI が出力をそのまま citation に使ったり、行番号で他ツールに繋いだりしやすい。
 export function formatFileContent(r: {
