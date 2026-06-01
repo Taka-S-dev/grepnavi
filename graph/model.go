@@ -35,19 +35,29 @@ type SnippetLine struct {
 	IsMatch bool   `json:"is_match"`
 }
 
+// DefOverride は call ↔ def sync 装飾の参照先を手動で上書きする値。
+// 関数名からの自動解決 (frontend resolveNodeDef) が誤ったヒットを返すケース
+// (同名関数が複数 / 識別子抽出のミス) のための救済 path。
+// 設定時は frontend が自動解決をスキップして直接この file:line を使う。
+type DefOverride struct {
+	File string `json:"file"`
+	Line int    `json:"line"`
+}
+
 // Node はグラフ上の1ノード。
 type Node struct {
-	ID         string   `json:"id"`
-	Match      Match    `json:"match"`
-	Label      string   `json:"label"`
-	Memo       string   `json:"memo"`
-	Tags       []string `json:"tags"`
-	PosX       float64  `json:"pos_x"`
-	PosY       float64  `json:"pos_y"`
-	Expanded   bool     `json:"expanded"`
-	Children   []string `json:"children"`
-	BadgeColor string   `json:"badge_color,omitempty"` // バッジの色（例: "#e05252"）
-	BadgeText  string   `json:"badge_text,omitempty"`  // バッジのテキスト（省略可）
+	ID          string       `json:"id"`
+	Match       Match        `json:"match"`
+	Label       string       `json:"label"`
+	Memo        string       `json:"memo"`
+	Tags        []string     `json:"tags"`
+	PosX        float64      `json:"pos_x"`
+	PosY        float64      `json:"pos_y"`
+	Expanded    bool         `json:"expanded"`
+	Children    []string     `json:"children"`
+	BadgeColor  string       `json:"badge_color,omitempty"` // バッジの色（例: "#e05252"）
+	BadgeText   string       `json:"badge_text,omitempty"`  // バッジのテキスト（省略可）
+	DefOverride *DefOverride `json:"def_override,omitempty"`
 }
 
 // Edge はノード間の有向エッジ。

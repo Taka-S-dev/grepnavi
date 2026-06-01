@@ -85,16 +85,18 @@ func (h *Handler) handleNodeByID(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPut:
 		var req struct {
-			Label      *string  `json:"label"`
-			Memo       *string  `json:"memo"`
-			Tags       []string `json:"tags"`
-			PosX       *float64 `json:"pos_x"`
-			PosY       *float64 `json:"pos_y"`
-			Expanded   *bool    `json:"expanded"`
-			Children   []string `json:"children"`
-			BadgeColor *string  `json:"badge_color"`
-			BadgeText  *string  `json:"badge_text"`
-			Line       *int     `json:"line"` // Match.Line を手動補正するための後付けフィールド
+			Label       *string             `json:"label"`
+			Memo        *string             `json:"memo"`
+			Tags        []string            `json:"tags"`
+			PosX        *float64            `json:"pos_x"`
+			PosY        *float64            `json:"pos_y"`
+			Expanded    *bool               `json:"expanded"`
+			Children    []string            `json:"children"`
+			BadgeColor  *string             `json:"badge_color"`
+			BadgeText   *string             `json:"badge_text"`
+			Line        *int                `json:"line"` // Match.Line を手動補正するための後付けフィールド
+			DefOverride *graph.DefOverride  `json:"def_override"` // null 明示で解除、未指定で据え置き
+			ClearDefOverride bool            `json:"clear_def_override"` // true で override を消す
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			jsonErr(w, err.Error(), http.StatusBadRequest)
@@ -145,6 +147,11 @@ func (h *Handler) handleNodeByID(w http.ResponseWriter, r *http.Request) {
 			}
 			if req.Line != nil && *req.Line > 0 {
 				n.Match.Line = *req.Line
+			}
+			if req.ClearDefOverride {
+				n.DefOverride = nil
+			} else if req.DefOverride != nil && req.DefOverride.File != "" && req.DefOverride.Line > 0 {
+				n.DefOverride = req.DefOverride
 			}
 		})
 		if err != nil {

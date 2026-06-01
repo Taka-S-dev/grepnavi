@@ -622,6 +622,13 @@ const _SYNC_MIN_WORD_LEN = 4;
 const _SYNC_MAX_HITS     = 5;
 async function resolveNodeDef(node) {
   if (node._def !== undefined) return;
+  // ユーザが手動で sync 先を指定済みなら自動解決をスキップ。
+  // 自動解決 (関数名 → /api/definition) は同名関数や識別子抽出ミスで
+  // 誤ヒットすることがあるため、上書き経路として残してある。
+  if (node.def_override?.file && node.def_override?.line) {
+    node._def = { file: node.def_override.file, line: node.def_override.line };
+    return;
+  }
   // 旧版は memo 必須だったが、「先に pin、後で memo」flow や memo 無しの pin
   // だけ使うケースで sync が動かず混乱した。label さえあれば常に解決し、
   // memo の有無は表示側 (hover) で出し分ける。

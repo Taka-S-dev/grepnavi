@@ -1854,6 +1854,31 @@ function showDetail(n) {
   );
   el.appendChild(memoSec);
 
+  // Sync 上書き: 関数名からの自動解決 (call ↔ def sync) が誤ヒットしたときの
+  // 救済用に file:line を直接指定できる UI。空のまま「適用」で override 解除。
+  const ov = n.def_override || {};
+  const syncSec = makeAccSection(
+    "sync",
+    "Sync 上書き",
+    `
+    <div style="font-size:11px;color:#666;margin-bottom:4px">
+      自動解決が誤った場所を指すときの手動上書き。空で「適用」すると自動解決に戻る。
+    </div>
+    <div style="display:flex;gap:4px;align-items:center;margin-bottom:4px">
+      <input id="def-ovr-file" type="text" value="${esc(ov.file || "")}" placeholder="ファイルパス"
+        style="flex:1;background:#1a1a1a;border:1px solid #444;color:#e0e0e0;font:11px Consolas,monospace;padding:2px 5px;border-radius:2px">
+      <input id="def-ovr-line" type="number" min="1" value="${ov.line || ""}" placeholder="行"
+        style="width:60px;background:#1a1a1a;border:1px solid #444;color:#e0e0e0;font:11px Consolas,monospace;padding:2px 5px;border-radius:2px">
+    </div>
+    <div style="display:flex;gap:4px">
+      <button id="def-ovr-pick" title="現在エディタで見ているファイル + カーソル行を取り込む" style="font-size:11px">📍 カーソル位置取込</button>
+      <button id="def-ovr-apply" style="font-size:11px;margin-left:auto">適用</button>
+      <button id="def-ovr-clear" style="font-size:11px" class="sec">クリア</button>
+    </div>`,
+    !!n.def_override,
+  );
+  el.appendChild(syncSec);
+
   const expSec = makeAccSection(
     "expand",
     "展開",
@@ -1877,6 +1902,10 @@ function showDetail(n) {
   };
   id("label-inp").onblur = saveLabel;
   id("memo-ta").onblur = saveMemo;
+  // Sync 上書き UI のボタン配線
+  id("def-ovr-pick").onclick   = pickCurrentPositionForDefOverride;
+  id("def-ovr-apply").onclick  = applyDefOverride;
+  id("def-ovr-clear").onclick  = clearDefOverride;
   // バッジ: スウォッチクリックで色を選択→即保存
   id("badge-swatches")
     .querySelectorAll(".badge-swatch")
@@ -1940,6 +1969,52 @@ async function saveMemo() {
   graph.nodes[selNode] = n;
   renderCurrent();
   st("メモ保存");
+}
+
+// Sync 上書きの保存・解除。保存後は _def キャッシュを捨てて装飾を再描画する。
+async function _saveDefOverride(payload, statusMsg) {
+  if (!selNode) return;
+  const r = await fetch("/api/graph/node/" + selNode, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const n = await r.json();
+  // _def は resolveNodeDef 用の transient キャッシュ。next refresh で再評価させる。
+  delete n._def;
+  graph.nodes[selNode] = n;
+  renderCurrent();
+  if (typeof refreshGraphDecorations === "function") refreshGraphDecorations();
+  showDetail(graph.nodes[selNode]);
+  st(statusMsg);
+}
+
+function applyDefOverride() {
+  const file = id("def-ovr-file").value.trim();
+  const line = parseInt(id("def-ovr-line").value, 10);
+  if (!file || !line || line < 1) {
+    // 両方空 = 解除扱い、その他不正は無視
+    if (!file && !id("def-ovr-line").value.trim()) {
+      _saveDefOverride({ clear_def_override: true }, "Sync 上書き解除");
+    }
+    return;
+  }
+  _saveDefOverride({ def_override: { file, line } }, "Sync 上書き保存");
+}
+
+function clearDefOverride() {
+  _saveDefOverride({ clear_def_override: true }, "Sync 上書き解除");
+}
+
+function pickCurrentPositionForDefOverride() {
+  const file = tabs?.[activeTabIdx]?.file;
+  const line = monacoEditor?.getPosition()?.lineNumber;
+  if (!file || !line) {
+    st("エディタにカーソル位置が無い");
+    return;
+  }
+  id("def-ovr-file").value = file;
+  id("def-ovr-line").value = String(line);
 }
 
 async function removeNode(nid) {
