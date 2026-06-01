@@ -379,6 +379,9 @@ func (s *Store) DeleteNode(id string) error {
 	if _, ok := t.Nodes[id]; !ok {
 		return fmt.Errorf("node %s not found", id)
 	}
+	// ノード削除を Ctrl+Z / /api/graph/undo で巻き戻せるようにする。
+	// Reparent / ReorderRoot と同じパターン。
+	s.pushUndo(t)
 	delete(t.Nodes, id)
 	for _, n := range t.Nodes {
 		n.Children = removeStr(n.Children, id)

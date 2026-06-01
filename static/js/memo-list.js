@@ -188,6 +188,10 @@ function _undoMemoDelete() {
 
 // グローバル Ctrl+Z / Cmd+Z. Monaco editor / input / textarea のフォーカス中は
 // 元の undo に譲り、それ以外で _memoListUndoSnapshot があるときだけ発火する。
+// snapshot が無い場合は何もせず後続 listener (app.js の /api/graph/undo) に処理を渡す
+// → ノード削除等の graph 操作は従来通り undo できる。
+// snapshot がある場合は stopImmediatePropagation で graph undo が同時発火するのを防ぐ
+// (memo restore + graph rollback の二重実行を回避)。
 document.addEventListener('keydown', e => {
   if (e.key !== 'z' || !(e.ctrlKey || e.metaKey) || e.shiftKey) return;
   if (typeof monacoEditor !== 'undefined' && monacoEditor?.hasTextFocus?.()) return;
@@ -195,6 +199,7 @@ document.addEventListener('keydown', e => {
   if (tag === 'INPUT' || tag === 'TEXTAREA') return;
   if (_memoListUndoSnapshot) {
     e.preventDefault();
+    e.stopImmediatePropagation();
     _undoMemoDelete();
   }
 });
