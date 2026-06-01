@@ -310,8 +310,11 @@ addEventListener('DOMContentLoaded', async () => {
   id('root-label').title = (projectRoot || '未設定') + ' (クリックで変更)';
   id('root-label').onclick = showRootDialog;
 
-  const rootOk = await fetch('/api/dirs').then(r=>r.json()).catch(()=>null);
-  if(!rootOk || rootOk.length === 0) showRootDialog();
+  // 起動時に root が設定されているかだけ確認する。/api/dirs は full dir walk なので
+  // 巨大プロジェクトや AV ありの環境で startup を秒オーダーで止める。/api/root は
+  // in-memory 文字列を返すだけなので瞬時。
+  const rootRes = await fetch('/api/root').then(r=>r.json()).catch(()=>null);
+  if(!rootRes || !rootRes.root) showRootDialog();
 
   // URL モードに応じたレイアウト適用
   if(pageMode === PAGE_MODES.PANEL) {
