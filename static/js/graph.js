@@ -21,6 +21,18 @@ function applyGraphResponse(g) {
     Object.assign(existing, g.line_memos);
     localStorage.setItem("grepnavi-line-memos", JSON.stringify(existing));
   }
+  // line memo の category / source も同じ key 体系で並列に取り込む。
+  // 旧 grepnavi (これらの map を返さない server) との互換のため optional 扱い。
+  if (g.line_memo_categories && typeof getLineMemoCategories === 'function') {
+    const existing = getLineMemoCategories();
+    Object.assign(existing, g.line_memo_categories);
+    localStorage.setItem("grepnavi-line-memo-categories", JSON.stringify(existing));
+  }
+  if (g.line_memo_sources && typeof getLineMemoSources === 'function') {
+    const existing = getLineMemoSources();
+    Object.assign(existing, g.line_memo_sources);
+    localStorage.setItem("grepnavi-line-memo-sources", JSON.stringify(existing));
+  }
   if (g.range_memos && Array.isArray(g.range_memos)) {
     const existing = getRangeMemos();
     const existingIds = new Set(existing.map(m => m.id));

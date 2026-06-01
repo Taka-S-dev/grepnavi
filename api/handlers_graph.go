@@ -368,15 +368,23 @@ func (h *Handler) handleGraphMemos(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		LineMemos  map[string]string `json:"line_memos"`
-		RangeMemos []graph.RangeMemo `json:"range_memos"`
-		Bookmarks  map[string]string `json:"bookmarks"`
+		LineMemos          map[string]string `json:"line_memos"`
+		LineMemoCategories map[string]string `json:"line_memo_categories"`
+		LineMemoSources    map[string]string `json:"line_memo_sources"`
+		RangeMemos         []graph.RangeMemo `json:"range_memos"`
+		Bookmarks          map[string]string `json:"bookmarks"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonErr(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := h.store.UpdateMemos(req.LineMemos, req.RangeMemos, req.Bookmarks); err != nil {
+	if err := h.store.UpdateMemos(graph.MemoSnapshot{
+		LineMemos:          req.LineMemos,
+		LineMemoCategories: req.LineMemoCategories,
+		LineMemoSources:    req.LineMemoSources,
+		RangeMemos:         req.RangeMemos,
+		Bookmarks:          req.Bookmarks,
+	}); err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -397,12 +405,20 @@ func (h *Handler) handleGraphExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		LineMemos  map[string]string `json:"line_memos"`
-		RangeMemos []graph.RangeMemo `json:"range_memos"`
-		Bookmarks  map[string]string `json:"bookmarks"`
+		LineMemos          map[string]string `json:"line_memos"`
+		LineMemoCategories map[string]string `json:"line_memo_categories"`
+		LineMemoSources    map[string]string `json:"line_memo_sources"`
+		RangeMemos         []graph.RangeMemo `json:"range_memos"`
+		Bookmarks          map[string]string `json:"bookmarks"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
-	data, err := h.store.ExportJSON(req.LineMemos, req.RangeMemos, req.Bookmarks)
+	data, err := h.store.ExportJSON(graph.MemoSnapshot{
+		LineMemos:          req.LineMemos,
+		LineMemoCategories: req.LineMemoCategories,
+		LineMemoSources:    req.LineMemoSources,
+		RangeMemos:         req.RangeMemos,
+		Bookmarks:          req.Bookmarks,
+	})
 	if err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -452,10 +468,12 @@ func (h *Handler) handleGraphSaveAs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Path       string            `json:"path"`
-		LineMemos  map[string]string `json:"line_memos"`
-		RangeMemos []graph.RangeMemo `json:"range_memos"`
-		Bookmarks  map[string]string `json:"bookmarks"`
+		Path               string            `json:"path"`
+		LineMemos          map[string]string `json:"line_memos"`
+		LineMemoCategories map[string]string `json:"line_memo_categories"`
+		LineMemoSources    map[string]string `json:"line_memo_sources"`
+		RangeMemos         []graph.RangeMemo `json:"range_memos"`
+		Bookmarks          map[string]string `json:"bookmarks"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonErr(w, err.Error(), http.StatusBadRequest)
@@ -465,7 +483,13 @@ func (h *Handler) handleGraphSaveAs(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, "path is required", http.StatusBadRequest)
 		return
 	}
-	if err := h.store.SaveAs(req.Path, req.LineMemos, req.RangeMemos, req.Bookmarks); err != nil {
+	if err := h.store.SaveAs(req.Path, graph.MemoSnapshot{
+		LineMemos:          req.LineMemos,
+		LineMemoCategories: req.LineMemoCategories,
+		LineMemoSources:    req.LineMemoSources,
+		RangeMemos:         req.RangeMemos,
+		Bookmarks:          req.Bookmarks,
+	}); err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

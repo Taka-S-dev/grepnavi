@@ -1,5 +1,5 @@
 import { annotateMemo, likelyTrivial, inCallerSubtree } from "./client.js";
-import type { GrepnaviClient } from "./client.js";
+import type { GrepnaviClient, MemoCategory } from "./client.js";
 import { client } from "./shared.js";
 import type { BatchNodeInput, CallerTreeNode } from "./shared.js";
 
@@ -39,23 +39,41 @@ function lineMemoKey(file: string, line: number): string {
   return `${file}::${line}`;
 }
 
-export async function setLineMemo(file: string, line: number, memo: string) {
+export async function setLineMemo(
+  file: string,
+  line: number,
+  memo: string,
+  category: string = "draft",
+) {
   const g = await client.graph();
   const lineMemos = { ...(g.line_memos ?? {}) };
+  const lineMemoCategories = { ...(g.line_memo_categories ?? {}) };
+  const lineMemoSources = { ...(g.line_memo_sources ?? {}) };
   const rangeMemos = [...(g.range_memos ?? [])];
   const bookmarks = { ...(g.bookmarks ?? {}) };
   const key = lineMemoKey(file, line);
   const had = key in lineMemos;
   if (memo === "") {
     delete lineMemos[key];
+    delete lineMemoCategories[key];
+    delete lineMemoSources[key];
   } else {
     // 新規 / 上書きの memo にだけ annotate (既存 memo は触らない)
     lineMemos[key] = annotateMemo(memo) ?? memo;
+    lineMemoCategories[key] = category;
+    lineMemoSources[key] = "ai";
   }
-  await client.writeMemos(lineMemos, rangeMemos, bookmarks);
+  await client.writeMemos(
+    lineMemos,
+    rangeMemos,
+    bookmarks,
+    lineMemoCategories,
+    lineMemoSources,
+  );
   return {
     file,
     line,
+    category,
     deleted: memo === "" && had,
     set: memo !== "",
     total_line_memos: Object.keys(lineMemos).length,
@@ -70,11 +88,15 @@ export async function setRangeMemo(args: {
   id?: string;
   start_col?: number;
   end_col?: number;
+  category?: string;
 }) {
   const g = await client.graph();
   const lineMemos = { ...(g.line_memos ?? {}) };
+  const lineMemoCategories = { ...(g.line_memo_categories ?? {}) };
+  const lineMemoSources = { ...(g.line_memo_sources ?? {}) };
   const rangeMemos = [...(g.range_memos ?? [])];
   const bookmarks = { ...(g.bookmarks ?? {}) };
+  const category = args.category ?? "draft";
 
   let resultId = args.id;
   let action: "created" | "updated" | "deleted" = "created";
@@ -94,6 +116,8 @@ export async function setRangeMemo(args: {
         start_col: args.start_col ?? rangeMemos[idx].start_col,
         end_col: args.end_col ?? rangeMemos[idx].end_col,
         memo: annotateMemo(args.memo) ?? args.memo,
+        category: category as MemoCategory,
+        source: "ai" as const,
       };
       action = "updated";
     }
@@ -111,11 +135,19 @@ export async function setRangeMemo(args: {
       end_line: args.end_line,
       end_col: args.end_col ?? 9999,
       memo: annotateMemo(args.memo) ?? args.memo,
+      category: category as MemoCategory,
+      source: "ai" as const,
     });
   }
 
-  await client.writeMemos(lineMemos, rangeMemos, bookmarks);
-  return { id: resultId, action, total_range_memos: rangeMemos.length };
+  await client.writeMemos(
+    lineMemos,
+    rangeMemos,
+    bookmarks,
+    lineMemoCategories,
+    lineMemoSources,
+  );
+  return { id: resultId, action, category, total_range_memos: rangeMemos.length };
 }
 
 // callers の再帰展開。各 caller の `func` 名で更に callers を引く。
@@ -280,12 +312,20 @@ export async function addNodesBatch(nodes: BatchNodeInput[]): Promise<{
 export async function listMemos(file?: string) {
   const g = await client.graph();
   const lineMemos = g.line_memos ?? {};
+  const lineCategories = g.line_memo_categories ?? {};
+  const lineSources = g.line_memo_sources ?? {};
   const rangeMemos = g.range_memos ?? [];
   const lineList = Object.entries(lineMemos)
     .filter(([key]) => !file || key.startsWith(file + "::"))
     .map(([key, memo]) => {
       const idx = key.lastIndexOf("::");
-      return { file: key.slice(0, idx), line: parseInt(key.slice(idx + 2), 10), memo };
+      return {
+        file: key.slice(0, idx),
+        line: parseInt(key.slice(idx + 2), 10),
+        memo,
+        category: lineCategories[key] || undefined,
+        source: lineSources[key] || undefined,
+      };
     });
   const rangeList = rangeMemos.filter((m) => !file || m.file === file);
   return {

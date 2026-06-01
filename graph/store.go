@@ -128,19 +128,21 @@ func (s *Store) treeMetas() []TreeMeta {
 
 func (s *Store) buildResponse(t *Tree) *GraphResponse {
 	return &GraphResponse{
-		ID:           t.ID,
-		Name:         t.Name,
-		Nodes:        t.Nodes,
-		Edges:        t.Edges,
-		RootDir:      s.pf.RootDir,
-		FilePath:     s.filePath,
-		UpdatedAt:    t.UpdatedAt,
-		Trees:        s.treeMetas(),
-		ActiveTreeID: s.pf.ActiveTreeID,
-		LineMemos:    s.pf.LineMemos,
-		RangeMemos:   s.pf.RangeMemos,
-		Bookmarks:    s.pf.Bookmarks,
-		RootOrder:    t.RootOrder,
+		ID:                 t.ID,
+		Name:               t.Name,
+		Nodes:              t.Nodes,
+		Edges:              t.Edges,
+		RootDir:            s.pf.RootDir,
+		FilePath:           s.filePath,
+		UpdatedAt:          t.UpdatedAt,
+		Trees:              s.treeMetas(),
+		ActiveTreeID:       s.pf.ActiveTreeID,
+		LineMemos:          s.pf.LineMemos,
+		LineMemoCategories: s.pf.LineMemoCategories,
+		LineMemoSources:    s.pf.LineMemoSources,
+		RangeMemos:         s.pf.RangeMemos,
+		Bookmarks:          s.pf.Bookmarks,
+		RootOrder:          t.RootOrder,
 	}
 }
 
@@ -513,21 +515,35 @@ func isDescendantRec(t *Tree, target, root string, visited map[string]bool) bool
 
 // ===== プロジェクトファイル保存/読み込み =====
 
-func (s *Store) UpdateMemos(lineMemos map[string]string, rangeMemos []RangeMemo, bookmarks map[string]string) error {
+// MemoSnapshot は line / range memo の状態をまとめたもの。
+// UpdateMemos / SaveAs / ExportJSON で受け渡す。
+type MemoSnapshot struct {
+	LineMemos          map[string]string
+	LineMemoCategories map[string]string
+	LineMemoSources    map[string]string
+	RangeMemos         []RangeMemo
+	Bookmarks          map[string]string
+}
+
+func (s *Store) UpdateMemos(m MemoSnapshot) error {
 	s.mu.Lock()
-	s.pf.LineMemos = lineMemos
-	s.pf.RangeMemos = rangeMemos
-	s.pf.Bookmarks = bookmarks
+	s.pf.LineMemos = m.LineMemos
+	s.pf.LineMemoCategories = m.LineMemoCategories
+	s.pf.LineMemoSources = m.LineMemoSources
+	s.pf.RangeMemos = m.RangeMemos
+	s.pf.Bookmarks = m.Bookmarks
 	s.mu.Unlock()
 	return s.save()
 }
 
-func (s *Store) SaveAs(path string, lineMemos map[string]string, rangeMemos []RangeMemo, bookmarks map[string]string) error {
+func (s *Store) SaveAs(path string, m MemoSnapshot) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.pf.LineMemos = lineMemos
-	s.pf.RangeMemos = rangeMemos
-	s.pf.Bookmarks = bookmarks
+	s.pf.LineMemos = m.LineMemos
+	s.pf.LineMemoCategories = m.LineMemoCategories
+	s.pf.LineMemoSources = m.LineMemoSources
+	s.pf.RangeMemos = m.RangeMemos
+	s.pf.Bookmarks = m.Bookmarks
 	s.pf.UpdatedAt = time.Now()
 	data, err := json.MarshalIndent(s.pf, "", "  ")
 	if err != nil {
@@ -558,13 +574,15 @@ func (s *Store) OpenFile(path string) (*GraphResponse, error) {
 }
 
 // ExportJSON は現在のプロジェクトを JSON バイト列として返す（ファイル書き込みなし）。
-func (s *Store) ExportJSON(lineMemos map[string]string, rangeMemos []RangeMemo, bookmarks map[string]string) ([]byte, error) {
+func (s *Store) ExportJSON(m MemoSnapshot) ([]byte, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	pf := *s.pf
-	pf.LineMemos = lineMemos
-	pf.RangeMemos = rangeMemos
-	pf.Bookmarks = bookmarks
+	pf.LineMemos = m.LineMemos
+	pf.LineMemoCategories = m.LineMemoCategories
+	pf.LineMemoSources = m.LineMemoSources
+	pf.RangeMemos = m.RangeMemos
+	pf.Bookmarks = m.Bookmarks
 	pf.UpdatedAt = time.Now()
 	return json.MarshalIndent(&pf, "", "  ")
 }

@@ -69,6 +69,15 @@ type Tree struct {
 	UpdatedAt time.Time        `json:"updated_at"`
 }
 
+// Category / Source は line memo / range memo の分類軸。
+// Category: "draft" / "ok" / "warn" / "error" / "note" / "" (未設定)
+// Source:   "ai" / "user" / "" (未設定 = 旧データ互換、user 扱い)
+//
+// LineMemoCategories / LineMemoSources は LineMemos と key 共通 ("file::line") で
+// 並列に保持する。値が空 / map に key 無し なら未設定扱い。
+// 構造体化せず並列 map にした理由: 既存 graph.json との後方互換 (旧 grepnavi
+// でも読み書き可能) と、フィールド追加の容易さ。
+
 // RangeMemo は範囲メモの1件分。
 type RangeMemo struct {
 	ID        string `json:"id"`
@@ -78,18 +87,22 @@ type RangeMemo struct {
 	EndLine   int    `json:"end_line"`
 	EndCol    int    `json:"end_col"`
 	Memo      string `json:"memo"`
+	Category  string `json:"category,omitempty"`
+	Source    string `json:"source,omitempty"`
 }
 
 // ProjectFile はプロジェクトファイルのトップレベル構造（複数ツリー対応）。
 type ProjectFile struct {
-	Version      int               `json:"version"`
-	RootDir      string            `json:"root_dir"`
-	ActiveTreeID string            `json:"active_tree_id"`
-	Trees        []*Tree           `json:"trees"`
-	LineMemos    map[string]string `json:"line_memos,omitempty"`
-	RangeMemos   []RangeMemo       `json:"range_memos,omitempty"`
-	Bookmarks    map[string]string `json:"bookmarks,omitempty"`
-	UpdatedAt    time.Time         `json:"updated_at"`
+	Version            int               `json:"version"`
+	RootDir            string            `json:"root_dir"`
+	ActiveTreeID       string            `json:"active_tree_id"`
+	Trees              []*Tree           `json:"trees"`
+	LineMemos          map[string]string `json:"line_memos,omitempty"`
+	LineMemoCategories map[string]string `json:"line_memo_categories,omitempty"`
+	LineMemoSources    map[string]string `json:"line_memo_sources,omitempty"`
+	RangeMemos         []RangeMemo       `json:"range_memos,omitempty"`
+	Bookmarks          map[string]string `json:"bookmarks,omitempty"`
+	UpdatedAt          time.Time         `json:"updated_at"`
 }
 
 // TreeMeta はツリー一覧用の軽量メタデータ。
@@ -100,19 +113,21 @@ type TreeMeta struct {
 
 // GraphResponse はアクティブツリーの API レスポンス。
 type GraphResponse struct {
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	Nodes        map[string]*Node  `json:"nodes"`
-	Edges        []*Edge           `json:"edges"`
-	RootDir      string            `json:"root_dir"`
-	FilePath     string            `json:"file_path"`
-	UpdatedAt    time.Time         `json:"updated_at"`
-	Trees        []TreeMeta        `json:"trees"`
-	ActiveTreeID string            `json:"active_tree_id"`
-	LineMemos    map[string]string `json:"line_memos,omitempty"`
-	RangeMemos   []RangeMemo       `json:"range_memos,omitempty"`
-	Bookmarks    map[string]string `json:"bookmarks,omitempty"`
-	RootOrder    []string          `json:"root_order,omitempty"`
+	ID                 string            `json:"id"`
+	Name               string            `json:"name"`
+	Nodes              map[string]*Node  `json:"nodes"`
+	Edges              []*Edge           `json:"edges"`
+	RootDir            string            `json:"root_dir"`
+	FilePath           string            `json:"file_path"`
+	UpdatedAt          time.Time         `json:"updated_at"`
+	Trees              []TreeMeta        `json:"trees"`
+	ActiveTreeID       string            `json:"active_tree_id"`
+	LineMemos          map[string]string `json:"line_memos,omitempty"`
+	LineMemoCategories map[string]string `json:"line_memo_categories,omitempty"`
+	LineMemoSources    map[string]string `json:"line_memo_sources,omitempty"`
+	RangeMemos         []RangeMemo       `json:"range_memos,omitempty"`
+	Bookmarks          map[string]string `json:"bookmarks,omitempty"`
+	RootOrder          []string          `json:"root_order,omitempty"`
 }
 
 func NewProjectFile(rootDir string) *ProjectFile {

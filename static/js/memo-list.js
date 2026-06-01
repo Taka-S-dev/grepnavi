@@ -6,8 +6,15 @@
 let _memoListOpen = false;
 let _memoListFilter = '';
 let _memoListTypeFilter = new Set();
+// category / source フィルタ。値: Set<"draft"|"ok"|"warn"|"error"|"note"|"none">
+// "none" は category 未設定 (旧メモ) を表す。空 Set = 全て表示。
+let _memoListCategoryFilter = new Set();
+let _memoListSourceFilter = new Set();
 let _memoListSelectedId = null;
 let _memoListNavAbort = null;
+// bulk delete の undo 用 snapshot。30 秒以内に「元に戻す」されたら復元する。
+let _memoListUndoTimer = null;
+let _memoListUndoSnapshot = null;
 
 function getMemoListOrder() {
   try { return JSON.parse(localStorage.getItem('grepnavi-memo-list-order') || 'null'); } catch { return null; }
@@ -24,6 +31,8 @@ function saveMemoGroups(arr) {
 
 function getAllMemosOrdered() {
   const lineMemos = getLineMemos();
+  const lineCats = typeof getLineMemoCategories === 'function' ? getLineMemoCategories() : {};
+  const lineSrcs = typeof getLineMemoSources === 'function' ? getLineMemoSources() : {};
   const rangeMemos = getRangeMemos();
   const items = [];
 
@@ -31,10 +40,20 @@ function getAllMemosOrdered() {
     const idx = key.lastIndexOf('::');
     const file = key.substring(0, idx);
     const line = parseInt(key.substring(idx + 2));
-    items.push({ kind: 'line', id: 'line::' + key, file, line, memo });
+    items.push({
+      kind: 'line', id: 'line::' + key, file, line, memo,
+      category: lineCats[key] || '',
+      source: lineSrcs[key] || '',
+    });
   }
   for (const m of rangeMemos) {
-    items.push({ kind: 'range', id: 'range::' + m.id, file: m.file, line: m.startLine, endLine: m.endLine, memo: m.memo, _rangeId: m.id });
+    items.push({
+      kind: 'range', id: 'range::' + m.id,
+      file: m.file, line: m.startLine, endLine: m.endLine, memo: m.memo,
+      category: m.category || '',
+      source: m.source || '',
+      _rangeId: m.id,
+    });
   }
 
   const bookmarks = typeof getBookmarks === 'function' ? getBookmarks() : {};
@@ -83,15 +102,117 @@ function getAllMemosOrdered() {
   return items;
 }
 
+// 削除直前の line / range memo 状態を 1 段スナップショットに取り、Ctrl+Z または
+// undo トーストで復元する。stack 化はせず、最後の 1 操作だけ戻せる仕様。
+function _captureMemoSnapshot() {
+  return {
+    lineMemos:  { ...getLineMemos() },
+    lineCats:   { ...(typeof getLineMemoCategories === 'function' ? getLineMemoCategories() : {}) },
+    lineSrcs:   { ...(typeof getLineMemoSources === 'function' ? getLineMemoSources() : {}) },
+    rangeMemos: getRangeMemos().slice(),
+  };
+}
+
+function _restoreMemoSnapshot(s) {
+  localStorage.setItem('grepnavi-line-memos', JSON.stringify(s.lineMemos));
+  localStorage.setItem('grepnavi-line-memo-categories', JSON.stringify(s.lineCats));
+  localStorage.setItem('grepnavi-line-memo-sources', JSON.stringify(s.lineSrcs));
+  saveRangeMemos(s.rangeMemos);
+  if (typeof refreshLineMemoDecorations === 'function')  refreshLineMemoDecorations();
+  if (typeof refreshRangeMemoDecorations === 'function') refreshRangeMemoDecorations();
+  renderMemoList();
+}
+
+async function _bulkDeleteDrafts() {
+  const items = getAllMemosOrdered().filter(it => (it.category || '') === 'draft');
+  const count = items.length;
+  if (count === 0) {
+    if (typeof showAlert === 'function') await showAlert('draft カテゴリのメモはありません');
+    return;
+  }
+  const proceed = typeof showConfirm === 'function'
+    ? await showConfirm(`draft カテゴリのメモ ${count} 件を削除しますか？\n30 秒以内なら Ctrl+Z またはトーストから元に戻せます。`, { danger: true })
+    : true;
+  if (!proceed) return;
+
+  _memoListUndoSnapshot = _captureMemoSnapshot();
+  const lineMemos = getLineMemos();
+  const lineCats  = typeof getLineMemoCategories === 'function' ? getLineMemoCategories() : {};
+  const lineSrcs  = typeof getLineMemoSources === 'function' ? getLineMemoSources() : {};
+  Object.keys(lineCats).forEach(k => {
+    if (lineCats[k] === 'draft') {
+      delete lineMemos[k];
+      delete lineCats[k];
+      delete lineSrcs[k];
+    }
+  });
+  localStorage.setItem('grepnavi-line-memos', JSON.stringify(lineMemos));
+  localStorage.setItem('grepnavi-line-memo-categories', JSON.stringify(lineCats));
+  localStorage.setItem('grepnavi-line-memo-sources', JSON.stringify(lineSrcs));
+  const ranges = getRangeMemos().filter(m => (m.category || '') !== 'draft');
+  saveRangeMemos(ranges);
+  if (typeof refreshLineMemoDecorations === 'function') refreshLineMemoDecorations();
+  if (typeof refreshRangeMemoDecorations === 'function') refreshRangeMemoDecorations();
+  renderMemoList();
+  _showUndoToast(`draft メモ ${count} 件を削除`);
+}
+
+// トーストは短く (視覚 feedback のみ)、undo snapshot は長めに (Ctrl+Z 用)。
+// 分離することで toast 消えたあとも Ctrl+Z で戻せる window を残す。
+const _TOAST_DURATION_MS    = 5000;
+const _SNAPSHOT_DURATION_MS = 30000;
+
+let _memoListToastTimer = null;
+function _showUndoToast(label) {
+  document.getElementById('memo-undo-toast')?.remove();
+  clearTimeout(_memoListToastTimer);
+  clearTimeout(_memoListUndoTimer);
+  const toast = document.createElement('div');
+  toast.id = 'memo-undo-toast';
+  toast.innerHTML = `<span>🗑 ${esc(label)}</span>` +
+                    `<button id="memo-undo-btn" title="Ctrl+Z でも可">元に戻す</button>`;
+  document.body.appendChild(toast);
+  document.getElementById('memo-undo-btn').onclick = _undoMemoDelete;
+  _memoListToastTimer = setTimeout(() => toast.remove(), _TOAST_DURATION_MS);
+  _memoListUndoTimer  = setTimeout(() => { _memoListUndoSnapshot = null; }, _SNAPSHOT_DURATION_MS);
+}
+
+function _undoMemoDelete() {
+  if (!_memoListUndoSnapshot) return;
+  _restoreMemoSnapshot(_memoListUndoSnapshot);
+  clearTimeout(_memoListUndoTimer);
+  clearTimeout(_memoListToastTimer);
+  document.getElementById('memo-undo-toast')?.remove();
+  _memoListUndoSnapshot = null;
+}
+
+// グローバル Ctrl+Z / Cmd+Z. Monaco editor / input / textarea のフォーカス中は
+// 元の undo に譲り、それ以外で _memoListUndoSnapshot があるときだけ発火する。
+document.addEventListener('keydown', e => {
+  if (e.key !== 'z' || !(e.ctrlKey || e.metaKey) || e.shiftKey) return;
+  if (typeof monacoEditor !== 'undefined' && monacoEditor?.hasTextFocus?.()) return;
+  const tag = document.activeElement?.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+  if (_memoListUndoSnapshot) {
+    e.preventDefault();
+    _undoMemoDelete();
+  }
+});
+
 function _deleteMemoItem(item) {
   // ノードは graph 側のライフサイクルで管理。マーク一覧からは削除不可。
   if (item.kind === 'node') return;
+  // bookmark は別 storage で undo 経路の対象外 (line/range memo のみ undo 対応)。
   if (item.kind === 'bookmark') {
     const key = item.id.slice('bookmark::'.length);
     const idx = key.lastIndexOf('::');
     setBookmark(key.substring(0, idx), parseInt(key.substring(idx + 2)), false);
     if (typeof refreshBookmarkDecorations === 'function') refreshBookmarkDecorations();
-  } else if (item.kind === 'line') {
+    renderMemoList();
+    return;
+  }
+  _memoListUndoSnapshot = _captureMemoSnapshot();
+  if (item.kind === 'line') {
     const key = item.id.slice('line::'.length);
     const idx = key.lastIndexOf('::');
     setLineMemo(key.substring(0, idx), parseInt(key.substring(idx + 2)), '');
@@ -102,6 +223,8 @@ function _deleteMemoItem(item) {
     refreshRangeMemoDecorations();
   }
   renderMemoList();
+  const preview = (item.memo || '').replace(/\s+/g, ' ').slice(0, 30);
+  _showUndoToast(`「${preview}${(item.memo || '').length > 30 ? '…' : ''}」を削除`);
 }
 
 function _saveMemoItemText(item, newText) {
@@ -197,6 +320,64 @@ function renderMemoList() {
       typeBar.appendChild(btn);
     });
     panel.appendChild(typeBar);
+
+    // category フィルタ + source フィルタ + bulk delete (draft) を集約したバー
+    const catBar = document.createElement('div');
+    catBar.id = 'memo-list-cat-bar';
+    const catButtons = [
+      { cat: 'draft', label: 'draft', title: 'draft (AI 一時メモ・削除候補)' },
+      { cat: 'ok',    label: 'ok',    title: 'ok (確認済み)' },
+      { cat: 'warn',  label: 'warn',  title: 'warn (注意)' },
+      { cat: 'error', label: 'error', title: 'error (バグ・危険)' },
+      { cat: 'note',  label: 'note',  title: 'note (一般メモ)' },
+    ];
+    catButtons.forEach(({ cat, label, title }) => {
+      const btn = document.createElement('button');
+      btn.className = `memo-cat-btn memo-cat-btn-${cat}`;
+      btn.dataset.cat = cat;
+      btn.title = title;
+      btn.textContent = label;
+      btn.classList.toggle('active', _memoListCategoryFilter.has(cat));
+      btn.onclick = () => {
+        if (_memoListCategoryFilter.has(cat)) _memoListCategoryFilter.delete(cat);
+        else _memoListCategoryFilter.add(cat);
+        btn.classList.toggle('active', _memoListCategoryFilter.has(cat));
+        _renderMemoListBody(getAllMemosOrdered());
+      };
+      catBar.appendChild(btn);
+    });
+    const sep = document.createElement('span');
+    sep.className = 'memo-cat-bar-sep';
+    catBar.appendChild(sep);
+    [
+      { src: 'ai',   label: 'AI',   title: 'AI が付けたメモのみ' },
+      { src: 'user', label: 'User', title: '手動で付けたメモのみ' },
+    ].forEach(({ src, label, title }) => {
+      const btn = document.createElement('button');
+      btn.className = `memo-src-btn memo-src-btn-${src}`;
+      btn.dataset.src = src;
+      btn.title = title;
+      btn.textContent = label;
+      btn.classList.toggle('active', _memoListSourceFilter.has(src));
+      btn.onclick = () => {
+        if (_memoListSourceFilter.has(src)) _memoListSourceFilter.delete(src);
+        else _memoListSourceFilter.add(src);
+        btn.classList.toggle('active', _memoListSourceFilter.has(src));
+        _renderMemoListBody(getAllMemosOrdered());
+      };
+      catBar.appendChild(btn);
+    });
+    const sep2 = document.createElement('span');
+    sep2.className = 'memo-cat-bar-sep';
+    catBar.appendChild(sep2);
+    const bulkBtn = document.createElement('button');
+    bulkBtn.id = 'memo-list-bulk-del-drafts';
+    bulkBtn.className = 'memo-bulk-btn';
+    bulkBtn.textContent = '🗑 draft 全削除';
+    bulkBtn.title = 'カテゴリ "draft" のメモを一括削除 (確認 dialog あり)';
+    bulkBtn.onclick = _bulkDeleteDrafts;
+    catBar.appendChild(bulkBtn);
+    panel.appendChild(catBar);
 
     // リスト本体
     const body = document.createElement('div');
@@ -374,18 +555,28 @@ function _makeMemoRow(item) {
     : item.kind === 'node'  ? '◎' : '✎';
   const row = document.createElement('div');
   const isBm = item.kind === 'bookmark';
-  row.className = 'memo-list-item' + (_memoListSelectedId === item.id ? ' memo-list-selected' : '');
+  const catClass = item.category ? ` memo-list-item-${item.category}` : '';
+  const srcClass = item.source === 'ai' ? ' memo-list-item-ai' : '';
+  row.className = 'memo-list-item' + catClass + srcClass +
+                  (_memoListSelectedId === item.id ? ' memo-list-selected' : '');
   row.draggable = true;
   row.dataset.id = item.id;
   row.dataset.file = item.file;
   row.dataset.line = item.line;
+  if (item.category) row.dataset.category = item.category;
+  if (item.source)   row.dataset.source   = item.source;
   const textContent = isBm ? esc((item.memo || '').substring(0, 60)) : esc(memoPreview);
+  // node memo はマーク一覧から削除不可 (graph 側ライフサイクル) なので、
+  // 誤クリック防止のため削除ボタン自体を出さない。
+  const delBtn = item.kind === 'node'
+    ? ''
+    : `<button class="memo-list-del" title="削除"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><polyline points="2,4 14,4"/><path d="M5 4V2h6v2"/><path d="M3 4l1 10h8l1-10"/></svg></button>`;
   row.innerHTML =
     `<span class="memo-list-drag" title="ドラッグして並べ替え">⠿</span>` +
     `<span class="memo-list-icon">${icon}</span>` +
     `<span class="memo-list-loc" title="${esc(item.file)}">${esc(fileName)}<span class="memo-list-lineno">:${lineLabel}</span></span>` +
     `<span class="memo-list-text" ${isBm ? 'style="color:#666"' : ''}>${textContent}</span>` +
-    `<button class="memo-list-del" title="削除"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><polyline points="2,4 14,4"/><path d="M5 4V2h6v2"/><path d="M3 4l1 10h8l1-10"/></svg></button>`;
+    delBtn;
   row.addEventListener('click', e => {
     if (e.target.closest('.memo-list-drag') || e.target.closest('.memo-list-del')) return;
     _showMemoPreview(item);
@@ -394,7 +585,7 @@ function _makeMemoRow(item) {
     if (e.target.closest('.memo-list-drag') || e.target.closest('.memo-list-del')) return;
     openPeek(item.file, item.line).then(() => monacoEditor?.focus());
   });
-  row.querySelector('.memo-list-del').addEventListener('click', e => {
+  row.querySelector('.memo-list-del')?.addEventListener('click', e => {
     e.stopPropagation();
     _deleteMemoItem(item);
     if (_memoListSelectedId === item.id) {
@@ -411,9 +602,21 @@ function _renderMemoListBody(allItems) {
   if (!body) return;
   const q = _memoListFilter.toLowerCase();
   const tf = _memoListTypeFilter;
+  const cf = _memoListCategoryFilter;
+  const sf = _memoListSourceFilter;
 
   const filtered = allItems.filter(it => {
     if (tf.size > 0 && !tf.has(it.kind)) return false;
+    if (cf.size > 0) {
+      // category 未設定 (旧メモ) は "none" 扱い。filter に "none" が無いと外す。
+      const cat = it.category || 'none';
+      if (!cf.has(cat)) return false;
+    }
+    if (sf.size > 0) {
+      // source 未設定は "user" 扱い (旧メモ・GUI 手動メモは概ね user)。
+      const src = it.source || 'user';
+      if (!sf.has(src)) return false;
+    }
     if (!q) return true;
     return it.memo.toLowerCase().includes(q) ||
            it.file.replace(/\\/g, '/').split('/').pop().toLowerCase().includes(q);

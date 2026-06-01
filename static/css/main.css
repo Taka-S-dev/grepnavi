@@ -205,8 +205,28 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .line-memo-inline{color:#666;font-style:italic}
 .line-memo-overlay-item{color:#7a7a7a;font-style:italic;font-family:Consolas,monospace;white-space:nowrap;pointer-events:none;max-width:80ch;overflow:hidden;text-overflow:ellipsis}
 .line-memo-glyph{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M10 3l3 3-7 7H3v-3z' fill='none' stroke='%23999' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") center/12px no-repeat}
+/* line memo の category 別アクセント。
+   - draft : 透明度を下げて「下書き」を表現 (AI 雑メモのデフォルト)
+   - ok    : 緑系 - 確認済み・安全
+   - warn  : 黄系 - 注意
+   - error : 赤系 - バグ・危険
+   - note  : 青系 - 一般メモ (GUI のデフォルト)
+   glyph の右端に 3px の縦カラーストライプを足して category を一目で判別。
+   背景色は塗らない (line 全体が塗られるとコードが読みにくくなる)。 */
+.line-memo-glyph-draft{opacity:0.5}
+.line-memo-glyph-ok    { box-shadow: inset -3px 0 0 #6fb56f; }
+.line-memo-glyph-warn  { box-shadow: inset -3px 0 0 #c2a76d; }
+.line-memo-glyph-error { box-shadow: inset -3px 0 0 #c66; }
+.line-memo-glyph-note  { box-shadow: inset -3px 0 0 #6a8db5; }
 .bookmark-glyph{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M5 2h6a1 1 0 0 1 1 1v10l-4-2.5L4 13V3a1 1 0 0 1 1-1z' fill='none' stroke='%23888' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") center/12px no-repeat}
 .range-memo-highlight{background:rgba(255,60,60,0.18);border-bottom:2px solid rgba(255,80,80,0.7)}
+/* range memo の category 別。draft は半透明、ok/warn/error/note は色味で差別化。
+   line memo と違って range memo は範囲明示的なので背景 tint OK。 */
+.range-memo-highlight-draft { background: rgba(120,120,120,0.10); border-bottom: 1px dashed rgba(180,180,180,0.6); }
+.range-memo-highlight-ok    { background: rgba(111,181,111,0.16); border-bottom: 2px solid rgba(111,181,111,0.7); }
+.range-memo-highlight-warn  { background: rgba(194,167,109,0.18); border-bottom: 2px solid rgba(194,167,109,0.7); }
+.range-memo-highlight-error { background: rgba(204,102,102,0.18); border-bottom: 2px solid rgba(204,102,102,0.7); }
+.range-memo-highlight-note  { background: rgba(106,141,181,0.16); border-bottom: 2px solid rgba(106,141,181,0.7); }
 .range-memo-overlay-item{color:#cc4444;font-style:normal;background:#2d1010;border:1px solid #7a2020;border-radius:3px;padding:0 6px}
 .ifdef-inactive-text{color:#4a4a4a!important;font-style:italic}
 /* ピン固定ハイライト (8色) */
@@ -874,6 +894,36 @@ body.calltree-mode #pane-left{display:none!important}
 .memo-type-btn{background:none;border:1px solid #3a3a3a;color:#666;cursor:pointer;font-size:12px;width:26px;height:22px;padding:0;border-radius:3px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .memo-type-btn:hover{border-color:#666;color:#ccc}
 .memo-type-btn.active{border-color:#007acc;color:#4fc3f7;background:rgba(0,122,204,0.15)}
+
+/* category / source 軸のフィルタチップ. memo-list-cat-bar 内に並ぶ. */
+#memo-list-cat-bar{display:flex;align-items:center;gap:3px;padding:3px 8px;border-bottom:1px solid #333;flex-shrink:0;flex-wrap:wrap}
+.memo-cat-btn,.memo-src-btn{background:none;border:1px solid #3a3a3a;color:#777;cursor:pointer;font-size:10px;padding:1px 6px;border-radius:3px;flex-shrink:0;font-family:Consolas,monospace}
+.memo-cat-btn:hover,.memo-src-btn:hover{border-color:#666;color:#ccc}
+.memo-cat-btn.active{color:#ccc}
+.memo-cat-btn-draft.active{border-color:#888;background:rgba(120,120,120,0.18)}
+.memo-cat-btn-ok.active   {border-color:#6fb56f;background:rgba(111,181,111,0.18);color:#9fd09f}
+.memo-cat-btn-warn.active {border-color:#c2a76d;background:rgba(194,167,109,0.18);color:#d4bf91}
+.memo-cat-btn-error.active{border-color:#c66;background:rgba(204,102,102,0.18);color:#e09797}
+.memo-cat-btn-note.active {border-color:#6a8db5;background:rgba(106,141,181,0.18);color:#9fb8d7}
+.memo-src-btn.active{border-color:#007acc;color:#4fc3f7;background:rgba(0,122,204,0.15)}
+.memo-cat-bar-sep{width:1px;height:14px;background:#3a3a3a;margin:0 4px}
+.memo-bulk-btn{background:rgba(204,102,102,0.10);border:1px solid #663030;color:#cc8a8a;cursor:pointer;font-size:10px;padding:1px 8px;border-radius:3px;margin-left:auto;font-family:inherit}
+.memo-bulk-btn:hover{background:rgba(204,102,102,0.20);border-color:#a33;color:#e09797}
+
+/* memo-list-item の category 別アクセント. 左端に 3px のカラーストライプを足す. */
+.memo-list-item-draft{opacity:0.6}
+.memo-list-item-ok    { box-shadow: inset 3px 0 0 #6fb56f; }
+.memo-list-item-warn  { box-shadow: inset 3px 0 0 #c2a76d; }
+.memo-list-item-error { box-shadow: inset 3px 0 0 #c66; }
+.memo-list-item-note  { box-shadow: inset 3px 0 0 #6a8db5; }
+/* AI source は text を italic にして「自動付与」と分かるようにする. */
+.memo-list-item-ai .memo-list-text{font-style:italic}
+
+/* bulk delete 後の undo トースト. 30 秒で自動消滅. */
+#memo-undo-toast{position:fixed;bottom:20px;right:20px;z-index:var(--z-modal-high);background:#2d2d2d;border:1px solid #555;border-radius:4px;padding:10px 14px;box-shadow:0 4px 16px rgba(0,0,0,0.6);display:flex;align-items:center;gap:12px;color:#ccc;font-size:12px;animation:memo-toast-in 0.2s ease-out}
+@keyframes memo-toast-in{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+#memo-undo-btn{background:#0e639c;border:1px solid #2a85c8;color:#fff;cursor:pointer;font-size:11px;padding:3px 10px;border-radius:3px}
+#memo-undo-btn:hover{background:#1f7ab8}
 #memo-list-filter-input{flex:1;background:#2a2a2a;border:1px solid #444;color:#ccc;font-size:11px;padding:3px 6px;border-radius:2px;outline:none}
 #memo-list-filter-input:focus{border-color:#007acc}
 #memo-list-filter-clear{background:none;border:none;color:#666;cursor:pointer;font-size:12px;padding:2px 4px;border-radius:2px}

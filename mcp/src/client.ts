@@ -53,6 +53,19 @@ export interface GraphNode {
   children: string[];
 }
 
+// MemoCategory: memo の意味分類。
+// - "draft" : AI が雑に貼って後で削除候補。bridge default。
+// - "ok"    : 確認済み・安全。
+// - "warn"  : 注意。
+// - "error" : バグ・危険。
+// - "note"  : 一般メモ。GUI default。
+export type MemoCategory = "draft" | "ok" | "warn" | "error" | "note";
+
+// MemoSource: 誰が memo を付けたか。
+// - "ai"   : MCP bridge 経由 (= AI)。bridge が自動セット。
+// - "user" : GUI からの手動操作。
+export type MemoSource = "ai" | "user";
+
 export interface RangeMemo {
   id: string;
   file: string;
@@ -61,6 +74,8 @@ export interface RangeMemo {
   end_line: number;
   end_col: number;
   memo: string;
+  category?: MemoCategory;
+  source?: MemoSource;
 }
 
 export interface GraphResponse {
@@ -71,6 +86,8 @@ export interface GraphResponse {
   root_dir: string;
   root_order?: string[];
   line_memos?: Record<string, string>;
+  line_memo_categories?: Record<string, string>;
+  line_memo_sources?: Record<string, string>;
   range_memos?: RangeMemo[];
   bookmarks?: Record<string, string>;
 }
@@ -478,11 +495,19 @@ export class GrepnaviClient {
     line_memos: Record<string, string>,
     range_memos: RangeMemo[],
     bookmarks: Record<string, string>,
+    line_memo_categories?: Record<string, string>,
+    line_memo_sources?: Record<string, string>,
   ): Promise<void> {
     await this.req("/api/graph/memos", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ line_memos, range_memos, bookmarks }),
+      body: JSON.stringify({
+        line_memos,
+        line_memo_categories,
+        line_memo_sources,
+        range_memos,
+        bookmarks,
+      }),
     });
   }
 }

@@ -177,6 +177,8 @@ function _scheduleMemoSave() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         line_memos: getLineMemos(),
+        line_memo_categories: getLineMemoCategories(),
+        line_memo_sources: getLineMemoSources(),
         range_memos: getRangeMemos(),
         bookmarks: getBookmarks(),
       }),
@@ -187,11 +189,32 @@ function _scheduleMemoSave() {
 function getLineMemos() {
   try { return JSON.parse(localStorage.getItem('grepnavi-line-memos') || '{}'); } catch { return {}; }
 }
-function setLineMemo(file, line, memo) {
+// line memo の分類軸 (key 共通: "file::line"):
+//   - categories: "draft" / "ok" / "warn" / "error" / "note" / undefined (旧メモ)
+//   - sources   : "ai" / "user" / undefined (旧メモ = user 扱い)
+function getLineMemoCategories() {
+  try { return JSON.parse(localStorage.getItem('grepnavi-line-memo-categories') || '{}'); } catch { return {}; }
+}
+function getLineMemoSources() {
+  try { return JSON.parse(localStorage.getItem('grepnavi-line-memo-sources') || '{}'); } catch { return {}; }
+}
+function setLineMemo(file, line, memo, category) {
   const memos = getLineMemos();
+  const cats = getLineMemoCategories();
+  const srcs = getLineMemoSources();
   const key = file + '::' + line;
-  if(memo) memos[key] = memo; else delete memos[key];
+  if(memo) {
+    memos[key] = memo;
+    cats[key] = category || cats[key] || 'note';
+    srcs[key] = srcs[key] || 'user';
+  } else {
+    delete memos[key];
+    delete cats[key];
+    delete srcs[key];
+  }
   localStorage.setItem('grepnavi-line-memos', JSON.stringify(memos));
+  localStorage.setItem('grepnavi-line-memo-categories', JSON.stringify(cats));
+  localStorage.setItem('grepnavi-line-memo-sources', JSON.stringify(srcs));
   _scheduleMemoSave();
 }
 
@@ -237,15 +260,22 @@ function refreshLineMemoDecorations() {
     return;
   }
   const memos = getLineMemos();
+  const cats = getLineMemoCategories();
   const decos = Object.entries(memos)
     .filter(([key]) => key.startsWith(file + '::'))
     .map(([key, memo]) => {
       const line = parseInt(key.split('::')[1]);
+      const cat = cats[key] || '';
+      // category 別に glyphMarginClassName を変える: line-memo-glyph に
+      // line-memo-glyph-<category> を追加して CSS で色付け / opacity 制御。
+      const glyphClass = cat
+        ? `line-memo-glyph line-memo-glyph-${cat}`
+        : 'line-memo-glyph';
       return {
         range: new monaco.Range(line, 1, line, 1),
         options: {
           isWholeLine: true,
-          glyphMarginClassName: 'line-memo-glyph',
+          glyphMarginClassName: glyphClass,
           glyphMarginHoverMessage: { value: '✎ ' + memo.split('\n').join('\n\n') },
         }
       };
@@ -324,9 +354,33 @@ function toggleLineMemoInline() {
   refreshLineMemoDecorations();
 }
 
+// memo 編集 popup の category 選択肢。null は「category 未設定 (= 旧メモ)」用。
+const _MEMO_CATEGORIES = [
+  { value: 'draft', label: '📝 draft' },
+  { value: 'ok',    label: '✓ ok'    },
+  { value: 'warn',  label: '⚠ warn'  },
+  { value: 'error', label: '✕ error' },
+  { value: 'note',  label: '📌 note' },
+];
+
+function _mkCategorySelect(currentCat) {
+  const sel = document.createElement('select');
+  sel.style.cssText = 'font-size:11px;background:#1a1a1a;color:#ccc;border:1px solid #444;border-radius:2px;padding:2px 4px;margin-right:auto';
+  _MEMO_CATEGORIES.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.value;
+    opt.textContent = c.label;
+    if (c.value === (currentCat || 'note')) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  return sel;
+}
+
 function showLineMemoInput(file, line) {
   document.getElementById('line-memo-popup')?.remove();
-  const current = getLineMemos()[file + '::' + line] || '';
+  const key = file + '::' + line;
+  const current = getLineMemos()[key] || '';
+  const currentCat = getLineMemoCategories()[key] || '';
   const popup = document.createElement('div');
   popup.id = 'line-memo-popup';
   popup.style.cssText = 'position:fixed;z-index:var(--z-autocomplete);background:#2d2d2d;border:1px solid #555;border-radius:4px;padding:8px;box-shadow:0 4px 12px rgba(0,0,0,0.6);width:300px';
@@ -341,23 +395,24 @@ function showLineMemoInput(file, line) {
   ta.style.cssText = 'width:100%;height:64px;background:#1a1a1a;border:1px solid #444;color:#ccc;font:11px Consolas,monospace;padding:4px;resize:vertical;box-sizing:border-box;border-radius:2px';
   ta.placeholder = 'Ctrl+Enter で保存 / Esc でキャンセル';
   const btnRow = document.createElement('div');
-  btnRow.style.cssText = 'display:flex;gap:4px;margin-top:6px;justify-content:flex-end';
+  btnRow.style.cssText = 'display:flex;gap:4px;margin-top:6px;justify-content:flex-end;align-items:center';
   const mkBtn = (label, bg) => {
     const b = document.createElement('button');
     b.textContent = label;
     b.style.cssText = `font-size:11px;padding:2px 8px;background:${bg};color:#ccc;border:1px solid #555;border-radius:2px;cursor:pointer`;
     return b;
   };
+  const catSel   = _mkCategorySelect(currentCat);
   const btnSave   = mkBtn('保存', '#0e639c');
   const btnDel    = mkBtn('削除', '#3c3c3c');
   const btnCancel = mkBtn('キャンセル', '#3c3c3c');
   btnDel.style.display = current ? '' : 'none';
-  btnRow.append(btnDel, btnCancel, btnSave);
+  btnRow.append(catSel, btnDel, btnCancel, btnSave);
   popup.append(ta, btnRow);
   document.body.appendChild(popup);
   ta.focus(); ta.select();
   const save = () => {
-    setLineMemo(file, line, ta.value.trim());
+    setLineMemo(file, line, ta.value.trim(), catSel.value);
     popup.remove();
     refreshLineMemoDecorations();
   };
@@ -391,13 +446,20 @@ function refreshRangeMemoDecorations() {
     return;
   }
   const memos = getRangeMemos().filter(m => m.file === file);
-  const decos = memos.map(m => ({
-    range: new monaco.Range(m.startLine, m.startCol, m.endLine, m.endCol),
-    options: {
-      className: 'range-memo-highlight',
-      stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
-    }
-  }));
+  const decos = memos.map(m => {
+    // category 別の背景色は range-memo-highlight に -<cat> サフィックスを追加して
+    // CSS で塗り分け。draft は opacity だけ落とす。
+    const cls = m.category
+      ? `range-memo-highlight range-memo-highlight-${m.category}`
+      : 'range-memo-highlight';
+    return {
+      range: new monaco.Range(m.startLine, m.startCol, m.endLine, m.endCol),
+      options: {
+        className: cls,
+        stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+      }
+    };
+  });
   rangeMemoDecoIds = monacoEditor.deltaDecorations(rangeMemoDecoIds, decos);
   renderRangeMemoOverlay();
   if (_memoListOpen) renderMemoList();
@@ -451,6 +513,7 @@ function showRangeMemoInput(file, startLine, startCol, endLine, endCol) {
   const arr = getRangeMemos();
   const existing = arr.find(m => m.file === file && m.startLine === startLine && m.startCol === startCol && m.endLine === endLine && m.endCol === endCol);
   const current = existing?.memo || '';
+  const currentCat = existing?.category || '';
 
   const popup = document.createElement('div');
   popup.id = 'range-memo-popup';
@@ -468,18 +531,19 @@ function showRangeMemoInput(file, startLine, startCol, endLine, endCol) {
   ta.placeholder = 'Ctrl+Enter で保存 / Esc でキャンセル';
 
   const btnRow = document.createElement('div');
-  btnRow.style.cssText = 'display:flex;gap:4px;margin-top:6px;justify-content:flex-end';
+  btnRow.style.cssText = 'display:flex;gap:4px;margin-top:6px;justify-content:flex-end;align-items:center';
   const mkBtn = (label, bg) => {
     const b = document.createElement('button');
     b.textContent = label;
     b.style.cssText = `font-size:11px;padding:2px 8px;background:${bg};color:#ccc;border:1px solid #555;border-radius:2px;cursor:pointer`;
     return b;
   };
+  const catSel   = _mkCategorySelect(currentCat);
   const btnSave   = mkBtn('保存', '#0e639c');
   const btnDel    = mkBtn('削除', '#3c3c3c');
   const btnCancel = mkBtn('キャンセル', '#3c3c3c');
   btnDel.style.display = existing ? '' : 'none';
-  btnRow.append(btnDel, btnCancel, btnSave);
+  btnRow.append(catSel, btnDel, btnCancel, btnSave);
   popup.append(ta, btnRow);
   document.body.appendChild(popup);
   ta.focus(); ta.select();
@@ -487,7 +551,14 @@ function showRangeMemoInput(file, startLine, startCol, endLine, endCol) {
   const save = () => {
     const memo = ta.value.trim();
     const arr2 = getRangeMemos().filter(m => !(m.file === file && m.startLine === startLine && m.startCol === startCol && m.endLine === endLine && m.endCol === endCol));
-    if (memo) arr2.push({ id: existing?.id || Math.random().toString(36).slice(2), file, startLine, startCol, endLine, endCol, memo });
+    if (memo) {
+      arr2.push({
+        id: existing?.id || Math.random().toString(36).slice(2),
+        file, startLine, startCol, endLine, endCol, memo,
+        category: catSel.value,
+        source: existing?.source || 'user',
+      });
+    }
     saveRangeMemos(arr2);
     popup.remove();
     refreshRangeMemoDecorations();
