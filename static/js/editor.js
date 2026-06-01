@@ -234,12 +234,13 @@ function refreshBookmarkDecorations() {
   const file = tabs[activeTabIdx]?.file;
   if(!file) { bookmarkDecoIds = monacoEditor.deltaDecorations(bookmarkDecoIds, []); return; }
   const bm = getBookmarks();
+  // line memo と同様、path 形式差を吸収する。
   const decos = Object.keys(bm)
-    .filter(k => k.startsWith(file + '::'))
-    .map(k => {
-      const line = parseInt(k.substring(k.lastIndexOf('::') + 2));
+    .map(k => ({ key: k, ..._splitLineMemoKey(k) }))
+    .filter(e => _samePath(e.file, file))
+    .map(e => {
       return {
-        range: new monaco.Range(line, 1, line, 1),
+        range: new monaco.Range(e.line, 1, e.line, 1),
         options: {
           isWholeLine: true,
           glyphMarginClassName: 'bookmark-glyph',
@@ -249,6 +250,15 @@ function refreshBookmarkDecorations() {
     });
   bookmarkDecoIds = monacoEditor.deltaDecorations(bookmarkDecoIds, decos);
   if(typeof _memoListOpen !== 'undefined' && _memoListOpen) renderMemoList();
+}
+
+// "<file>::<line>" 形式 key を {file, line} に分解する。
+// 末尾の "::<digits>" を line 番号として剥がし、それ以前を file path として扱う。
+// path 自体に "::" が含まれていても末尾 1 箇所しか line として解釈しないので安全。
+function _splitLineMemoKey(key) {
+  const idx = key.lastIndexOf('::');
+  if (idx < 0) return { file: key, line: 0 };
+  return { file: key.substring(0, idx), line: parseInt(key.substring(idx + 2), 10) };
 }
 
 function refreshLineMemoDecorations() {
@@ -261,22 +271,25 @@ function refreshLineMemoDecorations() {
   }
   const memos = getLineMemos();
   const cats = getLineMemoCategories();
+  // _samePath で slash 方向 / 大文字小文字を正規化して比較する。
+  // bridge 経由で追加された memo は forward-slash 正規化済み、Monaco のタブは
+  // Windows ネイティブの backslash パスなので exact string match だと一致しない。
   const decos = Object.entries(memos)
-    .filter(([key]) => key.startsWith(file + '::'))
-    .map(([key, memo]) => {
-      const line = parseInt(key.split('::')[1]);
-      const cat = cats[key] || '';
+    .map(([key, memo]) => ({ key, memo, ...(_splitLineMemoKey(key)) }))
+    .filter(e => _samePath(e.file, file))
+    .map(e => {
+      const cat = cats[e.key] || '';
       // category 別に glyphMarginClassName を変える: line-memo-glyph に
       // line-memo-glyph-<category> を追加して CSS で色付け / opacity 制御。
       const glyphClass = cat
         ? `line-memo-glyph line-memo-glyph-${cat}`
         : 'line-memo-glyph';
       return {
-        range: new monaco.Range(line, 1, line, 1),
+        range: new monaco.Range(e.line, 1, e.line, 1),
         options: {
           isWholeLine: true,
           glyphMarginClassName: glyphClass,
-          glyphMarginHoverMessage: { value: '✎ ' + memo.split('\n').join('\n\n') },
+          glyphMarginHoverMessage: { value: '✎ ' + e.memo.split('\n').join('\n\n') },
         }
       };
     });
@@ -292,9 +305,10 @@ function renderLineMemoOverlay() {
   const file = tabs[activeTabIdx]?.file;
   if(!file) return;
 
+  // path 正規化込みで比較 (refreshLineMemoDecorations と同じ理由)
   const lineMemos = Object.entries(getLineMemos())
-    .filter(([k]) => k.startsWith(file + '::'))
-    .map(([k, memo]) => ({ line: parseInt(k.split('::')[1]), memo, kind: 'line' }));
+    .map(([k, memo]) => ({ ..._splitLineMemoKey(k), memo, kind: 'line' }))
+    .filter(e => _samePath(e.file, file));
   const nodeMemos = Object.values(graph.nodes || {})
     .filter(n => _samePath(n.match?.file, file) && n.match?.line && n.memo?.trim())
     .map(n => ({ line: n.match.line, memo: n.memo, kind: 'node' }));
@@ -445,7 +459,9 @@ function refreshRangeMemoDecorations() {
     rangeMemoDecoIds = monacoEditor.deltaDecorations(rangeMemoDecoIds, []);
     return;
   }
-  const memos = getRangeMemos().filter(m => m.file === file);
+  // _samePath で path 形式差を吸収 (line memo と同じ理由 — bridge は forward-slash、
+  // Monaco タブは Windows native の backslash の可能性あり)。
+  const memos = getRangeMemos().filter(m => _samePath(m.file, file));
   const decos = memos.map(m => {
     // category 別の背景色は range-memo-highlight に -<cat> サフィックスを追加して
     // CSS で塗り分け。draft は opacity だけ落とす。
@@ -470,7 +486,7 @@ function renderRangeMemoOverlay() {
   if (!monacoEditor || !showLineMemoInline) return;
   const file = tabs[activeTabIdx]?.file;
   if (!file) return;
-  const memos = getRangeMemos().filter(m => m.file === file);
+  const memos = getRangeMemos().filter(m => _samePath(m.file, file));
   if (!memos.length) return;
 
   const container = id('monaco-container');
