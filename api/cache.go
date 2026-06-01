@@ -141,3 +141,11 @@ func defCacheSet(key string, hits []search.DefHit) {
 	}
 	_defCache[key] = defCacheEntry{hits: hits, expiresAt: time.Now().Add(_defCacheTTL)}
 }
+
+// defCacheClear はキャッシュ全体を破棄する。インデックス再生成後に呼び、
+// 古い "見つかりません" や移動前の file:line を返し続けるのを防ぐ。
+func defCacheClear() {
+	_defCacheMu.Lock()
+	defer _defCacheMu.Unlock()
+	_defCache = map[string]defCacheEntry{}
+}

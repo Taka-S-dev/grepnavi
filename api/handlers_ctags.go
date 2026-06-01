@@ -201,6 +201,7 @@ loop:
 	}
 
 	search.CtagsMacroWarmup(root)
+	defCacheClear()
 	sendLine("--- 完了 ---")
 	sendEvent("ctags-done", "ok")
 }

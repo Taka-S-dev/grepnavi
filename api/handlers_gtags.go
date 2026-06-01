@@ -43,6 +43,7 @@ func (h *Handler) handleGtagsIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	search.GtagsResetStale()
+	defCacheClear()
 	jsonOK(w, map[string]bool{"ok": true})
 }
 
@@ -59,6 +60,7 @@ func (h *Handler) handleGtagsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	search.GtagsResetStale()
+	defCacheClear()
 	jsonOK(w, map[string]bool{"ok": true})
 }
 
@@ -75,6 +77,7 @@ func (h *Handler) handleGtagsRebuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	search.GtagsResetStale()
+	defCacheClear()
 	jsonOK(w, map[string]bool{"ok": true})
 }
 
@@ -125,6 +128,7 @@ func (h *Handler) handleGtagsStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	search.GtagsResetStale()
+	defCacheClear()
 	sendEvent("gtags-done", "ok")
 }
 
