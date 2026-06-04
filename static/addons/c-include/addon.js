@@ -68,16 +68,29 @@ document.addEventListener('DOMContentLoaded', () => {
   if(rootText) new MutationObserver(_incUpdateBtn).observe(rootText, {childList:true, characterData:true, subtree:true});
 });
 
+// MutationObserver は boot 中に複数回 fire するため、root 値が変わらない限り
+// fetch を実行しない。並行呼び出しは inflight Promise で 1 本に集約する。
+let _incLastCheckedRoot = null;
+let _incCheckInflight = null;
 async function _incUpdateBtn() {
   const btn = document.getElementById('btn-include-graph');
   if(!btn) return;
-  try {
-    const files = await fetch('/api/files?glob=*.c,*.h,*.cpp,*.hpp,*.cc').then(r => r.json());
-    const hasC = Array.isArray(files) && files.length > 0;
-    btn.style.display = hasC ? '' : 'none';
-  } catch(_) {
-    btn.style.display = 'none';
-  }
+  const rootText = document.getElementById('root-chip-text')?.textContent || '';
+  if(rootText === _incLastCheckedRoot) return;
+  if(_incCheckInflight) return _incCheckInflight;
+  _incCheckInflight = (async () => {
+    try {
+      const files = await fetch('/api/files?glob=*.c,*.h,*.cpp,*.hpp,*.cc').then(r => r.json());
+      const hasC = Array.isArray(files) && files.length > 0;
+      btn.style.display = hasC ? '' : 'none';
+      _incLastCheckedRoot = rootText;
+    } catch(_) {
+      btn.style.display = 'none';
+    } finally {
+      _incCheckInflight = null;
+    }
+  })();
+  return _incCheckInflight;
 }
 
 // ----- 以下、グラフロジック -----
