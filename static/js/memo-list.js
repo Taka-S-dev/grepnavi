@@ -631,7 +631,7 @@ function _renderMemoListBody(allItems) {
 
   const groups = getMemoGroups();
   const groupedIds = new Set(groups.flatMap(g => g.itemIds));
-  const isFiltering = q || tf.size > 0;
+  const isFiltering = q || tf.size > 0 || cf.size > 0 || sf.size > 0;
   const filteredIds = new Set(filtered.map(it => it.id));
 
   if (isFiltering && !filtered.length) {
