@@ -13,10 +13,36 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"grepnavi/search"
 )
+
+// 大規模 project で rg --files が秒単位かかるため (root, glob) 単位でメモ化する。
+// 無効化は root 変更時の invalidateFilesCache で行う。
+var filesCache struct {
+	sync.RWMutex
+	root    string
+	entries map[string][]string // glob → files
+}
+
+func invalidateFilesCache() {
+	filesCache.Lock()
+	filesCache.root = ""
+	filesCache.entries = nil
+	filesCache.Unlock()
+}
+
+func setFilesCache(root, glob string, files []string) {
+	filesCache.Lock()
+	if filesCache.root != root || filesCache.entries == nil {
+		filesCache.root = root
+		filesCache.entries = map[string][]string{}
+	}
+	filesCache.entries[glob] = files
+	filesCache.Unlock()
+}
 
 // --- /api/open ---
 
@@ -188,6 +214,7 @@ func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {
 		h.root = abs
 		h.mu.Unlock()
 		h.store.SetRootDir(abs)
+		invalidateFilesCache()
 		slog.Debug("root changed", "abs", abs, "ctags_indexed", search.CtagsIndexed(abs))
 		if search.CtagsIndexed(abs) {
 			search.CtagsMacroWarmup(abs)
@@ -201,7 +228,8 @@ func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {
 // --- /api/files ---
 
 // handleFiles は rg --files でプロジェクト内のファイル一覧を返す。
-// ?glob=*.c,*.h のように指定すると対象ファイルを絞れる。
+// ?glob=*.c,*.h のように指定すると対象を絞れる。
+// ?stream=1 で NDJSON (1 ファイル 1 行) を逐次 Flush する。指定なしは JSON array。
 func (h *Handler) handleFiles(w http.ResponseWriter, r *http.Request) {
 	h.mu.RLock()
 	root := h.root
@@ -209,8 +237,26 @@ func (h *Handler) handleFiles(w http.ResponseWriter, r *http.Request) {
 	if root == "" {
 		root = "."
 	}
+	glob := r.URL.Query().Get("glob")
+	stream := r.URL.Query().Get("stream") == "1"
+	filesCache.RLock()
+	var cached []string
+	hit := filesCache.root == root && filesCache.entries != nil
+	if hit {
+		cached, hit = filesCache.entries[glob]
+	}
+	filesCache.RUnlock()
+	if hit {
+		if stream {
+			writeFilesNDJSON(w, cached)
+		} else {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(cached)
+		}
+		return
+	}
 	args := []string{"--files"}
-	for _, g := range strings.FieldsFunc(r.URL.Query().Get("glob"), func(r rune) bool { return r == ',' || r == ' ' }) {
+	for _, g := range strings.FieldsFunc(glob, func(r rune) bool { return r == ',' || r == ' ' }) {
 		args = append(args, "--glob", g)
 	}
 	args = append(args, root)
@@ -235,7 +281,55 @@ func (h *Handler) handleFiles(w http.ResponseWriter, r *http.Request) {
 			files = append(files, filepath.ToSlash(rel))
 			return nil
 		})
-		jsonOK(w, files)
+		setFilesCache(root, glob, files)
+		if stream {
+			writeFilesNDJSON(w, files)
+		} else {
+			jsonOK(w, files)
+		}
+		return
+	}
+
+	if stream {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		flusher, _ := w.(http.Flusher)
+		enc := json.NewEncoder(w)
+		seen := map[string]bool{}
+		var files []string
+		scanner := bufio.NewScanner(stdout)
+		scanner.Buffer(make([]byte, 256*1024), 256*1024)
+		// 1 行ごとの Flush は TCP 過剰分割を招くので 256 行単位で纏める。
+		const flushEvery = 256
+		batched := 0
+		for scanner.Scan() {
+			l := scanner.Text()
+			if l == "" {
+				continue
+			}
+			rel, relErr := filepath.Rel(root, l)
+			if relErr != nil {
+				rel = l
+			}
+			rel = filepath.ToSlash(rel)
+			if seen[rel] {
+				continue
+			}
+			seen[rel] = true
+			files = append(files, rel)
+			if err := enc.Encode(rel); err != nil {
+				break // client disconnect
+			}
+			batched++
+			if batched >= flushEvery && flusher != nil {
+				flusher.Flush()
+				batched = 0
+			}
+		}
+		cmd.Wait()
+		if flusher != nil {
+			flusher.Flush()
+		}
+		setFilesCache(root, glob, files)
 		return
 	}
 
@@ -262,9 +356,24 @@ func (h *Handler) handleFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	cmd.Wait()
 
+	setFilesCache(root, glob, files)
+
 	// json.NewEncoder で直接書き出し（json.Marshal の中間バッファを省略）
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(files)
+}
+
+func writeFilesNDJSON(w http.ResponseWriter, files []string) {
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	enc := json.NewEncoder(w)
+	for _, f := range files {
+		if err := enc.Encode(f); err != nil {
+			return
+		}
+	}
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 // --- /api/dirs ---

@@ -465,6 +465,7 @@ func (h *Handler) handleGraphImport(w http.ResponseWriter, r *http.Request) {
 			h.root = g.RootDir
 			h.mu.Unlock()
 			h.store.SetRootDir(g.RootDir)
+			invalidateFilesCache()
 			newRoot = g.RootDir
 			if search.CtagsIndexed(g.RootDir) {
 				search.CtagsMacroWarmup(g.RootDir)
@@ -544,6 +545,7 @@ func (h *Handler) handleGraphOpenFile(w http.ResponseWriter, r *http.Request) {
 			h.root = g.RootDir
 			h.mu.Unlock()
 			h.store.SetRootDirNoSave(g.RootDir)
+			invalidateFilesCache()
 			newRoot = g.RootDir
 			if search.CtagsIndexed(g.RootDir) {
 				search.CtagsMacroWarmup(g.RootDir)

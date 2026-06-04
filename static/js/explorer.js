@@ -20,20 +20,25 @@ let _rendering = false; // 再入防止
 
 function buildTree(files) {
   const root = { children: {}, files: [] };
-  const base = (projectRoot || '').replace(/\\/g, '/').replace(/\/$/, '');
-  for (const abs of files) {
-    const rel = abs.replace(/\\/g, '/');
-    const stripped = base && rel.startsWith(base + '/') ? rel.slice(base.length + 1) : rel;
-    const parts = stripped.split('/').filter(Boolean);
-    let node = root;
-    for (let i = 0; i < parts.length - 1; i++) {
-      const d = parts[i];
-      if (!node.children[d]) node.children[d] = { children: {}, files: [], dirPath: parts.slice(0, i + 1).join('/') };
-      node = node.children[d];
-    }
-    node.files.push({ name: parts[parts.length - 1], abs });
-  }
+  for (const abs of files) insertFileIntoTree(root, abs);
   return root;
+}
+
+function insertFileIntoTree(tree, abs) {
+  const base = (projectRoot || '').replace(/\\/g, '/').replace(/\/$/, '');
+  const rel = abs.replace(/\\/g, '/');
+  const stripped = base && rel.startsWith(base + '/') ? rel.slice(base.length + 1) : rel;
+  const parts = stripped.split('/').filter(Boolean);
+  if (parts.length === 0) return;
+  let node = tree;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const d = parts[i];
+    if (!node.children[d]) {
+      node.children[d] = { children: {}, files: [], dirPath: parts.slice(0, i + 1).join('/') };
+    }
+    node = node.children[d];
+  }
+  node.files.push({ name: parts[parts.length - 1], abs });
 }
 
 function collectItems(node, depth, items) {
@@ -436,15 +441,70 @@ function revealFolderInTree(abs) {
 
 // ---- public API ----
 
+// chunk ごとに renderTree を直叩きすると大規模 tree で collectItems が UI を詰まらせる。
+let _incRenderTimer = null;
+function _scheduleIncrementalRender() {
+  if (_incRenderTimer || !_scrollEl) return;
+  _incRenderTimer = setTimeout(() => {
+    _incRenderTimer = null;
+    if (!_query.trim()) renderTree();
+  }, 100);
+}
+
 async function explorerLoad() {
   if (_files) return;
+  _files = [];
+  _tree  = { children: {}, files: [] };
+  const base = (projectRoot || '').replace(/\\/g, '/').replace(/\/$/, '');
   try {
-    const r = await fetch('/api/files');
-    const rel = await r.json();
-    const base = (projectRoot || '').replace(/\\/g, '/').replace(/\/$/, '');
-    _files = base ? rel.map(f => base + '/' + f) : rel;
-  } catch { _files = []; }
-  _tree = buildTree(_files);
+    const r = await fetch('/api/files?stream=1');
+    if (!r.ok || !r.body) {
+      // 旧 server (stream 未対応) 用フォールバック。
+      const fallback = await fetch('/api/files');
+      const rel = await fallback.json();
+      _files = base ? rel.map(f => base + '/' + f) : rel;
+      _tree  = buildTree(_files);
+      return;
+    }
+    const reader  = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let firstChunk = true;
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line) continue;
+        let rel;
+        try { rel = JSON.parse(line); } catch { continue; }
+        const abs = base ? base + '/' + rel : rel;
+        _files.push(abs);
+        insertFileIntoTree(_tree, abs);
+      }
+      if (firstChunk && _scrollEl) {
+        _scrollEl.innerHTML = '';
+        firstChunk = false;
+      }
+      _scheduleIncrementalRender();
+    }
+    if (buffer.trim()) {
+      try {
+        const rel = JSON.parse(buffer);
+        const abs = base ? base + '/' + rel : rel;
+        _files.push(abs);
+        insertFileIntoTree(_tree, abs);
+      } catch {}
+    }
+    if (_incRenderTimer) { clearTimeout(_incRenderTimer); _incRenderTimer = null; }
+  } catch (_) {
+    // 途中で reader が落ちたら cache を捨てる。空 array を残すと次回 click で
+    // `if (_files) return;` が hit して再試行されない。
+    _files = null;
+    _tree  = null;
+  }
 }
 
 window.explorerInvalidate = function() {
@@ -546,8 +606,10 @@ window.explorerRevealFile = function(absPath) {
 
 window.explorerShow = async function() {
   _scrollEl = document.getElementById('explorer-tree');
+  if (!_files) {
+    _scrollEl.innerHTML = '<div class="ex-loading">読み込み中...</div>';
+  }
   await explorerLoad();
-  _tree = buildTree(_files);
   updateRootName();
   // 現在 monaco で開いているファイルがあればツリーで reveal + 選択状態に。
   // VSCode の「Reveal in Explorer」と同等の体験。

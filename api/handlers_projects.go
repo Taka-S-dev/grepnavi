@@ -179,5 +179,6 @@ func (h *Handler) handleGrepnaviOpen(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	h.root = root
 	h.mu.Unlock()
+	invalidateFilesCache()
 	jsonOK(w, map[string]interface{}{"root": root, "graphs": cfg.Graphs})
 }

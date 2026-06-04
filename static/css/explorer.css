@@ -377,3 +377,25 @@ body.panel-mode  #tab-nodes { display: flex; }
   flex: 1;
   min-width: 0;
 }
+
+.ex-loading {
+  padding: 8px 12px;
+  color: #888;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ex-loading::before {
+  content: '';
+  width: 12px;
+  height: 12px;
+  border: 2px solid #444;
+  border-top-color: #888;
+  border-radius: 50%;
+  animation: ex-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes ex-spin {
+  to { transform: rotate(360deg); }
+}
