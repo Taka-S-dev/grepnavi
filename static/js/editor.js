@@ -624,34 +624,66 @@ function extractFuncName(label) {
   return single ? single[1] : null;
 }
 
-// ノードの定義位置（実態）を /api/definition で解決して node._def にキャッシュする。
-// memo 付きノードのみ対象（mark list / def site decoration の方針と一致）。
-// 解決済み (cached) / 解決失敗 (null) / 未解決 (undefined) を区別。
+// ノードの定義位置を解決して node._def にキャッシュする。
+// 解決済み (object) / 解決失敗 (null) / 未解決 (undefined) を区別。
+//
+// 優先順位:
+//   1. node.def_override (user 手動指定)
+//   2. node.def          (server に永続化された前回の auto 結果)
+//   3. /api/definition   (resolve 後、server に PUT して 2 に昇格)
 //
 // 誤爆ガード:
-//   A. 識別子が短すぎる場合 (4 文字未満) は skip。
-//      "len" / "tmp" / "buf" / "i" / "idx" 等の汎用変数名は gtags で多数ヒットして
-//      先頭が意図と違う場所になりがち。typical な実用関数は 4 文字以上。
-//   B. ヒット数が多すぎる場合 (> 5) は曖昧と判定して skip。
-//      多義シンボルに対しては「sync しない」のが安全。
+//   A. word < 4 文字: "len" / "tmp" / "buf" 等の汎用名は誤ヒットしやすい
+//   B. hit > 5 件: 多義シンボルは安全側で sync しない
 const _SYNC_MIN_WORD_LEN = 4;
 const _SYNC_MAX_HITS     = 5;
+const _RESOLVE_CONCURRENCY = 3;
+const _resolveQueue = [];
+let   _resolveInFlight = 0;
+// refreshGraphDecorations は完了ごとに cascade して unresolved を再 forEach するため、
+// dedupe しないと queue に同じ node が O(N^2) 件積まれる。
+const _resolveInflight = new Map();
+
 async function resolveNodeDef(node) {
   if (node._def !== undefined) return;
-  // ユーザが手動で sync 先を指定済みなら自動解決をスキップ。
-  // 自動解決 (関数名 → /api/definition) は同名関数や識別子抽出ミスで
-  // 誤ヒットすることがあるため、上書き経路として残してある。
   if (node.def_override?.file && node.def_override?.line) {
     node._def = { file: node.def_override.file, line: node.def_override.line };
+    return;
+  }
+  if (node.def?.file && node.def?.line) {
+    node._def = { file: node.def.file, line: node.def.line };
     return;
   }
   // 旧版は memo 必須だったが、「先に pin、後で memo」flow や memo 無しの pin
   // だけ使うケースで sync が動かず混乱した。label さえあれば常に解決し、
   // memo の有無は表示側 (hover) で出し分ける。
   if (!node.label) return;
+  if (_resolveInflight.has(node.id)) {
+    return _resolveInflight.get(node.id);
+  }
   const word = extractFuncName(node.label);
   if (!word) { node._def = null; return; }
   if (word.length < _SYNC_MIN_WORD_LEN) { node._def = null; return; }
+  const p = new Promise(resolve => {
+    _resolveQueue.push(() => _doResolveNodeDef(node, word).finally(resolve));
+    _drainResolveQueue();
+  }).finally(() => _resolveInflight.delete(node.id));
+  _resolveInflight.set(node.id, p);
+  return p;
+}
+
+function _drainResolveQueue() {
+  while (_resolveInFlight < _RESOLVE_CONCURRENCY && _resolveQueue.length > 0) {
+    const task = _resolveQueue.shift();
+    _resolveInFlight++;
+    task().finally(() => {
+      _resolveInFlight--;
+      _drainResolveQueue();
+    });
+  }
+}
+
+async function _doResolveNodeDef(node, word) {
   try {
     const p = new URLSearchParams({word});
     if (node.match?.file) p.set('file', node.match.file);
@@ -661,7 +693,17 @@ async function resolveNodeDef(node) {
     if (!hits.length) { node._def = null; return; }
     if (hits.length > _SYNC_MAX_HITS) { node._def = null; return; }
     // 最初のヒット = 実装ファイル優先（preferDefinitionHits 済）
-    node._def = { file: hits[0].file, line: hits[0].line };
+    const def = { file: hits[0].file, line: hits[0].line };
+    node._def = def;
+    node.def = def;
+    // PUT 失敗は無視: 次回 reload で resolve し直すだけ。
+    try {
+      await fetch('/api/graph/node/' + encodeURIComponent(node.id), {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({def}),
+      });
+    } catch (_) {}
   } catch (_) {
     node._def = null;
   }
@@ -749,8 +791,16 @@ function refreshGraphDecorations() {
   Object.values(graph.nodes)
     .filter(n => n._def === undefined)
     .forEach(n => resolveNodeDef(n).then(() => {
-      if (_samePath(n._def?.file, tabs[activeTabIdx]?.file)) refreshGraphDecorations();
+      if (_samePath(n._def?.file, tabs[activeTabIdx]?.file)) _scheduleGraphDecoRefresh();
     }));
+}
+
+// resolve 完了が連続する間は refreshGraphDecorations を 50ms 単位で纏める。
+let _refreshGraphDecoScheduled = false;
+function _scheduleGraphDecoRefresh() {
+  if (_refreshGraphDecoScheduled) return;
+  _refreshGraphDecoScheduled = true;
+  setTimeout(() => { _refreshGraphDecoScheduled = false; refreshGraphDecorations(); }, 50);
 }
 
 // ===== メモ一覧パネル → memo-list.js =====

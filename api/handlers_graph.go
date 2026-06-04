@@ -97,6 +97,8 @@ func (h *Handler) handleNodeByID(w http.ResponseWriter, r *http.Request) {
 			Line        *int                `json:"line"` // Match.Line を手動補正するための後付けフィールド
 			DefOverride *graph.DefOverride  `json:"def_override"` // null 明示で解除、未指定で据え置き
 			ClearDefOverride bool            `json:"clear_def_override"` // true で override を消す
+			Def         *graph.DefRef       `json:"def"`          // frontend resolveNodeDef の解決結果キャッシュ
+			ClearDef    bool                `json:"clear_def"`    // true で def cache を消す
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			jsonErr(w, err.Error(), http.StatusBadRequest)
@@ -152,6 +154,11 @@ func (h *Handler) handleNodeByID(w http.ResponseWriter, r *http.Request) {
 				n.DefOverride = nil
 			} else if req.DefOverride != nil && req.DefOverride.File != "" && req.DefOverride.Line > 0 {
 				n.DefOverride = req.DefOverride
+			}
+			if req.ClearDef {
+				n.Def = nil
+			} else if req.Def != nil && req.Def.File != "" && req.Def.Line > 0 {
+				n.Def = req.Def
 			}
 		})
 		if err != nil {

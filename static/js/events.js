@@ -34,6 +34,10 @@
       reloadGraphIfPossible();
     });
 
+    es.addEventListener("defs.invalidated", () => {
+      reloadGraphIfPossible();
+    });
+
     es.onerror = () => {
       if (es) {
         es.close();

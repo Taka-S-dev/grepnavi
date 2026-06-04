@@ -44,6 +44,13 @@ type DefOverride struct {
 	Line int    `json:"line"`
 }
 
+// DefRef は /api/definition の解決結果を node に永続キャッシュする値。
+// ctags/gtags index 再生成時に全 node 分が一括 clear される (DefOverride は不変)。
+type DefRef struct {
+	File string `json:"file"`
+	Line int    `json:"line"`
+}
+
 // Node はグラフ上の1ノード。
 type Node struct {
 	ID          string       `json:"id"`
@@ -58,6 +65,7 @@ type Node struct {
 	BadgeColor  string       `json:"badge_color,omitempty"` // バッジの色（例: "#e05252"）
 	BadgeText   string       `json:"badge_text,omitempty"`  // バッジのテキスト（省略可）
 	DefOverride *DefOverride `json:"def_override,omitempty"`
+	Def         *DefRef      `json:"def,omitempty"`
 }
 
 // Edge はノード間の有向エッジ。

@@ -202,6 +202,10 @@ loop:
 
 	search.CtagsMacroWarmup(root)
 	defCacheClear()
+	// index 更新で関数行が動き得るので auto-resolved な Def を一括破棄する。
+	if err := h.store.ClearAllDefs(); err == nil {
+		h.events.Publish("defs.invalidated", map[string]interface{}{"engine": "ctags"})
+	}
 	sendLine("--- 完了 ---")
 	sendEvent("ctags-done", "ok")
 }

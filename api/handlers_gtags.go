@@ -129,6 +129,9 @@ func (h *Handler) handleGtagsStream(w http.ResponseWriter, r *http.Request) {
 	}
 	search.GtagsResetStale()
 	defCacheClear()
+	if err := h.store.ClearAllDefs(); err == nil {
+		h.events.Publish("defs.invalidated", map[string]interface{}{"engine": "gtags"})
+	}
 	sendEvent("gtags-done", "ok")
 }
 

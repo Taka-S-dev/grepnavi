@@ -372,6 +372,31 @@ func (s *Store) UpdateNode(id string, fn func(*Node)) (*Node, error) {
 	return n, s.save()
 }
 
+// ClearAllDefs は全 tree の全 node から Def (auto resolve cache) を消す。
+// DefOverride (user 手動) は保持する。変更が無ければ save をスキップする。
+func (s *Store) ClearAllDefs() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	changed := false
+	for _, t := range s.pf.Trees {
+		treeChanged := false
+		for _, n := range t.Nodes {
+			if n.Def != nil {
+				n.Def = nil
+				treeChanged = true
+			}
+		}
+		if treeChanged {
+			t.UpdatedAt = time.Now()
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return s.save()
+}
+
 func (s *Store) DeleteNode(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
