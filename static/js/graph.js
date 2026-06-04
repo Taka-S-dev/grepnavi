@@ -36,8 +36,16 @@ function applyGraphResponse(g) {
   if (g.range_memos && Array.isArray(g.range_memos)) {
     const existing = getRangeMemos();
     const existingIds = new Set(existing.map(m => m.id));
-    g.range_memos.forEach(m => { if (!existingIds.has(m.id)) existing.push(m); });
-    saveRangeMemos(existing);
+    let changed = false;
+    g.range_memos.forEach(m => {
+      if (!existingIds.has(m.id)) { existing.push(m); changed = true; }
+    });
+    // saveRangeMemos 経由だと _scheduleMemoSave が PUT /api/graph/memos を発火し、
+    // SSE "memos.updated" → loadGraph で再びここに戻る無限ループになる。
+    // line_memos と同じく localStorage 直書きにする。
+    if (changed) {
+      localStorage.setItem('grepnavi-range-memos', JSON.stringify(existing));
+    }
   }
   renderTreeTabs();
   renderCurrent();
