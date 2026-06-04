@@ -110,6 +110,25 @@ function renderTreeTabs() {
     tab.onclick = () => {
       if (t.id !== activeId) switchTree(t.id);
     };
+
+    // active 以外のタブへ node を drop すると subtree ごと移動する。
+    tab.ondragover = (e) => {
+      if (!dragNodeId || t.id === activeId) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      tab.classList.add("drag-target");
+    };
+    tab.ondragleave = () => tab.classList.remove("drag-target");
+    tab.ondrop = (e) => {
+      tab.classList.remove("drag-target");
+      if (!dragNodeId || t.id === activeId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const movedId = dragNodeId;
+      dropHandled = true;
+      moveNodeToTree(movedId, t.id, t.name);
+    };
+
     list.appendChild(tab);
   });
 }
@@ -1354,6 +1373,9 @@ function attachNodeDragDrop(row, wrap, node) {
       .forEach((el) => {
         el.classList.remove("insert-before", "insert-after");
       });
+    document
+      .querySelectorAll(".tree-tab.drag-target")
+      .forEach((el) => el.classList.remove("drag-target"));
     if (!dropHandled && e.dataTransfer.dropEffect !== "none") {
       const targetWrap = insertBefore || insertAfter;
       if (
@@ -1743,6 +1765,22 @@ async function reparent(nodeId, newParentId) {
   }
   applyGraphResponse(d);
   stGraph();
+}
+
+async function moveNodeToTree(nodeId, targetTreeId, targetTreeName) {
+  const r = await fetch("/api/graph/tree/move-node", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ node_id: nodeId, target_tree_id: targetTreeId }),
+  });
+  const d = await r.json();
+  if (d.error) {
+    st("エラー: " + d.error);
+    return;
+  }
+  applyGraphResponse(d);
+  stGraph();
+  st(`「${targetTreeName}」へ移動しました`);
 }
 
 async function toggleNode(id_) {

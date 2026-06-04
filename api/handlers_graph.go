@@ -338,6 +338,32 @@ func (h *Handler) handleReparent(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, h.store.GetGraphResponse())
 }
 
+// --- /api/graph/tree/move-node ---
+
+func (h *Handler) handleTreeMoveNode(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		NodeID       string `json:"node_id"`
+		TargetTreeID string `json:"target_tree_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonErr(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.NodeID == "" || req.TargetTreeID == "" {
+		jsonErr(w, "node_id and target_tree_id are required", http.StatusBadRequest)
+		return
+	}
+	if err := h.store.MoveNodeToTree(req.NodeID, req.TargetTreeID); err != nil {
+		jsonErr(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	jsonOK(w, h.store.GetGraphResponse())
+}
+
 // --- /api/graph/undo ---
 
 func (h *Handler) handleUndo(w http.ResponseWriter, r *http.Request) {

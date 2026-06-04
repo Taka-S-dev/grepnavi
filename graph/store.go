@@ -292,6 +292,82 @@ func (s *Store) RenameTree(id, name string) error {
 	return fmt.Errorf("tree %s not found", id)
 }
 
+// MoveNodeToTree は active tree から node とその子孫を target tree に丸ごと移す。
+// subtree 内部の edge は持っていき、外向き edge は破棄する。target tree では
+// root order の末尾に追加する。cross-tree undo は構造的に整合が取りにくいため
+// 対応しない (戻したい場合は target 側から再 drag する想定)。
+func (s *Store) MoveNodeToTree(nodeID, targetTreeID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	src := s.activeTree()
+	if src.ID == targetTreeID {
+		return fmt.Errorf("移動元と同じツリーです")
+	}
+	if _, ok := src.Nodes[nodeID]; !ok {
+		return fmt.Errorf("node %s not found", nodeID)
+	}
+	var dst *Tree
+	for _, t := range s.pf.Trees {
+		if t.ID == targetTreeID {
+			dst = t
+			break
+		}
+	}
+	if dst == nil {
+		return fmt.Errorf("tree %s not found", targetTreeID)
+	}
+
+	subtreeIDs := map[string]bool{}
+	var walk func(id string)
+	walk = func(id string) {
+		if subtreeIDs[id] {
+			return
+		}
+		n, ok := src.Nodes[id]
+		if !ok {
+			return
+		}
+		subtreeIDs[id] = true
+		for _, c := range n.Children {
+			walk(c)
+		}
+	}
+	walk(nodeID)
+
+	for id := range subtreeIDs {
+		dst.Nodes[id] = src.Nodes[id]
+		delete(src.Nodes, id)
+	}
+	srcEdges := src.Edges[:0]
+	for _, e := range src.Edges {
+		fromIn, toIn := subtreeIDs[e.From], subtreeIDs[e.To]
+		switch {
+		case fromIn && toIn:
+			dst.Edges = append(dst.Edges, e)
+		case !fromIn && !toIn:
+			srcEdges = append(srcEdges, e)
+		}
+	}
+	src.Edges = srcEdges
+	// 残った src node の Children と RootOrder から moved ID を全て掃き出す。
+	// DAG (複数親 / root と child 兼任) で dangling ref を残さないため。
+	for _, n := range src.Nodes {
+		for movedID := range subtreeIDs {
+			n.Children = removeStr(n.Children, movedID)
+		}
+	}
+	for movedID := range subtreeIDs {
+		src.RootOrder = removeStr(src.RootOrder, movedID)
+	}
+	if !containsStr(dst.RootOrder, nodeID) {
+		dst.RootOrder = append(dst.RootOrder, nodeID)
+	}
+	now := time.Now()
+	src.UpdatedAt = now
+	dst.UpdatedAt = now
+	return s.save()
+}
+
 func (s *Store) DeleteTree(id string) (*GraphResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

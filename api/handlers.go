@@ -46,6 +46,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/graph/edge/delete", h.handleEdgeDelete)
 	mux.HandleFunc("/api/graph/expand", h.handleExpand)
 	mux.HandleFunc("/api/graph/reparent", h.handleReparent)
+	mux.HandleFunc("/api/graph/tree/move-node", h.handleTreeMoveNode)
 	mux.HandleFunc("/api/graph/undo", h.handleUndo)
 	mux.HandleFunc("/api/graph/rootorder", h.handleRootOrder)
 	mux.HandleFunc("/api/graph/clear", h.handleGraphClear)
