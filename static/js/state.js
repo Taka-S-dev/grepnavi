@@ -76,6 +76,10 @@ let leftResizing = false, leftStartY = 0, leftStartH = 0;
 let fzfFiles = null;
 let fzfSelIdx = 0;
 let fzfFiltered = [];
+// fzf のモード: 'file' (Ctrl+P) | 'symbol' (Ctrl+T)。symbol は /api/symbol-search を叩く
+let fzfMode = 'file';
+let fzfSymResults = [];   // symbol モードの現在の結果 (DefHit 配列)
+let fzfSymFetchSeq = 0;   // 古い fetch 結果が新しい入力を上書きしないための連番
 
 // Project
 let dirList = null;

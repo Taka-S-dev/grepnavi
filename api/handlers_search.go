@@ -69,6 +69,7 @@ func (h *Handler) handleSearchStream(w http.ResponseWriter, r *http.Request) {
 	count := 0
 	const streamLimit = 1000
 
+	symsCache := map[string][]search.Symbol{}
 	err := search.SearchStream(ctx, opts, func(m graph.Match) error {
 		select {
 		case <-ctx.Done():
@@ -80,6 +81,7 @@ func (h *Handler) handleSearchStream(w http.ResponseWriter, r *http.Request) {
 		}
 
 		m.IfdefStack = []graph.IfdefFrame{}
+		annotateEnclosingFunc(&m, symsCache)
 
 		data, err := json.Marshal(m)
 		if err != nil {
@@ -94,7 +96,16 @@ func (h *Handler) handleSearchStream(w http.ResponseWriter, r *http.Request) {
 	if err != nil && err != ctx.Err() {
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
 	}
-	fmt.Fprintf(w, "event: done\ndata: {\"count\":%d}\n\n", count)
+	done := map[string]interface{}{"count": count}
+	if count == 0 {
+		// 0件の理由 (glob が誰にもマッチしない / regex 構文を literal 検索した) を
+		// UI にも提示する。/api/search の hint と同じもの。
+		if hint := searchEmptyHint(ctx, opts); hint != "" {
+			done["hint"] = hint
+		}
+	}
+	dd, _ := json.Marshal(done)
+	fmt.Fprintf(w, "event: done\ndata: %s\n\n", dd)
 	flusher.Flush()
 }
 
@@ -223,25 +234,28 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 const _enclosingFuncMaxFiles = 100
 
 func annotateEnclosingFuncs(matches []graph.Match) {
-	symsByFile := map[string][]search.Symbol{}
+	symsCache := map[string][]search.Symbol{}
 	for i := range matches {
-		m := &matches[i]
-		if !isCLike(m.File) {
-			continue
+		annotateEnclosingFunc(&matches[i], symsCache)
+	}
+}
+
+func annotateEnclosingFunc(m *graph.Match, symsCache map[string][]search.Symbol) {
+	if !isCLike(m.File) {
+		return
+	}
+	syms, ok := symsCache[m.File]
+	if !ok {
+		if len(symsCache) >= _enclosingFuncMaxFiles {
+			return
 		}
-		syms, ok := symsByFile[m.File]
-		if !ok {
-			if len(symsByFile) >= _enclosingFuncMaxFiles {
-				continue
-			}
-			syms, _ = search.ExtractSymbols(m.File)
-			symsByFile[m.File] = syms
-		}
-		for _, s := range syms {
-			if s.StartLine <= m.Line && m.Line <= s.EndLine {
-				m.EnclosingFunc = &graph.EnclosingFunc{Name: s.Name, StartLine: s.StartLine}
-				break
-			}
+		syms, _ = search.ExtractSymbols(m.File)
+		symsCache[m.File] = syms
+	}
+	for _, s := range syms {
+		if s.StartLine <= m.Line && m.Line <= s.EndLine {
+			m.EnclosingFunc = &graph.EnclosingFunc{Name: s.Name, StartLine: s.StartLine}
+			break
 		}
 	}
 }

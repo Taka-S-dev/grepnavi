@@ -261,6 +261,15 @@ function _splitLineMemoKey(key) {
   return { file: key.substring(0, idx), line: parseInt(key.substring(idx + 2), 10) };
 }
 
+// 行メモの overviewRuler 色。glyph の category アクセント (CSS) と同系色。
+const _LINE_MEMO_RULER_COLORS = {
+  '':      'rgba(153,153,153,0.7)',
+  'draft': 'rgba(153,153,153,0.35)',
+  'ok':    'rgba(111,181,111,0.8)',
+  'warn':  'rgba(194,167,109,0.8)',
+  'error': 'rgba(204,102,102,0.9)',
+};
+
 function refreshLineMemoDecorations() {
   if(!monacoEditor) return;
   const file = tabs[activeTabIdx]?.file;
@@ -290,6 +299,12 @@ function refreshLineMemoDecorations() {
           isWholeLine: true,
           glyphMarginClassName: glyphClass,
           glyphMarginHoverMessage: { value: '✎ ' + e.memo.split('\n').join('\n\n') },
+          // スクロールバー右レーンに出して、画面外のメモ行も俯瞰できるようにする
+          // (色は glyph の category アクセントと揃える)
+          overviewRuler: {
+            color: _LINE_MEMO_RULER_COLORS[cat] || _LINE_MEMO_RULER_COLORS[''],
+            position: monaco.editor.OverviewRulerLane.Right,
+          },
         }
       };
     });
@@ -739,6 +754,11 @@ function _revealLineSmart(line) {
   else          monacoEditor.revealLineInCenterIfOutsideViewport(line);
 }
 
+// graph デコレーションの overviewRuler 色 (teal = .graph-node-line と同系)。
+// スクロールバー左レーンに出して、画面外の pin / 実態 / 呼び出し箇所を俯瞰できるようにする。
+const _GRAPH_RULER_COLOR       = 'rgba(78,201,176,0.8)';
+const _GRAPH_RULER_COLOR_FAINT = 'rgba(78,201,176,0.4)';
+
 // 逆方向 sync で装飾した行 → 代表ノード。glyph クリックで実態へ飛ぶ用。
 // refreshGraphDecorations のたびに表示中ファイル分だけを作り直す。
 const _reverseSyncLines = new Map();
@@ -763,6 +783,7 @@ function refreshGraphDecorations() {
         className: 'graph-node-line',
         glyphMarginClassName: 'graph-node-glyph',
         glyphMarginHoverMessage: {value: `**グラフ登録済み** ${n.label || ''}${n.memo ? '\n\n' + n.memo : ''}`},
+        overviewRuler: {color: _GRAPH_RULER_COLOR, position: monaco.editor.OverviewRulerLane.Left},
       }
     }));
 
@@ -797,6 +818,7 @@ function refreshGraphDecorations() {
         className: 'graph-node-def-line',
         glyphMarginClassName: 'graph-node-def-glyph',
         glyphMarginHoverMessage: {value: `${header}\n\n${body}`},
+        overviewRuler: {color: _GRAPH_RULER_COLOR, position: monaco.editor.OverviewRulerLane.Left},
       }
     });
   });
@@ -839,6 +861,8 @@ function refreshGraphDecorations() {
           className: 'graph-node-call-line',
           glyphMarginClassName: 'graph-node-call-glyph',
           glyphMarginHoverMessage: {value: `**呼び出し箇所** _クリックで実態へ_\n\n${body}`},
+          // 派生的な強調なので pin / def より薄く
+          overviewRuler: {color: _GRAPH_RULER_COLOR_FAINT, position: monaco.editor.OverviewRulerLane.Left},
         }
       });
     });
@@ -1443,9 +1467,10 @@ async function ensureEditor() {
 // ページロード時に Monaco をバックグラウンドでプリロード（初回クリック遅延を防ぐ）
 if(typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', () => { loadMonaco(); });
 
-// ===== Ctrl+P ファイルクイックオープン =====
-async function openFzf() {
-  if(!fzfFiles) {
+// ===== Ctrl+P ファイル / Ctrl+T シンボル クイックオープン =====
+async function openFzf(mode = 'file') {
+  fzfMode = mode;
+  if(mode === 'file' && !fzfFiles) {
     try {
       const r = await fetch('/api/files');
       fzfFiles = await r.json();
@@ -1453,6 +1478,9 @@ async function openFzf() {
   }
   id('fzf-overlay').classList.add('open');
   id('fzf-input').value = '';
+  id('fzf-input').placeholder = mode === 'symbol'
+    ? 'シンボル名を入力… (例: recipe save)'
+    : 'ファイル名を入力… (#始まりでシンボル検索)';
   fzfRender('');
   setTimeout(() => id('fzf-input').focus(), 30);
 }
@@ -1508,7 +1536,16 @@ function fzfFilter(files, query, limit) {
     .map(x => x.f);
 }
 
+// ファイルモード中でも `#` 始まりはシンボル検索に切り替える (VSCode の Ctrl+P → # と同じ)
+function _fzfSymbolQuery(query) {
+  if(fzfMode === 'symbol') return query;
+  if(query.startsWith('#')) return query.slice(1);
+  return null;
+}
+
 function fzfRender(query) {
+  const symQuery = _fzfSymbolQuery(query);
+  if(symQuery !== null) { fzfRenderSymbols(symQuery); return; }
   const list = id('fzf-list');
   fzfFiltered = fzfFilter(fzfFiles, query, 100);
   id('fzf-count').textContent = `${fzfFiltered.length} / ${fzfFiles.length}`;
@@ -1525,6 +1562,72 @@ function fzfRender(query) {
     div.onclick = () => fzfOpen(f);
     list.appendChild(div);
   });
+}
+
+// fzfSymbolPattern はユーザー入力を /api/symbol-search の正規表現に変換する。
+// スペース区切りトークンを正規表現エスケープして `.*` で順序付き連結:
+//   "recipe save" → "recipe.*save" (save_recipe は "save recipe" で拾う)
+function fzfSymbolPattern(query) {
+  const tokens = query.trim().split(/\s+/).filter(Boolean);
+  if(!tokens.length) return '';
+  return tokens.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*');
+}
+
+let _fzfSymTimer = null;
+function fzfRenderSymbols(query) {
+  const list = id('fzf-list');
+  const pattern = fzfSymbolPattern(query);
+  if(!pattern) {
+    fzfSymResults = []; fzfSelIdx = 0;
+    id('fzf-count').textContent = '';
+    list.innerHTML = '<div class="fzf-empty">関数 / マクロ / typedef を名前で検索 (ctags 索引が必要)</div>';
+    return;
+  }
+  // 連続入力中の連打を防ぐ (サーバーは tags を rg するので 1 回は安いが無駄打ちしない)
+  clearTimeout(_fzfSymTimer);
+  _fzfSymTimer = setTimeout(async () => {
+    const seq = ++fzfSymFetchSeq;
+    try {
+      const r = await fetch('/api/symbol-search?' + new URLSearchParams({pattern, limit: '100'}));
+      const d = await r.json();
+      if(seq !== fzfSymFetchSeq) return; // 古い応答は捨てる
+      fzfSymResults = d.symbols || [];
+      fzfSelIdx = 0;
+      id('fzf-count').textContent = d.hint ? '' : `${fzfSymResults.length}${d.truncated ? '+' : ''} 件`;
+      list.innerHTML = '';
+      if(d.hint) {
+        list.innerHTML = `<div class="fzf-empty">${esc(d.hint)}</div>`;
+        return;
+      }
+      if(!fzfSymResults.length) {
+        list.innerHTML = '<div class="fzf-empty">該当するシンボルがありません</div>';
+        return;
+      }
+      fzfSymResults.forEach((s, i) => {
+        const rel = (s.file || '').replace(/\\/g, '/').split('/').slice(-2).join('/');
+        const div = document.createElement('div');
+        div.className = 'fzf-item' + (i === 0 ? ' fzf-sel' : '');
+        div.innerHTML = `<span class="fzf-kind fzf-kind-${esc(s.kind || 'other')}">${esc((s.kind || '?')[0])}</span>`
+                      + `<span class="fzf-name">${fzfHighlight(s.text || '', query)}</span>`
+                      + `<span class="fzf-dir">${esc(rel)}:${s.line}</span>`;
+        div.onclick = () => { closeFzf(); openPeek(s.file, s.line); };
+        list.appendChild(div);
+      });
+    } catch {
+      if(seq === fzfSymFetchSeq) list.innerHTML = '<div class="fzf-empty">検索エラー</div>';
+    }
+  }, 120);
+}
+
+// fzfActivate は Enter / クリック相当の決定操作。モード (と `#` プレフィックス) に応じて
+// 開く対象を切り替える。
+function fzfActivate(idx) {
+  if(_fzfSymbolQuery(id('fzf-input').value) !== null) {
+    const s = fzfSymResults[idx];
+    if(s) { closeFzf(); openPeek(s.file, s.line); }
+    return;
+  }
+  if(fzfFiltered[idx]) fzfOpen(fzfFiltered[idx]);
 }
 
 function fzfMoveSel(delta) {

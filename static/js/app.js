@@ -78,7 +78,9 @@ addEventListener('DOMContentLoaded', async () => {
       e.preventDefault();
       jumpResult(e.shiftKey ? -1 : 1);
     }
-    if((e.ctrlKey || e.metaKey) && e.key === 'p') { e.preventDefault(); openFzf(); }
+    if((e.ctrlKey || e.metaKey) && e.key === 'p') { e.preventDefault(); openFzf('file'); }
+    // Ctrl+T はブラウザ予約 (新規タブ) で奪えないため Alt+T。Ctrl+P 内の `#` プレフィックスでも入れる
+    if(e.altKey && !e.ctrlKey && !e.metaKey && e.key === 't') { e.preventDefault(); openFzf('symbol'); }
     if((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'O') { e.preventDefault(); showFileBrowser('open-file'); }
     if((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
       if(id('explorer-panel')?.classList.contains('visible')) {
@@ -99,7 +101,7 @@ addEventListener('DOMContentLoaded', async () => {
   id('fzf-input').addEventListener('keydown', e => {
     if(e.key === 'ArrowDown')  { e.preventDefault(); fzfMoveSel(1); }
     if(e.key === 'ArrowUp')    { e.preventDefault(); fzfMoveSel(-1); }
-    if(e.key === 'Enter')      { if(fzfFiltered[fzfSelIdx]) fzfOpen(fzfFiltered[fzfSelIdx]); }
+    if(e.key === 'Enter')      { fzfActivate(fzfSelIdx); }
     if(e.key === 'Escape')     { closeFzf(); }
   });
   id('fzf-overlay').addEventListener('click', e => { if(e.target === id('fzf-overlay')) closeFzf(); });

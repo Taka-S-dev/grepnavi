@@ -306,6 +306,13 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .rg-fcount{color:#666;font-size:10px;flex-shrink:0}
 .rg-fcount{color:#666;font-size:10px;flex-shrink:0}
 .rg-enc-badge{font-size:9px;color:#e0b060;background:rgba(224,176,96,0.15);border:1px solid rgba(224,176,96,0.4);border-radius:2px;padding:0 4px;flex-shrink:0;cursor:help;font-family:Consolas,monospace}
+/* 検索 0件時の理由ヒント (glob が無マッチ / regex 構文を literal 検索した等) */
+.search-hint{margin:10px;padding:8px 10px;font-size:11px;line-height:1.6;color:#c2a76d;background:rgba(194,167,109,0.08);border:1px solid rgba(194,167,109,0.3);border-radius:4px;word-break:break-word}
+/* 関数セパレータ: ファイル内ヒットを enclosing function ごとに視覚的に区切る */
+.rg-fn-sep{display:flex;align-items:center;gap:5px;padding:1px 8px 1px 18px;height:22px;box-sizing:border-box;cursor:pointer;user-select:none;color:#8fbcb0;background:#1a201e;overflow:hidden}
+.rg-fn-sep:hover{background:#22302b}
+.rg-fn-icon{color:#4ec9b0;font-size:11px;font-style:italic;flex-shrink:0;font-family:Consolas,monospace}
+.rg-fn-name{font-size:11px;font-family:Consolas,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* center: node tree */
 #pane-tree{flex:1;display:flex;flex-direction:column;border-right:1px solid rgba(255,255,255,0.18);overflow:hidden;position:relative;min-height:0}
@@ -537,6 +544,12 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 .fzf-item .fzf-name{color:#fff;flex-shrink:0}
 .fzf-item .fzf-dir{color:#666;overflow:hidden;text-overflow:ellipsis;font-size:11px}
 .fzf-item .fzf-hl{color:#f0c040}
+/* シンボル検索モード: kind バッジ (f=func, d=define, t=typedef, ...) と空状態メッセージ */
+.fzf-kind{flex-shrink:0;width:16px;height:16px;line-height:16px;text-align:center;border-radius:3px;font-size:10px;font-family:Consolas,monospace;background:#333;color:#999}
+.fzf-kind-func{background:#1d3d36;color:#4ec9b0}
+.fzf-kind-define{background:#3d2d1d;color:#d7ba7d}
+.fzf-kind-typedef,.fzf-kind-struct,.fzf-kind-enum,.fzf-kind-union{background:#1d2d3d;color:#9cdcfe}
+.fzf-empty{padding:14px;font-size:11px;color:#666;text-align:center}
 
 /* 汎用確認ダイアログ */
 #confirm-modal{

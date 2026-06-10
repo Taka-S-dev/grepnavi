@@ -152,6 +152,11 @@ function doSearch() {
     id('sh-title').textContent = title;
     id('sh-over').textContent = overText;
     st(`${d.count} 件ヒット  F3: 次へ  Shift+F3: 前へ`);
+    // 0件の理由 (glob ミス / regex ボタン押し忘れ) があれば結果パネルに表示。
+    // 「存在しない」と「検索条件のミス」をユーザーが区別できるようにする。
+    if(d.count === 0 && d.hint) {
+      id('results').innerHTML = `<div class="search-hint">💡 ${esc(d.hint)}</div>`;
+    }
     saveSearchTab(q, d.count, title, overText);
     if(typeof updateSearchTitle === 'function') updateSearchTitle(q, d.count);
   });
@@ -307,6 +312,23 @@ function scheduleRender() {
   });
 }
 
+// enclosing_function の変わり目に関数セパレータ行を挟みながら rows を push する。
+// 「このファイルの 30 ヒットは実は recipe_save と recipe_load の 2 関数」が
+// スクロールせずに分かるようにするための視覚的グルーピング。
+// 関数外のヒット (グローバル宣言等) にはセパレータを出さず、同一関数が
+// 連続する限り 1 つにまとめる。
+function pushRowsWithFnSeps(out, rows) {
+  let prevFn = null;
+  for(const r of rows) {
+    const fn = r.match.enclosing_function;
+    if(fn?.name && fn.name !== prevFn) {
+      out.push({type: 'fnsep', name: fn.name, file: r.file, line: fn.start_line});
+      prevFn = fn.name;
+    }
+    out.push(r);
+  }
+}
+
 function buildVisibleItems() {
   const filterStr = id('filter-input').value.trim();
   const filter = parseFilter(filterStr);
@@ -343,7 +365,7 @@ function buildVisibleItems() {
 
       _visibleItems.push({...item, _visibleCount: visibleRows.length});
       if(!collapsed) {
-        for(const r of visibleRows) _visibleItems.push(r);
+        pushRowsWithFnSeps(_visibleItems, visibleRows);
       }
       i = j;
     }
@@ -394,7 +416,7 @@ function buildVisibleItems() {
           const fileCollapsed = _collapsedGroups.has(header.file);
           _visibleItems.push({...header, _visibleCount: visRows.length, _inFolder: true});
           if(!fileCollapsed) {
-            for(const r of visRows) _visibleItems.push(r);
+            pushRowsWithFnSeps(_visibleItems, visRows);
           }
         }
       }
@@ -512,7 +534,17 @@ function makeVirtRow(item) {
       renderVirtual();
     };
     return div;
-  } else {
+  }
+  if(item.type === 'fnsep') {
+    const div = document.createElement('div');
+    div.className = 'rg-fn-sep';
+    div.style.height = VIRT_RH + 'px';
+    div.innerHTML = `<span class="rg-fn-icon">ƒ</span><span class="rg-fn-name">${esc(item.name)}</span>`;
+    div.title = `${item.name}  (クリックで定義行へ)`;
+    div.onclick = () => openPeek(item.file, item.line);
+    return div;
+  }
+  {
     const div = makeRI(item.match, true);
     div.style.height = VIRT_RH + 'px';
     div.style.overflow = 'hidden';
