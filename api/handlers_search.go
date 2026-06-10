@@ -178,6 +178,9 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if matches == nil {
+		matches = []graph.Match{}
+	}
 	resp := map[string]interface{}{
 		"matches": matches,
 		"count":   len(matches),
