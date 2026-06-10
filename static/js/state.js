@@ -37,6 +37,9 @@ let _virtHeaderMap = new Map(); // file → header item (O(1) lookup)
 let _virtNeedRebuild = false;   // true = buildVisibleItems needed before next render
 let _groupView = localStorage.getItem('grepnavi-group-view') === '1';
 const LS_GROUP_VIEW = 'grepnavi-group-view';
+// 関数セパレータ (検索結果を enclosing function で区切る) の表示。デフォルト ON。
+let _fnSepView = localStorage.getItem('grepnavi-fn-sep') !== '0';
+const LS_FN_SEP = 'grepnavi-fn-sep';
 
 // Drag & Drop
 let dragNodeId = null;

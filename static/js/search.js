@@ -318,6 +318,7 @@ function scheduleRender() {
 // 関数外のヒット (グローバル宣言等) にはセパレータを出さず、同一関数が
 // 連続する限り 1 つにまとめる。
 function pushRowsWithFnSeps(out, rows) {
+  if(!_fnSepView) { for(const r of rows) out.push(r); return; }
   let prevFn = null;
   for(const r of rows) {
     const fn = r.match.enclosing_function;
@@ -986,6 +987,15 @@ function _loadSearchStack() {
   } catch {}
 }
 
+// ===== 関数セパレータ切り替え =====
+function toggleFnSepView() {
+  _fnSepView = !_fnSepView;
+  localStorage.setItem(LS_FN_SEP, _fnSepView ? '1' : '0');
+  id('btn-fn-sep')?.classList.toggle('on', _fnSepView);
+  buildVisibleItems();
+  renderVirtual();
+}
+
 // ===== グループビュー切り替え =====
 function toggleGroupView() {
   _groupView = !_groupView;
@@ -1025,6 +1035,12 @@ function initSearchBar() {
       ? 'フォルダ単位表示 — クリックでファイル単位に切り替え'
       : 'ファイル単位表示 — クリックでフォルダ単位に切り替え';
     btnGV.onclick = () => toggleGroupView();
+  }
+
+  const btnFS = id('btn-fn-sep');
+  if(btnFS) {
+    btnFS.classList.toggle('on', _fnSepView);
+    btnFS.onclick = () => toggleFnSepView();
   }
 
   // スタック
