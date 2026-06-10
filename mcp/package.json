@@ -1,6 +1,6 @@
 {
   "name": "grepnavi-mcp",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "MCP bridge that lets AI agents pin findings to grepnavi's investigation graph",
   "license": "MIT",
   "private": true,

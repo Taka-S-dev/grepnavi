@@ -310,7 +310,35 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 		hits[i].Engine = usedEngine
 	}
 	w.Header().Set("X-Engine", usedEngine)
+	if len(hits) == 0 {
+		if hint := definitionEmptyHint(word, hroot); hint != "" {
+			w.Header().Set("X-Definition-Hint", hint)
+		}
+	}
 	jsonOK(w, hits)
+}
+
+// definitionEmptyHint は 0 件返却時に「なぜ見つからなかったか」のヒントを返す。
+// AI クライアントが「macro なのか / index 未整備なのか / 本当に存在しないのか」を
+// 区別できるようにする目的。空文字なら hint 無し (= 単純な見つからない)。
+func definitionEmptyHint(word, root string) string {
+	if root == "" {
+		return ""
+	}
+	macros := search.CtagsMacroNames(root)
+	if macros.Ready {
+		for _, m := range macros.Symbols.Macros {
+			if m == word {
+				return "'" + word + "' is a #define macro; not returned as a callable definition. Use grepnavi_search or check the ctags macro list."
+			}
+		}
+	}
+	ctagsReady := search.CtagsIndexed(root)
+	gtagsReady := search.GtagsIndexed(root)
+	if !ctagsReady && !gtagsReady {
+		return "no ctags/gtags index for this root; only ripgrep heuristics ran. Building an index can surface more results."
+	}
+	return ""
 }
 
 // --- /api/hover ---

@@ -290,12 +290,16 @@ export class GrepnaviClient {
     };
   }
 
-  async definition(word: string, opts: { file?: string; dir?: string } = {}): Promise<DefHit[]> {
+  async definition(
+    word: string,
+    opts: { file?: string; dir?: string } = {},
+  ): Promise<{ hits: DefHit[]; hint?: string }> {
     const params = new URLSearchParams({ word });
     if (opts.file) params.set("file", opts.file);
     if (opts.dir) params.set("dir", opts.dir);
     const r = await this.req("/api/definition?" + params.toString());
     const hits = (await r.json()) as DefHit[];
+    const hint = r.headers.get("x-definition-hint") || undefined;
     // 各 hit に likely_trivial / in_caller_subtree フラグ付与 (除外せずに AI 判断材料)
     const enriched = hits.map((h) => ({
       ...h,
@@ -305,8 +309,10 @@ export class GrepnaviClient {
     // grepnavi の生 order は engine (gtags/ctags/rg) 依存で予測しづらく、
     // enum_member 等が上位に来ると AI が誤った行番号を pick する事故が起きる。
     // bridge 側で kind 優先ソート (func > define > typedef > その他) で正規化。
-    // callees enrichment 側の rankDef もこの値を使うので idempotent。
-    return enriched.sort((a, b) => kindRankScore(b.kind) - kindRankScore(a.kind));
+    return {
+      hits: enriched.sort((a, b) => kindRankScore(b.kind) - kindRankScore(a.kind)),
+      hint,
+    };
   }
 
   async callers(

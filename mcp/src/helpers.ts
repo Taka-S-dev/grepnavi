@@ -1,5 +1,5 @@
 import { annotateMemo, likelyTrivial, inCallerSubtree } from "./client.js";
-import type { GrepnaviClient, MemoCategory } from "./client.js";
+import type { DefHit, GrepnaviClient, MemoCategory } from "./client.js";
 import { client } from "./shared.js";
 import type { BatchNodeInput, CallerTreeNode } from "./shared.js";
 
@@ -385,7 +385,7 @@ export function rankDef(
   return r;
 }
 
-export function pickBestDef(hits: Awaited<ReturnType<GrepnaviClient["definition"]>>) {
+export function pickBestDef(hits: DefHit[]) {
   return [...hits].sort((a, b) => rankDef(b) - rankDef(a))[0];
 }
 
@@ -421,7 +421,7 @@ export async function enrichCallee(name: string, callerFile?: string) {
     };
   }
 
-  const hits = await client.definition(name).catch(() => []);
+  const hits = (await client.definition(name).catch(() => ({ hits: [] }))).hits;
   const allDefine = hits.length > 0 && hits.every((h) => h.kind === "define");
   const allNonCallable =
     hits.length > 0 && hits.every((h) => NON_CALLABLE_KINDS.has(h.kind));
@@ -547,7 +547,7 @@ export async function fetchEnrichedCallees(
 export async function resolveWordToLocation(
   word: string,
 ): Promise<{ file: string; line: number }> {
-  const hits = await client.definition(word);
+  const { hits } = await client.definition(word);
   const funcHits = hits.filter((h) => h.kind === "func");
   const target = pickBestDef(funcHits.length > 0 ? funcHits : hits);
   if (!target) throw new Error(`No definition found for '${word}'`);

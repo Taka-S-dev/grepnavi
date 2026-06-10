@@ -1,6 +1,6 @@
 import { GrepnaviClient } from "./client.js";
 
-export const BRIDGE_VERSION = "0.15.0";
+export const BRIDGE_VERSION = "0.16.0";
 
 const baseUrl = process.env.GREPNAVI_URL ?? "http://localhost:8080";
 export const client = new GrepnaviClient(baseUrl);

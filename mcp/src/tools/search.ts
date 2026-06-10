@@ -33,6 +33,7 @@ export const definitions: ToolDef[] = [
     name: "grepnavi_definition",
     description:
       "Resolve a symbol to file:line via gtags → ctags → ripgrep fallback. Each hit has `kind`, `engine`, plus `likely_trivial` (well-known primitive name) and `in_caller_subtree` (true when this hit shares the caller's top-2 path components — pass `file` for this to work).\n\n" +
+      "**Returns `{ hits, hint? }`**. `hits` is empty when nothing matched. `hint` (optional) explains *why* — e.g. 'X is a #define macro', or 'no ctags/gtags index built'. Surface this hint when reporting back to the user instead of just saying 'not found'.\n\n" +
       "**Results are pre-sorted by bridge: `func > define > typedef > others`**, so hits[0] is usually the actual implementation. Prefer .c over .h when both exist at the top.\n\n" +
       "**The `file` field is already an absolute path. Pass it verbatim to other grepnavi_* tools** — don't hand-build relative paths.",
     inputSchema: {
@@ -130,7 +131,8 @@ export const definitions: ToolDef[] = [
   {
     name: "grepnavi_callers",
     description:
-      "Find call sites that invoke `word` (caller function, file, definition line, call line). Walks UP the call tree. `depth` > 1 recurses (max 5); cycles auto-pruned.",
+      "Find call sites that invoke `word` (caller function, file, definition line, call line). Walks UP the call tree. `depth` > 1 recurses (max 5); cycles auto-pruned.\n\n" +
+      "**Cost note**: `depth > 1` fans out per-level and can take several seconds on large codebases. Start with depth 1, only increase when you actually need the wider tree.",
     inputSchema: {
       type: "object",
       properties: {
