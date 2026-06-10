@@ -10,7 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -79,6 +81,21 @@ func buildArgs(opts Options) []string {
 	}
 	if opts.Encoding != "" {
 		args = append(args, "--encoding", opts.Encoding)
+	}
+	// ctags / gtags の索引ファイルは既定で検索から除外する。tags は巨大な
+	// プレーンテキストで、シンボル名でも定義パターン断片でも大量にマッチして
+	// ノイズになる (スキャン自体も遅い)。
+	// anchored glob (`!/tags`) は Windows の絶対パス検索ルートでは効かないため
+	// unanchored で除外するが、検索 root 直下に「ファイルとして」存在するときに
+	// 限定して、索引を置いていないプロジェクトの tags/ ディレクトリ等を
+	// 巻き添えにしない。ユーザー glob はこの後ろに付く = rg は後勝ちなので、
+	// 明示的に glob で tags を指定すれば索引ファイル自体の検索もできる。
+	if opts.Dir != "" {
+		for _, name := range []string{"tags", "TAGS", "GTAGS", "GRTAGS", "GPATH"} {
+			if fi, err := os.Stat(filepath.Join(opts.Dir, name)); err == nil && !fi.IsDir() {
+				args = append(args, "--glob", "!"+name)
+			}
+		}
 	}
 	for _, g := range splitGlobs(opts.FileGlob) {
 		args = append(args, "--glob", g)
