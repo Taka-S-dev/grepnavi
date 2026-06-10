@@ -637,6 +637,9 @@ function extractFuncName(label) {
 //   B. hit > 5 件: 多義シンボルは安全側で sync しない
 const _SYNC_MIN_WORD_LEN = 4;
 const _SYNC_MAX_HITS     = 5;
+// 逆方向 sync (実態 pin → 呼び出し箇所強調) の表示中ファイル内ヒット上限。
+// これを超える関数は printf 級の汎用名とみなして安全側でスキップ。
+const _REVERSE_SYNC_MAX_HITS = 30;
 const _RESOLVE_CONCURRENCY = 3;
 const _resolveQueue = [];
 let   _resolveInFlight = 0;
@@ -720,6 +723,13 @@ function _samePath(a, b) {
   return a.replace(/\//g, '\\').toLowerCase() === b.replace(/\//g, '\\').toLowerCase();
 }
 
+// _isDefAnchored は「関数の実態そのものを pin したノード」かを判定する。
+// match (pin した位置) と _def (resolve した実態) が同一行なら、call site ではなく
+// 定義行を pin している。このノードだけが逆方向 sync (呼び出し箇所の強調) の対象。
+function _isDefAnchored(n) {
+  return !!(n?._def?.file && _samePath(n.match?.file, n._def.file) && n.match?.line === n._def.line);
+}
+
 // _revealLineSmart は openPeek で行ジャンプ時に「意図の強さに応じた reveal」を行う:
 //   - line > 1 (検索結果 / マーク / 定義ジャンプ)        → 常に中央表示
 //   - line = 1 (エクスプローラからの browse, デフォルト) → 既に見えていれば no-op
@@ -729,10 +739,18 @@ function _revealLineSmart(line) {
   else          monacoEditor.revealLineInCenterIfOutsideViewport(line);
 }
 
+// 逆方向 sync で装飾した行 → 代表ノード。glyph クリックで実態へ飛ぶ用。
+// refreshGraphDecorations のたびに表示中ファイル分だけを作り直す。
+const _reverseSyncLines = new Map();
+
 function refreshGraphDecorations() {
   if(!monacoEditor) return;
   const file = tabs[activeTabIdx]?.file;
-  if(!file) { graphDecoIds = monacoEditor.deltaDecorations(graphDecoIds, []); return; }
+  if(!file) {
+    _reverseSyncLines.clear();
+    graphDecoIds = monacoEditor.deltaDecorations(graphDecoIds, []);
+    return;
+  }
   const decos = [];
 
   // 1. call site decoration (既存): node.match の位置
@@ -783,15 +801,59 @@ function refreshGraphDecorations() {
     });
   });
 
+  // 3. call site decoration 逆方向 (新規): 「実態」を pin したノードは、表示中
+  //    ファイル内のその関数の呼び出し行を強調する。「実態 → 呼び出し」のリンク。
+  //    repo 全体の call site 列挙は 1:N で重くノイズも多いため、表示中ファイル内に
+  //    限定して Monaco の findMatches で逆引きする (サーバー往復なし・索引不要)。
+  _reverseSyncLines.clear();
+  const model = monacoEditor.getModel();
+  if (model) {
+    // 実態行や pin 済み call site は type 1/2 の装飾を優先して二重装飾を避ける
+    const occupied = new Set(decos.map(d => d.range.startLineNumber));
+    const callLineGroups = new Map(); // key: line → [node, ...]
+    Object.values(graph.nodes).filter(_isDefAnchored).forEach(n => {
+      const word = extractFuncName(n.label);
+      if (!word || word.length < _SYNC_MIN_WORD_LEN) return;
+      const found = model.findMatches(
+        '\\b' + word + '\\s*\\(', false, true, true, null, false, _REVERSE_SYNC_MAX_HITS + 1);
+      if (found.length === 0 || found.length > _REVERSE_SYNC_MAX_HITS) return;
+      found.forEach(fm => {
+        const line = fm.range.startLineNumber;
+        if (occupied.has(line)) return;
+        const arr = callLineGroups.get(line) || [];
+        if (!arr.includes(n)) arr.push(n);
+        callLineGroups.set(line, arr);
+      });
+    });
+    callLineGroups.forEach((nodes, line) => {
+      _reverseSyncLines.set(line, nodes[0]);
+      const body = nodes.map(n => {
+        const defFile = (n.match?.file || '').replace(/\\/g, '/').split('/').pop();
+        const memoSection = n.memo && n.memo.trim() ? `\n\n${n.memo}` : '';
+        return `**"${n.label || ''}"** 実態: ${defFile}:${n.match?.line}${memoSection}`;
+      }).join('\n\n---\n\n');
+      decos.push({
+        range: new monaco.Range(line, 1, line, 1),
+        options: {
+          isWholeLine: true,
+          className: 'graph-node-call-line',
+          glyphMarginClassName: 'graph-node-call-glyph',
+          glyphMarginHoverMessage: {value: `**呼び出し箇所** _クリックで実態へ_\n\n${body}`},
+        }
+      });
+    });
+  }
+
   graphDecoIds = monacoEditor.deltaDecorations(graphDecoIds, decos);
 
   // 未解決ノードを非同期で resolve → 解決後、該当ファイルが
   // 今見えていれば再 refresh で def site decoration を反映。
   // memo 有無問わず resolve する (memo 後付け flow / pin だけの利用にも対応)。
+  // 実態 pin ノードは呼び出し箇所がどのファイルにあるか分からないため常に再 refresh。
   Object.values(graph.nodes)
     .filter(n => n._def === undefined)
     .forEach(n => resolveNodeDef(n).then(() => {
-      if (_samePath(n._def?.file, tabs[activeTabIdx]?.file)) _scheduleGraphDecoRefresh();
+      if (_samePath(n._def?.file, tabs[activeTabIdx]?.file) || _isDefAnchored(n)) _scheduleGraphDecoRefresh();
     }));
 }
 
@@ -988,7 +1050,10 @@ async function ensureEditor() {
           const memoNodes = Object.values(graph.nodes).filter(n => n.memo && (
             (_samePath(n.match?.file, currentFile) && n.match?.line === position.lineNumber) ||
             (_samePath(n.match?.file, currentFile) && (n.match?.text||'').includes(word.word)) ||
-            (_samePath(n._def?.file, currentFile) && n._def?.line === position.lineNumber)
+            (_samePath(n._def?.file, currentFile) && n._def?.line === position.lineNumber) ||
+            // 逆方向: 実態 pin ノードの関数名と同じ word なら、どのファイルの
+            // 呼び出し箇所で hover してもメモを出す
+            (_isDefAnchored(n) && extractFuncName(n.label) === word.word)
           ));
           if(memoNodes.length) {
             memoNodes.forEach(n => {
@@ -998,6 +1063,10 @@ async function ensureEditor() {
               if (isDefSite && n.match?.file) {
                 const callFile = n.match.file.replace(/\\/g, '/').split('/').pop();
                 suffix = `\n\n*呼び出し: ${callFile}:${n.match.line}*`;
+              } else if (_isDefAnchored(n) && !_samePath(n.match?.file, currentFile)) {
+                // 別ファイルの呼び出し箇所から hover している場合は実態への導線を出す
+                const defFile = n.match.file.replace(/\\/g, '/').split('/').pop();
+                suffix = `\n\n*実態: ${defFile}:${n.match.line}*`;
               }
               contents.push({value:
                 `💬 **${n.label || shortPath(n.match?.file||'')+':'+(n.match?.line||'')}**\n\n${n.memo}${suffix}`
@@ -1127,6 +1196,13 @@ async function ensureEditor() {
           openPeek(n.match.file, n.match.line);
           return;
         }
+      }
+      // 逆方向 sync 装飾 (呼び出し箇所) クリックで実態へジャンプ
+      const rn = _reverseSyncLines.get(pos.lineNumber);
+      if (rn?.match?.file) {
+        e.event.preventDefault();
+        openPeek(rn.match.file, rn.match.line);
+        return;
       }
     }
 
@@ -2170,4 +2246,4 @@ addEventListener('DOMContentLoaded', () => {
   }
 });
 
-if (typeof module !== 'undefined') module.exports = { fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName };
+if (typeof module !== 'undefined') module.exports = { fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored };

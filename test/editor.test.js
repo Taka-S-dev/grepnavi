@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 // setup.js (--require) で browser globals をスタブ済み
 global.id = () => null;
 
-const { fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName } = require('../static/js/editor.js');
+const { fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored } = require('../static/js/editor.js');
 
 test('fzfMatchToken - exact match', () => {
   const r = fzfMatchToken('foobar', 'foo');
@@ -121,4 +121,36 @@ test('extractFuncName - identifier with line plus call form still works', () => 
   // 「label を編集して `<word>:<line> ...` の後ろに何か足した」ケースは対象外
   // (この時は最初の identifier を func 名とみなす)
   assert.equal(extractFuncName('foo(x):42'), 'foo');
+});
+
+// ----- _isDefAnchored (逆方向 sync の対象判定) -----
+test('_isDefAnchored - match and _def on same line = def pin', () => {
+  assert.equal(_isDefAnchored({
+    match: { file: 'C:\\src\\recipe.c', line: 42 },
+    _def:  { file: 'C:\\src\\recipe.c', line: 42 },
+  }), true);
+});
+
+test('_isDefAnchored - call site pin (different line) is not def-anchored', () => {
+  assert.equal(_isDefAnchored({
+    match: { file: 'C:\\src\\main.c',   line: 10 },
+    _def:  { file: 'C:\\src\\recipe.c', line: 42 },
+  }), false);
+  assert.equal(_isDefAnchored({
+    match: { file: 'C:\\src\\recipe.c', line: 10 },
+    _def:  { file: 'C:\\src\\recipe.c', line: 42 },
+  }), false);
+});
+
+test('_isDefAnchored - unresolved / failed resolve is not def-anchored', () => {
+  assert.equal(_isDefAnchored({ match: { file: 'C:\\a.c', line: 1 } }), false);
+  assert.equal(_isDefAnchored({ match: { file: 'C:\\a.c', line: 1 }, _def: null }), false);
+  assert.equal(_isDefAnchored(null), false);
+});
+
+test('_isDefAnchored - path separators and case are normalized', () => {
+  assert.equal(_isDefAnchored({
+    match: { file: 'C:/src/Recipe.c',   line: 42 },
+    _def:  { file: 'c:\\src\\recipe.c', line: 42 },
+  }), true);
 });
