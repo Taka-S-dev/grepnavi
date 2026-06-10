@@ -36,7 +36,7 @@ export const definitions: ToolDef[] = [
     name: "grepnavi_definition",
     description:
       "Resolve a symbol to file:line via gtags → ctags → ripgrep fallback. Each hit has `kind`, `engine`, plus `likely_trivial` (well-known primitive name) and `in_caller_subtree` (true when this hit shares the caller's top-2 path components — pass `file` for this to work).\n\n" +
-      "**Returns `{ hits, hint? }`**. `hits` is empty when nothing matched. `hint` (optional) explains *why* — e.g. 'X is a #define macro', or 'no ctags/gtags index built'. Surface this hint when reporting back to the user instead of just saying 'not found'.\n\n" +
+      "**Returns `{ hits, hint? }`**. `hits` is empty when nothing matched. `hint` (optional) explains *why* — e.g. 'X is a #define/enum constant but its location could not be resolved', or 'no ctags/gtags index built'. Surface this hint when reporting back to the user instead of just saying 'not found'.\n\n" +
       "**Results are pre-sorted by bridge: `func > define > typedef > others`**, so hits[0] is usually the actual implementation. Prefer .c over .h when both exist at the top.\n\n" +
       "**Next step**: take `hits[0].file` + `hits[0].line` and feed them to grepnavi_func_body (to read the implementation) or grepnavi_callees (to see what it calls). The `file` is absolute — pass verbatim.",
     inputSchema: {

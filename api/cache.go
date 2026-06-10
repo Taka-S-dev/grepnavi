@@ -57,12 +57,22 @@ func hoverCacheSet(key string, hits []search.HoverHit) {
 	_hoverCache[key] = hoverCacheEntry{hits: hits, expiresAt: time.Now().Add(_hoverCacheTTL)}
 }
 
+// ---- definition 検索結果 ----
+
+// defResult は definition 検索の結果と、実際に hit を返した engine（fallback 後）の組。
+// engine を hits と一緒に持ち回ることで、キャッシュヒット時や in-flight 待機側でも
+// 「リクエストされた engine」ではなく「実際に使われた engine」を応答できる。
+type defResult struct {
+	hits   []search.DefHit
+	engine string
+}
+
 // ---- definition in-flight dedup ----
 // 同一キーのリクエストが同時に来た場合、2つ目以降は最初の検索完了まで待機して結果を共有する。
 
 type defInflightEntry struct {
 	done chan struct{}
-	hits []search.DefHit
+	res  defResult
 	err  error
 }
 
@@ -73,24 +83,24 @@ var (
 
 // defInflightDo は key に対応する fn を一度だけ実行する。
 // 同じ key で同時に呼ばれた場合、後続の呼び出しは先行の完了を待つ。
-func defInflightDo(key string, fn func() ([]search.DefHit, error)) ([]search.DefHit, error) {
+func defInflightDo(key string, fn func() (defResult, error)) (defResult, error) {
 	_defInflightMu.Lock()
 	if e, ok := _defInflight[key]; ok {
 		_defInflightMu.Unlock()
 		<-e.done
-		return e.hits, e.err
+		return e.res, e.err
 	}
 	e := &defInflightEntry{done: make(chan struct{})}
 	_defInflight[key] = e
 	_defInflightMu.Unlock()
 
-	e.hits, e.err = fn()
+	e.res, e.err = fn()
 
 	_defInflightMu.Lock()
 	delete(_defInflight, key)
 	_defInflightMu.Unlock()
 	close(e.done)
-	return e.hits, e.err
+	return e.res, e.err
 }
 
 // ---- definition キャッシュ ----
@@ -101,7 +111,7 @@ const (
 )
 
 type defCacheEntry struct {
-	hits      []search.DefHit
+	res       defResult
 	expiresAt time.Time
 }
 
@@ -110,17 +120,17 @@ var (
 	_defCache   = map[string]defCacheEntry{}
 )
 
-func defCacheGet(key string) ([]search.DefHit, bool) {
+func defCacheGet(key string) (defResult, bool) {
 	_defCacheMu.Lock()
 	defer _defCacheMu.Unlock()
 	e, ok := _defCache[key]
 	if !ok || time.Now().After(e.expiresAt) {
-		return nil, false
+		return defResult{}, false
 	}
-	return e.hits, true
+	return e.res, true
 }
 
-func defCacheSet(key string, hits []search.DefHit) {
+func defCacheSet(key string, res defResult) {
 	_defCacheMu.Lock()
 	defer _defCacheMu.Unlock()
 	if len(_defCache) >= _defCacheMax {
@@ -139,7 +149,7 @@ func defCacheSet(key string, hits []search.DefHit) {
 			}
 		}
 	}
-	_defCache[key] = defCacheEntry{hits: hits, expiresAt: time.Now().Add(_defCacheTTL)}
+	_defCache[key] = defCacheEntry{res: res, expiresAt: time.Now().Add(_defCacheTTL)}
 }
 
 // defCacheClear はキャッシュ全体を破棄する。インデックス再生成後に呼び、

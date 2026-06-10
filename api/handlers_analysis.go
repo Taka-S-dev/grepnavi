@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -218,13 +219,12 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 	}
 	cacheKey := word + "\x00" + dir + "\x00" + glob + "\x00" + engine
 	if cached, ok := defCacheGet(cacheKey); ok {
-		slog.Debug("definition cache hit", "word", word, "engine", engine)
-		jsonOK(w, cached)
+		slog.Debug("definition cache hit", "word", word, "engine", cached.engine)
+		writeDefinitionResponse(w, word, hroot, cached)
 		return
 	}
-	usedEngine := engine
 	// 同一キーの並行リクエストは1回の検索で済ませる（in-flight dedup）
-	hits, err := defInflightDo(cacheKey, func() ([]search.DefHit, error) {
+	res, err := defInflightDo(cacheKey, func() (defResult, error) {
 		// キャッシュを再チェック（待機中に別のリクエストが完了した可能性）
 		if cached, ok := defCacheGet(cacheKey); ok {
 			return cached, nil
@@ -290,52 +290,55 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 				slog.Debug("definition rg result", "word", word, "engine", eng, "hits", len(h), "elapsed", time.Since(t0))
 			}
 		}
-		usedEngine = eng
-		if e == nil {
-			if h == nil {
-				h = []search.DefHit{}
-			}
-			defCacheSet(cacheKey, h)
+		if e != nil {
+			return defResult{}, e
 		}
-		return h, e
+		if h == nil {
+			h = []search.DefHit{}
+		}
+		for i := range h {
+			h[i].Engine = eng
+		}
+		out := defResult{hits: h, engine: eng}
+		defCacheSet(cacheKey, out)
+		return out, nil
 	})
 	if err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if hits == nil {
-		hits = []search.DefHit{}
-	}
-	for i := range hits {
-		hits[i].Engine = usedEngine
-	}
-	w.Header().Set("X-Engine", usedEngine)
-	if len(hits) == 0 {
+	writeDefinitionResponse(w, word, hroot, res)
+}
+
+// writeDefinitionResponse は X-Engine と（0件時の）X-Definition-Hint を添えて hits を返す。
+// 新規検索・キャッシュヒット・in-flight 待機のどの経路でも同じヘッダが付くよう一本化。
+func writeDefinitionResponse(w http.ResponseWriter, word, hroot string, res defResult) {
+	w.Header().Set("X-Engine", res.engine)
+	if len(res.hits) == 0 {
 		if hint := definitionEmptyHint(word, hroot); hint != "" {
 			w.Header().Set("X-Definition-Hint", hint)
 		}
 	}
-	jsonOK(w, hits)
+	jsonOK(w, res.hits)
 }
 
 // definitionEmptyHint は 0 件返却時に「なぜ見つからなかったか」のヒントを返す。
-// AI クライアントが「macro なのか / index 未整備なのか / 本当に存在しないのか」を
+// クライアントが「macro なのか / index 未整備なのか / 本当に存在しないのか」を
 // 区別できるようにする目的。空文字なら hint 無し (= 単純な見つからない)。
 func definitionEmptyHint(word, root string) string {
 	if root == "" {
 		return ""
 	}
 	macros := search.CtagsMacroNames(root)
-	if macros.Ready {
-		for _, m := range macros.Symbols.Macros {
-			if m == word {
-				return "'" + word + "' is a #define macro; not returned as a callable definition. Use grepnavi_search or check the ctags macro list."
-			}
+	// HTTP ヘッダ値に word を埋め込むため識別子のみ許可（非 ASCII の文字化け防止）。
+	if macros.Ready && reIdentifier.MatchString(word) {
+		// Symbols.Macros は ctagsParseSymbols がソート済みで返す（SymbolsInFile と同じ前提）
+		names := macros.Symbols.Macros
+		if i := sort.SearchStrings(names, word); i < len(names) && names[i] == word {
+			return "'" + word + "' is indexed by ctags as a #define/enum constant, but no definition location could be resolved — the tags file may lack line numbers (regenerate with ctags --fields=+n). A text search for the #define site will find it."
 		}
 	}
-	ctagsReady := search.CtagsIndexed(root)
-	gtagsReady := search.GtagsIndexed(root)
-	if !ctagsReady && !gtagsReady {
+	if !search.CtagsIndexed(root) && !search.GtagsIndexed(root) {
 		return "no ctags/gtags index for this root; only ripgrep heuristics ran. Building an index can surface more results."
 	}
 	return ""
