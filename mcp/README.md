@@ -28,10 +28,11 @@ flowchart TD
 | `grepnavi_root` | grepnavi が現在開いているルートディレクトリの絶対パス + bridge version |
 | `grepnavi_editor_state` | ブラウザ Monaco エディタの現在状態 (active file / cursor / selection / viewport) を返す。「この関数を説明して」「この範囲にメモ」のような指示を file:line 指定なしで処理するため。`fresh: false` (browser 切断 / 背景タブ / 操作なし 20 秒以上) のときは AI が user に確認する設計 |
 | `grepnavi_read_file` | ファイル内容を取得 (SJIS / EUC-JP 自動 decode、相対パスは root 相対で解決、cat -n 形式) |
-| `grepnavi_search` | 横断テキスト/正規表現検索 (encoding 自動 decode)。AI 自前 ripgrep の代替 |
+| `grepnavi_search` | 横断テキスト/正規表現検索 (encoding 自動 decode、`limit`/`next_offset` でページネーション)。C 系ファイルの各 hit に **`enclosing_function`** (どの関数内のヒットか) 付き → 関数単位でグループ化してから本体を読める。**0 件時は `hint`** で理由 (glob 無マッチ / literal 検索に regex 構文) を返す |
+| `grepnavi_symbol_search` | **シンボル名のパターン検索** (正規表現、case-insensitive デフォルト)。正確な識別子名を知らない段階で `recipe.*(save\|write)` のように候補を 1 call で列挙 → definition / func_body に引き継ぐ。ctags 索引が前提 |
 | `grepnavi_func_body` | 関数本体を file+line から一発取得 (read_file の line 範囲推測が不要) |
 | `grepnavi_symbols` | ファイル内の top-level シンボル一覧 (アウトライン) |
-| `grepnavi_definition` | シンボル名 → file:line 解決 (gtags / ctags / ripgrep フォールバック)。各 hit に `engine` フィールド付き |
+| `grepnavi_definition` | シンボル名 → file:line 解決 (gtags / ctags / ripgrep フォールバック)。`{ hits, hint? }` を返し、hits は `func > define > typedef` 順に bridge がソート済み。**0 件時の `hint`** が「macro として索引にはあるが位置解決に失敗」「索引未生成」等の理由を説明する |
 | `grepnavi_callers` | 関数を呼んでいる箇所一覧 (call tree を上に辿る、`depth` で再帰) |
 | `grepnavi_callees` | 関数内から呼ばれている識別子一覧 + 各定義解決 (call_line, kind, engine, **`confidence`** (high/medium/low — low は silent failure 警告), likely_macro / likely_non_callable, self 自動除外、`depth` で再帰)。**`exclude_macros` / `exclude_non_callable` はデフォルト true** (ノイズ除去)。`excluded.macros` / `excluded.non_callable` は**名前リスト** で返す → 再 query 無しで「捨てたもの」を確認可能。definitions は path proximity で **top 1** のみ surface、`definitions_total` で件数通知 |
 | `grepnavi_graph_list` | 既存ノード一覧 (id / label / file:line / memo / children) |
