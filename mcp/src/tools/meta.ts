@@ -5,7 +5,26 @@ export const definitions: ToolDef[] = [
   {
     name: "grepnavi_root",
     description:
-      "Return grepnavi's current root directory (absolute path) and bridge_version. The root may DIFFER from your working directory — anchor all subsequent file paths to this root.",
+      "Return grepnavi's current root directory (absolute path) and bridge_version. The root may DIFFER from your working directory — anchor all subsequent file paths to this root.\n\n" +
+      "**Read this first — investigation workflows.** Most user requests resolve through one of these chains. Use them as recipes; don't try to one-shot everything through grepnavi_search.\n\n" +
+      "1. *\"Where is X output / written / created?\"*\n" +
+      "   - grepnavi_search the keyword (e.g. \"recipe\") to find write-like call sites.\n" +
+      "   - For each promising hit: grepnavi_func_body on the surrounding function to confirm it actually writes.\n" +
+      "   - grepnavi_callers on that function to trace who triggers the write.\n\n" +
+      "2. *\"What does function F do?\"*\n" +
+      "   - grepnavi_definition(\"F\") → file:line of the implementation.\n" +
+      "   - grepnavi_func_body(file, line) → read the body.\n" +
+      "   - grepnavi_callees(file, line) for the downstream call chain; recurse with depth 1 each step instead of jumping to depth 3.\n\n" +
+      "3. *\"What does this file contain / outline a header.\"*\n" +
+      "   - grepnavi_symbols(file) for the outline.\n" +
+      "   - grepnavi_read_file(file, start_line, end_line) to read targeted ranges instead of the whole file.\n\n" +
+      "4. *\"Who calls function F?\"*\n" +
+      "   - grepnavi_callers(\"F\", depth=1). Only bump depth when you actually need the wider tree — each level fans out.\n\n" +
+      "**Tool ↔ file access**: Every grepnavi_* result's `file` is an ABSOLUTE path. Three ways to read content:\n" +
+      "  - grepnavi_read_file → SAFE for SJIS / EUC-JP source (auto-decode). Use when encoding is unknown or known non-UTF-8.\n" +
+      "  - grepnavi_func_body → one call returns the whole function with line numbers; preferred for \"show me this function\".\n" +
+      "  - Your own Read tool (Claude Code Read, Codex view_file, etc.) → fine when source is confirmed UTF-8.\n\n" +
+      "**Avoid**: hand-building relative paths from memory, calling grepnavi_search with no `limit` on huge repos, jumping to depth>1 on callers/callees before depth=1 told you anything.",
     inputSchema: { type: "object", properties: {} },
   },
   {
