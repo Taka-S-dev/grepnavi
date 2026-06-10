@@ -20,11 +20,14 @@ export const definitions: ToolDef[] = [
       "   - grepnavi_read_file(file, start_line, end_line) to read targeted ranges instead of the whole file.\n\n" +
       "4. *\"Who calls function F?\"*\n" +
       "   - grepnavi_callers(\"F\", depth=1). Only bump depth when you actually need the wider tree — each level fans out.\n\n" +
+      "5. *Exact symbol name unknown* (the user describes behavior, not an identifier).\n" +
+      "   - grepnavi_symbol_search(\"recipe.*(save|write)\") → candidate names with kind/file/line in one call.\n" +
+      "   - Then grepnavi_definition / grepnavi_func_body on the name you picked.\n\n" +
       "**Tool ↔ file access**: Every grepnavi_* result's `file` is an ABSOLUTE path. Three ways to read content:\n" +
       "  - grepnavi_read_file → SAFE for SJIS / EUC-JP source (auto-decode). Use when encoding is unknown or known non-UTF-8.\n" +
       "  - grepnavi_func_body → one call returns the whole function with line numbers; preferred for \"show me this function\".\n" +
       "  - Your own Read tool (Claude Code Read, Codex view_file, etc.) → fine when source is confirmed UTF-8.\n\n" +
-      "**Avoid**: hand-building relative paths from memory, calling grepnavi_search with no `limit` on huge repos, jumping to depth>1 on callers/callees before depth=1 told you anything.",
+      "**Avoid**: hand-building relative paths from memory, calling grepnavi_search with no `limit` on huge repos, jumping to depth>1 on callers/callees before depth=1 told you anything, guessing identifier names one by one through grepnavi_definition (use grepnavi_symbol_search).",
     inputSchema: { type: "object", properties: {} },
   },
   {

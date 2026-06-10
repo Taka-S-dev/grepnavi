@@ -26,6 +26,16 @@ type Match struct {
 	IfdefStack []IfdefFrame  `json:"ifdef_stack"`
 	Query      string        `json:"query"`
 	NonUTF8    bool          `json:"non_utf8,omitempty"` // ripgrep が UTF-8 として復号できず SJIS/EUC-JP フォールバックを使用
+	// マッチ行を含む関数（C 系ファイルのみ・特定できた場合のみ）。
+	// AI クライアントが「どの関数内のヒットか」を読み取り、関数単位で
+	// グループ化してから本体を読めるようにする。
+	EnclosingFunc *EnclosingFunc `json:"enclosing_function,omitempty"`
+}
+
+// EnclosingFunc は検索ヒットを含む関数の名前と開始行。
+type EnclosingFunc struct {
+	Name      string `json:"name"`
+	StartLine int    `json:"start_line"`
 }
 
 // SnippetLine はスニペットの1行。

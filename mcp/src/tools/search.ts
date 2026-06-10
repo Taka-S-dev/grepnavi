@@ -59,6 +59,32 @@ export const definitions: ToolDef[] = [
     },
   },
   {
+    name: "grepnavi_symbol_search",
+    description:
+      "Find symbols by NAME PATTERN across the whole project (regex over ctags symbol names, case-insensitive by default). **Use when you don't know the exact identifier** — the user says \"the recipe save function\" and the name could be `save_recipe` / `RecipeSave` / `recipe_write`: search `recipe.*(save|write)` in ONE call instead of guessing names one by one through grepnavi_definition.\n\n" +
+      "Returns `{ symbols: [{name, kind, file, line}], count, truncated, hint? }`. Sorted: exact name match first, then `func > define > typedef > others`, then name. `truncated: true` = more matches exist — narrow the pattern or filter with `kind`.\n\n" +
+      "This searches symbol NAMES (definitions) only, not file content — for content matches use grepnavi_search.\n\n" +
+      "**Next step**: pick the right name, then grepnavi_definition(name) for ranked resolution across engines, or jump straight to grepnavi_func_body(file, line) with the returned location.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pattern: {
+          type: "string",
+          description:
+            "Regex matched against symbol names (e.g. 'recipe.*(save|write)', '^usb_.*_init$'). Case-insensitive unless `case` is true.",
+        },
+        kind: {
+          type: "string",
+          enum: ["func", "define", "typedef", "struct", "enum", "enum_member", "member", "var", "union"],
+          description: "Limit results to one symbol kind.",
+        },
+        case: { type: "boolean", description: "Case-sensitive match when true (default false)." },
+        limit: { type: "integer", description: "Max results (default 50, max 200)." },
+      },
+      required: ["pattern"],
+    },
+  },
+  {
     name: "grepnavi_search",
     description:
       "Ripgrep through MCP, with SJIS/EUC-JP auto-decode and paginated results. Same engine as `rg` on the Bash side — same hits, same regex syntax — plus a few extras grepnavi adds on top.\n\n" +
@@ -67,7 +93,9 @@ export const definitions: ToolDef[] = [
       "  - You want chunked retrieval via `limit` + `next_offset` instead of one giant response.\n" +
       "  - You want per-hit ifdef stack on C/C++ matches for context.\n\n" +
       "**When Bash `rg` is fine**: source is confirmed UTF-8 AND you just want a quick one-shot search. Same results, less plumbing.\n\n" +
-      "Returns matches with file, line, col, text, optional 8-line snippet, and `non_utf8: true` when fallback decoding was used.\n\n" +
+      "Returns matches with file, line, col, text, optional 8-line snippet, `non_utf8: true` when fallback decoding was used, and `enclosing_function` ({name, start_line}, C files) — the function containing the hit.\n\n" +
+      "**Group hits by `enclosing_function` BEFORE reading anything**: 30 hits are often just 4-5 functions. Read each unique function once via grepnavi_func_body(file, enclosing_function.start_line) instead of investigating hit by hit.\n\n" +
+      "**0 matches may come with a `hint`** explaining a probable tool-use mistake (glob matched no files; regex syntax in a literal search). Read it and retry before concluding the text does not exist.\n\n" +
       "**Next step**: each match's `file` is absolute. Feed it to grepnavi_func_body (for the surrounding function), grepnavi_read_file (for a wider range), or grepnavi_callers (if the hit is a function name). Don't dump huge searches without `limit` — set it to 20-50 first, paginate with `next_offset` only if the user actually needs more.",
     inputSchema: {
       type: "object",
@@ -204,6 +232,10 @@ export const handlers: Record<string, ToolHandler> = {
       file: normalizeInputPath(a.file),
       dir: normalizeInputPath(a.dir),
     }));
+  },
+  grepnavi_symbol_search: async (args) => {
+    const a = args as { pattern: string; kind?: string; case?: boolean; limit?: number };
+    return ok(await client.symbolSearch(a.pattern, a));
   },
   grepnavi_search: async (args) => {
     const a = args as Parameters<typeof client.search>[0];

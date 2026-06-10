@@ -33,6 +33,7 @@ export interface SearchMatch {
   kind?: string;
   snippet?: Array<{ line: number; text: string; is_match: boolean }>;
   non_utf8?: boolean;
+  enclosing_function?: { name: string; start_line: number };
 }
 
 export interface Symbol {
@@ -459,6 +460,7 @@ export class GrepnaviClient {
     count: number;
     has_more?: boolean;
     next_offset?: number;
+    hint?: string;
   }> {
     const params = new URLSearchParams({ q: opts.pattern });
     if (opts.dir) params.set("dir", opts.dir);
@@ -475,6 +477,24 @@ export class GrepnaviClient {
       count: number;
       has_more?: boolean;
       next_offset?: number;
+      hint?: string;
+    };
+  }
+
+  async symbolSearch(
+    pattern: string,
+    opts: { kind?: string; case?: boolean; limit?: number } = {},
+  ): Promise<{ symbols: DefHit[]; count: number; truncated?: boolean; hint?: string }> {
+    const params = new URLSearchParams({ pattern });
+    if (opts.kind) params.set("kind", opts.kind);
+    if (opts.case) params.set("case", "1");
+    if (opts.limit && opts.limit > 0) params.set("limit", String(opts.limit));
+    const r = await this.req("/api/symbol-search?" + params.toString());
+    return (await r.json()) as {
+      symbols: DefHit[];
+      count: number;
+      truncated?: boolean;
+      hint?: string;
     };
   }
 

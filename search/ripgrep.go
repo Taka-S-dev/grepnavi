@@ -7,11 +7,13 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"grepnavi/graph"
 )
@@ -78,9 +80,7 @@ func buildArgs(opts Options) []string {
 	if opts.Encoding != "" {
 		args = append(args, "--encoding", opts.Encoding)
 	}
-	for _, g := range strings.FieldsFunc(opts.FileGlob, func(r rune) bool {
-		return r == ' ' || r == ','
-	}) {
+	for _, g := range splitGlobs(opts.FileGlob) {
 		args = append(args, "--glob", g)
 	}
 	args = append(args, "--context", strconv.Itoa(opts.ContextLines))
@@ -94,6 +94,48 @@ func buildArgs(opts Options) []string {
 		args = append(args, opts.Dir)
 	}
 	return args
+}
+
+// splitGlobs はスペース / カンマ区切りの glob 指定を個別の glob に分割する。
+func splitGlobs(glob string) []string {
+	return strings.FieldsFunc(glob, func(r rune) bool {
+		return r == ' ' || r == ','
+	})
+}
+
+// GlobMatchesAnyFile は dir 配下に glob へマッチするファイルが1つでも存在するか返す。
+// 0件検索の「glob が1ファイルにもマッチしていない」ヒント用。
+// 判定できない場合（rg 不在・タイムアウト等）は true を返し、ヒントを出さない側に倒す。
+func GlobMatchesAnyFile(ctx context.Context, dir, glob string) bool {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	args := []string{"--files"}
+	for _, g := range splitGlobs(glob) {
+		args = append(args, "--glob", g)
+	}
+	args = append(args, dir)
+	cmd := exec.CommandContext(ctx, "rg", args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return true
+	}
+	if err := cmd.Start(); err != nil {
+		return true
+	}
+	// 1行読めた時点で「マッチあり」が確定するので rg を止める
+	line, readErr := bufio.NewReader(stdout).ReadString('\n')
+	cancel()
+	_ = cmd.Wait()
+	if line != "" {
+		return true
+	}
+	// 直後の cancel() で ctx.Err() は常に非 nil になるため、
+	// 「読み切る前にタイムアウトした = 未判定」は DeadlineExceeded だけで見る
+	if readErr != nil && errors.Is(context.Cause(ctx), context.DeadlineExceeded) {
+		return true
+	}
+	return false
 }
 
 // ripgrep --json の各行は以下のいずれか:

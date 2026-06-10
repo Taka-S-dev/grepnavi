@@ -344,6 +344,60 @@ func definitionEmptyHint(word, root string) string {
 	return ""
 }
 
+// --- /api/symbol-search ---
+
+// handleSymbolSearch はシンボル名のパターン検索（プロジェクト全体）。
+// 「正確な識別子名を知らない」段階で候補を絞り込むためのエンドポイントで、
+// 名前が確定したら /api/definition に引き継ぐ想定。ctags 索引が前提。
+func (h *Handler) handleSymbolSearch(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	pattern := q.Get("pattern")
+	if pattern == "" {
+		jsonErr(w, "pattern is required", http.StatusBadRequest)
+		return
+	}
+	if _, err := regexp.Compile(pattern); err != nil {
+		jsonErr(w, "invalid pattern regex: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	h.mu.RLock()
+	hroot := h.root
+	h.mu.RUnlock()
+	if !search.CtagsIndexed(hroot) {
+		jsonOK(w, map[string]interface{}{
+			"symbols": []search.DefHit{},
+			"count":   0,
+			"hint":    "no ctags index (tags file) for this root; symbol name search requires it. Generate with: ctags -R --fields=+n",
+		})
+		return
+	}
+
+	limit := 50
+	if ls := q.Get("limit"); ls != "" {
+		fmt.Sscanf(ls, "%d", &limit)
+	}
+	if limit < 1 {
+		limit = 50
+	} else if limit > 200 {
+		limit = 200
+	}
+
+	hits, truncated, err := search.CtagsSearchSymbolNames(
+		r.Context(), pattern, hroot, q.Get("kind"), q.Get("case") == "1", limit)
+	if err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if hits == nil {
+		hits = []search.DefHit{}
+	}
+	jsonOK(w, map[string]interface{}{
+		"symbols":   hits,
+		"count":     len(hits),
+		"truncated": truncated,
+	})
+}
+
 // --- /api/hover ---
 
 func (h *Handler) handleHover(w http.ResponseWriter, r *http.Request) {

@@ -1,9 +1,11 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -131,6 +133,19 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 		offset = 0
 	}
 
+	if _, err := os.Stat(dir); err != nil {
+		jsonErr(w, "search dir does not exist: "+dir, http.StatusBadRequest)
+		return
+	}
+
+	enc := q.Get("enc")
+	// 許可するエンコーディングのみ通す
+	switch enc {
+	case "sjis", "euc-jp", "utf-16le", "utf-16be":
+	default:
+		enc = ""
+	}
+
 	// limit > 0 のときは 1 件多めに取って has_more を判定する。
 	maxFetch := 0
 	if limit > 0 {
@@ -145,6 +160,7 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 		FileGlob:      q.Get("glob"),
 		ContextLines:  8,
 		MaxResults:    maxFetch,
+		Encoding:      enc,
 	}
 
 	matches, err := search.Search(r.Context(), opts)
@@ -178,6 +194,8 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	annotateEnclosingFuncs(matches)
+
 	if matches == nil {
 		matches = []graph.Match{}
 	}
@@ -191,7 +209,67 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 			resp["next_offset"] = offset + limit
 		}
 	}
+	if len(matches) == 0 {
+		if hint := searchEmptyHint(r.Context(), opts); hint != "" {
+			resp["hint"] = hint
+		}
+	}
 	jsonOK(w, resp)
+}
+
+// annotateEnclosingFuncs は各マッチに「どの関数の中のヒットか」を付加する（C 系のみ）。
+// クライアントがヒットを関数単位でグループ化し、重複なく func-body を読めるようにする。
+// 無制限検索でファイル数が爆発した場合に備えてシンボル抽出は上限ファイル数で打ち切る。
+const _enclosingFuncMaxFiles = 100
+
+func annotateEnclosingFuncs(matches []graph.Match) {
+	symsByFile := map[string][]search.Symbol{}
+	for i := range matches {
+		m := &matches[i]
+		if !isCLike(m.File) {
+			continue
+		}
+		syms, ok := symsByFile[m.File]
+		if !ok {
+			if len(symsByFile) >= _enclosingFuncMaxFiles {
+				continue
+			}
+			syms, _ = search.ExtractSymbols(m.File)
+			symsByFile[m.File] = syms
+		}
+		for _, s := range syms {
+			if s.StartLine <= m.Line && m.Line <= s.EndLine {
+				m.EnclosingFunc = &graph.EnclosingFunc{Name: s.Name, StartLine: s.StartLine}
+				break
+			}
+		}
+	}
+}
+
+// searchEmptyHint は 0 件時に「なぜ見つからなかったか」のヒントを返す。
+// AI クライアントが「本当に存在しない」と「検索条件のミス」を区別できるようにする
+// （/api/definition の X-Definition-Hint と同じ思想）。空文字なら hint 無し。
+func searchEmptyHint(ctx context.Context, opts search.Options) string {
+	if opts.FileGlob != "" && !search.GlobMatchesAnyFile(ctx, opts.Dir, opts.FileGlob) {
+		return "glob '" + opts.FileGlob + "' matched no files under '" + opts.Dir +
+			"'; the pattern was never tested against any file. Fix the glob before concluding the text does not exist."
+	}
+	if !opts.Regex && looksLikeRegexPattern(opts.Pattern) {
+		return "pattern was treated as a LITERAL string (regex=false) but contains regex-like syntax (e.g. '.*', '\\b'); pass regex=true if you meant a regular expression."
+	}
+	return ""
+}
+
+// looksLikeRegexPattern は literal 検索のパターンが「正規表現のつもり」で書かれて
+// いそうかを判定する。`(` や `|` `[` は C コードの literal 検索に普通に現れるため、
+// 誤検知の少ない強いシグナルだけを見る。
+func looksLikeRegexPattern(p string) bool {
+	for _, sig := range []string{".*", ".+", `\b`, `\d`, `\w`, `\s`, "(?"} {
+		if strings.Contains(p, sig) {
+			return true
+		}
+	}
+	return strings.HasPrefix(p, "^") || strings.HasSuffix(p, "$")
 }
 
 func isCLike(path string) bool {

@@ -66,6 +66,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/symbols", h.handleSymbols)
 	mux.HandleFunc("/api/ifdef", h.handleIfdef)
 	mux.HandleFunc("/api/definition", h.handleDefinition)
+	mux.HandleFunc("/api/symbol-search", h.handleSymbolSearch)
 	mux.HandleFunc("/api/hover", h.handleHover)
 	mux.HandleFunc("/api/new-window", h.handleNewWindow)
 	mux.HandleFunc("/api/browse", h.handleBrowse)
