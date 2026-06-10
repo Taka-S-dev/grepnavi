@@ -73,6 +73,12 @@ func (h *Handler) handleFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "file required", http.StatusBadRequest)
 		return
 	}
+	if !filepath.IsAbs(file) {
+		h.mu.RLock()
+		root := h.root
+		h.mu.RUnlock()
+		file = filepath.Join(root, file)
+	}
 
 	base := filepath.Base(file)
 	ext := strings.ToLower(filepath.Ext(file))
@@ -154,6 +160,12 @@ func (h *Handler) handleSymbols(w http.ResponseWriter, r *http.Request) {
 	if file == "" {
 		jsonErr(w, "file required", http.StatusBadRequest)
 		return
+	}
+	if !filepath.IsAbs(file) {
+		h.mu.RLock()
+		root := h.root
+		h.mu.RUnlock()
+		file = filepath.Join(root, file)
 	}
 	symbols, err := search.ExtractSymbols(file)
 	if err != nil {
