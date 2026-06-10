@@ -58,7 +58,12 @@ export const definitions: ToolDef[] = [
   {
     name: "grepnavi_search",
     description:
-      "Text or regex search through grepnavi (handles SJIS / EUC-JP). **Use INSTEAD of your own ripgrep for files inside the grepnavi tree** — your ripgrep can mangle non-UTF-8 source.\n\n" +
+      "Ripgrep through MCP, with SJIS/EUC-JP auto-decode and paginated results. Same engine as `rg` on the Bash side — same hits, same regex syntax — plus a few extras grepnavi adds on top.\n\n" +
+      "**When to prefer this over Bash `rg`**:\n" +
+      "  - Source may not be UTF-8 (SJIS / EUC-JP / UTF-16). Raw `rg` will silently miss multi-byte matches; this auto-decodes.\n" +
+      "  - You want chunked retrieval via `limit` + `next_offset` instead of one giant response.\n" +
+      "  - You want per-hit ifdef stack on C/C++ matches for context.\n\n" +
+      "**When Bash `rg` is fine**: source is confirmed UTF-8 AND you just want a quick one-shot search. Same results, less plumbing.\n\n" +
       "Returns matches with file, line, col, text, optional 8-line snippet, and `non_utf8: true` when fallback decoding was used.",
     inputSchema: {
       type: "object",
