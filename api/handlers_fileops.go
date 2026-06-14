@@ -213,10 +213,11 @@ func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {
 		h.mu.Lock()
 		h.root = abs
 		h.mu.Unlock()
-		// 検索ルート (h.root) のみ変更する。pf.RootDir は「読み込んだグラフのノードが属する
-		// ルート」で、グラフの読み込み / 新規 / 切替でのみ設定する。ここで SetRootDir すると
-		// 開いているファイルに別ルートを焼き付けて保存し、ノードと root_dir が食い違う。
-		// 検索ルートを変えると後続でその root のプロジェクトが読み込まれ、pf.RootDir はそこで設定される。
+		// pf.RootDir も in-memory で更新する（ディスク保存はしない）。これで saveas や
+		// 新規グラフを保存したときに「今の検索ルート」が root_dir として書かれる。
+		// 保存ありの SetRootDir を使うと、別 root のファイルを開いたまま root を変えた際に
+		// そのファイルへ別 root を焼き付けてしまうため、NoSave 版を使う。
+		h.store.SetRootDirNoSave(abs)
 		invalidateFilesCache()
 		slog.Debug("root changed", "abs", abs, "ctags_indexed", search.CtagsIndexed(abs))
 		if search.CtagsIndexed(abs) {
