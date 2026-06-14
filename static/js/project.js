@@ -610,6 +610,20 @@ async function openProject(path) {
   setProjectPath(path);
   addSaveDirHistory(path.replace(/\\/g, '/').split('/').slice(0, -1).join('/'));
   st('読み込みました: ' + path);
+  // ルートとノードのズレを検知したら気づけるように知らせる（黙って壊れないように）。
+  if (d.root_warning) {
+    const rw = d.root_warning;
+    if (rw.root_missing) {
+      st('⚠ ルートが見つかりません: ' + (rw.configured_root || '(未設定)'));
+      if (typeof showAlert === 'function') {
+        showAlert('このグラフのルート「' + (rw.configured_root || '(未設定)') +
+          '」が見つかりません。ノードのファイルを開けません。\n左上のルートチップから正しいルートを選び直してください。');
+      }
+    } else if (rw.missing_files > 0) {
+      st('⚠ ノードのファイルが ' + rw.missing_files + '/' + rw.sampled_files +
+        ' 件見つかりません。ルートが正しいか確認してください');
+    }
+  }
   return true;
 }
 

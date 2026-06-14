@@ -585,5 +585,54 @@ func (h *Handler) handleGraphOpenFile(w http.ResponseWriter, r *http.Request) {
 		h.mu.RUnlock()
 	}
 	addGraphToGrepnavi(effectiveRoot, req.Path)
-	jsonOK(w, map[string]interface{}{"graph": g, "file_path": req.Path, "root": newRoot})
+	resp := map[string]interface{}{"graph": g, "file_path": req.Path, "root": newRoot}
+	if warn := rootHealthWarning(g, effectiveRoot); warn != nil {
+		resp["root_warning"] = warn
+	}
+	jsonOK(w, resp)
+}
+
+// rootHealthWarning は開いたグラフのルート健全性を確認する。root_dir が実在しない、または
+// ノードのファイル群が root 下に見つからない（ルート取り違え）場合に警告 map を返す。正常なら nil。
+// ノードのパスは相対で root と結合して解決されるため、root を間違えると全ノードが開けなくなる。
+func rootHealthWarning(g *graph.GraphResponse, root string) map[string]interface{} {
+	rootMissing := false
+	if g.RootDir != "" {
+		if info, err := os.Stat(g.RootDir); err != nil || !info.IsDir() {
+			rootMissing = true
+		}
+	}
+	const sampleCap = 20
+	sampled, missing := 0, 0
+	seen := make(map[string]bool)
+	for _, n := range g.Nodes {
+		if n == nil || n.Match.File == "" {
+			continue
+		}
+		if seen[n.Match.File] {
+			continue
+		}
+		seen[n.Match.File] = true
+		full := n.Match.File
+		if !filepath.IsAbs(full) {
+			full = filepath.Join(root, full)
+		}
+		sampled++
+		if _, err := os.Stat(full); err != nil {
+			missing++
+		}
+		if sampled >= sampleCap {
+			break
+		}
+	}
+	// 問題があるときだけ返す: root 不在、またはサンプルの過半が見つからない（ルート取り違え）。
+	if !rootMissing && (sampled == 0 || missing*2 <= sampled) {
+		return nil
+	}
+	return map[string]interface{}{
+		"configured_root": g.RootDir,
+		"root_missing":    rootMissing,
+		"sampled_files":   sampled,
+		"missing_files":   missing,
+	}
 }
