@@ -19,6 +19,8 @@
 !graph/**
 !search/
 !search/**
+!desktop/
+!desktop/**
 !static/
 !static/index.html
 !static/css/

@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"net/http"
 	"os"
 	"bufio"
 	"os/exec"
 	"runtime"
 	"strings"
+
+	"grepnavi/desktop"
 )
 
 func main() {
@@ -21,6 +24,8 @@ func main() {
 	logLevel  := flag.String("log-level", "info", "log level: debug, info, warn, error")
 	debug     := flag.Bool("debug", false, "enable /debug/pprof endpoint")
 	mcp       := flag.Bool("mcp", false, "allow non-browser API access (required for external bridges like grepnavi-mcp)")
+	tray      := flag.Bool("tray", false, "run resident in the system tray; open windows on demand (Windows only)")
+	view      := flag.String("view", "", "internal: open a WebView2 viewer at this URL without starting a server (used by -tray)")
 	flag.Parse()
 
 	// slog セットアップ
@@ -39,6 +44,16 @@ func main() {
 	// log.Printf も slog に流す（サードパーティライブラリ対応）
 	log.SetFlags(0)
 	log.SetOutput(os.Stderr)
+
+	// -view: ビューア専用プロセス（-tray が起動する）。URL を WebView2 窓で表示するだけで、
+	// サーバ起動も graph/root への参照もしない。
+	if *view != "" {
+		if err := desktop.OpenWindow(*view); err != nil {
+			slog.Error("view mode failed", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	rootExplicit := *root != "."
 	absRoot, err := absPath(*root)
@@ -75,6 +90,22 @@ func main() {
 		slog.Warn("--mcp enabled: non-browser (Origin-less) API access is allowed")
 	}
 	slog.Info("listening", "url", url)
+
+	// -tray: サーバをバックグラウンドで動かしトレイに常駐する。窓は必要に応じて
+	// 別プロセスの -view として開く（desktop.RunTray を参照）。
+	if *tray {
+		go func() {
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				slog.Error("server error", "err", err)
+				os.Exit(1)
+			}
+		}()
+		if err := desktop.RunTray(url); err != nil {
+			slog.Error("tray mode failed", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if !*noBrowser {
 		go openBrowser(url)

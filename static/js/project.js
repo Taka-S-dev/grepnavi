@@ -42,7 +42,7 @@ function updateSearchTitle(query, count) {
     ? projectRoot.replace(/\\/g, '/').split('/').filter(Boolean).pop() || projectRoot
     : '';
   if (!query) {
-    document.title = rootName || 'grepnavi';
+    document.title = rootName || 'コードビューア';
     return;
   }
   const q = query.length > 40 ? query.slice(0, 39) + '…' : query;
