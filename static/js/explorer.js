@@ -176,32 +176,38 @@ function updateStickyFolder() {
 function renderVirtual() {
   if (_rendering) return;
   _rendering = true;
-  const el  = _scrollEl;
-  const rh  = rowH();
-  const totalH   = _allItems.length * rh;
-  const scrollTop = el.scrollTop;
-  const viewH    = el.clientHeight || 400;
-  const startIdx = Math.max(0, Math.floor(scrollTop / rh) - 3);
-  const endIdx   = Math.min(_allItems.length, Math.ceil((scrollTop + viewH) / rh) + 3);
+  // try/finally で必ず _rendering を戻す。描画中に例外が出てフラグが true のまま固定されると、
+  // 以降 renderVirtual が全部 early-return して「ツリーが描画されない」症状になるため。
+  try {
+    const el  = _scrollEl;
+    if (!el) return;
+    const rh  = rowH();
+    const totalH   = _allItems.length * rh;
+    const scrollTop = el.scrollTop;
+    const viewH    = el.clientHeight || 400;
+    const startIdx = Math.max(0, Math.floor(scrollTop / rh) - 3);
+    const endIdx   = Math.min(_allItems.length, Math.ceil((scrollTop + viewH) / rh) + 3);
 
-  const frag = document.createDocumentFragment();
-  const top = document.createElement('div');
-  top.style.height = (startIdx * rh) + 'px';
-  frag.appendChild(top);
+    const frag = document.createDocumentFragment();
+    const top = document.createElement('div');
+    top.style.height = (startIdx * rh) + 'px';
+    frag.appendChild(top);
 
-  for (let i = startIdx; i < endIdx; i++) {
-    frag.appendChild(makeItemEl(_allItems[i], i));
+    for (let i = startIdx; i < endIdx; i++) {
+      frag.appendChild(makeItemEl(_allItems[i], i));
+    }
+
+    const bot = document.createElement('div');
+    bot.style.height = Math.max(0, totalH - endIdx * rh) + 'px';
+    frag.appendChild(bot);
+
+    el.innerHTML = '';
+    el.appendChild(frag);
+    el.scrollTop = scrollTop;
+    updateStickyFolder();
+  } finally {
+    _rendering = false;
   }
-
-  const bot = document.createElement('div');
-  bot.style.height = Math.max(0, totalH - endIdx * rh) + 'px';
-  frag.appendChild(bot);
-
-  el.innerHTML = '';
-  el.appendChild(frag);
-  el.scrollTop = scrollTop;
-  _rendering = false;
-  updateStickyFolder();
 }
 
 function scrollSelIntoView() {
@@ -405,7 +411,6 @@ function revealFolderInTree(abs) {
   const stripped = base && rel.startsWith(base + '/') ? rel.slice(base.length + 1) : rel;
   const parts = stripped.split('/').filter(Boolean);
   const dirPath = parts.slice(0, -1).join('/');
-  if (!dirPath) return;
 
   _query = '';
   _selIdx = -1;
@@ -414,9 +419,14 @@ function revealFolderInTree(abs) {
   if (filterEl) filterEl.value = '';
   if (clearEl)  clearEl.style.display = 'none';
 
-  const dirParts = dirPath.split('/');
-  for (let i = 1; i <= dirParts.length; i++) {
-    _expanded.add(dirParts.slice(0, i).join('/'));
+  // root 直下のファイル (dirPath 空) は展開するフォルダが無いのでスキップ。
+  // ただしここで return せず renderTree() は必ず呼ぶ。さもないと、開いているファイルが
+  // プロジェクト直下にあるとき（例: openssl の e_os.h）ツリー全体が描画されない。
+  if (dirPath) {
+    const dirParts = dirPath.split('/');
+    for (let i = 1; i <= dirParts.length; i++) {
+      _expanded.add(dirParts.slice(0, i).join('/'));
+    }
   }
 
   _selPath = abs.replace(/\\/g, '/');
