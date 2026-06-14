@@ -585,7 +585,10 @@ async function openProject(path) {
   fzfFiles = null;
   projectRoot = '';
   const resultsEl = id('results'); if (resultsEl) resultsEl.innerHTML = '';
-  const paneSearch = id('pane-search'); if (paneSearch) paneSearch.style.display = '';
+  // 検索結果ペインの表示はタブの状態に従う（projects/explorer タブを開いたまま
+  // プロジェクトを切り替えたとき、検索結果がパネル下にはみ出さないように）。
+  const paneSearch = id('pane-search');
+  if (paneSearch && id('tab-search')?.classList.contains('active')) paneSearch.style.display = '';
   // applyGraphResponse より前にlocalStorageを上書きして古いデータが描画されないようにする
   _cancelMemoSave();
   localStorage.setItem('grepnavi-line-memos',  JSON.stringify(d.graph.line_memos  || {}));
