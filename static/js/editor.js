@@ -929,6 +929,10 @@ async function ensureEditor() {
     language: 'plaintext',
     theme: 'grepnavi-dark',
     readOnly: true,
+    // コンテナサイズの確定が遅れても（初回ロード時のフォント/レイアウト未確定など）
+    // Monaco に追従させる。これが無いと小さいサイズでレイアウトされたまま固定され、
+    // 「エディタの上の一部だけ表示される（リロードで直る）」症状になる。
+    automaticLayout: true,
     minimap: {enabled: true, scale: 1, showSlider: 'mouseover'},
     scrollBeyondLastLine: false,
     fontSize: parseInt(localStorage.getItem('grepnavi-font-size')) || 12,
@@ -944,7 +948,12 @@ async function ensureEditor() {
     bracketPairColorization: { enabled: true },
     guides: { bracketPairs: true },
   });
-  new ResizeObserver(() => monacoEditor.layout()).observe(id('monaco-container'));
+  // コンテナサイズの追従は automaticLayout に任せる（手動 ResizeObserver は不要）。
+  // フォント確定はコンテナサイズを変えず automaticLayout が拾わないことがあるので、
+  // document.fonts.ready で一度だけ取り直す（コールドロードでのメトリクス変化対策）。
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(() => { try { monacoEditor.layout(); } catch (_) {} });
+  }
   // editor-state sync (MCP bridge 経由で AI が editor 状態を取れるようにする)
   if (typeof startEditorStateSync === 'function') startEditorStateSync();
 
