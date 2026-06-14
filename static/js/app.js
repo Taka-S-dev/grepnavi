@@ -122,7 +122,9 @@ addEventListener('DOMContentLoaded', async () => {
   id('pmenu-new-window').onclick = () => { id('project-menu').classList.remove('open'); openNewWindow(); };
   id('pmenu-new').onclick        = async () => {
     id('project-menu').classList.remove('open');
-    const r = await fetch('/api/graph', { method: 'DELETE' });
+    // 新規JSON は現在のファイルから detach する (ResetInMemory: filePath="" にして保存しない)。
+    // DELETE /api/graph は ClearActiveTree が現在のファイルに空を上書き保存してしまうため使わない。
+    const r = await fetch('/api/graph/clear', { method: 'POST' });
     const d = await r.json();
     if(!d.error) { selNode = null; showDetail(null); applyGraphResponse(d); }
     if(typeof setProjectPath === 'function') setProjectPath('');

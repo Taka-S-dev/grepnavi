@@ -18,19 +18,27 @@ type undoSnapshot struct {
 	rootOrder []string
 }
 
+// saveJob は1回分のディスク書き込み（保存先 + 内容）。保存先 path を save() 呼び出し時の
+// filePath に固定して内容と束ねることで、書き込みが遅延する間に filePath が変わっても
+// （新規 / 別ファイルを開く等）、内容が誤ったファイルへ書かれるのを防ぐ。
+type saveJob struct {
+	path string
+	data []byte
+}
+
 // Store はプロジェクトファイルのインメモリストアと JSON 永続化を担う。
 type Store struct {
 	mu        sync.RWMutex
 	pf        *ProjectFile
 	filePath  string
-	saveCh    chan []byte      // バックグラウンド書き込みキュー（最新1件のみ保持）
+	saveCh    chan saveJob     // バックグラウンド書き込みキュー（最新1件のみ保持）
 	undoStack []undoSnapshot   // アンドゥ履歴（メモリのみ、永続化しない）
 }
 
 func NewStore(filePath, rootDir string) *Store {
 	s := &Store{
 		filePath: filePath,
-		saveCh:   make(chan []byte, 1),
+		saveCh:   make(chan saveJob, 1),
 	}
 	if pf, err := loadProjectFile(filePath); err == nil {
 		s.pf = pf
@@ -44,12 +52,15 @@ func NewStore(filePath, rootDir string) *Store {
 // saveLoop はバックグラウンドでディスク書き込みを処理する。
 // ミューテックスを保持せずに I/O を行うことで、書き込み競合によるロック詰まりを防ぐ。
 func (s *Store) saveLoop() {
-	for data := range s.saveCh {
-		tmp := s.filePath + ".tmp"
-		if err := os.WriteFile(tmp, data, 0644); err != nil {
+	for job := range s.saveCh {
+		if job.path == "" {
+			continue // 保存先未確定（新規 / 未保存グラフ）は書き込まない
+		}
+		tmp := job.path + ".tmp"
+		if err := os.WriteFile(tmp, job.data, 0644); err != nil {
 			continue
 		}
-		_ = os.Rename(tmp, s.filePath)
+		_ = os.Rename(tmp, job.path)
 	}
 }
 
@@ -89,12 +100,14 @@ func (s *Store) save() error {
 	if err != nil {
 		return err
 	}
-	// 古い pending データを捨てて最新を送る（ノンブロッキング）
+	// 保存先を呼び出し時の filePath に固定して内容と束ねる。
+	job := saveJob{path: s.filePath, data: data}
+	// 古い pending を捨てて最新を送る（ノンブロッキング）
 	select {
-	case s.saveCh <- data:
+	case s.saveCh <- job:
 	default:
 		<-s.saveCh
-		s.saveCh <- data
+		s.saveCh <- job
 	}
 	return nil
 }
