@@ -92,6 +92,25 @@ async function loadGraph() {
   } catch (e) {}
 }
 
+// ===== 調査の説明（.json 単位の自由記述） =====
+
+// プロジェクトメニューの「説明を編集…」から呼ばれ、PUT /api/graph/description で
+// 現在の .json に説明を保存する。
+async function editGraphDesc() {
+  const cur = (graph && graph.description) || "";
+  const v = await showInputModal("調査の説明", "この .json が何の調査か（例: TLS ハンドシェイクの追跡）", cur);
+  if (v === null) return; // キャンセル
+  const desc = v.trim();
+  if (desc === cur.trim()) return;
+  await fetch("/api/graph/description", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ description: desc }),
+  }).catch(() => {});
+  if (graph) graph.description = desc;
+  st('説明を保存しました');
+}
+
 // ===== TREE TABS =====
 function renderTreeTabs() {
   const list = id("tree-tab-list");

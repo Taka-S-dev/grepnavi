@@ -123,6 +123,7 @@ type RangeMemo struct {
 type ProjectFile struct {
 	Version            int               `json:"version"`
 	RootDir            string            `json:"root_dir"`
+	Description        string            `json:"description,omitempty"` // この .json が何の調査かを表す自由記述
 	ActiveTreeID       string            `json:"active_tree_id"`
 	Trees              []*Tree           `json:"trees"`
 	LineMemos          map[string]string `json:"line_memos,omitempty"`
@@ -146,6 +147,7 @@ type GraphResponse struct {
 	Nodes              map[string]*Node  `json:"nodes"`
 	Edges              []*Edge           `json:"edges"`
 	RootDir            string            `json:"root_dir"`
+	Description        string            `json:"description,omitempty"`
 	FilePath           string            `json:"file_path"`
 	UpdatedAt          time.Time         `json:"updated_at"`
 	Trees              []TreeMeta        `json:"trees"`

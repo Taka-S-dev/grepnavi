@@ -146,6 +146,7 @@ func (s *Store) buildResponse(t *Tree) *GraphResponse {
 		Nodes:              t.Nodes,
 		Edges:              t.Edges,
 		RootDir:            s.pf.RootDir,
+		Description:        s.pf.Description,
 		FilePath:           s.filePath,
 		UpdatedAt:          t.UpdatedAt,
 		Trees:              s.treeMetas(),
@@ -255,6 +256,14 @@ func (s *Store) SetRootDirNoSave(root string) {
 	s.mu.Lock()
 	s.pf.RootDir = root
 	s.mu.Unlock()
+}
+
+// SetDescription はこの .json の調査メモ（自由記述）を設定して保存する。
+func (s *Store) SetDescription(desc string) error {
+	s.mu.Lock()
+	s.pf.Description = desc
+	s.mu.Unlock()
+	return s.save()
 }
 
 func (s *Store) GetFilePath() string {

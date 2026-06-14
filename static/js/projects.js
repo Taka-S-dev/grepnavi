@@ -22,6 +22,9 @@ function _renderProjectsPanel() {
   const currentGraph = (typeof getProjectPath === 'function' ? getProjectPath() : '').replace(/\\/g, '/');
   const currentRoot  = (localStorage.getItem('grepnavi_project_root') || '').replace(/\\/g, '/');
 
+  // 各 .json アイテム（ホバーで説明ツールチップを後付けする対象）を集める。
+  const _descItems = [];
+
   panel.innerHTML = '';
 
   const hdr = document.createElement('div');
@@ -155,6 +158,7 @@ function _renderProjectsPanel() {
               _switchToGraph(proj, gPath);
             };
             graphList.appendChild(gItem);
+            _descItems.push({ path: gPath, el: gItem });
           });
         }
         list.appendChild(graphList);
@@ -163,6 +167,25 @@ function _renderProjectsPanel() {
   }
 
   panel.appendChild(list);
+  _applyGraphDescs(_descItems);
+}
+
+// 各 .json の説明をまとめて取得し、パネルの項目にホバーツールチップとして付与する。
+async function _applyGraphDescs(items) {
+  if (!items.length) return;
+  const paths = [...new Set(items.map(i => i.path))];
+  let map = {};
+  try {
+    const res = await fetch('/api/graph/descriptions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths }),
+    });
+    map = await res.json();
+  } catch { return; }
+  items.forEach(({ path, el }) => {
+    const desc = map[path];
+    if (desc) el.title = path + '\n――――\n' + desc;
+  });
 }
 
 async function _switchToGraph(proj, graphPath) {
@@ -269,18 +292,30 @@ async function _updateTopMenuGraphs() {
 
   if (graphs.length === 0) return;
 
+  // 各 .json の説明を取得し、名前にホバーしたとき「何の調査か」をツールチップ表示する。
+  let descs = {};
+  try {
+    const dres = await fetch('/api/graph/descriptions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths: graphs }),
+    });
+    descs = await dres.json();
+  } catch {}
+
   const menu = id('project-menu');
   if (!menu) return;
-  const firstSep = menu.querySelector('.pmenu-separator');
-  if (!firstSep) return;
-
-  const sep = document.createElement('div');
-  sep.className = 'pmenu-separator pmenu-graph-sep';
-  menu.insertBefore(sep, firstSep);
+  // json 一覧は「新規JSON」の直前（メニュー先頭）に差し込む。「新しいウィンドウ」を
+  // 最下部に移したので、先頭はファイル操作（json 一覧 / 新規JSON / 開く…）でまとまる。
+  const anchor = id('pmenu-new');
+  if (!anchor) return;
 
   const section = document.createElement('div');
   section.className = 'pmenu-graph-section pmenu-graph-sep';
-  menu.insertBefore(section, firstSep);
+  menu.insertBefore(section, anchor);
+
+  const sep = document.createElement('div');
+  sep.className = 'pmenu-separator pmenu-graph-sep';
+  menu.insertBefore(sep, anchor);
 
   graphs.forEach(gPath => {
     const gNorm = gPath.replace(/\\/g, '/');
@@ -294,6 +329,8 @@ async function _updateTopMenuGraphs() {
     const nameSpan = document.createElement('span');
     nameSpan.textContent = gName;
     nameSpan.style.flex = '1';
+    const desc = descs[gPath] || '';
+    if (desc) { nameSpan.title = desc; nameSpan.style.cursor = 'help'; }
 
     const delBtn = document.createElement('button');
     delBtn.style.cssText = 'background:none;border:none;color:transparent;cursor:pointer;padding:1px 4px;border-radius:2px;flex-shrink:0;line-height:1;font-size:11px;';

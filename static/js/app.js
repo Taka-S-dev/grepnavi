@@ -109,8 +109,17 @@ addEventListener('DOMContentLoaded', async () => {
 
   id('btn-project-menu').onclick = e => {
     e.stopPropagation();
-    id('project-menu').classList.toggle('open');
-    if(id('project-menu').classList.contains('open')) _updateTopMenuGraphs();
+    const menu = id('project-menu');
+    menu.classList.toggle('open');
+    if(menu.classList.contains('open')) {
+      // position:fixed なのでボタン位置から座標を計算（ペインの overflow:hidden に
+      // クリップされず、エディタペインに被せて全体を表示できる）。
+      const r = id('btn-project-menu').getBoundingClientRect();
+      menu.style.top = (r.bottom + 2) + 'px';
+      menu.style.right = (window.innerWidth - r.right) + 'px';
+      menu.style.left = 'auto';
+      _updateTopMenuGraphs();
+    }
   };
   document.addEventListener('click', () => id('project-menu').classList.remove('open'));
 
@@ -134,6 +143,7 @@ addEventListener('DOMContentLoaded', async () => {
   id('pmenu-open').onclick       = () => { id('project-menu').classList.remove('open'); openProjectFilePicker(); };
   id('pmenu-saveas').onclick     = () => { id('project-menu').classList.remove('open'); saveAsProjectFilePicker(); };
   id('pmenu-save').onclick       = () => { id('project-menu').classList.remove('open'); saveProjectFileCurrent(); };
+  id('pmenu-desc').onclick       = () => { id('project-menu').classList.remove('open'); if (typeof editGraphDesc === 'function') editGraphDesc(); };
   id('pmenu-settings').onclick   = () => { id('project-menu').classList.remove('open'); showSettingsModal(); };
 
   document.addEventListener('keydown', async e => {

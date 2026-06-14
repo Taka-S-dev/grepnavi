@@ -437,6 +437,58 @@ func (h *Handler) handleGraphMemos(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]string{"status": "ok"})
 }
 
+// --- /api/graph/description ---
+
+// handleGraphDescription はこの .json の調査メモ（自由記述）を更新する。
+func (h *Handler) handleGraphDescription(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "PUT only", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Description string `json:"description"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonErr(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := h.store.SetDescription(req.Description); err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, map[string]string{"status": "ok"})
+}
+
+// handleGraphDescriptions は複数の .json パスを受け取り、それぞれの description を返す。
+// ドロップダウンで各 .json にホバーしたとき「何の調査か」を表示するために使う。
+func (h *Handler) handleGraphDescriptions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Paths []string `json:"paths"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonErr(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	out := make(map[string]string, len(req.Paths))
+	for _, p := range req.Paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		var pf struct {
+			Description string `json:"description"`
+		}
+		if json.Unmarshal(data, &pf) == nil && pf.Description != "" {
+			out[p] = pf.Description
+		}
+	}
+	jsonOK(w, out)
+}
+
 // --- /api/graph/export ---
 
 func (h *Handler) handleGraphExport(w http.ResponseWriter, r *http.Request) {
