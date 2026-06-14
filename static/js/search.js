@@ -6,7 +6,7 @@ const VIRT_OVER = 8; // overdraw rows outside viewport
 // ===== 純粋関数 (Pure functions) =====
 
 // 検索パラメータを構築して返す（DOM・副作用なし）
-function buildSearchParams(q, dir, glob, isRegex, isCaseSensitive, isWord, enc) {
+function buildSearchParams(q, dir, glob, isRegex, isCaseSensitive, isWord, enc, isNoIgnore) {
   const params = new URLSearchParams({
     q,
     regex: isRegex ? '1' : '0',
@@ -16,8 +16,37 @@ function buildSearchParams(q, dir, glob, isRegex, isCaseSensitive, isWord, enc) 
   if(dir)  params.set('dir', dir);
   if(glob) params.set('glob', glob);
   if(enc)  params.set('enc', enc);
+  if(isNoIgnore) params.set('noignore', '1');
   return params;
 }
+
+// 現在の検索ルートに .gitignore / .ignore があると、ripgrep が暗黙にファイルを除外する。
+// それに気づけるよう btn-ni にマーカー (.has-ignore) を付け、tooltip で知らせる。
+async function updateIgnoreMarker() {
+  const btn = id('btn-ni');
+  if (!btn) return;
+  let has = false, files = [];
+  try {
+    const d = await fetch('/api/has-ignore').then(r => r.json());
+    has = !!d.has;
+    files = d.files || [];
+  } catch (_) {}
+  btn.classList.toggle('has-ignore', has);
+  // 除外設定が無いと --no-ignore は無意味なので非活性化（ON状態も解除）。
+  btn.disabled = !has;
+  if (!has) btn.classList.remove('on');
+  const on = btn.classList.contains('on');
+  if (!has) {
+    btn.title = '除外ファイルなし（このルートに .gitignore / .ignore なし）';
+  } else if (on) {
+    btn.title = '現在: ' + files.join(' / ') + ' を無視して全ファイルを検索中'
+      + '\nクリックで通常の検索に戻す — Alt+I';
+  } else {
+    btn.title = '現在: ' + files.join(' / ') + ' により一部ファイルを除外中'
+      + '\nクリックで除外ファイルも検索 — Alt+I';
+  }
+}
+window.updateIgnoreMarker = updateIgnoreMarker;
 
 // F3 ジャンプ先インデックスを計算（DOM・副作用なし）
 function nextResultIndex(cur, delta, total) {
@@ -113,10 +142,11 @@ function doSearch() {
   const isRegex = id('btn-re').classList.contains('on');
   const isCaseSensitive = id('btn-cs').classList.contains('on');
   const isWord = id('btn-wb').classList.contains('on');
+  const isNoIgnore = id('btn-ni').classList.contains('on');
   const enc = getSearchEnc();
   localStorage.setItem('grepnavi-settings', JSON.stringify({dir, glob, regex: isRegex, cs: isCaseSensitive, word: isWord, enc}));
 
-  const params = buildSearchParams(q, dir, glob, isRegex, isCaseSensitive, isWord, enc);
+  const params = buildSearchParams(q, dir, glob, isRegex, isCaseSensitive, isWord, enc, isNoIgnore);
 
   stopSearch();
   allMatches=[]; pending=[]; fileGroupMap={};
@@ -1027,6 +1057,8 @@ function initSearchBar() {
   id('btn-cs').onclick = () => id('btn-cs').classList.toggle('on');
   id('btn-wb').onclick = () => id('btn-wb').classList.toggle('on');
   id('btn-re').onclick = () => id('btn-re').classList.toggle('on');
+  id('btn-ni').onclick = () => { id('btn-ni').classList.toggle('on'); updateIgnoreMarker(); };
+  updateIgnoreMarker();
 
   const btnGV = id('btn-group-view');
   if(btnGV) {
@@ -1071,6 +1103,7 @@ function initSearchBar() {
     if(e.altKey && e.key.toLowerCase() === 'c') { e.preventDefault(); id('btn-cs').click(); }
     if(e.altKey && e.key.toLowerCase() === 'w') { e.preventDefault(); id('btn-wb').click(); }
     if(e.altKey && e.key.toLowerCase() === 'r') { e.preventDefault(); id('btn-re').click(); }
+    if(e.altKey && e.key.toLowerCase() === 'i') { e.preventDefault(); id('btn-ni').click(); }
     if(e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'f') { e.preventDefault(); id('q').focus(); id('q').select(); }
     if(e.ctrlKey && !e.shiftKey && e.key === 'Enter' && document.activeElement === id('q')) { e.preventDefault(); addToSearchStack(); }
     if(e.altKey && e.shiftKey && e.key.toLowerCase() === 's') {

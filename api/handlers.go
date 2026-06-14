@@ -81,6 +81,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/grepnavi/graphs", h.handleGrepnaviGraphs)
 	mux.HandleFunc("/api/grepnavi", h.handleGrepnavi)
 	mux.HandleFunc("/api/files", h.handleFiles)
+	mux.HandleFunc("/api/has-ignore", h.handleHasIgnore)
 	// call tree
 	mux.HandleFunc("/api/callers", h.handleCallers)
 	mux.HandleFunc("/api/callees", h.handleCallees)

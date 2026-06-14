@@ -61,6 +61,16 @@ body{font:13px/1.4 'Consolas','Courier New',monospace;background:#1e1e1e;color:#
 .srch-btn{background:none;border:none;color:#858585;cursor:pointer;font-size:11px;padding:2px 4px;border-radius:2px;line-height:1;white-space:nowrap;font-family:Consolas,monospace}
 .srch-btn:hover{color:#ccc;background:#505050}
 .srch-btn.on{color:#fff;background:#094771}
+.srch-btn:disabled{opacity:.35;cursor:default}
+.srch-btn:disabled:hover{color:#858585;background:none}
+/* btn-ni: OFF=目を閉じる（ignore尊重=除外中） / ON=目を開く（ignore無視=全部検索）。
+   アイコンを入れ替えて現在の状態を一目で分かるようにする。 */
+#btn-ni .ni-icon-on{display:none}
+#btn-ni.on .ni-icon-off{display:none}
+#btn-ni.on .ni-icon-on{display:inline-block}
+/* 検索ルートに .gitignore/.ignore があり、暗黙の除外が効いているときのマーカー（金ドット） */
+.srch-btn.has-ignore{position:relative}
+.srch-btn.has-ignore::after{content:'';position:absolute;top:0;right:0;width:5px;height:5px;border-radius:50%;background:#e0a13a}
 #btn-toggle-sub{background:none;border:1px solid transparent;border-radius:3px;color:#858585;cursor:pointer;font-size:13px;padding:3px 10px;line-height:1;flex-shrink:0;text-align:center;min-width:52px}
 #btn-toggle-sub:hover{color:#ccc}
 #btn-toggle-sub.open{color:#007acc}

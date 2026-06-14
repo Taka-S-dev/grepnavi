@@ -229,6 +229,26 @@ func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// --- /api/has-ignore ---
+
+// handleHasIgnore は現在の検索ルートに .gitignore / .ignore / .rgignore があるかを返す。
+// ripgrep はこれらを既定で尊重して暗黙にファイルを除外するため、GUI で「除外が効いている」
+// ことに気づけるよう、マーカー表示の判定に使う。
+func (h *Handler) handleHasIgnore(w http.ResponseWriter, r *http.Request) {
+	h.mu.RLock()
+	root := h.root
+	h.mu.RUnlock()
+	found := []string{}
+	if root != "" {
+		for _, name := range []string{".gitignore", ".ignore", ".rgignore"} {
+			if fi, err := os.Stat(filepath.Join(root, name)); err == nil && !fi.IsDir() {
+				found = append(found, name)
+			}
+		}
+	}
+	jsonOK(w, map[string]interface{}{"has": len(found) > 0, "files": found})
+}
+
 // --- /api/files ---
 
 // handleFiles は rg --files でプロジェクト内のファイル一覧を返す。

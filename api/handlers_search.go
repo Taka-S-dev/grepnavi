@@ -50,6 +50,7 @@ func (h *Handler) handleSearchStream(w http.ResponseWriter, r *http.Request) {
 		WordRegexp:    q.Get("word") == "1",
 		Regex:         q.Get("regex") == "1",
 		FileGlob:      q.Get("glob"),
+		NoIgnore:      q.Get("noignore") == "1",
 		ContextLines:  8,
 		Encoding:      enc,
 	}
@@ -169,6 +170,7 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 		WordRegexp:    q.Get("word") == "1",
 		Regex:         q.Get("regex") == "1",
 		FileGlob:      q.Get("glob"),
+		NoIgnore:      q.Get("noignore") == "1",
 		ContextLines:  8,
 		MaxResults:    maxFetch,
 		Encoding:      enc,

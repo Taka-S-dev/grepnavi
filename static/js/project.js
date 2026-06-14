@@ -86,6 +86,8 @@ function updateRootChip() {
     chip.title = 'ルート: ' + (projectRoot || '未設定') + '\n(クリックで変更)';
   }
   updateTitle();
+  // ルートが変わったら ignore マーカーも更新（新ルートに .gitignore 等があるか）。
+  if (typeof updateIgnoreMarker === 'function') updateIgnoreMarker();
 }
 
 // ===== ディレクトリ取得 =====
