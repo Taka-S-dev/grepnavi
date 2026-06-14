@@ -2,49 +2,71 @@
 
 // GraphResponse をクライアント状態に適用する共通関数
 function applyGraphResponse(g) {
-  const savedRoot = projectRoot || g.root_dir;
-  if (g.file_path) window._serverGraphFile = g.file_path;
+  // プロジェクト (JSON) が切り替わったか。file_path で判定し、別ファイルへの切替・
+  // 新規JSON (file_path 空) への遷移・初回ロードを「切替」とみなす。同一プロジェクトの
+  // 背景リロード (SSE)・アクティブツリー切替・undo では false のまま。この 1 つの判定で
+  // ルート表示の再同期と、メモ / ブックマークのキャッシュ管理をまとめて行う。
+  const curFile = g.file_path || "";
+  const projectChanged = window._serverGraphFile == null || curFile !== window._serverGraphFile;
+  window._serverGraphFile = curFile;
+
   graph = g;
   if (!graph.nodes) graph.nodes = {};
   if (!graph.edges) graph.edges = [];
-  graph.root_dir = savedRoot; // 検索ルートは保持
   graph._rootOrder = g.root_order || [];
-  if (g.root_dir && !projectRoot) {
+
+  // ルート表示: 別の実体あるグラフ (curFile あり) に切り替わったら projectRoot とラベルを
+  // 再同期し、ツリーとルート表示のズレを防ぐ。新規JSON (curFile 空) は同じコードベースの
+  // 新グラフなので現在のルートを保持する。
+  if (g.root_dir && (!projectRoot || (projectChanged && curFile))) {
     projectRoot = g.root_dir;
     const parts = g.root_dir.replace(/\\/g, "/").split("/");
     id("root-label").textContent = parts[parts.length - 1] || g.root_dir;
     id("root-label").title = g.root_dir;
     updateRootChip();
   }
-  if (g.line_memos) {
-    const existing = getLineMemos();
-    Object.assign(existing, g.line_memos);
-    localStorage.setItem("grepnavi-line-memos", JSON.stringify(existing));
-  }
-  // line memo の category / source も同じ key 体系で並列に取り込む。
-  // 旧 grepnavi (これらの map を返さない server) との互換のため optional 扱い。
-  if (g.line_memo_categories && typeof getLineMemoCategories === 'function') {
-    const existing = getLineMemoCategories();
-    Object.assign(existing, g.line_memo_categories);
-    localStorage.setItem("grepnavi-line-memo-categories", JSON.stringify(existing));
-  }
-  if (g.line_memo_sources && typeof getLineMemoSources === 'function') {
-    const existing = getLineMemoSources();
-    Object.assign(existing, g.line_memo_sources);
-    localStorage.setItem("grepnavi-line-memo-sources", JSON.stringify(existing));
-  }
-  if (g.range_memos && Array.isArray(g.range_memos)) {
-    const existing = getRangeMemos();
-    const existingIds = new Set(existing.map(m => m.id));
-    let changed = false;
-    g.range_memos.forEach(m => {
-      if (!existingIds.has(m.id)) { existing.push(m); changed = true; }
-    });
-    // saveRangeMemos 経由だと _scheduleMemoSave が PUT /api/graph/memos を発火し、
-    // SSE "memos.updated" → loadGraph で再びここに戻る無限ループになる。
-    // line_memos と同じく localStorage 直書きにする。
-    if (changed) {
-      localStorage.setItem('grepnavi-range-memos', JSON.stringify(existing));
+  graph.root_dir = projectRoot || g.root_dir; // 検索ルート (表示と一致させる)
+
+  // メモ / ブックマークの正本はサーバの GraphResponse。localStorage はそのキャッシュ。
+  // プロジェクトが変わったら正本で総入れ替えする (新規JSON なら空 = 過去のメモが残らない)。
+  // 同一プロジェクトの背景リロードでは、保存前の in-flight 編集を失わないようマージする。
+  if (projectChanged) {
+    localStorage.setItem("grepnavi-line-memos", JSON.stringify(g.line_memos || {}));
+    localStorage.setItem("grepnavi-line-memo-categories", JSON.stringify(g.line_memo_categories || {}));
+    localStorage.setItem("grepnavi-line-memo-sources", JSON.stringify(g.line_memo_sources || {}));
+    localStorage.setItem("grepnavi-range-memos", JSON.stringify(g.range_memos || []));
+    localStorage.setItem("grepnavi-bookmarks", JSON.stringify(g.bookmarks || {}));
+  } else {
+    if (g.line_memos) {
+      const existing = getLineMemos();
+      Object.assign(existing, g.line_memos);
+      localStorage.setItem("grepnavi-line-memos", JSON.stringify(existing));
+    }
+    // line memo の category / source も同じ key 体系で並列に取り込む。
+    // 旧 grepnavi (これらの map を返さない server) との互換のため optional 扱い。
+    if (g.line_memo_categories && typeof getLineMemoCategories === 'function') {
+      const existing = getLineMemoCategories();
+      Object.assign(existing, g.line_memo_categories);
+      localStorage.setItem("grepnavi-line-memo-categories", JSON.stringify(existing));
+    }
+    if (g.line_memo_sources && typeof getLineMemoSources === 'function') {
+      const existing = getLineMemoSources();
+      Object.assign(existing, g.line_memo_sources);
+      localStorage.setItem("grepnavi-line-memo-sources", JSON.stringify(existing));
+    }
+    if (g.range_memos && Array.isArray(g.range_memos)) {
+      const existing = getRangeMemos();
+      const existingIds = new Set(existing.map(m => m.id));
+      let changed = false;
+      g.range_memos.forEach(m => {
+        if (!existingIds.has(m.id)) { existing.push(m); changed = true; }
+      });
+      // saveRangeMemos 経由だと _scheduleMemoSave が PUT /api/graph/memos を発火し、
+      // SSE "memos.updated" → loadGraph で再びここに戻る無限ループになる。
+      // line_memos と同じく localStorage 直書きにする。
+      if (changed) {
+        localStorage.setItem('grepnavi-range-memos', JSON.stringify(existing));
+      }
     }
   }
   renderTreeTabs();
@@ -57,6 +79,8 @@ function applyGraphResponse(g) {
   if (typeof refreshLineMemoDecorations === 'function')   refreshLineMemoDecorations();
   if (typeof refreshRangeMemoDecorations === 'function')  refreshRangeMemoDecorations();
   if (typeof refreshBookmarkDecorations === 'function')   refreshBookmarkDecorations();
+  // プロジェクト切替時はマーク一覧パネルも更新（ノード描画後に呼ぶ）。
+  if (projectChanged && typeof renderMemoList === 'function') renderMemoList();
 }
 
 async function loadGraph() {
