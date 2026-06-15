@@ -24,6 +24,13 @@
 </script>
 </head>
 <body>
+<!-- 起動オーバーレイ: JS 実行前から表示され、準備完了 (Monaco ロード + グラフ復元) で閉じる。
+     低スペック機で UI が断片的に組み上がる様子を隠す。app.js の hideBootOverlay() で除去。 -->
+<div id="boot-overlay">
+  <div class="boot-spinner"></div>
+  <div class="boot-label">準備中…</div>
+  <div id="boot-steps"></div>
+</div>
 <div id="workspace">
   <!-- 左列: 検索UI（上）+ 結果（中）+ 詳細（下） -->
   <div id="pane-left">

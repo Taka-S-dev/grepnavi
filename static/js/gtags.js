@@ -208,6 +208,10 @@ async function fetchStatus() {
     }
     renderGear();
   } catch {}
+  finally {
+    // 起動オーバーレイの「定義エンジン」ステップを完了させる（取得失敗でも進める）。
+    if (window.bootDone) window.bootDone('defengine');
+  }
 }
 
 function renderGear() {
@@ -391,7 +395,12 @@ document.addEventListener('DOMContentLoaded', () => {
     e.stopPropagation();
     const open = pop.style.display !== 'none';
     pop.style.display = open ? 'none' : 'block';
-    if (!open) fetchStatus().then(renderPopover);
+    if (!open) {
+      // 現在の status で即描画してから最新を取りに行く。これが無いと、status 取得前に
+      // 開いたとき中身が空のまま（GNU Global 行が出ず「開ききらない」症状）になる。
+      renderPopover();
+      fetchStatus().then(renderPopover);
+    }
   };
 
   // ポップオーバー外クリックで閉じる

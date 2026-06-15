@@ -16,6 +16,7 @@
   --z-modal-high:   7000;     /* input, file-browser モーダル（他モーダルの上） */
   --z-diagnostic:   9000;     /* ctags/gtags console（デバッグ表示、最前面相当） */
   --z-autocomplete: 9999;     /* dir-drop, glob-drop（オートコンプリート、最前面） */
+  --z-boot:        10000;     /* 起動オーバーレイ（準備完了まで全要素を覆う） */
 
   /* ===== アニメーション時間（CSS / JS 共有、JS は cssDurationMs() で取得） ===== */
   --anim-flash-row: 700ms;     /* 検索結果行のフラッシュ */
@@ -23,6 +24,23 @@
 }
 
 *{box-sizing:border-box;margin:0;padding:0}
+
+/* ===== 起動オーバーレイ ===== */
+#boot-overlay{position:fixed;inset:0;z-index:var(--z-boot);display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:14px;background:#1e1e1e;
+  opacity:1;transition:opacity .25s ease}
+#boot-overlay.hidden{opacity:0;pointer-events:none}
+#boot-overlay .boot-spinner{width:34px;height:34px;border-radius:50%;
+  border:3px solid #3a3a3a;border-top-color:#007acc;animation:boot-spin .8s linear infinite}
+#boot-overlay .boot-label{font:12px/1 'Consolas','Courier New',monospace;color:#888;letter-spacing:.5px}
+#boot-steps{display:flex;flex-direction:column;gap:7px;min-width:230px;margin-top:6px}
+.boot-step{display:flex;align-items:center;gap:9px;font:11px/1.2 'Consolas','Courier New',monospace;color:#888}
+.boot-step.done{color:#6a9955}
+.boot-step-ico{width:13px;height:13px;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;font-size:12px}
+.boot-step-ico.spin{border:2px solid #3a3a3a;border-top-color:#007acc;border-radius:50%;animation:boot-spin .8s linear infinite}
+.boot-step-label{flex:1}
+.boot-step-time{color:#666;font-size:10px}
+@keyframes boot-spin{to{transform:rotate(360deg)}}
 input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus{-webkit-box-shadow:0 0 0 30px #3c3c3c inset!important;-webkit-text-fill-color:#ccc!important;caret-color:#ccc}
 @keyframes search-flash{0%{border-color:#007acc;box-shadow:0 0 0 2px rgba(0,122,204,0.5)}100%{border-color:#007acc;box-shadow:none}}
 #q-wrap.search-flash{animation:search-flash 0.6s ease-out}

@@ -6,6 +6,58 @@ window.addEventListener('unhandledrejection', e => {
   if(e.reason && e.reason.message === 'Canceled') e.preventDefault();
 });
 
+// ===== 起動オーバーレイ =====
+// 起動時の準備ステップを一覧表示し、全部完了したら閉じる。何を待っているか・何が
+// 遅いか（スピナー中の行＝ボトルネック、完了行＝所要秒数）をユーザが目視できる。
+// 万一どこかでハングしても残り続けないよう、安全タイマーで必ず除去する。
+let _bootOverlayHidden = false;
+function hideBootOverlay() {
+  if (_bootOverlayHidden) return;
+  _bootOverlayHidden = true;
+  const el = document.getElementById('boot-overlay');
+  if (!el) return;
+  el.classList.add('hidden');
+  setTimeout(() => el.remove(), 300); // フェードアウト後に DOM から除去
+}
+
+// 準備ステップ管理。全ステップは起動前にここで登録しておく（途中登録だと、先に
+// 登録済みの分が全部 done になった瞬間に早閉じしてしまうため）。
+const _bootSteps = new Map(); // name -> {label, done, t0, ms}
+function bootRegister(name, label) {
+  if (!_bootSteps.has(name)) _bootSteps.set(name, { label, done: false, t0: performance.now() });
+}
+function bootDone(name) {
+  const s = _bootSteps.get(name);
+  if (!s || s.done) return;
+  s.done = true;
+  s.ms = performance.now() - s.t0;
+  renderBootSteps();
+  for (const st of _bootSteps.values()) if (!st.done) return; // 全完了で閉じる
+  hideBootOverlay();
+}
+function renderBootSteps() {
+  const list = document.getElementById('boot-steps');
+  if (!list) return;
+  list.innerHTML = '';
+  for (const s of _bootSteps.values()) {
+    const row = document.createElement('div');
+    row.className = 'boot-step' + (s.done ? ' done' : '');
+    const ico  = s.done ? '<span class="boot-step-ico ok">✓</span>'
+                        : '<span class="boot-step-ico spin"></span>';
+    const time = s.done ? `<span class="boot-step-time">${(s.ms / 1000).toFixed(1)}s</span>` : '';
+    row.innerHTML = `${ico}<span class="boot-step-label">${s.label}</span>${time}`;
+    list.appendChild(row);
+  }
+}
+window.bootDone = bootDone;
+
+// 待機する準備ステップを登録（'defengine' は gtags.js の fetchStatus が完了させる）。
+bootRegister('graph',     'グラフ復元');
+bootRegister('editor',    'エディタ初期化');
+bootRegister('defengine', '定義エンジン (gtags/ctags)');
+renderBootSteps();
+setTimeout(hideBootOverlay, 12000);
+
 // ===== BOOT =====
 addEventListener('DOMContentLoaded', async () => {
   id('tree').addEventListener('wheel', e => {
@@ -313,6 +365,7 @@ addEventListener('DOMContentLoaded', async () => {
   } catch(_) {
     await loadGraph();
   }
+  bootDone('graph');
 
   initSearchBar();
   initFilter();
@@ -361,6 +414,10 @@ addEventListener('DOMContentLoaded', async () => {
   } else {
     id('peek').classList.add('visible');
   }
+
+  // Monaco のロード完了を 'editor' ステップとして記録（最も重い処理）。
+  try { await (window.loadMonaco ? window.loadMonaco() : Promise.resolve()); } catch(_) {}
+  bootDone('editor');
 
   st('準備完了');
 
