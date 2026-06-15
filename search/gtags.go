@@ -337,6 +337,56 @@ func runGlobalViaBash(globalBin, dir, word, mode string) (data []byte, attempted
 	return out, true
 }
 
+// runGlobalToFile は global.exe の stdout を実ファイルにリダイレクトして実行し結果を返す。
+// attempted が false なのは一時ファイル作成に失敗したときだけ。
+//
+// Cygwin ビルドの global.exe は Go が cmd.Output() で作る匿名パイプに書き込めず stdout が
+// 空になることがある（runGlobalViaBash と同症状）。通常のファイルハンドルになら書き込める
+// ため、Cygwin/Git bash が無い環境でも回避できる。bash 経由より優先して試す。
+func runGlobalToFile(globalBin, dir, word, mode string) (data []byte, attempted bool) {
+	f, err := os.CreateTemp("", "grepnavi-gtags-*.txt")
+	if err != nil {
+		return nil, false
+	}
+	tmpName := f.Name()
+	defer os.Remove(tmpName)
+
+	cmd := exec.Command(globalBin, mode, word)
+	cmd.Dir = dir
+	cmd.Env = gtagsEnv(dir)
+	cmd.Stdout = f
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	runErr := cmd.Run()
+	f.Close()
+	if runErr != nil {
+		// exit=1 は「ヒットなし」で正常、それ以外のみ記録。
+		if ee, ok := runErr.(*exec.ExitError); !ok || ee.ExitCode() != 1 {
+			slog.Debug("gtags-file-fallback exec", "err", runErr, "stderr", strings.TrimSpace(stderr.String()))
+		}
+	}
+	out, rerr := os.ReadFile(tmpName)
+	if rerr != nil {
+		return nil, true
+	}
+	return out, true
+}
+
+// recoverEmptyGlobalOutput は cmd.Output() が空（Cygwin パイプ症状）だったときの再取得を
+// 一手にまとめる。実ファイルリダイレクト→bash の順で試し、得られた非空の出力を返す。
+// どちらでも回収できなければ nil（＝本当に結果なし）。logTag は呼び出し元の識別用。
+func recoverEmptyGlobalOutput(globalBin, dir, word, mode, logTag string) []byte {
+	if fileOut, attempted := runGlobalToFile(globalBin, dir, word, mode); attempted && len(bytes.TrimSpace(fileOut)) > 0 {
+		slog.Info(logTag, "msg", "file-redirect fallback succeeded", "word", word, "bytes", len(fileOut))
+		return fileOut
+	}
+	if bashOut, attempted := runGlobalViaBash(globalBin, dir, word, mode); attempted && len(bytes.TrimSpace(bashOut)) > 0 {
+		slog.Info(logTag, "msg", "bash fallback succeeded", "word", word, "bytes", len(bashOut))
+		return bashOut
+	}
+	return nil
+}
+
 // sanitizeLine はShift-JIS等の不正バイト列を除去してUTF-8安全な文字列に変換する。
 func sanitizeLine(s string) string {
 	return strings.ToValidUTF8(s, "")
@@ -583,13 +633,8 @@ func GtagsFindDefinitions(ctx context.Context, word, dir string) ([]DefHit, erro
 	// Cygwin global.exe が native Windows pipe に書けず stdout が空のことがある。
 	// exit=0 かつ stdout が空 = この症状の可能性 → bash 経由で再実行を試みる。
 	if err == nil && len(bytes.TrimSpace(out)) == 0 {
-		if bashOut, attempted := runGlobalViaBash(globalBin, dir, word, "-xd"); attempted {
-			if len(bytes.TrimSpace(bashOut)) > 0 {
-				slog.Info("gtags-find", "msg", "bash fallback succeeded", "word", word, "bytes", len(bashOut))
-				out = bashOut
-			} else {
-				slog.Debug("gtags-find", "msg", "bash fallback also empty (truly no results)", "word", word)
-			}
+		if recovered := recoverEmptyGlobalOutput(globalBin, dir, word, "-xd", "gtags-find"); recovered != nil {
+			out = recovered
 		}
 	}
 
@@ -1053,11 +1098,8 @@ func GtagsFindRefs(ctx context.Context, word, dir string) ([]CallSite, error) {
 	}
 	// Cygwin global.exe が native pipe に書けず stdout が空のことがある（GtagsFindDefinitions と同症状）。
 	if len(bytes.TrimSpace(out)) == 0 {
-		if bashOut, attempted := runGlobalViaBash(globalBin, dir, word, "-xr"); attempted {
-			if len(bytes.TrimSpace(bashOut)) > 0 {
-				slog.Info("gtags-find-refs", "msg", "bash fallback succeeded", "word", word, "bytes", len(bashOut))
-				out = bashOut
-			}
+		if recovered := recoverEmptyGlobalOutput(globalBin, dir, word, "-xr", "gtags-find-refs"); recovered != nil {
+			out = recovered
 		}
 	}
 	hits := gtagsParseOutput(out, "ref", dir)
