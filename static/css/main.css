@@ -754,7 +754,8 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 /* ===== 検索履歴ドロップダウン ===== */
 #btn-search-hist{margin-left:auto;font-size:10px;padding:1px 6px;background:#3a3a3a;border:1px solid #555;border-radius:3px;color:#aaa;cursor:pointer;flex-shrink:0;white-space:nowrap}
 #btn-search-hist:hover{background:#4a4a4a;color:#ccc}
-#search-tab-bar,#search-stack-bar{display:none;position:absolute;top:calc(100% + 4px);right:0;width:360px;max-height:340px;overflow-y:auto;z-index:var(--z-side-panel);background:#1e1e1e;border:1px solid #444;border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,0.7);padding:4px;flex-direction:column;gap:0}
+/* position:fixed で左ペインの overflow:hidden を脱出する（JS がボタン位置から座標を設定）。 */
+#search-tab-bar,#search-stack-bar{display:none;position:fixed;width:360px;max-height:340px;overflow-y:auto;z-index:var(--z-dropdown);background:#1e1e1e;border:1px solid #444;border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,0.7);padding:4px;flex-direction:column;gap:0}
 #search-tab-bar.open,#search-stack-bar.open{display:flex}
 #search-stack-wrap{display:inline-flex}
 #btn-stack-add{font-size:10px;padding:1px 5px;background:#3a3a3a;border:1px solid #555;border-right:none;color:#aaa;border-radius:3px 0 0 3px;cursor:pointer;white-space:nowrap}

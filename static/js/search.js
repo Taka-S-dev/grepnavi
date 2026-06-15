@@ -911,6 +911,23 @@ function switchSearchStack(idx) {
   id('search-stack-bar').classList.remove('open');
 }
 
+// スタック/履歴ドロップダウンの開閉。開くときはボタン位置から fixed 座標を計算する。
+// 左ペインは overflow:hidden・幅 340px なので、絶対配置だと 360px のドロップダウンが
+// 見切れる。position:fixed + 実座標で祖先のクリップを脱出し、画面外にも出ないようクランプ。
+function toggleSearchDropdown(barId, btnId) {
+  const bar = id(barId);
+  if(!bar) return;
+  id(barId === 'search-stack-bar' ? 'search-tab-bar' : 'search-stack-bar')?.classList.remove('open');
+  const opening = !bar.classList.contains('open');
+  bar.classList.toggle('open', opening);
+  if(!opening) return;
+  const r = id(btnId).getBoundingClientRect();
+  const width = bar.offsetWidth || 360;
+  bar.style.left  = Math.max(8, r.right - width) + 'px';
+  bar.style.right = 'auto';
+  bar.style.top   = (r.bottom + 4) + 'px';
+}
+
 function renderSearchStack() {
   const btn = id('btn-search-stack');
   const bar = id('search-stack-bar');
@@ -1081,8 +1098,7 @@ function initSearchBar() {
     e.stopPropagation();
     if(!searchStack.length) return;
     renderSearchStack();
-    id('search-tab-bar')?.classList.remove('open');
-    id('search-stack-bar').classList.toggle('open');
+    toggleSearchDropdown('search-stack-bar', 'btn-search-stack');
   };
   document.addEventListener('click', () => id('search-stack-bar')?.classList.remove('open'));
 
@@ -1090,8 +1106,7 @@ function initSearchBar() {
   const toggleSearchHist = () => {
     if(!searchTabs.length) return;
     renderSearchTabs();
-    id('search-stack-bar')?.classList.remove('open');
-    id('search-tab-bar').classList.toggle('open');
+    toggleSearchDropdown('search-tab-bar', 'btn-search-hist');
   };
   id('btn-search-hist').onclick = e => { e.stopPropagation(); toggleSearchHist(); };
   document.addEventListener('click', () => id('search-tab-bar')?.classList.remove('open'));
@@ -1110,8 +1125,7 @@ function initSearchBar() {
       e.preventDefault();
       if(!searchStack.length) return;
       renderSearchStack();
-      id('search-tab-bar')?.classList.remove('open');
-      id('search-stack-bar').classList.toggle('open');
+      toggleSearchDropdown('search-stack-bar', 'btn-search-stack');
     }
   });
   id('btn-toggle-sub').onclick = () => {
