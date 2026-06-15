@@ -214,6 +214,7 @@
         </span>
         <button id="btn-line-memo-toggle" title="行メモ表示切り替え (Alt+M)"><i class="codicon codicon-note"></i> メモ</button>
         <button id="btn-memo-list" onclick="toggleMemoList()" title="マーク一覧"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 16 16" style="vertical-align:-2px"><rect x="1" y="2" width="14" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><line x1="4" y1="6" x2="12" y2="6" stroke="currentColor" stroke-width="1.2"/><line x1="4" y1="9" x2="12" y2="9" stroke="currentColor" stroke-width="1.2"/><line x1="4" y1="12" x2="9" y2="12" stroke="currentColor" stroke-width="1.2"/></svg> マーク</button>
+        <button id="btn-pinned-hl-toggle" title="設置型ハイライト (Alt+L)"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 16 16" style="vertical-align:-2px"><path d="M10.3 2.4l3.3 3.3-6.2 6.2-3.3.5.5-3.3z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><line x1="3" y1="14.3" x2="9.5" y2="14.3" stroke="currentColor" stroke-width="1.3"/></svg> ハイライト</button>
         <div style="position:relative">
           <span id="gtags-engine-label" style="display:none;font-size:11px;color:#888;cursor:pointer" title="定義ジャンプエンジン設定"></span>
           <div id="gtags-popover" style="display:none"></div>
@@ -225,7 +226,15 @@
         <button onclick="closePeek()" title="閉じる"><i class="codicon codicon-close"></i></button>
       </div>
       <div id="peek-tabs"></div>
-      <div id="pinned-hl-panel" style="display:none"></div>
+      <div id="pinned-hl-bar" style="display:none">
+        <div id="pinned-hl-wrap">
+          <input id="pinned-hl-input" type="text" placeholder="語を入力してハイライト…" spellcheck="false" autocomplete="off" title="入力した語を設置型ハイライトに追加（Enter）">
+          <button class="srch-btn" id="pinned-hl-cs" title="大文字小文字を区別">Aa</button>
+          <button class="srch-btn" id="pinned-hl-wb" title="単語単位で一致">ab</button>
+          <button class="srch-btn" id="pinned-hl-re" title="正規表現">.*</button>
+        </div>
+        <div id="pinned-hl-panel" style="display:none"></div>
+      </div>
       <div id="peek-body">
         <div id="peek-placeholder">
           <div id="peek-placeholder-inner">

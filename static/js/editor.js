@@ -12,13 +12,21 @@ const PINNED_HL_COLORS = [
 
 const WORD_SEPARATORS = '`~!@#$%^&*()-=+[{]}\\|;:\'",.<>/?';
 
+// 設置型ハイライトのマッチ取得。case / whole-word / regex を ph のフラグで切り替える
+// （検索バーの Aa / ab / .* と同じ三択）。不正な正規表現などは空配列で握り潰す。
+function findPinnedMatches(model, ph) {
+  if(!model) return [];
+  const wordSeps = ph.wholeWord ? WORD_SEPARATORS : null;
+  try {
+    return model.findMatches(ph.word, false, !!ph.regex, !!ph.caseSensitive, wordSeps, false);
+  } catch { return []; }
+}
+
 function applyPinnedHighlightToModel(ph, model) {
   if(!model) return;
   const uriStr = model.uri.toString();
   if(ph.modelDecos.has(uriStr)) return;
-  // wholeWord=true → 単語一致、false → 部分一致
-  const wordSeps = ph.wholeWord ? WORD_SEPARATORS : null;
-  const matches = model.findMatches(ph.word, false, false, true, wordSeps, false);
+  const matches = findPinnedMatches(model, ph);
   const decos = matches.map(m => ({
     range: m.range,
     options: { inlineClassName: `pinned-hl-${ph.colorIdx}` }
@@ -34,7 +42,8 @@ function _pinnedHighlightsKey() {
 function savePinnedHighlights() {
   localStorage.setItem(_pinnedHighlightsKey(), JSON.stringify(
     pinnedHighlights.map(ph => ({
-      word: ph.word, wholeWord: ph.wholeWord, colorIdx: ph.colorIdx,
+      word: ph.word, wholeWord: ph.wholeWord, caseSensitive: ph.caseSensitive,
+      regex: ph.regex, colorIdx: ph.colorIdx,
       originFile: ph.originFile, originLine: ph.originLine,
     }))
   ));
@@ -45,7 +54,9 @@ function loadPinnedHighlights() {
     const data = JSON.parse(localStorage.getItem(_pinnedHighlightsKey()) || '[]');
     pinnedHighlights = [];
     data.forEach(d => {
-      const ph = { word: d.word, wholeWord: d.wholeWord ?? true, colorIdx: d.colorIdx,
+      const ph = { word: d.word, wholeWord: d.wholeWord ?? true,
+                   caseSensitive: d.caseSensitive ?? true, regex: d.regex ?? false,
+                   colorIdx: d.colorIdx,
                    modelDecos: new Map(), originFile: d.originFile, originLine: d.originLine };
       pinnedHighlights.push(ph);
       applyPinnedHighlightToModel(ph, monacoEditor?.getModel());
@@ -54,7 +65,7 @@ function loadPinnedHighlights() {
   } catch {}
 }
 
-function togglePinnedHighlight(word, wholeWord = true) {
+function togglePinnedHighlight(word, opts = {}) {
   const idx = pinnedHighlights.findIndex(p => p.word === word);
   if(idx >= 0) {
     const ph = pinnedHighlights[idx];
@@ -71,7 +82,9 @@ function togglePinnedHighlight(word, wholeWord = true) {
     }
     const originFile = tabs[activeTabIdx]?.file ?? null;
     const originLine = monacoEditor?.getPosition()?.lineNumber ?? null;
-    const ph = { word, wholeWord, colorIdx, modelDecos: new Map(), originFile, originLine };
+    const ph = { word, wholeWord: opts.wholeWord ?? true,
+                 caseSensitive: opts.caseSensitive ?? true, regex: opts.regex ?? false,
+                 colorIdx, modelDecos: new Map(), originFile, originLine };
     pinnedHighlights.push(ph);
     applyPinnedHighlightToModel(ph, monacoEditor?.getModel());
   }
@@ -93,8 +106,7 @@ function flashJumpTarget(range) {
 function jumpPinnedHighlight(ph, dir) {
   const model = monacoEditor?.getModel();
   if(!model) return;
-  const wordSeps = ph.wholeWord ? WORD_SEPARATORS : null;
-  const matches = model.findMatches(ph.word, false, false, true, wordSeps, false);
+  const matches = findPinnedMatches(model, ph);
   if(!matches.length) return;
   const curLine = monacoEditor.getPosition()?.lineNumber ?? 0;
   let idx;
@@ -120,7 +132,8 @@ function renderPinnedChips() {
     const c = PINNED_HL_COLORS[ph.colorIdx];
     const chip = document.createElement('span');
     chip.className = 'pinned-chip';
-    chip.title = ph.wholeWord ? '単語一致' : '部分一致';
+    chip.title = [ph.regex ? '正規表現' : null, ph.wholeWord ? '単語一致' : '部分一致',
+                  ph.caseSensitive ? '大小区別' : '大小無視'].filter(Boolean).join(' / ');
     chip.style.cssText = `--chip-color:${c.chip};border-color:${c.border};background:${c.rgba}`;
     chip.innerHTML = `<span class="pinned-chip-nav" title="前の出現箇所">&#8249;</span><span class="pinned-chip-word">${ph.word}</span><span class="pinned-chip-count"></span><span class="pinned-chip-nav" title="次の出現箇所">&#8250;</span><span class="pinned-chip-x">×</span>`;
     const [btnPrev, btnNext] = chip.querySelectorAll('.pinned-chip-nav');
@@ -133,13 +146,13 @@ function renderPinnedChips() {
     panel.appendChild(chip);
   });
   updatePinnedCounts();
+  if (typeof updatePinnedBarVisibility === 'function') updatePinnedBarVisibility();
 }
 
 function getPinnedHighlightStats(ph) {
   const model = monacoEditor?.getModel();
   if (!model) return { total: 0, current: 0 };
-  const wordSeps = ph.wholeWord ? WORD_SEPARATORS : null;
-  const matches = model.findMatches(ph.word, false, false, true, wordSeps, false);
+  const matches = findPinnedMatches(model, ph);
   const total = matches.length;
   if (!total) return { total: 0, current: 0 };
   const pos = monacoEditor.getPosition();
@@ -163,6 +176,77 @@ function updatePinnedCounts() {
     const { total, current } = getPinnedHighlightStats(ph);
     el.textContent = total ? `${current}/${total}` : '';
   });
+}
+
+// ハイライトバーは普段は隠し、ユーザが開いたとき or チップが1つでもあるとき表示する
+// （未使用時に編集領域を占有しないため）。入口はヘッダーの小アイコンと Alt+H。
+let _pinnedBarManual = false;
+function updatePinnedBarVisibility() {
+  const bar = document.getElementById('pinned-hl-bar');
+  if (!bar) return;
+  const show = _pinnedBarManual || pinnedHighlights.length > 0;
+  bar.style.display = show ? 'flex' : 'none';
+  document.getElementById('btn-pinned-hl-toggle')?.classList.toggle('on', show);
+}
+function togglePinnedBar() {
+  _pinnedBarManual = !_pinnedBarManual;
+  updatePinnedBarVisibility();
+  if (_pinnedBarManual || pinnedHighlights.length > 0) document.getElementById('pinned-hl-input')?.focus();
+}
+
+// 入力欄から設置型ハイライトを追加する。既存の「単語ハイライト固定」の仕組み
+// (togglePinnedHighlight = 色割当・永続化・チップ・全モデル適用) をそのまま流用する。
+// 入力は「追加」意図なので、既存と重複したら消さずにその出現箇所へ飛んで気づかせる。
+function addPinnedHighlightFromInput(word, opts) {
+  word = (word || '').trim();
+  if (!word) return;
+  const existing = pinnedHighlights.find(p => p.word === word);
+  if (existing) {
+    jumpPinnedHighlight(existing, 1); // 消さずに次の出現へ（flashJumpTarget が点滅で知らせる）
+    if (typeof st === 'function') st('既にハイライト中: ' + word);
+    return;
+  }
+  togglePinnedHighlight(word, opts); // 未登録 → 追加
+}
+
+function initPinnedHighlightInput() {
+  const tbtn = document.getElementById('btn-pinned-hl-toggle');
+  if (tbtn) tbtn.onclick = togglePinnedBar;
+  // Alt+L: ハイライトバーを開いて入力欄にフォーカス。
+  document.addEventListener('keydown', e => {
+    if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'l') {
+      e.preventDefault();
+      _pinnedBarManual = true;
+      updatePinnedBarVisibility();
+      document.getElementById('pinned-hl-input')?.focus();
+    }
+  });
+
+  const input = document.getElementById('pinned-hl-input');
+  if (!input) return;
+  // 検索バーと同じ Aa(大小区別) / ab(単語) / .*(正規表現) トグル。
+  ['pinned-hl-cs', 'pinned-hl-wb', 'pinned-hl-re'].forEach(bid => {
+    const b = document.getElementById(bid);
+    if (b) b.onclick = () => b.classList.toggle('on');
+  });
+  const isOn = bid => !!document.getElementById(bid)?.classList.contains('on');
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addPinnedHighlightFromInput(input.value, {
+        caseSensitive: isOn('pinned-hl-cs'),
+        wholeWord:     isOn('pinned-hl-wb'),
+        regex:         isOn('pinned-hl-re'),
+      });
+      input.value = ''; // 連続追加できるよう focus は維持
+    } else if (e.key === 'Escape') {
+      input.value = '';
+      input.blur();
+      _pinnedBarManual = false; // チップが無ければバーを畳む
+      updatePinnedBarVisibility();
+    }
+  });
+  updatePinnedBarVisibility();
 }
 
 // ===== 行メモ / ブックマーク (localStorage + JSON自動保存) =====
@@ -1383,7 +1467,8 @@ async function ensureEditor() {
       const sel = ed.getSelection();
       const selText = sel && !sel.isEmpty() ? model.getValueInRange(sel).trim() : '';
       const word = selText || model.getWordAtPosition(pos)?.word;
-      if(word) togglePinnedHighlight(word, !selText);
+      // 選択範囲は部分一致、カーソル語は単語一致。エディタから拾う語は大小区別あり。
+      if(word) togglePinnedHighlight(word, { wholeWord: !selText, caseSensitive: true });
     }
   });
 
@@ -1474,7 +1559,7 @@ async function ensureEditor() {
 }
 
 // ページロード時に Monaco をバックグラウンドでプリロード（初回クリック遅延を防ぐ）
-if(typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', () => { loadMonaco(); });
+if(typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', () => { loadMonaco(); initPinnedHighlightInput(); });
 
 // ===== Ctrl+P ファイル / Ctrl+T シンボル クイックオープン =====
 async function openFzf(mode = 'file') {

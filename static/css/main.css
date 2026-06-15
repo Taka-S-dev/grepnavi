@@ -170,6 +170,7 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 #btn-fzf-open,#btn-line-memo-toggle,#ifdef-apply,#ifdef-clear{border:none;background:none;color:#888;padding:1px 6px}
 #btn-fzf-open:hover,#btn-line-memo-toggle:hover,#ifdef-apply:hover,#ifdef-clear:hover{color:#ccc;background:#3c3c3c}
 #btn-line-memo-toggle.on{color:#4ec9b0;border-radius:2px}
+#btn-pinned-hl-toggle.on{color:#fff;background:#094771;border-radius:2px}
 #ifdef-apply{color:#7ec87e}
 #ifdef-clear{color:#888}
 #ifdef-ui{border-left:1px solid #3c3c3c;border-right:1px solid #3c3c3c;padding:0 4px;margin:0 2px}
@@ -270,8 +271,13 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .pinned-hl-5{background:rgba(60,200,200,0.25);border-bottom:1px solid rgba(20,160,160,0.9);border-radius:2px}
 .pinned-hl-6{background:rgba(255,184,208,0.25);border-bottom:1px solid rgba(255,140,180,0.9);border-radius:2px}
 .pinned-hl-7{background:rgba(255,220,0,0.35);border-bottom:1px solid rgba(255,180,0,0.9);border-radius:2px}
-/* ピンチップパネル */
-#pinned-hl-panel{flex-wrap:wrap;gap:4px;padding:4px 8px;border-bottom:1px solid #333;background:#1a1a1a;align-items:center}
+/* 設置型ハイライトのバー: 入力ラッパー(Aa/ab/.* トグル内包) + チップ群。枠/背景はラッパー側が持つ。 */
+#pinned-hl-bar{display:flex;flex-wrap:wrap;align-items:center;gap:5px;padding:4px 8px;border-bottom:1px solid #333;background:#1a1a1a}
+#pinned-hl-wrap{display:flex;align-items:center;background:#2a2a2a;border:1px solid #3a3a3a;border-radius:3px;padding:0 3px;width:250px;max-width:52%}
+#pinned-hl-wrap:focus-within{border-color:#007acc}
+#pinned-hl-input{flex:1;border:none;background:transparent;color:#ddd;font-size:11px;padding:3px 4px;outline:none;min-width:0}
+#pinned-hl-input::placeholder{color:#666}
+#pinned-hl-panel{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
 .pinned-chip{display:inline-flex;align-items:center;gap:3px;padding:1px 7px 1px 8px;border-radius:10px;font-size:11px;border:1px solid;color:#ddd;white-space:nowrap}
 .pinned-chip-nav{cursor:pointer;opacity:0.5;font-size:14px;line-height:1;padding:0 1px}
 .pinned-chip-nav:hover{opacity:1}
