@@ -2285,6 +2285,7 @@ async function jumpToDefinition(word) {
 
   let hits = [];
   let totalCount = 0;
+  let defHint = '';
 
   // /api/definition に1回だけリクエスト。
   // サーバー側で gtags→ripgrep フォールバックを処理するため、フロント側での2重呼び出しは不要。
@@ -2304,12 +2305,18 @@ async function jumpToDefinition(word) {
         totalCount = hits.length;
         const eng = r.headers.get('X-Engine');
         if (eng) window._lastDefEngine = eng;
+        defHint = r.headers.get('X-Definition-Hint') || '';
       }
     } catch(e) { if(e?.name === 'AbortError') { clearInterval(stimer); return; } }
   }
 
   clearInterval(stimer);
   if(hits.length === 0) {
+    // サーバーが理由を特定できたとき (X-Definition-Hint) はそれを優先して表示する
+    if (defHint) {
+      st('見つかりません: ' + word + ' — ' + defHint);
+      return;
+    }
     const hint = (typeof window.gtagsEnabled === 'function' && window.gtagsEnabled())
       ? ' — インデックスが古い場合は再生成を試してください'
       : '';
