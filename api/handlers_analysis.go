@@ -19,6 +19,7 @@ import (
 
 const (
 	_hoverSearchTimeout    = 8 * time.Second // hover シンボル検索の全体タイムアウト
+	_defSearchTimeout      = 8 * time.Second // definition の rg フォールバック全体タイムアウト（巨大リポジトリ・ネットワークドライブの天井）
 	_defaultSnippetContext = 15              // /api/snippet で行番号周辺を返す文脈行数の既定値
 )
 
@@ -233,6 +234,25 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 		var h []search.DefHit
 		var e error
 		eng := engine
+		// rg フォールバックは暗黙の全域スキャンなのでタイムアウトの天井を付ける。
+		// タイムアウトで空になった結果は「なし」と確定していないのでキャッシュしない。
+		rgTimedOut := false
+		rgFallback := func() ([]search.DefHit, error) {
+			rgCtx, cancel := context.WithTimeout(r.Context(), _defSearchTimeout)
+			defer cancel()
+			var hits []search.DefHit
+			var err error
+			if currentFile != "" {
+				hits, err = search.FindDefinitionsSmart(rgCtx, word, currentFile, hroot, glob)
+			} else {
+				hits, err = search.FindDefinitions(rgCtx, word, dir, glob)
+			}
+			if len(hits) == 0 && rgCtx.Err() != nil && r.Context().Err() == nil {
+				rgTimedOut = true
+				slog.Debug("definition rg fallback timed out", "word", word)
+			}
+			return hits, err
+		}
 		if useGtags {
 			slog.Debug("definition gtags", "hroot", hroot, "dir", dir)
 			h, e = search.GtagsFindDefinitions(r.Context(), word, hroot)
@@ -252,17 +272,18 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if len(h) == 0 && e == nil {
-				// ctags も miss → rg fallback
-				slog.Debug("definition gtags+ctags miss, fallback to rg", "word", word)
-				t0 = time.Now()
-				currentFile := q.Get("file")
-				if currentFile != "" {
-					h, e = search.FindDefinitionsSmart(r.Context(), word, currentFile, hroot, glob)
+				if search.GtagsDefsPreloaded(hroot) && !search.GtagsIsStale() {
+					// プリロード表がインデックス全体を保持している = 「無い」が確定情報。
+					// 保険の rg 全域スキャンは走らせない（stale 時は取りこぼし防止で従来通り）。
+					slog.Debug("definition authoritative miss, rg fallback skipped", "word", word)
 				} else {
-					h, e = search.FindDefinitions(r.Context(), word, dir, glob)
+					// ctags も miss → rg fallback
+					slog.Debug("definition gtags+ctags miss, fallback to rg", "word", word)
+					t0 = time.Now()
+					h, e = rgFallback()
+					eng = "rg"
+					slog.Debug("definition rg fallback result", "word", word, "hits", len(h), "elapsed", time.Since(t0))
 				}
-				eng = "rg"
-				slog.Debug("definition rg fallback result", "word", word, "hits", len(h), "elapsed", time.Since(t0))
 			}
 		} else if useCtags {
 			slog.Debug("definition ctags", "hroot", hroot)
@@ -271,24 +292,13 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 			if len(h) == 0 && e == nil {
 				slog.Debug("definition ctags miss, fallback to rg", "word", word)
 				t0 = time.Now()
-				currentFile := q.Get("file")
-				if currentFile != "" {
-					h, e = search.FindDefinitionsSmart(r.Context(), word, currentFile, hroot, glob)
-				} else {
-					h, e = search.FindDefinitions(r.Context(), word, dir, glob)
-				}
+				h, e = rgFallback()
 				eng = "rg"
 				slog.Debug("definition rg fallback result", "word", word, "hits", len(h), "elapsed", time.Since(t0))
 			}
 		} else {
-			currentFile := q.Get("file")
-			if currentFile != "" {
-				h, e = search.FindDefinitionsSmart(r.Context(), word, currentFile, hroot, glob)
-				slog.Debug("definition rg result", "word", word, "engine", "rg-smart", "hits", len(h), "elapsed", time.Since(t0))
-			} else {
-				h, e = search.FindDefinitions(r.Context(), word, dir, glob)
-				slog.Debug("definition rg result", "word", word, "engine", eng, "hits", len(h), "elapsed", time.Since(t0))
-			}
+			h, e = rgFallback()
+			slog.Debug("definition rg result", "word", word, "engine", eng, "smart", currentFile != "", "hits", len(h), "elapsed", time.Since(t0))
 		}
 		if e != nil {
 			return defResult{}, e
@@ -300,7 +310,11 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 			h[i].Engine = eng
 		}
 		out := defResult{hits: h, engine: eng}
-		defCacheSet(cacheKey, out)
+		// タイムアウト・クライアント中断で途切れた検索は「なし」と確定していないので
+		// キャッシュしない（次のリクエストで再検索させる）
+		if !rgTimedOut && r.Context().Err() == nil {
+			defCacheSet(cacheKey, out)
+		}
 		return out, nil
 	})
 	if err != nil {
@@ -337,6 +351,9 @@ func definitionEmptyHint(word, root string) string {
 		if i := sort.SearchStrings(names, word); i < len(names) && names[i] == word {
 			return "'" + word + "' is indexed by ctags as a #define/enum constant, but no definition location could be resolved — the tags file may lack line numbers (regenerate with ctags --fields=+n). A text search for the #define site will find it."
 		}
+	}
+	if reIdentifier.MatchString(word) && search.GtagsDefsPreloaded(root) && !search.GtagsIsStale() {
+		return "'" + word + "' is not in the gtags index (checked against the full preloaded definition table; text scan skipped). If it was added recently, update the index."
 	}
 	if !search.CtagsIndexed(root) && !search.GtagsIndexed(root) {
 		return "no ctags/gtags index for this root; only ripgrep heuristics ran. Building an index can surface more results."

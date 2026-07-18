@@ -24,6 +24,11 @@ type DefHit struct {
 	Engine string `json:"engine,omitempty"` // 解決に使ったバックエンド ("gtags" / "ctags" / "rg")。API レイヤで後付けされる
 }
 
+// _defRgThreads は定義検索フォールバックの rg スレッド上限。
+// ジャンプの裏で暗黙に走る検索（ユーザーが明示した検索ではない）が
+// PC 全体を占有しないための行儀。明示的なテキスト検索には適用しない。
+const _defRgThreads = 4
+
 // FindDefinitions は word の定義候補を ripgrep で検索して返す。
 // glob が空なら全ファイルが対象。
 func FindDefinitions(ctx context.Context, word, dir, glob string) ([]DefHit, error) {
@@ -253,6 +258,7 @@ func findDefinitionsInFiles(ctx context.Context, word string, files []string) ([
 		CaseSensitive: true,
 		ContextLines:  -1,
 		MaxResults:    20,
+		MaxThreads:    _defRgThreads,
 	})
 	if err != nil {
 		return nil, err
@@ -307,6 +313,7 @@ func FindDefinitionsN(ctx context.Context, word, dir, glob string, maxPerQuery i
 		Regex:         true,
 		CaseSensitive: true,
 		ContextLines:  -1,
+		MaxThreads:    _defRgThreads,
 	}
 
 	// SearchStream を使い、実態（定義）を maxPerQuery 件見つけた時点で rg を即 kill する。
@@ -353,6 +360,7 @@ func FindDefinitionsN(ctx context.Context, word, dir, glob string, maxPerQuery i
 			ContextLines:  -1,
 			MaxResults:    maxPerQuery,
 			Multiline:     true,
+			MaxThreads:    _defRgThreads,
 		})
 		if karErr == nil {
 			for _, m := range karMatches {

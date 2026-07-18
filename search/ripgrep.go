@@ -34,6 +34,7 @@ type Options struct {
 	Multiline    bool   // --multiline (-U): パターンを複数行にまたがってマッチ
 	Encoding     string // "" = auto (UTF-8), "sjis", "euc-jp" など
 	NoIgnore     bool   // --no-ignore: .gitignore / .ignore 等を無視して全ファイルを検索
+	MaxThreads   int    // --threads: 0 = rg 既定（全コア）。暗黙のフォールバック検索で PC を占有しないための上限
 }
 
 // Search は ripgrep を呼び出してマッチ一覧を返す。
@@ -86,6 +87,9 @@ func buildArgs(opts Options) []string {
 	if opts.NoIgnore {
 		// .gitignore / .ignore / .rgignore を無視して全ファイルを検索する。
 		args = append(args, "--no-ignore")
+	}
+	if opts.MaxThreads > 0 {
+		args = append(args, "--threads", strconv.Itoa(opts.MaxThreads))
 	}
 	// ctags / gtags の索引ファイルは既定で検索から除外する。tags は巨大な
 	// プレーンテキストで、シンボル名でも定義パターン断片でも大量にマッチして
