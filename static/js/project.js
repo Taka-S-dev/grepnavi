@@ -244,6 +244,11 @@ function initDirPicker() {
     activeIdx = -1;
   }
 
+  function renderLoading() {
+    itemsContainer.innerHTML = '<div class="dir-item dir-item-loading"><span class="dir-spin"></span> 読み込み中...</div>';
+    activeIdx = -1;
+  }
+
   function openDrop(loadingMsg) {
     const rect = id('dir-wrap').getBoundingClientRect();
     drop.style.left  = rect.left + 'px';
@@ -254,7 +259,7 @@ function initDirPicker() {
       drop.appendChild(itemsContainer);
     }
     drop.classList.add('open');
-    if(loadingMsg) renderMessage(loadingMsg); else renderItems();
+    if(loadingMsg) renderLoading(); else renderItems();
   }
 
   let suppressOpen = false;
@@ -300,7 +305,7 @@ function initDirPicker() {
     if(dirList) { openDrop(); return; }
     // 初回は /api/dirs の取得待ちがある（大きいリポジトリでは数秒）。
     // 待っている間なにも出ないと「開かない」ように見えるので、先に開いて即時フィードバックする。
-    openDrop('読み込み中...');
+    openDrop(true);
     opening = true;
     try { await fetchDirs(); } finally { opening = false; }
     // 取得中にフォーカスが外れていたら、今さら開いたままにしない
