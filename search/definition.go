@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -27,7 +28,8 @@ type DefHit struct {
 // _defRgThreads は定義検索フォールバックの rg スレッド上限。
 // ジャンプの裏で暗黙に走る検索（ユーザーが明示した検索ではない）が
 // PC 全体を占有しないための行儀。明示的なテキスト検索には適用しない。
-const _defRgThreads = 4
+// 固定値だとコア数の多いマシンで不必要に遅くなるため、半分を 2〜8 に丸める。
+var _defRgThreads = min(8, max(2, runtime.NumCPU()/2))
 
 // FindDefinitions は word の定義候補を ripgrep で検索して返す。
 // glob が空なら全ファイルが対象。
