@@ -204,21 +204,46 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 	}
 	glob := q.Get("glob")
 	currentFile := q.Get("file")
-	gtagsParam     := q.Get("gtags") != "0"
-	gtagsInstalled := search.GtagsInPath()
-	gtagsIndexed   := search.GtagsIndexed(hroot)
-	useGtags := gtagsParam && gtagsInstalled && gtagsIndexed
-	useCtagsParam := q.Get("ctags") != "0"
-	ctagsIndexed  := search.CtagsIndexed(hroot)
-	useCtags := useCtagsParam && ctagsIndexed && !useGtags
-	slog.Debug("definition", "word", word, "currentFile", currentFile, "dir", dir, "glob", glob, "hroot", hroot, "gtags_param", gtagsParam, "installed", gtagsInstalled, "indexed", gtagsIndexed, "useGtags", useGtags, "ctagsIndexed", ctagsIndexed, "useCtags", useCtags)
-	engine := "rg"
-	if useGtags {
-		engine = "gtags"
-	} else if useCtags {
-		engine = "ctags"
+
+	// エンジン優先順の決定。engines=ctags,gtags,rg（UI の並べ替え設定、上から順に試行）。
+	// 使えないエンジン（未インストール・未インデックス）は順序から除外する。
+	gtagsUsable := search.GtagsInPath() && search.GtagsIndexed(hroot)
+	ctagsUsable := search.CtagsIndexed(hroot)
+	var order []string
+	seenEng := map[string]bool{}
+	addEngine := func(name string, usable bool) {
+		if usable && !seenEng[name] {
+			seenEng[name] = true
+			order = append(order, name)
+		}
 	}
-	cacheKey := word + "\x00" + dir + "\x00" + glob + "\x00" + engine
+	if enginesParam := q.Get("engines"); enginesParam != "" {
+		for _, name := range strings.Split(enginesParam, ",") {
+			switch strings.TrimSpace(name) {
+			case "gtags":
+				addEngine("gtags", gtagsUsable)
+			case "ctags":
+				addEngine("ctags", ctagsUsable)
+			case "rg":
+				addEngine("rg", true)
+			}
+		}
+	} else {
+		// 旧クライアント互換: gtags= / ctags= フラグから従来のチェーンを組み立てる
+		if q.Get("gtags") != "0" && gtagsUsable {
+			addEngine("gtags", true)
+			addEngine("ctags", ctagsUsable) // 従来動作: gtags 主のとき ctags は中間フォールバック
+		} else if q.Get("ctags") != "0" {
+			addEngine("ctags", ctagsUsable)
+		}
+		addEngine("rg", true)
+	}
+	if len(order) == 0 {
+		order = []string{"rg"} // 指定エンジンが全滅でもジャンプ自体は機能させる
+	}
+	orderKey := strings.Join(order, ",")
+	slog.Debug("definition", "word", word, "currentFile", currentFile, "dir", dir, "glob", glob, "hroot", hroot, "engines", orderKey)
+	cacheKey := word + "\x00" + dir + "\x00" + glob + "\x00" + orderKey
 	if cached, ok := defCacheGet(cacheKey); ok {
 		slog.Debug("definition cache hit", "word", word, "engine", cached.engine)
 		writeDefinitionResponse(w, word, hroot, cached)
@@ -230,11 +255,9 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 		if cached, ok := defCacheGet(cacheKey); ok {
 			return cached, nil
 		}
-		t0 := time.Now()
 		var h []search.DefHit
 		var e error
-		eng := engine
-		// rg フォールバックは暗黙の全域スキャンなのでタイムアウトの天井を付ける。
+		// rg は暗黙の全域スキャンなのでタイムアウトの天井を付ける。
 		// タイムアウトで空になった結果は「なし」と確定していないのでキャッシュしない。
 		rgTimedOut := false
 		rgFallback := func() ([]search.DefHit, error) {
@@ -253,52 +276,40 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 			}
 			return hits, err
 		}
-		if useGtags {
-			slog.Debug("definition gtags", "hroot", hroot, "dir", dir)
-			h, e = search.GtagsFindDefinitions(r.Context(), word, hroot)
-			if e != nil {
-				slog.Warn("definition gtags error, falling back", "word", word, "err", e)
-				e = nil
-			}
-			slog.Debug("definition gtags result", "word", word, "hits", len(h), "dir", dir, "elapsed", time.Since(t0))
-			if len(h) == 0 {
-				// gtags miss/error → ctags fallback
-				if search.CtagsIndexed(hroot) {
-					slog.Debug("definition gtags miss, fallback to ctags", "word", word)
-					t0 = time.Now()
-					h, e = search.CtagsFindDefinitions(word, hroot)
-					eng = "ctags"
-					slog.Debug("definition ctags fallback result", "word", word, "hits", len(h), "elapsed", time.Since(t0))
+		// 優先順に試行し、最初にヒットしたエンジンで確定する
+		eng := order[0]
+		gtagsTried := false
+		for _, engName := range order {
+			t0 := time.Now()
+			switch engName {
+			case "gtags":
+				gtagsTried = true
+				h, e = search.GtagsFindDefinitions(r.Context(), word, hroot)
+				if e != nil {
+					slog.Warn("definition gtags error, falling back", "word", word, "err", e)
+					e = nil
 				}
-			}
-			if len(h) == 0 && e == nil {
-				if search.GtagsDefsPreloaded(hroot) && !search.GtagsIsStale() {
-					// プリロード表がインデックス全体を保持している = 「無い」が確定情報。
-					// 保険の rg 全域スキャンは走らせない（stale 時は取りこぼし防止で従来通り）。
-					slog.Debug("definition authoritative miss, rg fallback skipped", "word", word)
-				} else {
-					// ctags も miss → rg fallback
-					slog.Debug("definition gtags+ctags miss, fallback to rg", "word", word)
-					t0 = time.Now()
-					h, e = rgFallback()
-					eng = "rg"
-					slog.Debug("definition rg fallback result", "word", word, "hits", len(h), "elapsed", time.Since(t0))
+			case "ctags":
+				h, e = search.CtagsFindDefinitions(word, hroot)
+				if e != nil {
+					slog.Warn("definition ctags error, falling back", "word", word, "err", e)
+					e = nil
 				}
-			}
-		} else if useCtags {
-			slog.Debug("definition ctags", "hroot", hroot)
-			h, e = search.CtagsFindDefinitions(word, hroot)
-			slog.Debug("definition ctags result", "word", word, "hits", len(h), "elapsed", time.Since(t0))
-			if len(h) == 0 && e == nil {
-				slog.Debug("definition ctags miss, fallback to rg", "word", word)
-				t0 = time.Now()
+			case "rg":
+				// gtags を先に試していて、プリロード表が「無い」を確定できるなら
+				// 全域スキャンはしない（stale 時は取りこぼし防止で従来通り走らせる）。
+				// rg を gtags より先に置く設定は意図的な全文検索なのでスキップしない。
+				if gtagsTried && search.GtagsDefsPreloaded(hroot) && !search.GtagsIsStale() {
+					slog.Debug("definition authoritative miss, rg skipped", "word", word)
+					continue
+				}
 				h, e = rgFallback()
-				eng = "rg"
-				slog.Debug("definition rg fallback result", "word", word, "hits", len(h), "elapsed", time.Since(t0))
 			}
-		} else {
-			h, e = rgFallback()
-			slog.Debug("definition rg result", "word", word, "engine", eng, "smart", currentFile != "", "hits", len(h), "elapsed", time.Since(t0))
+			eng = engName
+			slog.Debug("definition engine result", "engine", engName, "word", word, "hits", len(h), "elapsed", time.Since(t0))
+			if len(h) > 0 {
+				break
+			}
 		}
 		if e != nil {
 			return defResult{}, e

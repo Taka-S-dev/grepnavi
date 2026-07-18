@@ -2281,9 +2281,10 @@ async function jumpToDefinition(word) {
     const p = new URLSearchParams({word});
     if (glob) p.set('glob', glob);
     if (currentFile) p.set('file', currentFile);
-    const _defEng = typeof window.getDefEngine === 'function' ? window.getDefEngine() : 'gtags';
-    if (_defEng !== 'gtags') p.set('gtags', '0');
-    if (_defEng === 'ctags') p.set('ctags', '1'); else p.set('ctags', '0');
+    // エンジン優先順（設定 UI の並び）。サーバーはこの順に試行する。
+    if (typeof window.getDefEngines === 'function') {
+      p.set('engines', window.getDefEngines().join(','));
+    }
     try {
       const r = await fetch('/api/definition?' + p, {signal: _defAbortCtrl.signal});
       if (r.ok) {

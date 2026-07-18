@@ -7,13 +7,50 @@ let _installed  = false;
 let _indexed    = false;
 let _binSource  = ''; // "bin" / "scoop" / "msys" / "path" / ""
 
-// defEngine: "gtags" | "ctags" | "rg"
+// ===== 定義ジャンプエンジンの優先順 =====
+// localStorage:
+//   defEngineOrder   = "gtags,ctags,rg"  全エンジンの表示・優先順
+//   defEngineEnabled = "gtags,ctags,rg"  有効なエンジン（order の部分集合）
+// 旧 'defEngine'（単一選択）からは初回アクセス時に移行する。
+const ALL_ENGINES = ['gtags', 'ctags', 'rg'];
+
+function _migrateLegacyEngine() {
+  if (localStorage.getItem('defEngineOrder')) return;
+  const legacy = localStorage.getItem('defEngine');
+  if (legacy === 'ctags') {
+    // 旧 ctags 主エンジン = gtags は使わず ctags→rg
+    localStorage.setItem('defEngineOrder', 'ctags,gtags,rg');
+    localStorage.setItem('defEngineEnabled', 'ctags,rg');
+  } else if (legacy === 'rg') {
+    localStorage.setItem('defEngineOrder', 'rg,gtags,ctags');
+    localStorage.setItem('defEngineEnabled', 'rg');
+  }
+  // legacy 'gtags' / 未設定 → 既定 (gtags,ctags,rg 全有効) のままでよい
+}
+
+function _sanitizeEngineList(raw, fallback) {
+  const list = (raw || '').split(',').map(s => s.trim()).filter(s => ALL_ENGINES.includes(s));
+  return list.length ? [...new Set(list)] : fallback;
+}
+
+// 全エンジンの優先順（無効なものも含む・UI表示用）
+window.getDefEngineOrder = function() {
+  _migrateLegacyEngine();
+  const order = _sanitizeEngineList(localStorage.getItem('defEngineOrder'), [...ALL_ENGINES]);
+  ALL_ENGINES.forEach(e => { if (!order.includes(e)) order.push(e); });
+  return order;
+};
+// 有効なエンジンだけを優先順で（API の engines= に渡す形）
+window.getDefEngines = function() {
+  const enabled = new Set(_sanitizeEngineList(localStorage.getItem('defEngineEnabled'), [...ALL_ENGINES]));
+  return window.getDefEngineOrder().filter(e => enabled.has(e));
+};
+// 後方互換: 先頭の有効エンジン
 window.getDefEngine = function() {
-  return localStorage.getItem('defEngine') || 'gtags';
+  return window.getDefEngines()[0] || 'rg';
 };
 window.gtagsEnabled = function() {
-  const eng = window.getDefEngine();
-  return eng === 'gtags' && _installed && _indexed;
+  return window.getDefEngines().includes('gtags') && _installed && _indexed;
 };
 // defEngine の設定に関わらず gtags が使える状態かどうかを返す（callers 等で使用）
 window.gtagsAvailable = function() {
@@ -218,7 +255,8 @@ function renderGear() {
   const label = document.getElementById('gtags-engine-label');
   if (!label) return;
   label.style.display = '';
-  const eng = window.getDefEngine();
+  const engines = window.getDefEngines();
+  const eng = engines[0] || 'rg';
   const srcLabel = { bin: 'bin/', scoop: 'Scoop', msys: 'MSYS2', path: 'PATH' }[_binSource] || '';
   const gnuLabel = 'GNU Global' + (srcLabel ? ' (' + srcLabel + ')' : '');
   if (eng === 'gtags' && _installed && _indexed) {
@@ -231,7 +269,8 @@ function renderGear() {
     label.textContent = 'ripgrep';
     label.style.color = '#999';
   }
-  label.title = '定義ジャンプエンジン設定';
+  const chainNames = { gtags: 'GNU Global', ctags: 'ctags', rg: 'ripgrep' };
+  label.title = '定義ジャンプエンジン設定\n試行順: ' + engines.map(e => chainNames[e]).join(' → ');
 }
 
 function renderPopover() {
@@ -245,21 +284,25 @@ function renderPopover() {
   const gtagsBadge = _indexed ? '<span style="color:#4ec9b0;font-size:10px"> ✓</span>' : '<span class="gtags-pop-hint">（未生成）</span>';
   const ctagsBadge = ctagsIndexed ? '<span style="color:#4ec9b0;font-size:10px"> ✓</span>' : '<span class="gtags-pop-hint">（未生成）</span>';
 
-  let html = `<div class="gtags-pop-title">定義ジャンプエンジン</div>`;
+  let html = `<div class="gtags-pop-title">定義ジャンプエンジン <span class="gtags-pop-hint">上から順に試行</span></div>`;
 
-  // エンジン選択（3択）
-  html += `<label class="gtags-pop-row">
-    <input type="radio" name="gtags-engine" value="gtags" ${eng === 'gtags' ? 'checked' : ''} ${!_indexed ? 'disabled' : ''}>
-    <span>GNU Global${gtagsBadge}</span>
-  </label>`;
-  html += `<label class="gtags-pop-row">
-    <input type="radio" name="gtags-engine" value="ctags" ${eng === 'ctags' ? 'checked' : ''} ${!ctagsIndexed ? 'disabled' : ''}>
-    <span>ctags${ctagsBadge}</span>
-  </label>`;
-  html += `<label class="gtags-pop-row">
-    <input type="radio" name="gtags-engine" value="rg" ${eng === 'rg' ? 'checked' : ''}>
-    <span>ripgrep</span>
-  </label>`;
+  // エンジン優先順リスト（チェック=使用する、▲▼=順序変更）
+  const engineLabels = {
+    gtags: `GNU Global${gtagsBadge}`,
+    ctags: `ctags${ctagsBadge}`,
+    rg:    'ripgrep',
+  };
+  const order   = window.getDefEngineOrder();
+  const enabled = new Set(window.getDefEngines());
+  order.forEach((name, i) => {
+    html += `<div class="gtags-pop-row engine-row">
+      <input type="checkbox" data-eng-toggle="${name}" ${enabled.has(name) ? 'checked' : ''} title="このエンジンを使う">
+      <span class="engine-prio">${i + 1}.</span>
+      <span style="flex:1">${engineLabels[name]}</span>
+      <button class="engine-move" data-move="up" data-idx="${i}" ${i === 0 ? 'disabled' : ''} title="優先度を上げる">▲</button>
+      <button class="engine-move" data-move="down" data-idx="${i}" ${i === order.length - 1 ? 'disabled' : ''} title="優先度を下げる">▼</button>
+    </div>`;
+  });
 
   // インデックス操作: ctags と GNU Global は独立して表示する（両方インストール済みなら両方出す）。
   const showCtagsSection = eng === 'ctags' || ctagsInstalled;
@@ -306,12 +349,32 @@ function renderPopover() {
 
   pop.innerHTML = html;
 
-  // ラジオ変更
-  pop.querySelectorAll('input[name="gtags-engine"]').forEach(r => {
-    r.onchange = () => {
-      localStorage.setItem('defEngine', r.value);
-      // 後方互換
-      localStorage.setItem('gtagsEnabled', r.value === 'gtags' ? 'true' : 'false');
+  // エンジンの有効/無効トグル
+  pop.querySelectorAll('input[data-eng-toggle]').forEach(cb => {
+    cb.onchange = () => {
+      const name = cb.dataset.engToggle;
+      const cur = new Set(window.getDefEngines());
+      if (cb.checked) cur.add(name); else cur.delete(name);
+      if (cur.size === 0) { cb.checked = true; return; } // 全部OFFは不可
+      const orderNow = window.getDefEngineOrder();
+      localStorage.setItem('defEngineEnabled', orderNow.filter(e => cur.has(e)).join(','));
+      renderGear();
+      renderPopover();
+    };
+  });
+  // 優先順の並べ替え
+  pop.querySelectorAll('button.engine-move').forEach(btn => {
+    btn.onclick = e => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.idx, 10);
+      const to  = btn.dataset.move === 'up' ? idx - 1 : idx + 1;
+      const orderNow = window.getDefEngineOrder();
+      if (to < 0 || to >= orderNow.length) return;
+      [orderNow[idx], orderNow[to]] = [orderNow[to], orderNow[idx]];
+      localStorage.setItem('defEngineOrder', orderNow.join(','));
+      // enabled も新しい順序で保存し直す（内容は不変）
+      const cur = new Set(window.getDefEngines());
+      localStorage.setItem('defEngineEnabled', orderNow.filter(en => cur.has(en)).join(','));
       renderGear();
       renderPopover();
     };
