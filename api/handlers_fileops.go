@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -27,11 +28,24 @@ var filesCache struct {
 	entries map[string][]string // glob → files
 }
 
+// dirsCache は /api/dirs の結果キャッシュ。大きいリポジトリでは walk 自体が
+// 数秒かかる（EDR 環境ではメタデータアクセスも検査対象）ため root 単位で保持し、
+// filesCache と同じタイミング（root 変更等）で破棄する。
+var dirsCache struct {
+	sync.Mutex
+	root string
+	dirs []string
+}
+
 func invalidateFilesCache() {
 	filesCache.Lock()
 	filesCache.root = ""
 	filesCache.entries = nil
 	filesCache.Unlock()
+	dirsCache.Lock()
+	dirsCache.root = ""
+	dirsCache.dirs = nil
+	dirsCache.Unlock()
 }
 
 func setFilesCache(root, glob string, files []string) {
@@ -410,26 +424,36 @@ func (h *Handler) handleDirs(w http.ResponseWriter, r *http.Request) {
 	if root == "" {
 		root = "."
 	}
+	dirsCache.Lock()
+	if dirsCache.root == root && dirsCache.dirs != nil {
+		dirs := dirsCache.dirs
+		dirsCache.Unlock()
+		jsonOK(w, dirs)
+		return
+	}
+	dirsCache.Unlock()
+
+	// WalkDir は Walk と違い各エントリの lstat を発行しない（DirEntry で判定できる）
 	var dirs []string
-	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		if !info.IsDir() {
+	filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || !d.IsDir() {
 			return nil
 		}
 		// 隠しディレクトリ・よくある無関係ディレクトリはスキップ
-		base := filepath.Base(path)
-		if base != "." && (base[0] == '.' || base == "node_modules" || base == "vendor" || base == "__pycache__") {
+		if base := d.Name(); path != root && (base[0] == '.' || base == "node_modules" || base == "vendor" || base == "__pycache__") {
 			return filepath.SkipDir
 		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
+		rel, rerr := filepath.Rel(root, path)
+		if rerr != nil {
 			return nil
 		}
 		dirs = append(dirs, filepath.ToSlash(rel))
 		return nil
 	})
+	dirsCache.Lock()
+	dirsCache.root = root
+	dirsCache.dirs = dirs
+	dirsCache.Unlock()
 	jsonOK(w, dirs)
 }
 
