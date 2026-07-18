@@ -497,8 +497,10 @@ func GtagsWarmupAsync(dir string) {
 // windowsToCygwinPath は Windows パス (C:\foo\bar) を POSIX パスに変換する。
 // initBashRun で確定した _cygDrivePrefix に従い、Cygwin なら
 // "/cygdrive/c/foo/bar"、Git for Windows (MSYS2) なら "/c/foo/bar" になる。
+// filepath.ToSlash はホスト OS の区切り文字にしか効かないため使わない
+// （入力は常に Windows パスであり、Linux 上のテストでも同じ結果になるべき）。
 func windowsToCygwinPath(p string) string {
-	p = filepath.ToSlash(p)
+	p = strings.ReplaceAll(p, `\`, "/")
 	prefix := _cygDrivePrefix
 	if prefix == "" {
 		prefix = "/cygdrive/" // 未確定時は Cygwin 形式を既定とする（従来動作を維持）
