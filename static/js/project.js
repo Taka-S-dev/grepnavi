@@ -95,8 +95,9 @@ async function fetchDirs() {
   if(dirList) return dirList;
   try {
     const r = await fetch('/api/dirs');
+    if(!r.ok) throw new Error(r.statusText);
     dirList = await r.json();
-  } catch(e) { dirList = []; }
+  } catch(e) { dirList = null; } // 失敗はキャッシュしない（次のフォーカスで再試行できるように）
   return dirList;
 }
 
@@ -237,7 +238,13 @@ function initDirPicker() {
     activeIdx = -1;
   }
 
-  function openDrop() {
+  function renderMessage(msg) {
+    itemsContainer.innerHTML = '';
+    itemsContainer.insertAdjacentHTML('beforeend', `<div class="dir-item" style="color:#555">${esc(msg)}</div>`);
+    activeIdx = -1;
+  }
+
+  function openDrop(loadingMsg) {
     const rect = id('dir-wrap').getBoundingClientRect();
     drop.style.left  = rect.left + 'px';
     drop.style.top   = rect.bottom + 2 + 'px';
@@ -247,7 +254,7 @@ function initDirPicker() {
       drop.appendChild(itemsContainer);
     }
     drop.classList.add('open');
-    renderItems();
+    if(loadingMsg) renderMessage(loadingMsg); else renderItems();
   }
 
   let suppressOpen = false;
@@ -290,11 +297,17 @@ function initDirPicker() {
 
   async function tryOpen() {
     if(suppressOpen || opening || drop.classList.contains('open')) return;
+    if(dirList) { openDrop(); return; }
+    // 初回は /api/dirs の取得待ちがある（大きいリポジトリでは数秒）。
+    // 待っている間なにも出ないと「開かない」ように見えるので、先に開いて即時フィードバックする。
+    openDrop('読み込み中...');
     opening = true;
-    await fetchDirs();
-    opening = false;
-    if(!dirList || dirList.length === 0) { showRootDialog(); return; }
-    if(!drop.classList.contains('open')) openDrop();
+    try { await fetchDirs(); } finally { opening = false; }
+    // 取得中にフォーカスが外れていたら、今さら開いたままにしない
+    if(document.activeElement !== inp) { closeDrop(); return; }
+    if(dirList === null) { renderMessage('ディレクトリ一覧の取得に失敗しました'); return; }
+    if(dirList.length === 0) { closeDrop(); showRootDialog(); return; }
+    renderItems();
   }
   inp.addEventListener('focus', tryOpen);
   inp.addEventListener('click', () => { if(!drop.classList.contains('open')) tryOpen(); });
