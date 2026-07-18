@@ -6,6 +6,8 @@
 let _installed  = false;
 let _indexed    = false;
 let _binSource  = ''; // "bin" / "scoop" / "msys" / "path" / ""
+let _transport  = ''; // "direct" / "file" / "bash"
+let _preloadedSymbols = 0;
 
 // ===== 定義ジャンプエンジンの優先順 =====
 // localStorage:
@@ -237,6 +239,8 @@ async function fetchStatus() {
       _indexed   = !!d.indexed;
       _stale     = !!d.stale;
       _binSource = d.bin_source || '';
+      _transport = d.transport || '';
+      _preloadedSymbols = d.preloaded_symbols || 0;
     }
     if (r2.ok) {
       const d = await r2.json();
@@ -302,6 +306,15 @@ function renderPopover() {
       <span style="flex:1">${engineLabels[name]}</span>
     </div>`;
   });
+
+  // gtags の実行状態（経路 + プリロード）。EDR 環境で速い経路に乗れているかを
+  // ログを見ずに確認できるようにする。
+  if (_installed && _indexed) {
+    const tLabel = { direct: '直接起動', file: 'ファイル経由', bash: 'bash 経由' }[_transport] || _transport || '不明';
+    let statusLine = `実行経路: ${tLabel}`;
+    if (_preloadedSymbols > 0) statusLine += ` ／ プリロード: ${_preloadedSymbols.toLocaleString()} シンボル`;
+    html += `<div class="gtags-pop-status">${statusLine}</div>`;
+  }
 
   // インデックス操作: ctags と GNU Global は独立して表示する（両方インストール済みなら両方出す）。
   const showCtagsSection = eng === 'ctags' || ctagsInstalled;
