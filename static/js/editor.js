@@ -92,6 +92,23 @@ function togglePinnedHighlight(word, opts = {}) {
   renderPinnedChips();
 }
 
+// マッチ行ハイライト (peek-match-decoration) は 1 ファイルにつき常に 1 本。
+// ID は tab.decoIds でも追跡しているが、並行 openPeek でプレビュータブが
+// 置き換わると帳簿ごと捨てられて decoration だけモデルに残るため、
+// 貼る前にモデル上の既存分をクラス名で消して残骸が積もらないようにする。
+// matchLine <= 1 (エクスプローラからの browse 等) は消すだけで貼らない。
+function setMatchLineDecoration(model, matchLine) {
+  if (!model || model.isDisposed?.()) return [];
+  const old = model.getAllDecorations()
+    .filter(d => d.options.className === 'peek-match-decoration')
+    .map(d => d.id);
+  const decoSet = matchLine > 1 ? [{
+    range: new monaco.Range(matchLine, 1, matchLine, 1),
+    options: {isWholeLine: true, className: 'peek-match-decoration'}
+  }] : [];
+  return model.deltaDecorations(old, decoSet);
+}
+
 let _jumpFlashIds = [];
 function flashJumpTarget(range) {
   _jumpFlashIds = monacoEditor.deltaDecorations(_jumpFlashIds, [{
@@ -1818,13 +1835,7 @@ async function openPeek(file, line, {permanent = false} = {}) {
     // （エクスプローラのダブルクリックで click + click + dblclick が来た時に
     //  3 回スクロールが走って画面がブレるのを防ぐ）
     if(lineChanged) {
-      // line=1 (エクスプローラからの browse) では「マッチした行」が存在しないので
-      // 黄色ハイライトを出さない。古い decoration があれば消す。
-      const decoSet = matchLine > 1 ? [{
-        range: new monaco.Range(matchLine, 1, matchLine, 1),
-        options: {isWholeLine: true, className: 'peek-match-decoration'}
-      }] : [];
-      tabs[existIdx].decoIds = monacoEditor.deltaDecorations(tabs[existIdx].decoIds || [], decoSet);
+      tabs[existIdx].decoIds = setMatchLineDecoration(tabs[existIdx].model, matchLine);
       monacoEditor.setPosition({lineNumber: matchLine, column: 1});
       _revealLineSmart(matchLine);
       await new Promise(r => setTimeout(r, 0));
@@ -1886,14 +1897,7 @@ async function openPeek(file, line, {permanent = false} = {}) {
   }
 
   const matchLine = parseInt(line) || 1;
-  // line=1 (エクスプローラからの browse) では「マッチした行」が無いので
-  // 黄色ハイライト (peek-match-decoration) を出さない。
-  if (matchLine > 1) {
-    tab.decoIds = monacoEditor.deltaDecorations([], [{
-      range: new monaco.Range(matchLine, 1, matchLine, 1),
-      options: {isWholeLine: true, className: 'peek-match-decoration'}
-    }]);
-  }
+  tab.decoIds = setMatchLineDecoration(tab.model, matchLine);
   monacoEditor.setPosition({lineNumber: matchLine, column: 1});
   _revealLineSmart(matchLine);
   // Monaco がレイアウトを確実に更新するまで待つ
