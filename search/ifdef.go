@@ -129,28 +129,34 @@ func wordAfter(body, word string) string {
 	return strings.TrimSpace(body[len(word)+1:])
 }
 
-// --- ファイルキャッシュ (LRU) ---
+// --- ファイルキャッシュ (LRU, バイト予算制) ---
+//
+// callers / calltree / hover は 1 クエリで数十〜数百ファイルを読むため、
+// 件数上限だと 1 クエリでキャッシュが一周して以降も毎回ディスクに戻ってしまう。
+// 合計バイトで管理し、典型的な C ファイル（数十KB）なら数千件保持できるようにする。
 
-const fileCacheCap = 30
-const fileCacheMaxBytes = 2 * 1024 * 1024 // 2MB 超のファイルはキャッシュしない
+const fileCacheBudgetBytes  = 64 * 1024 * 1024 // キャッシュ全体の予算
+const fileCacheMaxFileBytes = 8 * 1024 * 1024  // これを超える単一ファイルはキャッシュしない（予算の独占防止）
 
 type cacheEntry struct {
 	path  string
 	lines []string
 	mtime time.Time
+	bytes int
 	elem  *list.Element
 }
 
 var fileCache = &lruFileCache{
-	cap:   fileCacheCap,
-	items: make(map[string]*cacheEntry, fileCacheCap),
+	budget: fileCacheBudgetBytes,
+	items:  make(map[string]*cacheEntry, 256),
 }
 
 type lruFileCache struct {
-	mu    sync.Mutex
-	cap   int
-	items map[string]*cacheEntry
-	order list.List // front = most recently used
+	mu     sync.Mutex
+	budget int
+	total  int // 保持中エントリの合計バイト
+	items  map[string]*cacheEntry
+	order  list.List // front = most recently used
 }
 
 func (c *lruFileCache) get(path string, mtime time.Time) ([]string, bool) {
@@ -164,24 +170,30 @@ func (c *lruFileCache) get(path string, mtime time.Time) ([]string, bool) {
 	return e.lines, true
 }
 
-func (c *lruFileCache) put(path string, mtime time.Time, lines []string) {
+func (c *lruFileCache) put(path string, mtime time.Time, lines []string, size int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if e, ok := c.items[path]; ok {
+		c.total += size - e.bytes
 		e.lines = lines
 		e.mtime = mtime
+		e.bytes = size
 		c.order.MoveToFront(e.elem)
-		return
+	} else {
+		e := &cacheEntry{path: path, lines: lines, mtime: mtime, bytes: size}
+		e.elem = c.order.PushFront(e)
+		c.items[path] = e
+		c.total += size
 	}
-	e := &cacheEntry{path: path, lines: lines, mtime: mtime}
-	e.elem = c.order.PushFront(e)
-	c.items[path] = e
-	if c.order.Len() > c.cap {
+	for c.total > c.budget {
 		oldest := c.order.Back()
-		if oldest != nil {
-			c.order.Remove(oldest)
-			delete(c.items, oldest.Value.(*cacheEntry).path)
+		if oldest == nil {
+			break
 		}
+		oe := oldest.Value.(*cacheEntry)
+		c.order.Remove(oldest)
+		delete(c.items, oe.path)
+		c.total -= oe.bytes
 	}
 }
 
@@ -206,8 +218,8 @@ func cachedLines(path string) ([]string, error) {
 	for _, l := range lines {
 		totalBytes += len(l) + 1
 	}
-	if totalBytes <= fileCacheMaxBytes {
-		fileCache.put(path, mtime, lines)
+	if totalBytes <= fileCacheMaxFileBytes {
+		fileCache.put(path, mtime, lines, totalBytes)
 	}
 	return lines, nil
 }
