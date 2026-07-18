@@ -860,9 +860,10 @@ body.calltree-mode #pane-left{display:none!important}
 .gtags-pop-row input{accent-color:#888}
 .engine-row{cursor:default}
 .engine-prio{color:#666;font-size:11px;width:14px;flex-shrink:0;text-align:right}
-.engine-move{background:none;border:none;color:#666;cursor:pointer;padding:0 3px;font-size:9px;line-height:1.4}
-.engine-move:hover:not(:disabled){color:#fff;background:#3a3a3a;border-radius:2px}
-.engine-move:disabled{opacity:.25;cursor:default}
+.engine-grip{color:#555;cursor:grab;font-size:11px;flex-shrink:0;user-select:none;touch-action:none;padding:0 2px}
+.engine-grip:hover{color:#aaa}
+.engine-row.dragging{opacity:.85;background:#2a2d2e;border-radius:2px;position:relative;z-index:1}
+.engine-row.dragging .engine-grip{cursor:grabbing}
 .gtags-pop-hint{color:#666;font-size:10px;margin-left:4px}
 .gtags-op-msg{color:#888;font-size:10px;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;font-family:monospace}
 .gtags-pop-divider{border-top:1px solid #333;margin:6px 0}

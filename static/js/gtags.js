@@ -295,12 +295,11 @@ function renderPopover() {
   const order   = window.getDefEngineOrder();
   const enabled = new Set(window.getDefEngines());
   order.forEach((name, i) => {
-    html += `<div class="gtags-pop-row engine-row">
+    html += `<div class="gtags-pop-row engine-row" data-eng="${name}">
+      <span class="engine-grip" title="ドラッグで順序変更">⠿</span>
       <input type="checkbox" data-eng-toggle="${name}" ${enabled.has(name) ? 'checked' : ''} title="このエンジンを使う">
       <span class="engine-prio">${i + 1}.</span>
       <span style="flex:1">${engineLabels[name]}</span>
-      <button class="engine-move" data-move="up" data-idx="${i}" ${i === 0 ? 'disabled' : ''} title="優先度を上げる">▲</button>
-      <button class="engine-move" data-move="down" data-idx="${i}" ${i === order.length - 1 ? 'disabled' : ''} title="優先度を下げる">▼</button>
     </div>`;
   });
 
@@ -362,21 +361,41 @@ function renderPopover() {
       renderPopover();
     };
   });
-  // 優先順の並べ替え
-  pop.querySelectorAll('button.engine-move').forEach(btn => {
-    btn.onclick = e => {
-      e.stopPropagation();
-      const idx = parseInt(btn.dataset.idx, 10);
-      const to  = btn.dataset.move === 'up' ? idx - 1 : idx + 1;
-      const orderNow = window.getDefEngineOrder();
-      if (to < 0 || to >= orderNow.length) return;
-      [orderNow[idx], orderNow[to]] = [orderNow[to], orderNow[idx]];
-      localStorage.setItem('defEngineOrder', orderNow.join(','));
-      // enabled も新しい順序で保存し直す（内容は不変）
-      const cur = new Set(window.getDefEngines());
-      localStorage.setItem('defEngineEnabled', orderNow.filter(en => cur.has(en)).join(','));
-      renderGear();
-      renderPopover();
+  // ドラッグ&ドロップで優先順を並べ替え。
+  // ドラッグ中は innerHTML を再構築せず DOM 移動だけで並べ替え、
+  // pointerup で DOM の並びを localStorage に確定 → 再描画する。
+  const engineRows = () => [...pop.querySelectorAll('.engine-row')];
+  pop.querySelectorAll('.engine-row .engine-grip').forEach(grip => {
+    grip.onpointerdown = ev => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const row = grip.closest('.engine-row');
+      row.classList.add('dragging');
+      grip.setPointerCapture(ev.pointerId);
+      const renumber = () => engineRows().forEach((r, i) => {
+        r.querySelector('.engine-prio').textContent = (i + 1) + '.';
+      });
+      grip.onpointermove = mv => {
+        const over = engineRows().find(r => {
+          const rc = r.getBoundingClientRect();
+          return mv.clientY >= rc.top && mv.clientY <= rc.bottom;
+        });
+        if (!over || over === row) return;
+        const list = engineRows();
+        if (list.indexOf(over) < list.indexOf(row)) over.before(row); else over.after(row);
+        renumber();
+      };
+      grip.onpointerup = () => {
+        grip.onpointermove = null;
+        grip.onpointerup = null;
+        row.classList.remove('dragging');
+        const newOrder = engineRows().map(r => r.dataset.eng);
+        const cur = new Set(window.getDefEngines());
+        localStorage.setItem('defEngineOrder', newOrder.join(','));
+        localStorage.setItem('defEngineEnabled', newOrder.filter(en => cur.has(en)).join(','));
+        renderGear();
+        renderPopover();
+      };
     };
   });
 
