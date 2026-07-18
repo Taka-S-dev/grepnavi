@@ -2195,9 +2195,11 @@ async function grepSearchWord(word) {
 // ===== 定義ピークウィジェット（固定位置フローティング） =====
 let _defDom = null;
 let _defKeyHandler = null;
+let _defOutsideHandler = null;
 
 function closeDefPeek() {
   if (_defKeyHandler) { document.removeEventListener('keydown', _defKeyHandler); _defKeyHandler = null; }
+  if (_defOutsideHandler) { document.removeEventListener('mousedown', _defOutsideHandler, true); _defOutsideHandler = null; }
   if (_defDom) { _defDom.remove(); _defDom = null; }
 }
 
@@ -2246,6 +2248,12 @@ function showDefPeek(hits, word, pixelPos) {
     if (e.key === 'Enter')     { e.preventDefault(); e.stopPropagation(); const h = hits[sel]; closeDefPeek(); if(typeof window.recordJump === 'function') window.recordJump(word, null, null, h.file, h.line); await openPeekPermanent(h.file, h.line); monacoEditor.focus(); return; }
   };
   document.addEventListener('keydown', _defKeyHandler);
+
+  // 範囲外クリックで閉じる（フォーカスはクリック先に任せる）
+  _defOutsideHandler = e => {
+    if (_defDom && !_defDom.contains(e.target)) closeDefPeek();
+  };
+  document.addEventListener('mousedown', _defOutsideHandler, true);
 
   // エディタコンテナに追加（position:relative が必要）
   const container = monacoEditor.getDomNode().parentElement;
