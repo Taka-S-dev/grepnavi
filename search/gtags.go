@@ -257,35 +257,84 @@ func gtagsEnv(dir string) []string {
 
 var (
 	_bashOnce          sync.Once
-	_bashPath          string // Cygwin bash.exe のフルパス、未検出なら ""
-	_cygTmpWindowsPath string // Cygwin /tmp の Windows パス、未検出なら ""
+	_bashPath          string // Cygwin/MSYS bash.exe のフルパス、未検出なら ""
+	_cygTmpWindowsPath string // POSIX側 /tmp の Windows パス、未検出なら ""
+	_cygDrivePrefix    string // ドライブパス変換の POSIX プレフィックス ("/cygdrive/" か "/")
 )
+
+// knownBashLocations は PATH に無くても bash.exe が見つかりそうな既定インストール先。
+// Git for Windows は既定で "Git\bin" を PATH に追加しない設定でインストールされることが
+// 多く、その場合 exec.LookPath("bash") は失敗するが bash.exe 自体は存在する。
+func knownBashLocations() []string {
+	var candidates []string
+	roots := []string{
+		os.Getenv("ProgramFiles"),
+		os.Getenv("ProgramFiles(x86)"),
+		os.Getenv("ProgramW6432"),
+	}
+	for _, root := range roots {
+		if root == "" {
+			continue
+		}
+		candidates = append(candidates,
+			filepath.Join(root, "Git", "bin", "bash.exe"),
+			filepath.Join(root, "Git", "usr", "bin", "bash.exe"),
+		)
+	}
+	return candidates
+}
 
 // initBashRun は bash の検出と /tmp の Windows パス取得を一度だけ実行する。
 func initBashRun() {
 	_bashOnce.Do(func() {
 		p, err := exec.LookPath("bash")
 		if err != nil {
-			slog.Info("gtags-bash-fallback", "msg", "bash not found in PATH, fallback disabled")
-			return
+			for _, cand := range knownBashLocations() {
+				if fi, statErr := os.Stat(cand); statErr == nil && !fi.IsDir() {
+					p = cand
+					slog.Info("gtags-bash-fallback", "msg", "bash not in PATH, found via known install location", "path", p)
+					break
+				}
+			}
+			if p == "" {
+				slog.Info("gtags-bash-fallback", "msg", "bash not found in PATH or known locations, fallback disabled")
+				return
+			}
 		}
 		out, err := exec.Command(p, "-c", "cygpath -w /tmp").Output()
 		if err != nil {
 			slog.Info("gtags-bash-fallback", "msg", "cygpath failed, fallback disabled", "err", err)
 			return
 		}
+		// ドライブパスの POSIX 変換規則は実装によって違う:
+		// Cygwin は "/cygdrive/c/..."、Git for Windows (MSYS2) は "/c/..." を使う。
+		// 実際に cygpath -u で変換させて、どちらの形式かを実行時に確定する。
+		prefix := "/cygdrive/"
+		if uOut, uErr := exec.Command(p, "-c", `cygpath -u "C:\\"`).Output(); uErr == nil {
+			if s := strings.TrimSpace(string(uOut)); strings.HasPrefix(s, "/cygdrive/") {
+				prefix = "/cygdrive/"
+			} else if len(s) >= 2 && s[0] == '/' {
+				prefix = "/"
+			}
+		}
 		_bashPath = p
 		_cygTmpWindowsPath = strings.TrimSpace(string(out))
-		slog.Info("gtags-bash-fallback", "msg", "ready", "bash", _bashPath, "tmp_win", _cygTmpWindowsPath)
+		_cygDrivePrefix = prefix
+		slog.Info("gtags-bash-fallback", "msg", "ready", "bash", _bashPath, "tmp_win", _cygTmpWindowsPath, "drive_prefix", _cygDrivePrefix)
 	})
 }
 
-// windowsToCygwinPath は Windows パス (C:\foo\bar) を
-// Cygwin POSIX パス (/cygdrive/c/foo/bar) に変換する。
+// windowsToCygwinPath は Windows パス (C:\foo\bar) を POSIX パスに変換する。
+// initBashRun で確定した _cygDrivePrefix に従い、Cygwin なら
+// "/cygdrive/c/foo/bar"、Git for Windows (MSYS2) なら "/c/foo/bar" になる。
 func windowsToCygwinPath(p string) string {
 	p = filepath.ToSlash(p)
+	prefix := _cygDrivePrefix
+	if prefix == "" {
+		prefix = "/cygdrive/" // 未確定時は Cygwin 形式を既定とする（従来動作を維持）
+	}
 	if len(p) >= 2 && p[1] == ':' {
-		return "/cygdrive/" + strings.ToLower(p[0:1]) + p[2:]
+		return prefix + strings.ToLower(p[0:1]) + p[2:]
 	}
 	return p
 }

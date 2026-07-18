@@ -2,6 +2,39 @@ package search
 
 import "testing"
 
+// windowsToCygwinPath は initBashRun が実行時判定した _cygDrivePrefix に従って
+// 変換する。Cygwin (/cygdrive/) と Git for Windows/MSYS2 (/) で形式が異なり、
+// 誤った形式だと bash 側で exit 127 (command not found) になる。
+func TestWindowsToCygwinPath(t *testing.T) {
+	saved := _cygDrivePrefix
+	defer func() { _cygDrivePrefix = saved }()
+
+	tests := []struct {
+		name   string
+		prefix string
+		in     string
+		want   string
+	}{
+		{"cygwin drive path", "/cygdrive/", `C:\foo\bar`, "/cygdrive/c/foo/bar"},
+		{"msys2 drive path", "/", `C:\grepnavi\bin\global.exe`, "/c/grepnavi/bin/global.exe"},
+		{"msys2 lowercases drive letter", "/", `D:\Work`, "/d/Work"},
+		// 未確定 ("") は Cygwin 形式が既定（従来動作の後方互換）
+		{"unset prefix defaults to cygwin", "", `C:\foo`, "/cygdrive/c/foo"},
+		// ドライブレターなしのパスは変換せずスラッシュ化のみ
+		{"non-drive path passes through", "/", `\\server\share\dir`, "//server/share/dir"},
+		{"relative path passes through", "/cygdrive/", `foo\bar`, "foo/bar"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_cygDrivePrefix = tt.prefix
+			if got := windowsToCygwinPath(tt.in); got != tt.want {
+				t.Errorf("windowsToCygwinPath(%q) with prefix %q = %q, want %q", tt.in, tt.prefix, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGtagsClassifyKind(t *testing.T) {
 	tests := []struct {
 		line string
