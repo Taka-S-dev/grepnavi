@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"grepnavi/search"
 )
 
 type Project struct {
@@ -180,5 +182,6 @@ func (h *Handler) handleGrepnaviOpen(w http.ResponseWriter, r *http.Request) {
 	h.root = root
 	h.mu.Unlock()
 	invalidateFilesCache()
+	search.GtagsWarmupAsync(root)
 	jsonOK(w, map[string]interface{}{"root": root, "graphs": cfg.Graphs})
 }

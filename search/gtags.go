@@ -133,6 +133,15 @@ func GtagsCheckStaleAsync(dir string) {
 func GtagsResetStale() {
 	atomic.StoreInt32(&_gtagsStale, 0)
 	gtagsClearResultCaches()
+	// プリロード済み定義表も古くなるので破棄し、対象環境なら作り直す
+	_gtagsPreloadGen.Add(1)
+	_gtagsDefsAll.Store(nil)
+	_gtagsPreloadMu.Lock()
+	dir := _gtagsPreloadDir
+	_gtagsPreloadMu.Unlock()
+	if dir != "" {
+		maybePreloadDefsAsync(resolveGlobalBin(), dir)
+	}
 }
 
 // 定義・参照の結果キャッシュ。キーは "dir\x00word"。インデックス更新で全消し。
@@ -246,6 +255,130 @@ func gtagsEnv(dir string) []string {
 	return englishEnv("GTAGSDBPATH="+dir, "GTAGSROOT="+dir)
 }
 
+// ===== 実行経路の記憶 (sticky transport) =====
+//
+// 直接起動の stdout が空になる環境 (EDR/DLP がプロセス起動ごとに未署名バイナリを
+// 検査する環境では1起動あたり数秒かかる) で、毎回 直接→ファイル→bash と試すと
+// 失敗確定の起動を2回余分に払う。一度成功した経路を記憶して以降はそこから入る。
+
+const (
+	_transportDirect int32 = iota // 既定: cmd.Output() が使える
+	_transportFile                // ファイルリダイレクトのみ通る
+	_transportBash                // bash 経由のみ通る
+)
+
+var (
+	_globalTransport atomic.Int32
+	// _transportVerified は記憶経路がこのプロセスで非空出力を返した実績。
+	// 永続化ファイルから復元しただけの経路は false のままで、実績が付くまで
+	// 空出力を「ヒットなし」と断定しない（環境が変わっている可能性があるため）。
+	_transportVerified atomic.Bool
+	_transportLoadOnce sync.Once
+)
+
+// _gtagsTransportStateFile は検出済み経路の永続化ファイル名（exe と同階層）。
+// 次回起動時の症状検出（EDR 環境ではプロセス起動数回分 = 十数秒）を省く。
+const _gtagsTransportStateFile = "gtags-transport.txt"
+
+func transportStatePath() string { return filepath.Join(logDir(), _gtagsTransportStateFile) }
+
+// parseTransportState は永続化ファイルの中身を経路定数に変換する。
+func parseTransportState(s string) (int32, bool) {
+	switch strings.TrimSpace(s) {
+	case "file":
+		return _transportFile, true
+	case "bash":
+		return _transportBash, true
+	}
+	return _transportDirect, false
+}
+
+// loadPersistedTransport は前回起動で検出した経路を一度だけ読み込む。
+// あくまでヒント: 実績（_transportVerified）が付くまでは、空出力で
+// 全経路カスケードに戻る（runGlobalSticky 参照）。
+func loadPersistedTransport() {
+	_transportLoadOnce.Do(func() {
+		data, err := os.ReadFile(transportStatePath())
+		if err != nil {
+			return
+		}
+		t, ok := parseTransportState(string(data))
+		if !ok {
+			return
+		}
+		// このプロセスで既に検出済みなら上書きしない
+		if _globalTransport.CompareAndSwap(_transportDirect, t) {
+			slog.Info("gtags-transport", "msg", "restored from previous run", "state", strings.TrimSpace(string(data)))
+		}
+	})
+}
+
+// persistTransport は検出した経路を保存する。direct はファイル削除で表す。
+// 書き込めない場所（Program Files 等）では黙って諦める（毎回検出に戻るだけ）。
+func persistTransport(t int32) {
+	p := transportStatePath()
+	switch t {
+	case _transportFile:
+		_ = os.WriteFile(p, []byte("file\n"), 0o644)
+	case _transportBash:
+		_ = os.WriteFile(p, []byte("bash\n"), 0o644)
+	default:
+		_ = os.Remove(p)
+	}
+}
+
+// demoteTransportToDirect は記憶経路を破棄して全経路カスケードに戻す。
+func demoteTransportToDirect(reason string) {
+	_globalTransport.Store(_transportDirect)
+	persistTransport(_transportDirect)
+	slog.Info("gtags-transport", "msg", "transport reset to direct", "reason", reason)
+}
+
+// GtagsTransport は現在記憶している global 実行経路を返す（診断表示用）。
+func GtagsTransport() string {
+	loadPersistedTransport()
+	switch _globalTransport.Load() {
+	case _transportFile:
+		return "file"
+	case _transportBash:
+		return "bash"
+	}
+	return "direct"
+}
+
+// runGlobalSticky は記憶済みの成功経路で global を実行する。
+// handled=false は「直接起動経路を使うべき」という意味（経路未記憶 or 経路不調）。
+//
+// 記憶経路が空を返した場合: このプロセスで非空出力の実績があればヒットなし。
+// 実績がなければ（= 永続化からの復元直後）環境が変わった可能性があるので、
+// 記憶を破棄して全経路カスケードへ戻す。カスケードが再発見した経路は
+// recoverEmptyGlobalOutput 側で再び記憶・永続化される。
+func runGlobalSticky(globalBin, dir, word, mode string) (out []byte, handled bool) {
+	loadPersistedTransport()
+	t := _globalTransport.Load()
+	if t == _transportDirect {
+		return nil, false
+	}
+	var o []byte
+	var attempted bool
+	if t == _transportFile {
+		o, attempted = runGlobalToFile(globalBin, dir, word, mode)
+	} else {
+		o, attempted = runGlobalViaBash(globalBin, dir, word, mode)
+	}
+	if attempted {
+		if len(bytes.TrimSpace(o)) > 0 {
+			_transportVerified.Store(true)
+			return o, true
+		}
+		if _transportVerified.Load() {
+			return nil, true // 実績のある経路で空 = 本当にヒットなし
+		}
+	}
+	demoteTransportToDirect("persisted transport returned empty or unavailable")
+	return nil, false
+}
+
 // ===== Cygwin bash フォールバック =====
 //
 // 同梱の Cygwin ビルド global.exe が native Windows プロセス(Go) が作成した
@@ -322,6 +455,43 @@ func initBashRun() {
 		_cygDrivePrefix = prefix
 		slog.Info("gtags-bash-fallback", "msg", "ready", "bash", _bashPath, "tmp_win", _cygTmpWindowsPath, "drive_prefix", _cygDrivePrefix)
 	})
+}
+
+// GtagsWarmupAsync は bash 検出と「直接起動で stdout が空になる」症状の検査を
+// バックグラウンドで済ませる。症状検出時は recoverEmptyGlobalOutput 側で経路の
+// 記憶と定義プリロードまで走るため、最初のジャンプから速い経路に乗れる。
+// 既定シンボルの -xd を試し、exit=0 なのに空 = パイプ症状（本当に無いなら exit=1）。
+func GtagsWarmupAsync(dir string) {
+	go func() {
+		if !GtagsAvailable(dir) {
+			return
+		}
+		initBashRun()
+		loadPersistedTransport()
+		if _globalTransport.Load() != _transportDirect {
+			// 判定済み（前回起動の永続化含む）: プリロードだけ開始する。
+			// 永続化が古かった場合は最初のルックアップが検出し直す。
+			maybePreloadDefsAsync(resolveGlobalBin(), dir)
+			return
+		}
+		globalBin := resolveGlobalBin()
+		for _, w := range []string{"main", "init", "open", "close"} {
+			cmd := exec.Command(globalBin, "-xd", w)
+			cmd.Dir = dir
+			cmd.Env = gtagsEnv(dir)
+			out, err := cmd.Output()
+			if err != nil {
+				continue // exit=1 (シンボルなし) 等 → 次の語で判定
+			}
+			if len(bytes.TrimSpace(out)) > 0 {
+				slog.Debug("gtags-warmup", "msg", "direct output healthy", "word", w)
+				return
+			}
+			if recovered := recoverEmptyGlobalOutput(globalBin, dir, w, "-xd", "gtags-warmup"); recovered != nil {
+				return
+			}
+		}
+	}()
 }
 
 // windowsToCygwinPath は Windows パス (C:\foo\bar) を POSIX パスに変換する。
@@ -426,14 +596,144 @@ func runGlobalToFile(globalBin, dir, word, mode string) (data []byte, attempted 
 // どちらでも回収できなければ nil（＝本当に結果なし）。logTag は呼び出し元の識別用。
 func recoverEmptyGlobalOutput(globalBin, dir, word, mode, logTag string) []byte {
 	if fileOut, attempted := runGlobalToFile(globalBin, dir, word, mode); attempted && len(bytes.TrimSpace(fileOut)) > 0 {
+		_globalTransport.Store(_transportFile)
+		_transportVerified.Store(true)
+		persistTransport(_transportFile)
+		maybePreloadDefsAsync(globalBin, dir)
 		slog.Info(logTag, "msg", "file-redirect fallback succeeded", "word", word, "bytes", len(fileOut))
 		return fileOut
 	}
 	if bashOut, attempted := runGlobalViaBash(globalBin, dir, word, mode); attempted && len(bytes.TrimSpace(bashOut)) > 0 {
+		_globalTransport.Store(_transportBash)
+		_transportVerified.Store(true)
+		persistTransport(_transportBash)
+		maybePreloadDefsAsync(globalBin, dir)
 		slog.Info(logTag, "msg", "bash fallback succeeded", "word", word, "bytes", len(bashOut))
 		return bashOut
 	}
 	return nil
+}
+
+// ===== 定義テーブルの一括プリロード =====
+//
+// 直接起動が使えない環境ではプロセス起動1回ごとに EDR の検査コスト（数秒）が
+// 乗るため、全定義を1回のダンプ (global -xd ".*") でメモリに載せ、以降の
+// 定義ジャンプをプロセス起動なしで返す。直接起動が健全な環境では起動コストが
+// 数十msなので、メモリを消費してまでプリロードしない。
+
+// _gtagsPreloadMaxBytes を超えるダンプはプリロードを断念する（メモリ保護）。
+const _gtagsPreloadMaxBytes = 256 << 20
+
+type gtagsDefsSnapshot struct {
+	dir  string
+	defs map[string][]DefHit
+}
+
+var (
+	_gtagsDefsAll        atomic.Pointer[gtagsDefsSnapshot]
+	_gtagsPreloadGen     atomic.Int64 // インデックス世代。再生成のたびに +1
+	_gtagsPreloadMu      sync.Mutex
+	_gtagsPreloadRunning bool
+	_gtagsPreloadDir     string // インデックス更新後の再プリロード用に対象 dir を覚える
+)
+
+// GtagsPreloadedSymbols はプリロード済み定義表のシンボル数を返す（未ロードは 0）。
+func GtagsPreloadedSymbols() int {
+	if snap := _gtagsDefsAll.Load(); snap != nil {
+		return len(snap.defs)
+	}
+	return 0
+}
+
+// GtagsDefsPreloaded は dir の全定義プリロードが有効かを返す。
+// true のとき「定義なし」はインデックス全体に対する確定情報なので、
+// 呼び出し側は rg 全域スキャン等の保険を省略してよい。
+func GtagsDefsPreloaded(dir string) bool {
+	snap := _gtagsDefsAll.Load()
+	return snap != nil && snap.dir == dir
+}
+
+// maybePreloadDefsAsync は直接起動が使えない環境でのみ、バックグラウンドで
+// 全定義をプリロードする。ロード済み・実行中なら何もしない。
+func maybePreloadDefsAsync(globalBin, dir string) {
+	if _globalTransport.Load() == _transportDirect {
+		return
+	}
+	if snap := _gtagsDefsAll.Load(); snap != nil && snap.dir == dir {
+		return
+	}
+	_gtagsPreloadMu.Lock()
+	if _gtagsPreloadRunning {
+		_gtagsPreloadMu.Unlock()
+		return
+	}
+	_gtagsPreloadRunning = true
+	_gtagsPreloadDir = dir
+	_gtagsPreloadMu.Unlock()
+
+	go func() {
+		gen := _gtagsPreloadGen.Load()
+		retry := false
+		defer func() {
+			_gtagsPreloadMu.Lock()
+			_gtagsPreloadRunning = false
+			_gtagsPreloadMu.Unlock()
+			if retry {
+				maybePreloadDefsAsync(globalBin, dir)
+			}
+		}()
+
+		t0 := time.Now()
+		out, handled := runGlobalSticky(globalBin, dir, ".*", "-xd")
+		if !handled || len(bytes.TrimSpace(out)) == 0 {
+			slog.Info("gtags-preload", "msg", "dump empty, preload skipped", "dir", dir)
+			return
+		}
+		if len(out) > _gtagsPreloadMaxBytes {
+			slog.Info("gtags-preload", "msg", "dump too large, preload skipped", "bytes", len(out))
+			return
+		}
+		defs := gtagsParseAllDefs(out, dir)
+		if len(defs) == 0 {
+			return
+		}
+		// ダンプ中にインデックスが再生成されていたら古いデータなので捨てて撮り直す
+		if _gtagsPreloadGen.Load() != gen {
+			slog.Debug("gtags-preload", "msg", "index changed during preload, retrying")
+			retry = true
+			return
+		}
+		_gtagsDefsAll.Store(&gtagsDefsSnapshot{dir: dir, defs: defs})
+		slog.Info("gtags-preload", "msg", "ready", "dir", dir, "symbols", len(defs), "bytes", len(out), "elapsed", time.Since(t0))
+	}()
+}
+
+// gtagsParseAllDefs は global -xd ".*" の全定義ダンプを symbol → DefHit 群に変換する。
+func gtagsParseAllDefs(out []byte, dir string) map[string][]DefHit {
+	defs := make(map[string][]DefHit)
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 4 {
+			continue
+		}
+		lineNum, err := strconv.Atoi(fields[1])
+		if err != nil {
+			continue
+		}
+		file := fields[2]
+		if !filepath.IsAbs(file) {
+			file = filepath.Join(dir, file)
+		}
+		defs[fields[0]] = append(defs[fields[0]], DefHit{
+			File: file,
+			Line: lineNum,
+			Text: strings.TrimSpace(strings.Join(fields[3:], " ")),
+			Kind: "func",
+		})
+	}
+	return defs
 }
 
 // sanitizeLine はShift-JIS等の不正バイト列を除去してUTF-8安全な文字列に変換する。
@@ -634,7 +934,38 @@ func GtagsFindDefinitions(ctx context.Context, word, dir string) ([]DefHit, erro
 	if v, ok := _gtagsDefCache.Load(cacheKey); ok {
 		return v.([]DefHit), nil
 	}
+
+	// パース→分類→定義優先→キャッシュの共通後段
+	finish := func(rawHits []DefHit) []DefHit {
+		for i := range rawHits {
+			rawHits[i].Kind = gtagsClassifyKind(rawHits[i].Text)
+		}
+		hits := preferDefinitionHits(rawHits)
+		slog.Debug("gtags-find", "hits", len(hits))
+		for i, h := range hits {
+			slog.Debug("gtags-find hit", "i", i, "file", h.File, "line", h.Line, "text", h.Text)
+		}
+		_gtagsDefCache.Store(cacheKey, hits)
+		return hits
+	}
+
 	globalBin := resolveGlobalBin()
+
+	// プリロード済みならプロセス起動なしで即答（見つからないことも確定できる）
+	if snap := _gtagsDefsAll.Load(); snap != nil && snap.dir == dir {
+		raw := snap.defs[word]
+		// snapshot は全ルックアップで共有しているので複製してから書き換える
+		cp := make([]DefHit, len(raw))
+		copy(cp, raw)
+		return finish(cp), nil
+	}
+
+	// 成功実績のある経路が記憶されていれば、失敗確定の直接起動を飛ばす
+	if out, handled := runGlobalSticky(globalBin, dir, word, "-xd"); handled {
+		maybePreloadDefsAsync(globalBin, dir)
+		return finish(gtagsParseOutput(out, "func", dir)), nil
+	}
+
 	// global.exe は高速（数十ms）なので HTTP キャンセルに巻き込まれないよう
 	// context をデタッチして最後まで実行させる。
 	// キャンセルされても結果はキャッシュに入るので次回即返せる。
@@ -695,17 +1026,7 @@ func GtagsFindDefinitions(ctx context.Context, word, dir string) ([]DefHit, erro
 		}
 		return nil, err
 	}
-	rawHits := gtagsParseOutput(out, "func", dir)
-	for i := range rawHits {
-		rawHits[i].Kind = gtagsClassifyKind(rawHits[i].Text)
-	}
-	hits := preferDefinitionHits(rawHits)
-	slog.Debug("gtags-find", "hits", len(hits))
-	for i, h := range hits {
-		slog.Debug("gtags-find hit", "i", i, "file", h.File, "line", h.Line, "text", h.Text)
-	}
-	_gtagsDefCache.Store(cacheKey, hits)
-	return hits, nil
+	return finish(gtagsParseOutput(out, "func", dir)), nil
 }
 
 var _globalBinCache  string
@@ -1130,25 +1451,33 @@ func GtagsFindRefs(ctx context.Context, word, dir string) ([]CallSite, error) {
 		return v.([]CallSite), nil
 	}
 	globalBin := resolveGlobalBin()
-	cmd := exec.CommandContext(context.Background(), globalBin, "-xr", word)
-	cmd.Dir = dir
-	cmd.Env = gtagsEnv(dir)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-			slog.Debug("gtags-find-refs no results", "word", word)
-			_gtagsRefsCache.Store(cacheKey, []CallSite(nil))
-			return nil, nil
+	var out []byte
+	// 成功実績のある経路が記憶されていれば、失敗確定の直接起動を飛ばす
+	if stickyOut, handled := runGlobalSticky(globalBin, dir, word, "-xr"); handled {
+		maybePreloadDefsAsync(globalBin, dir)
+		out = stickyOut
+	} else {
+		cmd := exec.CommandContext(context.Background(), globalBin, "-xr", word)
+		cmd.Dir = dir
+		cmd.Env = gtagsEnv(dir)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		var err error
+		out, err = cmd.Output()
+		if err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+				slog.Debug("gtags-find-refs no results", "word", word)
+				_gtagsRefsCache.Store(cacheKey, []CallSite(nil))
+				return nil, nil
+			}
+			slog.Warn("gtags-find-refs error", "word", word, "err", err, "stderr", stderr.String())
+			return nil, err
 		}
-		slog.Warn("gtags-find-refs error", "word", word, "err", err, "stderr", stderr.String())
-		return nil, err
-	}
-	// Cygwin global.exe が native pipe に書けず stdout が空のことがある（GtagsFindDefinitions と同症状）。
-	if len(bytes.TrimSpace(out)) == 0 {
-		if recovered := recoverEmptyGlobalOutput(globalBin, dir, word, "-xr", "gtags-find-refs"); recovered != nil {
-			out = recovered
+		// Cygwin global.exe が native pipe に書けず stdout が空のことがある（GtagsFindDefinitions と同症状）。
+		if len(bytes.TrimSpace(out)) == 0 {
+			if recovered := recoverEmptyGlobalOutput(globalBin, dir, word, "-xr", "gtags-find-refs"); recovered != nil {
+				out = recovered
+			}
 		}
 	}
 	hits := gtagsParseOutput(out, "ref", dir)

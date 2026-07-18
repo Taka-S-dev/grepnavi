@@ -223,6 +223,7 @@ func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {
 		if search.CtagsIndexed(abs) {
 			search.CtagsMacroWarmup(abs)
 		}
+		search.GtagsWarmupAsync(abs)
 		jsonOK(w, map[string]string{"root": abs})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

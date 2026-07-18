@@ -23,10 +23,12 @@ func (h *Handler) handleGtagsStatus(w http.ResponseWriter, r *http.Request) {
 		search.GtagsDiagnose(root, word)
 	}
 	jsonOK(w, map[string]interface{}{
-		"installed":  installed,
-		"indexed":    indexed,
-		"stale":      search.GtagsIsStale(),
-		"bin_source": search.GlobalBinSource(),
+		"installed":         installed,
+		"indexed":           indexed,
+		"stale":             search.GtagsIsStale(),
+		"bin_source":        search.GlobalBinSource(),
+		"transport":         search.GtagsTransport(),
+		"preloaded_symbols": search.GtagsPreloadedSymbols(),
 	})
 }
 

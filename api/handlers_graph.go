@@ -548,6 +548,7 @@ func (h *Handler) handleGraphImport(w http.ResponseWriter, r *http.Request) {
 			if search.CtagsIndexed(g.RootDir) {
 				search.CtagsMacroWarmup(g.RootDir)
 			}
+			search.GtagsWarmupAsync(g.RootDir)
 		}
 	}
 	jsonOK(w, map[string]interface{}{"graph": g, "root": newRoot})
@@ -628,6 +629,7 @@ func (h *Handler) handleGraphOpenFile(w http.ResponseWriter, r *http.Request) {
 			if search.CtagsIndexed(g.RootDir) {
 				search.CtagsMacroWarmup(g.RootDir)
 			}
+			search.GtagsWarmupAsync(g.RootDir)
 		}
 	}
 	effectiveRoot := newRoot
