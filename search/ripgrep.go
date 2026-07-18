@@ -214,12 +214,6 @@ type rgSubmatch struct {
 	End   int    `json:"end"`
 }
 
-// pendingMatch はコンテキスト行を蓄積しながら Match を組み立てる。
-type pendingMatch struct {
-	m       graph.Match
-	pending bool // match イベントを受け取り完成待ち
-}
-
 func parseOutput(data []byte, query string, ctxLines int) ([]graph.Match, error) {
 	var results []graph.Match
 

@@ -395,14 +395,12 @@ func FindDefinitionsN(ctx context.Context, word, dir, glob string, maxPerQuery i
 //
 // func 以外の kind（#define, struct 等）は常に定義として扱う。
 func preferDefinitionHits(hits []DefHit) []DefHit {
-	var defs, decls []DefHit
+	var defs []DefHit
 	for _, h := range hits {
 		isDef := isDefinitionHit(h)
 		slog.Debug("preferDefinitionHits", "file", h.File, "line", h.Line, "text", h.Text, "isDef", isDef)
 		if isDef {
 			defs = append(defs, h)
-		} else {
-			decls = append(decls, h)
 		}
 	}
 	candidates := hits

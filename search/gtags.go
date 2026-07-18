@@ -876,15 +876,6 @@ func GtagsUpdateIndexStream(ctx context.Context, dir string, w io.Writer) error 
 	return <-waitDone
 }
 
-// sanitizeWriter は書き込み時に不正UTF-8バイトを除去するラッパー。
-type sanitizeWriter struct{ w io.Writer }
-
-func (s *sanitizeWriter) Write(p []byte) (int, error) {
-	clean := []byte(strings.ToValidUTF8(string(p), ""))
-	_, err := s.w.Write(clean)
-	return len(p), err
-}
-
 // GtagsRebuildIndexStream は既存インデックスを削除してから GtagsBuildIndexStream を実行する。
 func GtagsRebuildIndexStream(ctx context.Context, dir string, w io.Writer) error {
 	for _, name := range []string{"GTAGS", "GRTAGS", "GPATH"} {
