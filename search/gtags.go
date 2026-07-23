@@ -16,7 +16,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -931,7 +930,7 @@ func GtagsFindDefinitions(ctx context.Context, word, dir string) ([]DefHit, erro
 	// パース→分類→定義優先→キャッシュの共通後段
 	finish := func(rawHits []DefHit) []DefHit {
 		for i := range rawHits {
-			rawHits[i].Kind = gtagsClassifyKind(rawHits[i].Text)
+			rawHits[i].Kind = classifyLineKind(rawHits[i].Text)
 		}
 		hits := preferDefinitionHits(rawHits)
 		slog.Debug("gtags-find", "hits", len(hits))
@@ -1374,45 +1373,6 @@ func diagGuess(stderr string) string {
 	}
 }
 
-// reGtagsEnumMember は gtags のトリム済みテキストから enum メンバーを検出する。
-// 例: "BPF_MAP_TYPE_ARRAY," / "MY_CONST = 3," / "LAST_VAL"
-var reGtagsEnumMember = regexp.MustCompile(`^[A-Za-z_]\w*(\s*=\s*[^,{}();]+)?\s*,?\s*$`)
-
-// gtagsClassifyKind はファイルの該当行テキストから kind を判定する。
-// "struct foo *bar(...)" のような関数定義を struct に誤分類しないよう、
-// ( が { より先に現れる場合は関数定義として扱う。
-func gtagsClassifyKind(line string) string {
-	t := strings.TrimSpace(line)
-	if strings.HasPrefix(t, "#define") {
-		return "define"
-	}
-	// ( が先に現れる = 関数定義（戻り値に struct/enum が含まれていても func）
-	parenIdx := strings.IndexByte(t, '(')
-	braceIdx := strings.IndexByte(t, '{')
-	isFuncDef := parenIdx >= 0 && (braceIdx < 0 || parenIdx < braceIdx)
-	if isFuncDef {
-		return "func"
-	}
-	if strings.Contains(t, "struct") {
-		return "struct"
-	}
-	if strings.Contains(t, "enum") {
-		return "enum"
-	}
-	if strings.Contains(t, "union") {
-		return "union"
-	}
-	// インデントあり（実ファイル行）→ enum メンバー
-	if len(line) > 0 && (line[0] == ' ' || line[0] == '\t') {
-		return "enum_member"
-	}
-	// ベア識別子パターン（gtags トリム済みテキスト）→ enum メンバー
-	if reGtagsEnumMember.MatchString(t) {
-		return "enum_member"
-	}
-	return "func"
-}
-
 // GtagsFindHoverHits は GNU Global で定義位置を特定し、
 // ファイル行から kind を再分類した DefHit スライスを返す（ホバー用）。
 func GtagsFindHoverHits(ctx context.Context, word, dir string) ([]DefHit, error) {
@@ -1429,7 +1389,7 @@ func GtagsFindHoverHits(ctx context.Context, word, dir string) ([]DefHit, error)
 		if lerr != nil || h.Line <= 0 || h.Line > len(lines) {
 			continue
 		}
-		out[i].Kind = gtagsClassifyKind(lines[h.Line-1])
+		out[i].Kind = classifyLineKind(lines[h.Line-1])
 		out[i].Text = strings.TrimSpace(lines[h.Line-1])
 	}
 	return out, nil

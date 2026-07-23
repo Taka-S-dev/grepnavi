@@ -277,7 +277,7 @@ func findDefinitionsInFiles(ctx context.Context, word string, files []string) ([
 			File: m.File,
 			Line: m.Line,
 			Text: strings.TrimSpace(m.Text),
-			Kind: classifyDefKind(m.Text, word),
+			Kind: classifyLineKind(m.Text),
 		})
 	}
 	return preferDefinitionHits(results), nil
@@ -335,7 +335,7 @@ func FindDefinitionsN(ctx context.Context, word, dir, glob string, maxPerQuery i
 			File: m.File,
 			Line: m.Line,
 			Text: strings.TrimSpace(m.Text),
-			Kind: classifyDefKind(m.Text, word),
+			Kind: classifyLineKind(m.Text),
 		}
 		results = append(results, hit)
 		if isDefinitionHit(hit) {
@@ -467,27 +467,3 @@ func filterImplFiles(hits []DefHit) []DefHit {
 	return hits
 }
 
-// classifyDefKind はマッチ行のテキストから kind を判定する。
-func classifyDefKind(text, word string) string {
-	t := strings.TrimSpace(text)
-	if reDefine.MatchString(t) {
-		return "define"
-	}
-	if strings.Contains(t, "struct") {
-		return "struct"
-	}
-	if strings.Contains(t, "union") {
-		return "union"
-	}
-	if strings.Contains(t, "enum") {
-		return "enum"
-	}
-	if strings.HasPrefix(t, "}") {
-		return "typedef_close"
-	}
-	// インデントありで word が先頭近くにある → enum メンバー
-	if len(t) > 0 && t[0] == ' ' || (len(text) > 0 && (text[0] == ' ' || text[0] == '\t')) {
-		return "enum_member"
-	}
-	return "func"
-}
