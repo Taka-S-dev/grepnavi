@@ -243,6 +243,33 @@ func TestExtractLeadingComment(t *testing.T) {
 			startLine: 5,
 			want:      "/* does something\n   details here.\n*/",
 		},
+		{
+			// OpenSSL evp.h で発生: 前行の末尾インラインコメントの */ を
+			// ブロックコメント末尾と誤認し、ファイル先頭の /* まで遡っていた
+			name: "trailing inline comment on previous line is not a leading comment",
+			lines: []string{
+				"/* license header */",
+				"#ifndef HEADER_ENVELOPE_H",
+				"# include <openssl/bio.h>",
+				"# define EVP_MAX_MD_SIZE 64/* longest known is SHA512 */",
+				"# define EVP_MAX_KEY_LENGTH 64",
+			},
+			startLine: 5,
+			want:      "",
+		},
+		{
+			name: "block comment taller than the cap is discarded entirely",
+			lines: func() []string {
+				ls := []string{"/* huge license header"}
+				for i := 0; i < maxLeadingCommentLines; i++ {
+					ls = append(ls, " * boilerplate")
+				}
+				ls = append(ls, " */", "#define FOO 1")
+				return ls
+			}(),
+			startLine: maxLeadingCommentLines + 3,
+			want:      "",
+		},
 	}
 
 	for _, tt := range tests {
