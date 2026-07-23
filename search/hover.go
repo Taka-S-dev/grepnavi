@@ -275,6 +275,11 @@ func extractBraceBlock(lines []string, startLine int, maxLookAhead ...int) strin
 		inChar := false
 		for j := 0; j < len(line); j++ {
 			ch := line[j]
+			// エスケープ（'\'' や "\"" 等）は次の1文字ごとスキップ
+			if (inStr || inChar) && ch == '\\' {
+				j++
+				continue
+			}
 			// 文字列リテラル内はスキップ
 			if ch == '"' && !inChar {
 				inStr = !inStr
@@ -478,6 +483,11 @@ func extractBraceBlockBackward(lines []string, endLine int) string {
 	return stripCommonIndent(lines[startIdx : idx+1])
 }
 
+// maxLeadingCommentLines は複数行 /* */ ブロックの逆方向収集の上限。
+// 開始 /* が見つからないと際限なく遡り、ライセンスヘッダ等の巨大コメントを
+// ホバーに丸ごと表示してしまうため、これを超えるブロックは破棄する。
+const maxLeadingCommentLines = 50
+
 // extractLeadingComment は startLine（1-indexed）の直前にあるコメントブロックを返す。
 // C スタイル（// / /* */）に対応。/* */ ブロックは内部フォーマットを問わず丸ごと取得。
 // 空行は関数直前に1行まで許容。
@@ -498,20 +508,27 @@ func extractLeadingComment(lines []string, startLine int) string {
 		}
 		// /* */ ブロックコメントの末尾を検出 → 開始 /* まで逆方向に一括収集
 		if strings.HasSuffix(trimmed, "*/") {
-			commentLines = append([]string{lines[i]}, commentLines...)
+			// 行頭以外に /* がある = コード行の末尾インラインコメント
+			// （例: "#define X 64 /* note */"）→ コメント行ではないので打ち切り
+			if strings.Index(trimmed, "/*") > 0 {
+				break
+			}
 			if strings.HasPrefix(trimmed, "/*") {
 				// 1行完結コメント: /* ... */ → 前の行も続けて確認
+				commentLines = append([]string{lines[i]}, commentLines...)
 				i--
 				continue
 			}
 			// 複数行ブロックコメント → /* まで一括収集してループ終了
-			i--
-			for i >= 0 {
-				commentLines = append([]string{lines[i]}, commentLines...)
+			// 上限内に開始が見つからなければ末尾行ごとブロックを破棄
+			block := []string{lines[i]}
+			end := i
+			for i--; i >= 0 && end-i < maxLeadingCommentLines; i-- {
+				block = append([]string{lines[i]}, block...)
 				if strings.HasPrefix(strings.TrimSpace(lines[i]), "/*") {
+					commentLines = append(block, commentLines...)
 					break
 				}
-				i--
 			}
 			break
 		}
@@ -521,6 +538,10 @@ func extractLeadingComment(lines []string, startLine int) string {
 			break
 		}
 		i--
+	}
+	// // 連続行や1行コメントの積み重ねでも上限を超えたら破棄（ブロックコメントと同基準）
+	if len(commentLines) > maxLeadingCommentLines {
+		return ""
 	}
 	return strings.Join(commentLines, "\n")
 }
