@@ -49,6 +49,49 @@ func stripLineComment(s string) string {
 	return strings.TrimRight(s, " \t")
 }
 
+// reBareEnumMember はトリム済みテキストの enum メンバー行を検出する。
+// 例: "BPF_MAP_TYPE_ARRAY," / "MY_CONST = 3," / "LAST_VAL"
+var reBareEnumMember = regexp.MustCompile(`^[A-Za-z_]\w*(\s*=\s*[^,{}();]+)?\s*,?\s*$`)
+
+// classifyLineKind はソース1行からシンボル種別を判定する。
+// gtags ホバー経路と rg 定義検索経路の共通分類器。判定順序が重要:
+//  1. #define — "# define"（OpenSSL 等のインデント付きスタイル）を含む
+//  2. "} TypedefName;" — struct/enum の Contains 判定より先に見る
+//     （typedef 名自体が enum を含む "} my_enum_t;" 等の誤分類を防ぐ）
+//  3. ( が { より先に現れる行は関数定義（戻り値型に struct 等を含んでも func）
+func classifyLineKind(line string) string {
+	t := strings.TrimSpace(line)
+	if reDefine.MatchString(t) {
+		return "define"
+	}
+	if strings.HasPrefix(t, "}") {
+		return "typedef_close"
+	}
+	parenIdx := strings.IndexByte(t, '(')
+	braceIdx := strings.IndexByte(t, '{')
+	if parenIdx >= 0 && (braceIdx < 0 || parenIdx < braceIdx) {
+		return "func"
+	}
+	if strings.Contains(t, "struct") {
+		return "struct"
+	}
+	if strings.Contains(t, "enum") {
+		return "enum"
+	}
+	if strings.Contains(t, "union") {
+		return "union"
+	}
+	// インデントあり（実ファイル行）→ enum メンバー
+	if len(line) > 0 && (line[0] == ' ' || line[0] == '\t') {
+		return "enum_member"
+	}
+	// ベア識別子（gtags のトリム済みテキスト）→ enum メンバー
+	if reBareEnumMember.MatchString(t) {
+		return "enum_member"
+	}
+	return "func"
+}
+
 // ClassifyKind は1行のテキストと後続スニペットからシンボル種別を判定する。
 // 戻り値: "func" / "define" / "struct" / "enum" / "typedef" / ""
 func ClassifyKind(text string, snippet []graph.SnippetLine, matchLine int) string {
