@@ -20,8 +20,11 @@ function cycleNodeColorPreset() {
 function nodeColorPresetLabel() {
   return {vivid:'色:鮮', muted:'色:淡', dark:'色:暗'}[_nodeColorPreset] || '色';
 }
-const KIND_LABEL = {define:'macro', struct:'struct', enum:'enum', typedef:'typedef', func:'fn'};
-const KIND_COLOR = {define:'#a06000', struct:'#4a5bbf', enum:'#4a5bbf', typedef:'#1e7d82', func:'#1e6e40'};
+const KIND_LABEL = {define:'macro', struct:'struct', enum:'enum', union:'union', typedef:'typedef', typedef_close:'typedef', func:'fn', enum_member:'enum', var:'var', member:'member'};
+const KIND_COLOR = {define:'#a06000', struct:'#4a5bbf', enum:'#4a5bbf', union:'#4a5bbf', typedef:'#1e7d82', typedef_close:'#1e7d82', func:'#1e6e40', enum_member:'#4a5bbf', var:'#6b5b95', member:'#6b5b95'};
+// サーバが新しい kind を返してもバッジが "undefined" にならないためのフォールバック
+const kindLabel = k => KIND_LABEL[k] || k;
+const kindColor = k => KIND_COLOR[k] || '#555';
 
 
 // ===== DOM / ESCAPE =====
