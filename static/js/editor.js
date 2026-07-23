@@ -1255,7 +1255,9 @@ async function ensureEditor() {
               const fileLink = `[${shortPath(h.file)}:${h.line}](command:grepnavi.openFile?${args})`;
               const counter = multi ? ` — **${i+1} / ${hits.length}**` : '';
               const engLabel = (i === 0 && hoverEngine) ? ` \`[${hoverEngine}]\`` : '';
-              const header = `**${hoverKindLabel[h.kind]||h.kind} \`${word.word}\`${counter}**${engLabel} — *${fileLink}*`;
+              // enum 値はヘッダに出す（body に注釈を混ぜるとソース原文のコメントと区別が付かない）
+              const valLabel = h.value ? ` = ${h.value}` : '';
+              const header = `**${hoverKindLabel[h.kind]||h.kind} \`${word.word}\`${valLabel}${counter}**${engLabel} — *${fileLink}*`;
               const body = h.body.length > 2000 ? h.body.slice(0, 2000) + '\n// ...' : h.body;
               const prefix = i === 0 ? declNote : '';
               if(i === 0) _lastHoverHit = { file: h.file, line: h.line, body: h.body };
