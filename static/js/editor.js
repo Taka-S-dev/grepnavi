@@ -1237,7 +1237,7 @@ async function ensureEditor() {
           const hoverEngine = hr.headers.get('X-Engine') || '';
           const apiContents = [];
           if(Array.isArray(hoverHits) && hoverHits.length) {
-            const kindLabel = {define:'#define', struct:'struct', enum:'enum', union:'union', typedef:'typedef', func:'function', enum_member:'enum'};
+            const hoverKindLabel = {define:'#define', struct:'struct', enum:'enum', union:'union', typedef:'typedef', func:'function', enum_member:'enum'};
             const defs  = hoverHits.filter(h => !h.decl).slice(0, 3);
             const decls = hoverHits.filter(h =>  h.decl);
             const hits  = defs.length ? defs : decls.slice(0, 3);
@@ -1255,7 +1255,7 @@ async function ensureEditor() {
               const fileLink = `[${shortPath(h.file)}:${h.line}](command:grepnavi.openFile?${args})`;
               const counter = multi ? ` — **${i+1} / ${hits.length}**` : '';
               const engLabel = (i === 0 && hoverEngine) ? ` \`[${hoverEngine}]\`` : '';
-              const header = `**${kindLabel[h.kind]||h.kind} \`${word.word}\`${counter}**${engLabel} — *${fileLink}*`;
+              const header = `**${hoverKindLabel[h.kind]||h.kind} \`${word.word}\`${counter}**${engLabel} — *${fileLink}*`;
               const body = h.body.length > 2000 ? h.body.slice(0, 2000) + '\n// ...' : h.body;
               const prefix = i === 0 ? declNote : '';
               if(i === 0) _lastHoverHit = { file: h.file, line: h.line, body: h.body };

@@ -608,7 +608,7 @@ function makeRI(m, compact=false) {
   const ifd = (m.ifdef_stack||[]).map(f=>'#'+f.directive+' '+f.condition).join(' > ');
   const kind = m.kind || null;
   const badge = kind
-    ? `<span style="background:${KIND_COLOR[kind]};color:#fff;font-size:10px;padding:1px 4px;border-radius:3px;flex-shrink:0">${KIND_LABEL[kind]}</span>`
+    ? `<span style="background:${kindColor(kind)};color:#fff;font-size:10px;padding:1px 4px;border-radius:3px;flex-shrink:0">${esc(kindLabel(kind))}</span>`
     : '';
   const isRe = id('btn-re').classList.contains('on');
   const isCs = id('btn-cs').classList.contains('on');
