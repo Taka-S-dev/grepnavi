@@ -5,17 +5,19 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 )
 
 // HoverHit は1件のホバー定義情報。
 type HoverHit struct {
-	File string `json:"file"`
-	Line int    `json:"line"`
-	Kind string `json:"kind"` // "define" / "struct" / "enum" / "union" / "typedef"
-	Body string `json:"body"` // 抽出したブロック全体
-	Decl bool   `json:"decl"` // true = 宣言のみ（本体なし）
+	File  string `json:"file"`
+	Line  int    `json:"line"`
+	Kind  string `json:"kind"`            // "define" / "struct" / "enum" / "union" / "typedef"
+	Body  string `json:"body"`            // 抽出したブロック全体
+	Decl  bool   `json:"decl"`            // true = 宣言のみ（本体なし）
+	Value string `json:"value,omitempty"` // enum_member の計算値。Body はファイル原文のまま保ち、注釈はUI側でヘッダに出す
 }
 
 // FindHover は word の定義を検索し、ブロック本体付きで返す。
@@ -116,7 +118,7 @@ func FindHover(ctx context.Context, word, dir, glob, root string, includeChain .
 			continue
 		}
 
-		var body string
+		var body, value string
 		isDecl := false
 		commentLine := h.Line // コメント抽出基準行（通常はヒット行、enum_member はブロック開始行）
 		switch h.Kind {
@@ -143,6 +145,9 @@ func FindHover(ctx context.Context, word, dir, glob, root string, includeChain .
 			if body == "" {
 				body = h.Text
 			}
+			if v, ok := enumMemberValue(lines, h.Line); ok {
+				value = strconv.FormatInt(v, 10)
+			}
 			// コメントはenumブロック開始行（typedef enum { の行）基準で抽出
 			commentLine = findContainingBlockStart(lines, h.Line)
 		case "func":
@@ -168,7 +173,7 @@ func FindHover(ctx context.Context, word, dir, glob, root string, includeChain .
 		if comment := extractLeadingComment(lines, commentLine); comment != "" {
 			body = comment + "\n" + body
 		}
-		result = append(result, HoverHit{File: h.File, Line: h.Line, Kind: h.Kind, Body: body, Decl: isDecl})
+		result = append(result, HoverHit{File: h.File, Line: h.Line, Kind: h.Kind, Body: body, Decl: isDecl, Value: value})
 	}
 
 	// func 結果を実装（decl:false）優先・上限2件でフィルタ
@@ -402,7 +407,8 @@ func extractEnumMemberContext(lines []string, memberLine int) string {
 	if memberIdx > firstMemberIdx {
 		buf = append(buf, "    ...")
 	}
-	// 対象メンバー行
+	// 対象メンバー行（原文のまま。計算値は HoverHit.Value 経由でUI側ヘッダに表示 —
+	// body に注釈を混ぜるとファイル原文と区別が付かなくなるため）
 	buf = append(buf, lines[memberIdx])
 	// 対象より後ろにメンバーがあれば ... で省略し、閉じ } だけ表示
 	if memberIdx < closeIdx-1 {
@@ -411,6 +417,66 @@ func extractEnumMemberContext(lines []string, memberLine int) string {
 	buf = append(buf, lines[closeIdx])
 
 	return stripCommonIndent(buf)
+}
+
+// enumMemberValue は memberLine（1-indexed）の enum メンバーの値を計算する。
+// ブロック開始 { を逆方向に探し、最初のメンバー行から computeEnumValue で数える。
+func enumMemberValue(lines []string, memberLine int) (int64, bool) {
+	memberIdx := memberLine - 1
+	if memberIdx < 0 || memberIdx >= len(lines) {
+		return 0, false
+	}
+	blockStart := findContainingBlockStart(lines, memberLine) - 1 // 0-indexed
+	if blockStart < 0 || blockStart >= memberIdx {
+		return 0, false
+	}
+	firstMemberIdx := blockStart + 1
+	for i := blockStart; i <= memberIdx; i++ {
+		if strings.ContainsRune(lines[i], '{') {
+			firstMemberIdx = i + 1
+			break
+		}
+	}
+	return computeEnumValue(lines, firstMemberIdx, memberIdx)
+}
+
+// reEnumValueLine は enum メンバー1行（コメント除去・トリム済み）にマッチする。
+// group1: メンバー名 / group2: = の右辺（あれば）
+var reEnumValueLine = regexp.MustCompile(`^([A-Za-z_]\w*)\s*(?:=\s*([^,]+?))?\s*,?$`)
+
+// computeEnumValue は firstMemberIdx..memberIdx（0-indexed）を走査して
+// 対象メンバーの enum 値を返す。
+// 解釈できない行（式による代入・プリプロセッサ分岐・複数メンバー行等）に
+// 当たった時点で ok=false — 間違った値を表示するくらいなら表示しない。
+func computeEnumValue(lines []string, firstMemberIdx, memberIdx int) (int64, bool) {
+	if firstMemberIdx < 0 || memberIdx >= len(lines) || firstMemberIdx > memberIdx {
+		return 0, false
+	}
+	val := int64(-1) // 最初のメンバーで +1 されて 0 になる
+	for i := firstMemberIdx; i <= memberIdx; i++ {
+		t := strings.TrimSpace(stripLineComment(lines[i]))
+		if t == "" {
+			continue
+		}
+		if strings.HasPrefix(t, "#") {
+			return 0, false // #if/#ifdef: どの分岐が生きているか分からない
+		}
+		m := reEnumValueLine.FindStringSubmatch(t)
+		if m == nil {
+			return 0, false
+		}
+		if m[2] != "" {
+			// 整数リテラル（10進/16進/8進、負数含む）のみ受理
+			n, err := strconv.ParseInt(strings.TrimSpace(m[2]), 0, 64)
+			if err != nil {
+				return 0, false
+			}
+			val = n
+		} else {
+			val++
+		}
+	}
+	return val, true
 }
 
 func extractContainingBlock(lines []string, memberLine int) string {

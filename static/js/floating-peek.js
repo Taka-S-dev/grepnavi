@@ -401,7 +401,8 @@ function initFloatingPeek(getHoverCtx) {
 
       sliced.forEach((h, i) => {
         const engSuffix = (i === 0 && hoverEngine) ? ` [${hoverEngine}]` : '';
-        const label = shortPath(h.file) + ':' + h.line + engSuffix;
+        const valSuffix = h.value ? `  = ${h.value}` : '';
+        const label = shortPath(h.file) + ':' + h.line + valSuffix + engSuffix;
 
         if (tabBar) {
           const tab = document.createElement('div');

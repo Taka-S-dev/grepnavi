@@ -1,6 +1,7 @@
 package search
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -279,5 +280,113 @@ func TestExtractLeadingComment(t *testing.T) {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestComputeEnumValue(t *testing.T) {
+	sslEarlyData := []string{
+		"typedef enum {",
+		"    SSL_EARLY_DATA_NONE = 0,",
+		"    SSL_EARLY_DATA_CONNECT_RETRY,",
+		"    SSL_EARLY_DATA_CONNECTING,",
+		"    SSL_EARLY_DATA_WRITE_RETRY,",
+		"    SSL_EARLY_DATA_WRITING,",
+		"    SSL_EARLY_DATA_WRITE_FLUSH,",
+		"    SSL_EARLY_DATA_UNAUTH_WRITING,",
+		"    SSL_EARLY_DATA_FINISHED_WRITING",
+		"} SSL_EARLY_DATA_STATE;",
+	}
+	tests := []struct {
+		name      string
+		lines     []string
+		firstIdx  int // 0-indexed 最初のメンバー行
+		memberIdx int // 0-indexed 対象メンバー行
+		want      int64
+		ok        bool
+	}{
+		{"implicit sequence from = 0", sslEarlyData, 1, 7, 6, true},
+		{"first member without assignment", []string{"enum {", "A,", "B,", "}"}, 1, 1, 0, true},
+		{
+			name:      "explicit value resets counter",
+			lines:     []string{"enum {", "A = 5,", "B,", "C,", "}"},
+			firstIdx:  1, memberIdx: 3, want: 7, ok: true,
+		},
+		{
+			name:      "hex literal",
+			lines:     []string{"enum {", "A = 0x10,", "B,", "}"},
+			firstIdx:  1, memberIdx: 2, want: 17, ok: true,
+		},
+		{
+			name:      "negative literal",
+			lines:     []string{"enum {", "A = -1,", "B,", "}"},
+			firstIdx:  1, memberIdx: 2, want: 0, ok: true,
+		},
+		{
+			name:      "comment and blank lines are skipped",
+			lines:     []string{"enum {", "A, /* first */", "", "// note", "B,", "}"},
+			firstIdx:  1, memberIdx: 4, want: 1, ok: true,
+		},
+		{
+			name:      "expression assignment gives up",
+			lines:     []string{"enum {", "A = (1 << 3),", "B,", "}"},
+			firstIdx:  1, memberIdx: 2, ok: false,
+		},
+		{
+			name:      "macro assignment gives up",
+			lines:     []string{"enum {", "A = BASE_VAL,", "B,", "}"},
+			firstIdx:  1, memberIdx: 2, ok: false,
+		},
+		{
+			name:      "preprocessor branch gives up",
+			lines:     []string{"enum {", "A,", "#ifdef FOO", "B,", "#endif", "C,", "}"},
+			firstIdx:  1, memberIdx: 5, ok: false,
+		},
+		{
+			name:      "multiple members on one line gives up",
+			lines:     []string{"enum {", "A, B,", "C,", "}"},
+			firstIdx:  1, memberIdx: 2, ok: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := computeEnumValue(tt.lines, tt.firstIdx, tt.memberIdx)
+			if ok != tt.ok {
+				t.Fatalf("ok = %v, want %v", ok, tt.ok)
+			}
+			if ok && got != tt.want {
+				t.Errorf("value = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEnumMemberValue(t *testing.T) {
+	lines := []string{
+		"typedef enum {",
+		"    SSL_EARLY_DATA_NONE = 0,",
+		"    SSL_EARLY_DATA_CONNECT_RETRY,",
+		"    SSL_EARLY_DATA_CONNECTING,",
+		"    SSL_EARLY_DATA_WRITE_RETRY,",
+		"    SSL_EARLY_DATA_WRITING,",
+		"    SSL_EARLY_DATA_WRITE_FLUSH,",
+		"    SSL_EARLY_DATA_UNAUTH_WRITING,",
+		"    SSL_EARLY_DATA_FINISHED_WRITING",
+		"} SSL_EARLY_DATA_STATE;",
+	}
+
+	// ブロック開始 { を自力で見つけて数えられる（8行目 = 値6）
+	if v, ok := enumMemberValue(lines, 8); !ok || v != 6 {
+		t.Errorf("enumMemberValue(line 8) = (%d, %v), want (6, true)", v, ok)
+	}
+	// 明示代入行も値を返す（表示に使うのはUI側の判断）
+	if v, ok := enumMemberValue(lines, 2); !ok || v != 0 {
+		t.Errorf("enumMemberValue(line 2) = (%d, %v), want (0, true)", v, ok)
+	}
+
+	// body には注釈を混ぜない — ファイル原文のまま
+	got := extractEnumMemberContext(lines, 8)
+	if strings.Contains(got, "/* =") {
+		t.Errorf("body must stay verbatim, got:\n%s", got)
 	}
 }
