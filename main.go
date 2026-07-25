@@ -15,6 +15,15 @@ import (
 	"grepnavi/desktop"
 )
 
+// defaultTray / defaultMCP はビルド時に -ldflags "-X main.defaultTray=1" で焼き込む
+// フラグ既定値。windowsgui ビルド（grepnaviw.exe）はダブルクリック起動で引数を渡せず、
+// コンソールも無いため、既定値そのものを実行ファイル側に持たせる。
+// コマンドラインで明示指定すれば通常どおり上書きできる。
+var (
+	defaultTray string
+	defaultMCP  string
+)
+
 func main() {
 	root      := flag.String("root", ".", "C source root directory to search")
 	graphFile := flag.String("graph", "graph.json", "Path to graph JSON file")
@@ -23,8 +32,8 @@ func main() {
 	noBrowser := flag.Bool("no-browser", false, "suppress automatic browser launch")
 	logLevel  := flag.String("log-level", "info", "log level: debug, info, warn, error")
 	debug     := flag.Bool("debug", false, "enable /debug/pprof endpoint")
-	mcp       := flag.Bool("mcp", false, "allow non-browser API access (required for external bridges like grepnavi-mcp)")
-	tray      := flag.Bool("tray", false, "run resident in the system tray; open windows on demand (Windows only)")
+	mcp       := flag.Bool("mcp", defaultMCP == "1", "allow non-browser API access (required for external bridges like grepnavi-mcp)")
+	tray      := flag.Bool("tray", defaultTray == "1", "run resident in the system tray; open windows on demand (Windows only)")
 	view      := flag.String("view", "", "internal: open a WebView2 viewer at this URL without starting a server (used by -tray)")
 	flag.Parse()
 
