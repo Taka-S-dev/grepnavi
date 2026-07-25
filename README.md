@@ -1,6 +1,8 @@
 # grepnavi
 
 [![CI](https://github.com/Taka-S-dev/grepnavi/actions/workflows/test.yml/badge.svg)](https://github.com/Taka-S-dev/grepnavi/actions/workflows/test.yml)
+[![Release](https://img.shields.io/github/v/release/Taka-S-dev/grepnavi)](https://github.com/Taka-S-dev/grepnavi/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 コードベース調査ツール。ripgrep の高速検索 + Monaco エディタ + 調査グラフで、**「どこを調べたか」を記録しながらコードを読み解く**ためのツールです。
 
