@@ -123,9 +123,12 @@ addEventListener('DOMContentLoaded', async () => {
   id('btn-nav-fwd').onclick  = navForward;
 
   document.addEventListener('keydown', e => {
+    // ナビゲーション履歴の戻る/進むは常時有効（call tree 等のサイドバーを
+    // 開いたままジャンプして回る使い方を想定。どのアドオンともキーは衝突しない）
+    if(e.altKey && e.key === 'ArrowLeft')  { e.preventDefault(); navBack(); return; }
+    if(e.altKey && e.key === 'ArrowRight') { e.preventDefault(); navForward(); return; }
+    // オーバーレイ/サイドバー表示中は F3 等の誤発火を防ぐため以降を無効化
     if(document.querySelector('#include-overlay.open, #ct-sidebar.open')) return;
-    if(e.altKey && e.key === 'ArrowLeft')  { e.preventDefault(); navBack(); }
-    if(e.altKey && e.key === 'ArrowRight') { e.preventDefault(); navForward(); }
     if(e.key === 'F3' && !e.altKey && !e.ctrlKey && !e.metaKey) {
       e.preventDefault();
       jumpResult(e.shiftKey ? -1 : 1);
