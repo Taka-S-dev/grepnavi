@@ -18,23 +18,24 @@ import (
 	"time"
 
 	"grepnavi/graph"
+	"grepnavi/proc"
 )
 
 // Options は ripgrep の検索オプション。
 type Options struct {
-	Pattern      string
-	Dir          string
-	Files        []string // Dir の代わりに特定ファイルのみを対象にする
+	Pattern       string
+	Dir           string
+	Files         []string // Dir の代わりに特定ファイルのみを対象にする
 	CaseSensitive bool
-	Regex        bool   // false = literal search
-	WordRegexp   bool   // --word-regexp
-	FileGlob     string // e.g. "*.c" / "*.h"
-	ContextLines int    // default 3
-	MaxResults   int    // 0 = unlimited
-	Multiline    bool   // --multiline (-U): パターンを複数行にまたがってマッチ
-	Encoding     string // "" = auto (UTF-8), "sjis", "euc-jp" など
-	NoIgnore     bool   // --no-ignore: .gitignore / .ignore 等を無視して全ファイルを検索
-	MaxThreads   int    // --threads: 0 = rg 既定（全コア）。暗黙のフォールバック検索で PC を占有しないための上限
+	Regex         bool   // false = literal search
+	WordRegexp    bool   // --word-regexp
+	FileGlob      string // e.g. "*.c" / "*.h"
+	ContextLines  int    // default 3
+	MaxResults    int    // 0 = unlimited
+	Multiline     bool   // --multiline (-U): パターンを複数行にまたがってマッチ
+	Encoding      string // "" = auto (UTF-8), "sjis", "euc-jp" など
+	NoIgnore      bool   // --no-ignore: .gitignore / .ignore 等を無視して全ファイルを検索
+	MaxThreads    int    // --threads: 0 = rg 既定（全コア）。暗黙のフォールバック検索で PC を占有しないための上限
 }
 
 // Search は ripgrep を呼び出してマッチ一覧を返す。
@@ -47,7 +48,7 @@ func Search(ctx context.Context, opts Options) ([]graph.Match, error) {
 	}
 
 	args := buildArgs(opts)
-	cmd := exec.CommandContext(ctx, "rg", args...)
+	cmd := proc.CommandContext(ctx, "rg", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -141,7 +142,7 @@ func GlobMatchesAnyFile(ctx context.Context, dir, glob string) bool {
 		args = append(args, "--glob", g)
 	}
 	args = append(args, dir)
-	cmd := exec.CommandContext(ctx, "rg", args...)
+	cmd := proc.CommandContext(ctx, "rg", args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return true
@@ -177,9 +178,9 @@ type rgEvent struct {
 }
 
 type rgMatchData struct {
-	Path       rgText      `json:"path"`
-	LineNumber int         `json:"line_number"`
-	Lines      rgText      `json:"lines"`
+	Path       rgText       `json:"path"`
+	LineNumber int          `json:"line_number"`
+	Lines      rgText       `json:"lines"`
 	Submatches []rgSubmatch `json:"submatches"`
 }
 
@@ -328,7 +329,7 @@ func SearchStream(ctx context.Context, opts Options, callback func(graph.Match) 
 	innerCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	cmd := exec.CommandContext(innerCtx, "rg", buildArgs(opts)...)
+	cmd := proc.CommandContext(innerCtx, "rg", buildArgs(opts)...)
 	cmd.Stderr = io.Discard
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

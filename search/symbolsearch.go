@@ -9,7 +9,7 @@ package search
 import (
 	"bufio"
 	"context"
-	"os/exec"
+	"grepnavi/proc"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -42,7 +42,7 @@ func CtagsSearchSymbolNames(ctx context.Context, pattern, dir, kind string, case
 		rgArgs = append(rgArgs, "-i")
 	}
 	rgArgs = append(rgArgs, "--", pattern, tagsPath)
-	cmd := exec.CommandContext(ctx, "rg", rgArgs...)
+	cmd := proc.CommandContext(ctx, "rg", rgArgs...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, false, err

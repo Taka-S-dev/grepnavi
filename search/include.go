@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"grepnavi/proc"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -107,7 +108,7 @@ type IncludeGraph struct {
 // <openssl/bio.h> → "ssl/bio.h", "bio.h" などのサフィックスで引ける。
 func buildHeaderSuffixIndex(ctx context.Context, dir string) map[string]string {
 	args := []string{"--files", "--glob", "*.h", "--glob", "*.hpp", dir}
-	cmd := exec.CommandContext(ctx, "rg", args...)
+	cmd := proc.CommandContext(ctx, "rg", args...)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Run() // エラーは無視（ヘッダがない場合もある）
@@ -162,7 +163,7 @@ func BuildIncludeGraph(ctx context.Context, dir, glob string) (*IncludeGraph, er
 	// "..." と <...> の両方をマッチ
 	args = append(args, "--", `#\s*include\s*(?:"[^"]+"|<[^>]+>)`, dir)
 
-	cmd := exec.CommandContext(ctx, "rg", args...)
+	cmd := proc.CommandContext(ctx, "rg", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -177,7 +178,9 @@ func BuildIncludeGraph(ctx context.Context, dir, glob string) (*IncludeGraph, er
 		return nil, fmt.Errorf("rg failed: %v\n%s", err, stderr.String())
 	}
 
-	type rgText struct{ Text string `json:"text"` }
+	type rgText struct {
+		Text string `json:"text"`
+	}
 	type rgData struct {
 		Path  rgText `json:"path"`
 		Lines rgText `json:"lines"`
@@ -389,7 +392,7 @@ func GetIncludedBy(absFile, root, glob string) ([]IncludeNode, error) {
 	}
 	args = append(args, "--", pattern, root)
 
-	cmd := exec.Command("rg", args...)
+	cmd := proc.Command("rg", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -401,8 +404,12 @@ func GetIncludedBy(absFile, root, glob string) ([]IncludeNode, error) {
 		return nil, fmt.Errorf("rg: %v\n%s", err, stderr.String())
 	}
 
-	type rgText struct{ Text string `json:"text"` }
-	type rgData struct{ Path rgText `json:"path"` }
+	type rgText struct {
+		Text string `json:"text"`
+	}
+	type rgData struct {
+		Path rgText `json:"path"`
+	}
 	type rgEvent struct {
 		Type string          `json:"type"`
 		Data json.RawMessage `json:"data"`

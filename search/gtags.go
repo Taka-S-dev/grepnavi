@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"grepnavi/proc"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -157,11 +158,10 @@ func gtagsClearResultCaches() {
 	_gtagsRefsCache.Range(func(k, _ any) bool { _gtagsRefsCache.Delete(k); return true })
 }
 
-
 // GtagsBuildIndex は dir で gtags を実行してインデックスを生成する。
 // -v フラグで処理中のファイル名をサーバーコンソールにリアルタイム出力する。
 func GtagsBuildIndex(ctx context.Context, dir string) error {
-	cmd := exec.CommandContext(ctx, resolveGtagsBin(), "-v")
+	cmd := proc.CommandContext(ctx, resolveGtagsBin(), "-v")
 	cmd.Dir = dir
 
 	// stderr に進捗ログが出る（例: "[  1%] parsing .../foo.c"）
@@ -210,7 +210,7 @@ func GtagsRebuildIndex(ctx context.Context, dir string) error {
 
 // GtagsUpdateIndex は global -u で差分更新する。
 func GtagsUpdateIndex(ctx context.Context, dir string) error {
-	cmd := exec.CommandContext(ctx, resolveGlobalBin(), "-u")
+	cmd := proc.CommandContext(ctx, resolveGlobalBin(), "-u")
 	cmd.Dir = dir
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -433,7 +433,7 @@ func initBashRun() {
 				return
 			}
 		}
-		out, err := exec.Command(p, "-c", "cygpath -w /tmp").Output()
+		out, err := proc.Command(p, "-c", "cygpath -w /tmp").Output()
 		if err != nil {
 			slog.Info("gtags-bash-fallback", "msg", "cygpath failed, fallback disabled", "err", err)
 			return
@@ -442,7 +442,7 @@ func initBashRun() {
 		// Cygwin は "/cygdrive/c/..."、Git for Windows (MSYS2) は "/c/..." を使う。
 		// 実際に cygpath -u で変換させて、どちらの形式かを実行時に確定する。
 		prefix := "/cygdrive/"
-		if uOut, uErr := exec.Command(p, "-c", `cygpath -u "C:\\"`).Output(); uErr == nil {
+		if uOut, uErr := proc.Command(p, "-c", `cygpath -u "C:\\"`).Output(); uErr == nil {
 			if s := strings.TrimSpace(string(uOut)); strings.HasPrefix(s, "/cygdrive/") {
 				prefix = "/cygdrive/"
 			} else if len(s) >= 2 && s[0] == '/' {
@@ -475,7 +475,7 @@ func GtagsWarmupAsync(dir string) {
 		}
 		globalBin := resolveGlobalBin()
 		for _, w := range []string{"main", "init", "open", "close"} {
-			cmd := exec.Command(globalBin, "-xd", w)
+			cmd := proc.Command(globalBin, "-xd", w)
 			cmd.Dir = dir
 			cmd.Env = gtagsEnv(dir)
 			out, err := cmd.Output()
@@ -511,7 +511,7 @@ func windowsToCygwinPath(p string) string {
 }
 
 // shellQuote は bash 用にシングルクォートで囲む。
-// 文字列内の ' を '\'' で escape する標準テクニック。
+// 文字列内の ' を '\” で escape する標準テクニック。
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
@@ -542,7 +542,7 @@ func runGlobalViaBash(globalBin, dir, word, mode string) (data []byte, attempted
 		shellQuote(word),
 		shellQuote(cygTmp))
 
-	cmd := exec.Command(_bashPath, "-c", cmdStr)
+	cmd := proc.Command(_bashPath, "-c", cmdStr)
 	// exit=1 は「ヒットなし」なので情報的、それ以外は警告
 	if err := cmd.Run(); err != nil {
 		if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 1 {
@@ -571,7 +571,7 @@ func runGlobalToFile(globalBin, dir, word, mode string) (data []byte, attempted 
 	tmpName := f.Name()
 	defer os.Remove(tmpName)
 
-	cmd := exec.Command(globalBin, mode, word)
+	cmd := proc.Command(globalBin, mode, word)
 	cmd.Dir = dir
 	cmd.Env = gtagsEnv(dir)
 	cmd.Stdout = f
@@ -755,7 +755,7 @@ func logDir() string {
 // "[N] extracting tags of <file>" 行はブラウザに送らずログファイルに100件単位で書き込む。
 // それ以外の行（開始/完了メッセージ等）はブラウザに送る。
 func GtagsBuildIndexStream(ctx context.Context, dir string, w io.Writer) error {
-	cmd := exec.CommandContext(ctx, resolveGtagsBin(), "-v")
+	cmd := proc.CommandContext(ctx, resolveGtagsBin(), "-v")
 	cmd.Dir = dir
 	cmd.Env = englishEnv()
 	stderr, err := cmd.StderrPipe()
@@ -818,7 +818,7 @@ func GtagsBuildIndexStream(ctx context.Context, dir string, w io.Writer) error {
 // GtagsUpdateIndexStream は global -u --verbose を実行し出力を行単位で w に書き込む。
 // Windows ではパイプバッファリングにより出力が遅延するため、5 秒ごとにハートビートを送る。
 func GtagsUpdateIndexStream(ctx context.Context, dir string, w io.Writer) error {
-	cmd := exec.CommandContext(ctx, resolveGlobalBin(), "-u", "-v")
+	cmd := proc.CommandContext(ctx, resolveGlobalBin(), "-u", "-v")
 	// Cygwin global.exe は Windows パス (バックスラッシュ) を受け付ける。
 	// ToSlash でフォワードスラッシュ化すると検索が空を返す症状が出るため使わない。
 	cmd.Env = gtagsEnv(dir)
@@ -917,7 +917,6 @@ func gtagsParseOutput(out []byte, kind, dir string) []DefHit {
 	return results
 }
 
-
 // GtagsFindDefinitions は GNU Global で word の定義を検索する。
 // 宣言(.h)と実装(.c/.cpp)が両方ヒットした場合は実装を優先する。
 // 結果は (dir,word) でキャッシュされ、インデックス更新まで保持される。
@@ -961,7 +960,7 @@ func GtagsFindDefinitions(ctx context.Context, word, dir string) ([]DefHit, erro
 	// global.exe は高速（数十ms）なので HTTP キャンセルに巻き込まれないよう
 	// context をデタッチして最後まで実行させる。
 	// キャンセルされても結果はキャッシュに入るので次回即返せる。
-	cmd := exec.CommandContext(context.Background(), globalBin, "-xd", word)
+	cmd := proc.CommandContext(context.Background(), globalBin, "-xd", word)
 	cmd.Dir = dir
 	cmd.Env = gtagsEnv(dir)
 	if devNull, err := os.Open(os.DevNull); err == nil {
@@ -1021,7 +1020,7 @@ func GtagsFindDefinitions(ctx context.Context, word, dir string) ([]DefHit, erro
 	return finish(gtagsParseOutput(out, "func", dir)), nil
 }
 
-var _globalBinCache  string
+var _globalBinCache string
 var _globalBinSource string // "bin" / "scoop" / "msys" / "path" / ""
 
 // resolveGlobalBin は実際に動作する global.exe のパスを返す。結果をキャッシュする。
@@ -1030,7 +1029,7 @@ func resolveGlobalBin() string {
 		return _globalBinCache
 	}
 	bin, src := resolveGlobalBinOnce()
-	_globalBinCache  = bin
+	_globalBinCache = bin
 	_globalBinSource = src
 	return bin
 }
@@ -1128,7 +1127,6 @@ func resolveGlobalBinOnce() (string, string) {
 	return "global", ""
 }
 
-
 // GtagsDiagnose は gtags 環境の診断情報をログに出力する。
 // word を指定すると「なぜそのシンボルが見つからないか」も追加診断する。
 func GtagsDiagnose(dir, word string) {
@@ -1179,7 +1177,7 @@ func GtagsDiagnose(dir, word string) {
 	} else {
 		slog.Info("gtags-diag [2] global bin", "path", bin, "stat_err", err)
 	}
-	if out, err := exec.Command(bin, "--version").Output(); err == nil {
+	if out, err := proc.Command(bin, "--version").Output(); err == nil {
 		globalVer = firstLine(strings.TrimSpace(string(out)))
 	}
 	slog.Info("gtags-diag [2] global version", "version", globalVer)
@@ -1189,7 +1187,7 @@ func GtagsDiagnose(dir, word string) {
 	if fi, err := os.Stat(gtagsBin); err == nil {
 		slog.Info("gtags-diag [2] gtags bin", "path", gtagsBin, "size", fi.Size(), "possible_shim", fi.Size() < _gtagsShimSizeThreshold)
 	}
-	if out, err := exec.Command(gtagsBin, "--version").Output(); err == nil {
+	if out, err := proc.Command(gtagsBin, "--version").Output(); err == nil {
 		gtagsVer = firstLine(strings.TrimSpace(string(out)))
 	}
 	slog.Info("gtags-diag [2] gtags version", "version", gtagsVer)
@@ -1307,7 +1305,7 @@ func runGlobalCmd(bin string, env []string, flag, arg string) (int, string, stri
 	if arg != "" {
 		args = append(args, arg)
 	}
-	cmd := exec.Command(bin, args...)
+	cmd := proc.Command(bin, args...)
 	cmd.Env = env
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
@@ -1330,7 +1328,7 @@ func runGlobalCmdDir(bin string, env []string, dir, flag, arg string) (int, stri
 	if arg != "" {
 		args = append(args, arg)
 	}
-	cmd := exec.Command(bin, args...)
+	cmd := proc.Command(bin, args...)
 	cmd.Dir = dir
 	if env != nil {
 		cmd.Env = env
@@ -1410,7 +1408,7 @@ func GtagsFindRefs(ctx context.Context, word, dir string) ([]CallSite, error) {
 		maybePreloadDefsAsync(globalBin, dir)
 		out = stickyOut
 	} else {
-		cmd := exec.CommandContext(context.Background(), globalBin, "-xr", word)
+		cmd := proc.CommandContext(context.Background(), globalBin, "-xr", word)
 		cmd.Dir = dir
 		cmd.Env = gtagsEnv(dir)
 		var stderr bytes.Buffer

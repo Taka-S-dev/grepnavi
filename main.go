@@ -1,18 +1,19 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"log"
 	"log/slog"
 	"net/http"
 	"os"
-	"bufio"
 	"os/exec"
 	"runtime"
 	"strings"
 
 	"grepnavi/desktop"
+	"grepnavi/proc"
 )
 
 // defaultTray / defaultMCP はビルド時に -ldflags "-X main.defaultTray=1" で焼き込む
@@ -25,16 +26,16 @@ var (
 )
 
 func main() {
-	root      := flag.String("root", ".", "C source root directory to search")
+	root := flag.String("root", ".", "C source root directory to search")
 	graphFile := flag.String("graph", "graph.json", "Path to graph JSON file")
-	port      := flag.Int("port", 8080, "HTTP server port")
-	host      := flag.String("host", "127.0.0.1", "bind address (use 0.0.0.0 for LAN access)")
+	port := flag.Int("port", 8080, "HTTP server port")
+	host := flag.String("host", "127.0.0.1", "bind address (use 0.0.0.0 for LAN access)")
 	noBrowser := flag.Bool("no-browser", false, "suppress automatic browser launch")
-	logLevel  := flag.String("log-level", "info", "log level: debug, info, warn, error")
-	debug     := flag.Bool("debug", false, "enable /debug/pprof endpoint")
-	mcp       := flag.Bool("mcp", defaultMCP == "1", "allow non-browser API access (required for external bridges like grepnavi-mcp)")
-	tray      := flag.Bool("tray", defaultTray == "1", "run resident in the system tray; open windows on demand (Windows only)")
-	view      := flag.String("view", "", "internal: open a WebView2 viewer at this URL without starting a server (used by -tray)")
+	logLevel := flag.String("log-level", "info", "log level: debug, info, warn, error")
+	debug := flag.Bool("debug", false, "enable /debug/pprof endpoint")
+	mcp := flag.Bool("mcp", defaultMCP == "1", "allow non-browser API access (required for external bridges like grepnavi-mcp)")
+	tray := flag.Bool("tray", defaultTray == "1", "run resident in the system tray; open windows on demand (Windows only)")
+	view := flag.String("view", "", "internal: open a WebView2 viewer at this URL without starting a server (used by -tray)")
 	flag.Parse()
 
 	// slog セットアップ
@@ -137,11 +138,11 @@ func openBrowser(url string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", url)
+		cmd = proc.Command("cmd", "/c", "start", url)
 	case "darwin":
-		cmd = exec.Command("open", url)
+		cmd = proc.Command("open", url)
 	default:
-		cmd = exec.Command("xdg-open", url)
+		cmd = proc.Command("xdg-open", url)
 	}
 	_ = cmd.Start()
 }

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"grepnavi/proc"
 	"grepnavi/search"
 )
 
@@ -39,7 +40,7 @@ func findCtagsBin() (string, bool) {
 		if _, err := os.Stat(p); err != nil {
 			continue
 		}
-		out, err := exec.Command(p, "--version").Output()
+		out, err := proc.Command(p, "--version").Output()
 		if err != nil {
 			continue
 		}
@@ -164,7 +165,7 @@ func (h *Handler) handleCtagsIndex(w http.ResponseWriter, r *http.Request) {
 
 	var stderrBuf bytes.Buffer
 	tagsPath := filepath.Join(root, "tags")
-	cmd := exec.CommandContext(context.Background(), ctagsBin, "-R", "--fields=+n", "-f", tagsPath, root)
+	cmd := proc.CommandContext(context.Background(), ctagsBin, "-R", "--fields=+n", "-f", tagsPath, root)
 	cmd.Stderr = &stderrBuf
 
 	if err := cmd.Start(); err != nil {

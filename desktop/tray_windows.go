@@ -4,6 +4,7 @@ package desktop
 
 import (
 	_ "embed"
+	"grepnavi/proc"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -38,7 +39,7 @@ func RunTray(url string) error {
 			// children はこのゴルーチンだけが触るのでロック不要。
 			var children []*exec.Cmd
 			open := func() {
-				cmd := exec.Command(exe, "-view", url)
+				cmd := proc.Command(exe, "-view", url)
 				if err := cmd.Start(); err != nil {
 					slog.Warn("failed to open window", "err", err)
 					return

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"grepnavi/graph"
+	"grepnavi/proc"
 )
 
 // DefHit は定義箇所の1件。
@@ -41,11 +41,11 @@ func FindDefinitions(ctx context.Context, word, dir, glob string) ([]DefHit, err
 //
 // 全探索を同時起動し、近い順に優先して最初のヒットを返す。
 //
-//   level 0: インクルードチェーン + 対応 .c ファイル（意味的な近さ・最優先）
-//   level 1: currentFile と同じディレクトリ
-//   level 2: 親ディレクトリ
-//   ...
-//   level N: root 全体（フォールバック）
+//	level 0: インクルードチェーン + 対応 .c ファイル（意味的な近さ・最優先）
+//	level 1: currentFile と同じディレクトリ
+//	level 2: 親ディレクトリ
+//	...
+//	level N: root 全体（フォールバック）
 //
 // キャッシュは呼び出し元（handleDefinition）が管理する。
 func FindDefinitionsSmart(ctx context.Context, word, currentFile, root, glob string) ([]DefHit, error) {
@@ -228,7 +228,7 @@ func findSiblingCFiles(ctx context.Context, root string, hFiles []string) []stri
 		return nil
 	}
 	args = append(args, root)
-	out, err := exec.CommandContext(ctx, "rg", args...).Output()
+	out, err := proc.CommandContext(ctx, "rg", args...).Output()
 	if err != nil {
 		return nil
 	}
@@ -466,4 +466,3 @@ func filterImplFiles(hits []DefHit) []DefHit {
 	}
 	return hits
 }
-

@@ -12,6 +12,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"grepnavi/proc"
 	"io"
 	"log/slog"
 	"os"
@@ -260,7 +261,7 @@ func CtagsSymbolsForFile(file, dir string) ([]DefHit, error) {
 
 	// タブ区切りの第2フィールドがファイルパスにマッチする行を抽出
 	pattern := `\t` + regexp.QuoteMeta(rel) + `\t`
-	cmd := exec.CommandContext(context.Background(), "rg",
+	cmd := proc.CommandContext(context.Background(), "rg",
 		"--no-line-number", "--no-filename", "--no-heading", "--color=never",
 		pattern, tagsPath)
 
@@ -363,7 +364,7 @@ func ctagsFindBinarySearch(word, tagsPath, dir string) ([]DefHit, error) {
 // ctagsFindRipgrep は ripgrep で tags ファイルを検索する（ソート不問）。
 func ctagsFindRipgrep(word, tagsPath, dir string) ([]DefHit, error) {
 	pattern := `^` + regexp.QuoteMeta(word) + `\t`
-	cmd := exec.CommandContext(context.Background(), "rg",
+	cmd := proc.CommandContext(context.Background(), "rg",
 		"--no-line-number", "--no-filename", "--no-heading", "--color=never",
 		"-m", "2000",
 		pattern, tagsPath)

@@ -17,6 +17,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"grepnavi/proc"
 	"grepnavi/search"
 )
 
@@ -62,8 +63,8 @@ func setFilesCache(root, glob string, files []string) {
 
 func (h *Handler) handleOpen(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	file   := q.Get("file")
-	line   := q.Get("line")
+	file := q.Get("file")
+	line := q.Get("line")
 	editor := q.Get("editor")
 	if file == "" {
 		jsonErr(w, "file is required", http.StatusBadRequest)
@@ -299,7 +300,7 @@ func (h *Handler) handleFiles(w http.ResponseWriter, r *http.Request) {
 		args = append(args, "--glob", g)
 	}
 	args = append(args, root)
-	cmd := exec.Command("rg", args...)
+	cmd := proc.Command("rg", args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
@@ -525,13 +526,13 @@ func (h *Handler) handlePickDir(w http.ResponseWriter, r *http.Request) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		cmd = exec.Command("powershell", "-NoProfile", "-Command",
+		cmd = proc.Command("powershell", "-NoProfile", "-Command",
 			`Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'プロジェクトルートを選択'; if($d.ShowDialog() -eq 'OK'){$d.SelectedPath}`)
 	case "darwin":
-		cmd = exec.Command("osascript", "-e", "POSIX path of (choose folder with prompt \"プロジェクトルートを選択\")")
+		cmd = proc.Command("osascript", "-e", "POSIX path of (choose folder with prompt \"プロジェクトルートを選択\")")
 	default:
 		// Linux: zenity を試みる
-		cmd = exec.Command("zenity", "--file-selection", "--directory", "--title=プロジェクトルートを選択")
+		cmd = proc.Command("zenity", "--file-selection", "--directory", "--title=プロジェクトルートを選択")
 	}
 	out, err := cmd.Output()
 	if err != nil {
@@ -564,7 +565,7 @@ func (h *Handler) handleNewWindow(w http.ResponseWriter, r *http.Request) {
 	h.mu.RUnlock()
 
 	graphPath := filepath.Join(filepath.Dir(exe), fmt.Sprintf("graph-%d.json", port))
-	cmd := exec.Command(exe, "-port", strconv.Itoa(port), "-root", root, "-graph", graphPath, "-no-browser")
+	cmd := proc.Command(exe, "-port", strconv.Itoa(port), "-root", root, "-graph", graphPath, "-no-browser")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
@@ -596,13 +597,13 @@ func openInEditor(file, line, editorTmpl string) error {
 	quotedFile := `"` + file + `"`
 	// "{file}" と書いてあっても {file} と書いてあっても両方クォート済みパスに置換
 	cmdStr := strings.ReplaceAll(editorTmpl, `"{file}"`, quotedFile)
-	cmdStr  = strings.ReplaceAll(cmdStr,     `{file}`,   quotedFile)
-	cmdStr  = strings.ReplaceAll(cmdStr,     `{line}`,   line)
+	cmdStr = strings.ReplaceAll(cmdStr, `{file}`, quotedFile)
+	cmdStr = strings.ReplaceAll(cmdStr, `{line}`, line)
 	parts := splitShellWords(cmdStr)
 	if len(parts) == 0 {
 		return nil
 	}
-	exec.Command(parts[0], parts[1:]...).Start()
+	proc.Command(parts[0], parts[1:]...).Start()
 	return nil
 }
 
@@ -634,13 +635,13 @@ func splitShellWords(s string) []string {
 func revealInExplorer(file string) error {
 	switch runtime.GOOS {
 	case "windows":
-		cmd := exec.Command("explorer", "/select,"+filepath.FromSlash(file))
+		cmd := proc.Command("explorer", "/select,"+filepath.FromSlash(file))
 		cmd.Start()
 	case "darwin":
-		cmd := exec.Command("open", "-R", file)
+		cmd := proc.Command("open", "-R", file)
 		cmd.Start()
 	default:
-		cmd := exec.Command("xdg-open", filepath.Dir(file))
+		cmd := proc.Command("xdg-open", filepath.Dir(file))
 		cmd.Start()
 	}
 	return nil

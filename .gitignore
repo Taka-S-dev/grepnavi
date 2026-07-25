@@ -21,6 +21,8 @@
 !search/**
 !desktop/
 !desktop/**
+!proc/
+!proc/**
 !static/
 !static/index.html
 !static/css/
