@@ -139,6 +139,11 @@ func CspMiddleware(next http.Handler) http.Handler {
 }
 
 func (h *Handler) serveStatic(w http.ResponseWriter, r *http.Request) {
+	// Cache-Control 無しだとヒューリスティックキャッシュ（Last-Modified 経過の約10%）で
+	// 更新後も古い JS/CSS が数日使われ続ける（WebView2 の再起動でも再検証されない）。
+	// no-cache = 毎回 If-Modified-Since で再検証。未変更なら 304 で済み、
+	// localhost 配信なので実コストはほぼゼロ。
+	w.Header().Set("Cache-Control", "no-cache")
 	if r.URL.Path == "/" || r.URL.Path == "/index.html" {
 		http.ServeFile(w, r, "static/index.html")
 		return
