@@ -30,7 +30,8 @@ func newServer(root string, rootExplicit bool, graphFile, addr string, debug, mc
 		mux.Handle("/debug/pprof/", http.DefaultServeMux)
 	}
 
-	return &http.Server{Addr: addr, Handler: api.CspMiddleware(csrfMiddleware(mux, mcpEnabled))}
+	// ActivityMiddleware は csrf の内側: 拒否されたリクエストをアイドル判定に数えない
+	return &http.Server{Addr: addr, Handler: api.CspMiddleware(csrfMiddleware(api.ActivityMiddleware(mux), mcpEnabled))}
 }
 
 // csrfMiddleware は /api/* へのリクエストの呼び出し元を検証する。

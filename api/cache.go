@@ -24,6 +24,12 @@ var (
 	_hoverCache   = map[string]hoverCacheEntry{}
 )
 
+func hoverCacheClear() {
+	_hoverCacheMu.Lock()
+	_hoverCache = map[string]hoverCacheEntry{}
+	_hoverCacheMu.Unlock()
+}
+
 func hoverCacheGet(key string) ([]search.HoverHit, bool) {
 	_hoverCacheMu.Lock()
 	defer _hoverCacheMu.Unlock()

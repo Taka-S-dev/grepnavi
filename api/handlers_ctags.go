@@ -74,7 +74,10 @@ func (h *Handler) handleCtagsMacros(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !state.Ready {
-		jsonOK(w, empty)
+		// アイドルトリム後・別 root への切替直後: サイドカーからの再構築を発火し、
+		// loading として返す（UI 側は既存のポーリングで完了を拾う）
+		search.CtagsMacroWarmup(root)
+		jsonOK(w, map[string]interface{}{"macros": []string{}, "ready": false, "loading": true})
 		return
 	}
 

@@ -12,18 +12,21 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"grepnavi/proc"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"grepnavi/proc"
 )
 
 const (
@@ -55,7 +58,7 @@ var macroCache struct {
 }
 
 // CtagsMacroWarmup はバックグラウンドでマクロキャッシュを構築する。
-// サーバー起動時・ctags生成完了時に呼ぶ。
+// サーバー起動時・ctags生成完了時・アイドルトリム後の再要求時に呼ぶ。
 func CtagsMacroWarmup(dir string) {
 	tagsPath := filepath.Join(dir, "tags")
 	fi, err := os.Stat(tagsPath)
@@ -63,6 +66,7 @@ func CtagsMacroWarmup(dir string) {
 		return
 	}
 	mtime := fi.ModTime()
+	size := fi.Size()
 
 	macroCache.Lock()
 	// 同じmtimeをキャッシュ済み or ロード中ならスキップ
@@ -76,7 +80,15 @@ func CtagsMacroWarmup(dir string) {
 	macroCache.Unlock()
 
 	go func() {
-		syms, err := ctagsParseSymbols(tagsPath)
+		// サイドカーがあれば tags（カーネル規模で GB 級）のフルパースを省略
+		syms, fromSidecar := loadMacroSidecar(dir, mtime, size)
+		var err error
+		if !fromSidecar {
+			syms, err = ctagsParseSymbols(tagsPath)
+			if err == nil {
+				saveMacroSidecar(dir, mtime, size, syms)
+			}
+		}
 
 		macroCache.Lock()
 		macroCache.loading = false
@@ -85,10 +97,89 @@ func CtagsMacroWarmup(dir string) {
 			macroCache.dir = dir
 			macroCache.mtime = mtime
 			macroCache.symbols = syms
-			slog.Debug("ctags-macros warmup done", "dir", dir, "macros", len(syms.Macros))
+			slog.Debug("ctags-macros warmup done", "dir", dir, "macros", len(syms.Macros), "sidecar", fromSidecar)
 		}
 		macroCache.Unlock()
+
+		if !fromSidecar && err == nil {
+			// GB 級 tags のパース churn を即 OS に返す（スカベンジャー任せだと数分残る）
+			debug.FreeOSMemory()
+		}
 	}()
+}
+
+// CtagsMacroTrim はメモリ上のマクロキャッシュを解放する（アイドルトリム用）。
+// 次回の CtagsMacroWarmup はサイドカーからサブ秒で再構築される。
+func CtagsMacroTrim() {
+	macroCache.Lock()
+	if !macroCache.loading {
+		macroCache.dir = ""
+		macroCache.mtime = time.Time{}
+		macroCache.symbols = SymbolsByKind{}
+	}
+	macroCache.Unlock()
+}
+
+// ===== マクロ名サイドカーキャッシュ =====
+//
+// tags から抽出したマクロ名だけを root 直下の .grepnavi-macros に永続化する。
+// 純粋な派生キャッシュ（消しても正しさに影響しない）で、ヘッダの mtime/size が
+// 現在の tags と一致するときだけ使う。root 配下に置くのは、シンボル名が既に
+// tags として同じ場所にあるものだけを書くため（%TEMP% 等へ複製しない）。
+
+const macroSidecarMagic = "grepnavi-macros v1"
+
+func macroSidecarPath(dir string) string { return filepath.Join(dir, ".grepnavi-macros") }
+
+func macroSidecarHeader(mtime time.Time, size int64) string {
+	return fmt.Sprintf("%s\t%d\t%d", macroSidecarMagic, mtime.UnixNano(), size)
+}
+
+func loadMacroSidecar(dir string, mtime time.Time, size int64) (SymbolsByKind, bool) {
+	f, err := os.Open(macroSidecarPath(dir))
+	if err != nil {
+		return SymbolsByKind{}, false
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 64*1024), 1024*1024)
+	if !sc.Scan() || sc.Text() != macroSidecarHeader(mtime, size) {
+		return SymbolsByKind{}, false
+	}
+	var syms SymbolsByKind
+	for sc.Scan() {
+		syms.Macros = append(syms.Macros, sc.Text())
+	}
+	if sc.Err() != nil {
+		return SymbolsByKind{}, false
+	}
+	return syms, true
+}
+
+func saveMacroSidecar(dir string, mtime time.Time, size int64, syms SymbolsByKind) {
+	// tmp に書いて rename。途中クラッシュで壊れた本体を残さない
+	tmp := macroSidecarPath(dir) + ".tmp"
+	f, err := os.Create(tmp)
+	if err != nil {
+		return // 書けない root（読み取り専用等）ではフルパース運用に自然に落ちる
+	}
+	w := bufio.NewWriterSize(f, 1<<20)
+	fmt.Fprintln(w, macroSidecarHeader(mtime, size))
+	for _, m := range syms.Macros {
+		w.WriteString(m)
+		w.WriteByte('\n')
+	}
+	err = w.Flush()
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(tmp)
+		return
+	}
+	if err := os.Rename(tmp, macroSidecarPath(dir)); err != nil {
+		os.Remove(tmp)
+	}
 }
 
 // MacroCacheState はキャッシュの状態を表す。

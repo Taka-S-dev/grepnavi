@@ -159,6 +159,14 @@ type lruFileCache struct {
 	order  list.List // front = most recently used
 }
 
+func (c *lruFileCache) clear() {
+	c.mu.Lock()
+	c.items = make(map[string]*cacheEntry, 256)
+	c.order.Init()
+	c.total = 0
+	c.mu.Unlock()
+}
+
 func (c *lruFileCache) get(path string, mtime time.Time) ([]string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

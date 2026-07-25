@@ -41,6 +41,15 @@ func (b *EventBus) Subscribe() (<-chan Event, func()) {
 	return ch, cancel
 }
 
+// SubscriberCount は現在の SSE 購読数を返す。
+// ウィンドウ・ブラウザタブは /api/events を張りっぱなしにするため、
+// 0 は「UI が1枚も開いていない」ことを意味する（アイドルトリムの判定に使う）。
+func (b *EventBus) SubscriberCount() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return len(b.subs)
+}
+
 func (b *EventBus) Publish(evType string, payload interface{}) {
 	data, err := json.Marshal(payload)
 	if err != nil {

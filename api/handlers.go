@@ -28,6 +28,7 @@ func NewHandler(store *graph.Store, root string) *Handler {
 	if search.CtagsIndexed(root) {
 		search.CtagsMacroWarmup(root)
 	}
+	startIdleTrimmer(h.events)
 	return h
 }
 
