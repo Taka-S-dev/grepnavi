@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -11,6 +12,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 
 	"grepnavi/desktop"
 	"grepnavi/proc"
@@ -75,6 +77,22 @@ func main() {
 	addr := fmt.Sprintf("%s:%d", *host, *port)
 	url := fmt.Sprintf("http://localhost:%d", *port)
 
+	// 同じポートで grepnavi が既に動いていれば、二重起動せず既存インスタンスの
+	// 窓（またはブラウザ）を開くだけで終了する。windowsgui ビルドはコンソールが
+	// 無く、ポート衝突でエラー表示のないまま終了すると「ダブルクリックしたのに
+	// 何も起きない」ように見えるため、再起動操作を「窓をもう1枚開く」として扱う。
+	if grepnaviRunningAt(url) {
+		slog.Info("already running, opening a window on the existing instance", "url", url)
+		if *tray {
+			if err := desktop.OpenWindow(url); err != nil {
+				openBrowser(url)
+			}
+		} else if !*noBrowser {
+			openBrowser(url)
+		}
+		return
+	}
+
 	if *host != "127.0.0.1" && *host != "localhost" {
 		fmt.Fprintf(os.Stderr, "\n============================================================\n")
 		fmt.Fprintf(os.Stderr, "  [WARNING] SECURITY RISK\n")
@@ -132,6 +150,32 @@ func absPath(p string) (string, error) {
 		return os.Getwd()
 	}
 	return p, nil
+}
+
+// grepnaviRunningAt は url で grepnavi が応答するかを短いタイムアウトで確認する。
+// localhost 自己プローブ専用で、外部への通信は行わない。
+// Origin を付けるのは csrfMiddleware 対策: 既存インスタンスが -mcp なしでも、
+// localhost origin のリクエストは常に許可されるため mcp 設定に関わらず判定できる。
+func grepnaviRunningAt(url string) bool {
+	req, err := http.NewRequest("GET", url+"/api/root", nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Origin", url)
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+	// 他アプリが同じポートに居る場合の誤認を避け、応答の形まで確認する
+	var body struct {
+		Root string `json:"root"`
+	}
+	return json.NewDecoder(resp.Body).Decode(&body) == nil && body.Root != ""
 }
 
 func openBrowser(url string) {
