@@ -227,15 +227,15 @@ async function ctSearch() {
       const calleeParams = new URLSearchParams({ file: defFile, line: defLine });
       const cRes = await fetch('/api/callees?' + calleeParams, { signal });
       if (!cRes.ok) { body.innerHTML = '<div class="ct-empty">エラー</div>'; return; }
-      const names = await cRes.json();
+      const callees = await cRes.json();
 
-      if (!names.length) {
+      if (!callees.length) {
         body.innerHTML = `<div class="ct-empty">${escHtml(word)} が呼び出す関数が見つかりません</div>`;
         return;
       }
       _ctTree = {
         func: word, file: defFile, line: defLine,
-        children: names.filter(n => n !== word).map(n => ({ func: n, file: '', line: 0, callLine: 0, children: null, expanded: false })),
+        children: callees.map(c => ctCalleeNode(c, defFile)).filter(n => n.func !== word),
         expanded: true,
       };
       _ctTrees.callees = _ctTree;
@@ -360,18 +360,22 @@ function makeNodeEl(node, depth, isCycle = false) {
   // location
   const loc = document.createElement('span');
   loc.className = 'ct-loc';
-  if (node.file) {
-    const displayFile = shortFilePath(node.file);
-    const jumpLine = _ctMode === 'callers' ? (node.callLine || node.line) : node.line;
+  const isCallees = _ctMode === 'callees';
+  const locFile = isCallees ? (node.callFile || node.file) : node.file;
+  if (locFile) {
+    const displayFile = shortFilePath(locFile);
+    const jumpLine = isCallees
+      ? (node.callFile ? node.callLine : node.line)
+      : (node.callLine || node.line);
     loc.textContent = `${displayFile}:${jumpLine}`;
-    loc.title = `${node.file}:${jumpLine}`;
-    loc.onclick = () => ctJumpToLine(node.file, jumpLine);
+    loc.title = node.kind ? `${locFile}:${jumpLine}  [${node.kind}]` : `${locFile}:${jumpLine}`;
+    loc.onclick = () => ctJumpToLine(locFile, jumpLine);
   }
 
   el.appendChild(indent);
   el.appendChild(exp);
   el.appendChild(fn);
-  if (node.file) el.appendChild(loc);
+  if (locFile) el.appendChild(loc);
   return el;
 }
 
@@ -432,8 +436,8 @@ async function ctToggle(node, el) {
       const params = new URLSearchParams({ file: node._funcFile, line: node._funcLine });
       const res = await fetch('/api/callees?' + params).catch(() => null);
       if (res && res.ok) {
-        const names = await res.json();
-        node.children = names.filter(n => n !== node.func).map(n => ({ func: n, file: '', line: 0, callLine: 0, children: null, expanded: false }));
+        const callees = await res.json();
+        node.children = callees.map(c => ctCalleeNode(c, node._funcFile)).filter(n => n.func !== node.func);
       } else {
         node.children = [];
       }
@@ -445,6 +449,22 @@ async function ctToggle(node, el) {
   node.loading = false;
   node.expanded = true;
   ctRender();
+}
+
+// /api/callees は {name, call_line, kind, text} を返す。
+// 呼び出し位置は callFile/callLine に持たせ、node.file は空のままにする:
+// ctToggle は node.file の有無で「定義をまだ解決していない」を判断するため。
+function ctCalleeNode(c, callerFile) {
+  const name = typeof c === 'string' ? c : c.name;
+  const callLine = typeof c === 'string' ? 0 : (c.call_line || 0);
+  return {
+    func: name,
+    file: '', line: 0,
+    callFile: callerFile || '', callLine,
+    kind: typeof c === 'string' ? '' : (c.kind || ''),
+    text: typeof c === 'string' ? '' : (c.text || ''),
+    children: null, expanded: false,
+  };
 }
 
 // ----- jump -----
