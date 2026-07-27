@@ -31,7 +31,8 @@ import (
 
 const (
 	// tags ファイル冒頭の `!_TAG_*` メタ行を読む最大行数。
-	_ctagsHeaderScanLines = 20
+	// Universal Ctags は 20 行を超えるメタ行を書くことがあるため余裕を持たせる。
+	_ctagsHeaderScanLines = 200
 	// バイナリサーチ後に同名シンボルを取りこぼさないための線形スキャン窓（バイト）。
 	_ctagsLinearScanWindowBytes = 256 * 1024
 )
@@ -319,6 +320,9 @@ func ctagsReadSortedFlag(tagsPath string) int {
 	defer f.Close()
 
 	scanner := bufio.NewScanner(f)
+	// メタ行は "!" で始まる限り読み続ける。Universal Ctags は !_TAG_EXTRA_DESCRIPTION 等を
+	// 多数出力し、!_TAG_FILE_SORTED がその後ろに来る（行数上限で打ち切ると
+	// ソート済みを見落とし、バイナリサーチではなく rg 全走査に落ちる）。
 	for i := 0; i < _ctagsHeaderScanLines && scanner.Scan(); i++ {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "!") {

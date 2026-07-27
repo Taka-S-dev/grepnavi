@@ -543,7 +543,10 @@ func (h *Handler) handleCallees(w http.ResponseWriter, r *http.Request) {
 	}
 	line := 0
 	fmt.Sscanf(lineStr, "%d", &line)
-	hits, err := search.FindCallees(r.Context(), file, line)
+	h.mu.RLock()
+	root := h.root
+	h.mu.RUnlock()
+	hits, err := search.FindCallees(r.Context(), file, line, root)
 	if err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return

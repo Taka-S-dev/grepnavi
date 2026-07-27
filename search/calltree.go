@@ -77,6 +77,7 @@ func FindCallers(ctx context.Context, word, dir, glob string) ([]CallSite, error
 	var results []CallSite
 	seen := map[string]bool{} // "func\x00file" → 登録済み
 
+	code := codeOnlyCache{}
 	collect := func(matches []graph.Match, indirect bool) {
 		limit := _directCallerLimitPerCall
 		if indirect {
@@ -88,6 +89,10 @@ func FindCallers(ctx context.Context, word, dir, glob string) ([]CallSite, error
 			}
 			lines, err := CachedLines(m.File)
 			if err != nil {
+				continue
+			}
+			// コメント内・文字列内だけの出現は呼び出しではない
+			if !code.mentionsInCode(m.File, lines, m.Line, word) {
 				continue
 			}
 			lineText := ""
@@ -150,10 +155,20 @@ func FindCallers(ctx context.Context, word, dir, glob string) ([]CallSite, error
 // CalleeHit は FindCallees が返す 1 件。重複名は最初の出現行を採用する。
 type CalleeHit struct {
 	Name     string `json:"name"`
-	CallLine int    `json:"call_line"` // 呼び出し行（1-indexed）
+	CallLine int    `json:"call_line"`      // 呼び出し行（1-indexed）
+	Kind     string `json:"kind,omitempty"` // 索引で確認できた種別（"func" / "define" 等）
 }
 
-func FindCallees(_ context.Context, file string, line int) ([]CalleeHit, error) {
+// _calleeKindLookupMax は種別を照会する候補数の上限（1 件につき tags を 1 回引く）。
+const _calleeKindLookupMax = 200
+
+// FindCallees は line を含む関数が呼んでいる候補を返す。
+// root に ctags 索引があれば種別（func / define 等）を付与する。
+//
+// 索引に無い候補も落とさないこと: カーネルの btrfs_header_owner や
+// folio_test_dirty のようにマクロで生成される API は索引に現れないが、
+// 実在する呼び出しである。索引の不在は「存在しない」ではなく「未知」を意味する。
+func FindCallees(_ context.Context, file string, line int, root string) ([]CalleeHit, error) {
 	lines, err := CachedLines(file)
 	if err != nil {
 		return nil, err
@@ -168,10 +183,14 @@ func FindCallees(_ context.Context, file string, line int) ([]CalleeHit, error) 
 
 	// body の i 行目は元ファイルの (line + i) 行目に対応する
 	// （extractBraceBlock は startLine から順に行を append する）。
-	for i, l := range strings.Split(body, "\n") {
-		if idx := strings.Index(l, "//"); idx >= 0 {
-			l = l[:idx]
+	// 判定はコード部分だけで行う: ブロックコメントや文字列内の foo() を拾わない。
+	code := codeOnlyLines(lines)
+	for i := range strings.Split(body, "\n") {
+		srcIdx := line - 1 + i
+		if srcIdx < 0 || srcIdx >= len(code) {
+			continue
 		}
+		l := code[srcIdx]
 		for _, m := range reCalleeFunc.FindAllStringSubmatch(l, -1) {
 			name := m[1]
 			if ctKeywords[name] || seen[name] {
@@ -181,7 +200,21 @@ func FindCallees(_ context.Context, file string, line int) ([]CalleeHit, error) 
 			result = append(result, CalleeHit{Name: name, CallLine: line + i})
 		}
 	}
-	return result, nil
+	return annotateCalleeKinds(result, root), nil
+}
+
+// annotateCalleeKinds は ctags 索引で分かる範囲の種別を付ける（候補は落とさない）。
+func annotateCalleeKinds(hits []CalleeHit, root string) []CalleeHit {
+	if root == "" || len(hits) == 0 || len(hits) > _calleeKindLookupMax || !CtagsIndexed(root) {
+		return hits
+	}
+	for i := range hits {
+		defs, err := CtagsFindDefinitions(hits[i].Name, root)
+		if err == nil && len(defs) > 0 {
+			hits[i].Kind = defs[0].Kind
+		}
+	}
+	return hits
 }
 
 // findContainingFunc は lines の callLine（1-indexed）から逆方向に
@@ -202,6 +235,14 @@ func findContainingFunc(lines []string, callLine int) (string, int) {
 			} else if ch == '{' {
 				depth--
 				if depth < 0 {
+					// インデントされた { は if/for/while 等の内側ブロック。
+					// 関数のオープンブレースは列0（`{` 単独行、または `void f(void) {`）
+					// なので、そうでなければ1段外に出たものとして走査を続ける。
+					// これを見落とすと、ブロック内の呼び出しが全て関数名を取れずに捨てられる。
+					if len(line) > 0 && (line[0] == ' ' || line[0] == '\t') {
+						depth = 0
+						continue
+					}
 					// この { が包含関数のオープンブレース
 					// この行とその前の数行から関数名を探す（行頭が空白でない行）
 					var structName string

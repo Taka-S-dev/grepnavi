@@ -1435,11 +1435,18 @@ func GtagsFindRefs(ctx context.Context, word, dir string) ([]CallSite, error) {
 	slog.Debug("gtags-find-refs raw hits", "word", word, "count", len(hits))
 	var results []CallSite
 	seen := map[string]bool{}
-	skippedNoFunc, skippedSelf, skippedDup := 0, 0, 0
+	code := codeOnlyCache{}
+	skippedNoFunc, skippedSelf, skippedDup, skippedComment := 0, 0, 0, 0
 	for _, h := range hits {
 		lines, lerr := CachedLines(h.File)
 		if lerr != nil {
 			slog.Debug("gtags-find-refs CachedLines error", "file", h.File, "err", lerr)
+			continue
+		}
+		// gtags の参照インデックスはコメント内の識別子も拾うため、
+		// コード部分に無い出現（説明文中の foo() など）は呼び出し元にしない
+		if !code.mentionsInCode(h.File, lines, h.Line, word) {
+			skippedComment++
 			continue
 		}
 		funcName, defLine := findContainingFunc(lines, h.Line)
@@ -1465,7 +1472,8 @@ func GtagsFindRefs(ctx context.Context, word, dir string) ([]CallSite, error) {
 		})
 	}
 	slog.Debug("gtags-find-refs result", "word", word, "results", len(results),
-		"skipped_no_func", skippedNoFunc, "skipped_self", skippedSelf, "skipped_dup", skippedDup)
+		"skipped_no_func", skippedNoFunc, "skipped_self", skippedSelf, "skipped_dup", skippedDup,
+		"skipped_comment", skippedComment)
 	_gtagsRefsCache.Store(cacheKey, results)
 	return results, nil
 }
