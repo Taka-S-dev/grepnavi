@@ -5,10 +5,12 @@
 
 // ----- state -----
 let _ctMode = 'callers'; // 'callers' | 'callees'
+let _ctShowMacros = localStorage.getItem('ct-show-macros') === '1';
 let _ctRootFunc = '';
 let _ctTree = null; // ルートノード（現在のモード）
 let _ctTrees = { callers: null, callees: null }; // タブごとにツリー状態を保持
 let _ctAbort = null; // 進行中の検索キャンセル用
+let _ctSelKey = '';  // 最後にジャンプした行（再描画をまたいで保持）
 
 // ノード形状:
 // { func, file, line, callLine, children: null|[], expanded: bool, loading: bool }
@@ -30,6 +32,9 @@ document.addEventListener('DOMContentLoaded', () => {
       <div id="ct-tabs">
         <button class="ct-tab active" data-mode="callers">Callers</button>
         <button class="ct-tab" data-mode="callees">Callees</button>
+        <span id="ct-tabs-spacer"></span>
+        <button id="ct-toggle-macros" title="マクロ（#define）の呼び出しを表示/非表示">マクロ</button>
+        <span id="ct-count"></span>
         <span id="ct-engine-label"></span>
       </div>
       <div id="ct-body"></div>
@@ -81,7 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
         _ctTree = null;
         _ctTrees.callers = null;
         _ctTrees.callees = null;
-        document.getElementById('ct-body').innerHTML = '';
+        ctRender();
       } else {
         closeCallTree();
       }
@@ -104,6 +109,20 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     };
   });
+
+  const macroBtn = document.getElementById('ct-toggle-macros');
+  const syncMacroBtn = () => {
+    macroBtn.classList.toggle('on', _ctShowMacros);
+    macroBtn.textContent = _ctShowMacros ? 'マクロ表示中' : 'マクロ';
+  };
+  syncMacroBtn();
+  updateCtEngineLabel(_ctMode);
+  macroBtn.onclick = () => {
+    _ctShowMacros = !_ctShowMacros;
+    localStorage.setItem('ct-show-macros', _ctShowMacros ? '1' : '0');
+    syncMacroBtn();
+    ctRender();
+  };
 
   // キーボードショートカット
   document.addEventListener('keydown', e => {
@@ -140,6 +159,25 @@ function updateCtEngineLabel(mode) {
   if (!label) return;
   const useGtags = mode === 'callers' && typeof gtagsAvailable === 'function' && gtagsAvailable();
   label.textContent = useGtags ? 'GNU Global' : 'ripgrep';
+  // 種別は callees でしか付かないので、callers ではトグル自体を出さない
+  const macroBtn = document.getElementById('ct-toggle-macros');
+  if (macroBtn) macroBtn.style.display = mode === 'callees' ? '' : 'none';
+}
+
+// 表示件数と打ち切りをタブ行に出す。件数が見えないと
+// 「マクロを隠して何件減ったか」も「上限で切られたか」も画面から読み取れない。
+function ctUpdateCount() {
+  const el = document.getElementById('ct-count');
+  if (!el) return;
+  if (!_ctTree || !_ctTree.children) { el.textContent = ''; el.title = ''; return; }
+  const total = _ctTree.children.length;
+  const shown = ctVisibleChildren(_ctTree).length;
+  el.textContent = (shown < total ? `${shown} / ${total}` : `${total}`) + (_ctTree.truncated ? '+ ⚠' : '');
+  el.title = [
+    shown < total ? `${total - shown} 件のマクロを非表示` : `${total} 件`,
+    _ctTree.truncated ? '検索上限に達したため、これで全部とは限りません' : '',
+  ].filter(Boolean).join('\n');
+  el.classList.toggle('truncated', !!_ctTree.truncated);
 }
 
 // ----- open / close -----
@@ -170,6 +208,7 @@ async function ctSearch() {
   if (word !== _ctRootFunc) {
     _ctTrees.callers = null;
     _ctTrees.callees = null;
+    _ctSelKey = '';
   }
   _ctRootFunc = word;
 
@@ -180,6 +219,9 @@ async function ctSearch() {
 
   const body = document.getElementById('ct-body');
   body.innerHTML = '<div class="ct-empty">検索中...</div>';
+  // 前回の件数が残ると新しい検索結果の件数と誤読される
+  _ctTree = null;
+  ctUpdateCount();
 
   const dir  = (document.getElementById('dir')  || {}).value || '';
   const glob = (document.getElementById('glob') || {}).value || '';
@@ -204,7 +246,8 @@ async function ctSearch() {
       }
       _ctTree = {
         func: word, file: '', line: 0,
-        children: hits.map(h => ({ func: h.func, file: h.file, line: h.line, callLine: h.call_line, indirect: h.indirect, children: null, expanded: false })),
+        children: hits.map(h => ({ func: h.func, file: h.file, line: h.line, callLine: h.call_line, indirect: h.indirect, text: h.text || '', children: null, expanded: false })),
+        truncated: res.headers.get('X-Truncated') === 'true',
         expanded: true,
       };
       _ctTrees.callers = _ctTree;
@@ -250,9 +293,15 @@ async function ctSearch() {
 }
 
 // ----- render -----
+// 直前に描いた行のファイル名。同じなら行番号だけにして、
+// ファイル名が出ている＝ここでファイルが変わる、という意味を持たせる。
+let _ctPrevFile = '';
+
 function ctRender() {
   const body = document.getElementById('ct-body');
   body.innerHTML = '';
+  _ctPrevFile = '';
+  ctUpdateCount();
   if (!_ctTree) return;
 
   // ガイド線ハイライト用オーバーレイ
@@ -301,9 +350,18 @@ function ctRender() {
   renderChildren(body, _ctTree, 1, new Set([_ctTree.func]));
 }
 
+// callees ではマクロが実処理と同じ重みで並び、本命の関数が埋もれる。
+// 既定では隠し、必要なときだけ出せるようにする（callers 側は種別を持たないので対象外）。
+function ctVisibleChildren(node) {
+  if (!node.children) return [];
+  if (_ctShowMacros || _ctMode !== 'callees') return node.children;
+  return node.children.filter(c => c.kind !== 'define');
+}
+
 function renderChildren(container, node, depth, ancestors) {
-  if (!node.children) return;
-  const shown = node.children.slice(0, 100);
+  const children = ctVisibleChildren(node);
+  if (children.length === 0) return;
+  const shown = children.slice(0, 100);
   for (const child of shown) {
     const isCycle = ancestors.has(child.func);
     container.appendChild(makeNodeEl(child, depth, isCycle));
@@ -313,11 +371,19 @@ function renderChildren(container, node, depth, ancestors) {
       renderChildren(container, child, depth + 1, nextAncestors);
     }
   }
-  if (node.children.length > 100) {
+  if (children.length > 100) {
     const more = document.createElement('div');
     more.className = 'ct-more';
-    more.textContent = `... 他 ${node.children.length - 100} 件`;
+    more.textContent = `... 他 ${children.length - 100} 件`;
     container.appendChild(more);
+  }
+  // ルート以外は件数ラベルに出ないので、打ち切りをその場に出す
+  if (node.truncated && depth > 1) {
+    const warn = document.createElement('div');
+    warn.className = 'ct-more truncated';
+    warn.textContent = '⚠ 検索上限で打ち切り';
+    warn.style.paddingLeft = (depth * 16 + 22) + 'px';
+    container.appendChild(warn);
   }
 }
 
@@ -331,12 +397,19 @@ function makeNodeEl(node, depth, isCycle = false) {
   indent.className = 'ct-indent';
   indent.style.width = (depth * 16) + 'px';
 
+  // 構造体メンバ = 関数ポインタ経由の呼び出し。実体はテキストからは決まらないので展開しない。
+  const isIndirect = node.indirect || node.kind === 'member';
+
   // expander
   const exp = document.createElement('span');
   exp.className = 'ct-expander';
   if (isCycle) {
     exp.textContent = '↻';
     exp.style.color = '#c08040';
+  } else if (isIndirect) {
+    exp.textContent = '·';
+    exp.title = '関数ポインタ経由: 実体はテキスト解析では特定できない';
+    exp.style.opacity = '0.4';
   } else {
     exp.textContent = node.expanded ? '▼' : '▶';
     if (node.loading) { exp.textContent = '…'; exp.classList.add('loading'); }
@@ -347,36 +420,70 @@ function makeNodeEl(node, depth, isCycle = false) {
   const fn = document.createElement('span');
   fn.className = _ctMode === 'callers' ? 'ct-func' : 'ct-callee-name';
   fn.textContent = node.func;
-  if (node.indirect) {
+  if (isIndirect) {
     fn.style.opacity = '0.6';
     const badge = document.createElement('span');
     badge.textContent = '(ptr)';
+    badge.title = '関数ポインタ経由の呼び出し';
+    badge.style.cssText = 'font-size:10px;opacity:0.5;margin-left:4px;font-family:monospace';
+    fn.appendChild(badge);
+  } else if (node.kind === 'define') {
+    // マクロは処理の本筋でないことが多いので、関数より弱く見せる
+    fn.style.opacity = '0.55';
+    const badge = document.createElement('span');
+    badge.textContent = '(macro)';
     badge.style.cssText = 'font-size:10px;opacity:0.5;margin-left:4px;font-family:monospace';
     fn.appendChild(badge);
   }
   if (isCycle) fn.style.opacity = '0.5';
-  else fn.onclick = () => ctJumpToFunc(node);
+  else fn.onclick = () => { ctSelect(node, el); ctJumpToFunc(node); };
+
+  // エディタ側を調べて戻ったとき、どのノードから来たかが残るようにする
+  el.dataset.key = ctNodeKey(node);
+  if (el.dataset.key === _ctSelKey) el.classList.add('sel');
 
   // location
   const loc = document.createElement('span');
   loc.className = 'ct-loc';
   const isCallees = _ctMode === 'callees';
   const locFile = isCallees ? (node.callFile || node.file) : node.file;
+  const jumpLine = isCallees
+    ? (node.callFile ? node.callLine : node.line)
+    : (node.callLine || node.line);
   if (locFile) {
-    const displayFile = shortFilePath(locFile);
-    const jumpLine = isCallees
-      ? (node.callFile ? node.callLine : node.line)
-      : (node.callLine || node.line);
-    loc.textContent = `${displayFile}:${jumpLine}`;
-    loc.title = node.kind ? `${locFile}:${jumpLine}  [${node.kind}]` : `${locFile}:${jumpLine}`;
-    loc.onclick = () => ctJumpToLine(locFile, jumpLine);
+    const sameFile = locFile === _ctPrevFile;
+    loc.textContent = sameFile ? `:${jumpLine}` : `${shortFilePath(locFile)}:${jumpLine}`;
+    loc.classList.toggle('samefile', sameFile);
+    _ctPrevFile = locFile;
+    loc.onclick = () => { ctSelect(node, el); ctJumpToLine(locFile, jumpLine); };
   }
+
+  // 呼び出し行のソースを行全体のツールチップに出す。
+  // 「その free_percpu はエラーパスか本流か」「なぜ ptr 扱いか」が
+  // ジャンプせずに判断できる（API は既に text を返している）。
+  const tip = [];
+  if (locFile) tip.push(node.kind ? `${locFile}:${jumpLine}  [${node.kind}]` : `${locFile}:${jumpLine}`);
+  if (node.text) tip.push(node.text.trim());
+  if (tip.length) el.title = tip.join('\n');
 
   el.appendChild(indent);
   el.appendChild(exp);
   el.appendChild(fn);
   if (locFile) el.appendChild(loc);
   return el;
+}
+
+// ----- selection -----
+// 同じ関数が複数箇所から呼ばれるので、名前だけでは行を一意にできない
+function ctNodeKey(node) {
+  return `${node.func}|${node.callFile || node.file}:${node.callLine || node.line}`;
+}
+
+function ctSelect(node, el) {
+  _ctSelKey = ctNodeKey(node);
+  const body = document.getElementById('ct-body');
+  body.querySelectorAll('.ct-node.sel').forEach(n => n.classList.remove('sel'));
+  el.classList.add('sel');
 }
 
 // ----- expand/collapse -----
@@ -407,7 +514,8 @@ async function ctToggle(node, el) {
     const res = await fetch('/api/callers?' + params).catch(() => null);
     if (res && res.ok) {
       const hits = await res.json();
-      node.children = hits.map(h => ({ func: h.func, file: h.file, line: h.line, callLine: h.call_line, indirect: h.indirect, children: null, expanded: false, _callerCached: true }));
+      node.truncated = res.headers.get('X-Truncated') === 'true';
+      node.children = hits.map(h => ({ func: h.func, file: h.file, line: h.line, callLine: h.call_line, indirect: h.indirect, text: h.text || '', children: null, expanded: false, _callerCached: true }));
     } else {
       node.children = [];
     }

@@ -1829,11 +1829,18 @@ async function openPeek(file, line, {permanent = false} = {}) {
     const wasActive = activeTabIdx === existIdx;
     const matchLine = parseInt(line) || 1;
     const previewChanged = permanent && tabs[existIdx].preview;
-    const lineChanged = !wasActive || monacoEditor.getPosition()?.lineNumber !== matchLine;
+    // ホイールスクロールはカーソルを動かさないので、位置比較だけだと
+    // 「一度ジャンプ → スクロールで離れる → 同じ行をもう一度クリック」が無反応になる。
+    // 実際に見えているかどうかで判定すれば、その復帰は効きつつ
+    // 下のダブルクリック連打（対象行は見えたまま）は従来どおり抑制できる。
+    const lineVisible = !!monacoEditor.getVisibleRanges?.().some(
+      r => matchLine >= r.startLineNumber && matchLine <= r.endLineNumber);
+    const lineChanged = !wasActive || !lineVisible
+      || monacoEditor.getPosition()?.lineNumber !== matchLine;
     if(permanent) tabs[existIdx].preview = false;
     tabs[existIdx].line = line;
     if(!wasActive) await switchTab(existIdx);
-    // 同じ行を表示中のままなら decoration / scroll / layout を再実行しない
+    // 同じ行を同じ位置に表示中のままなら decoration / scroll / layout を再実行しない
     // （エクスプローラのダブルクリックで click + click + dblclick が来た時に
     //  3 回スクロールが走って画面がブレるのを防ぐ）
     if(lineChanged) {

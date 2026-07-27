@@ -110,12 +110,20 @@ body.panel-mode #ct-close { display: none; }
   border-bottom: 1px solid #2a2a2a;
   flex-shrink: 0;
 }
+#ct-tabs-spacer { flex: 1; }
 #ct-engine-label {
-  margin-left: auto;
   padding: 0 8px;
   font-size: 10px;
   color: #666;
 }
+#ct-count {
+  padding: 0 2px 0 8px;
+  font-size: 10px;
+  color: #888;
+  font-family: monospace;
+  cursor: default;
+}
+#ct-count.truncated { color: #d7a35c; }
 .ct-tab {
   background: none;
   border: none;
@@ -128,6 +136,22 @@ body.panel-mode #ct-close { display: none; }
 }
 .ct-tab.active { color: #d4d4d4; border-bottom-color: #007acc; }
 .ct-tab:hover:not(.active) { color: #bbb; }
+
+/* マクロ表示トグル: タブと並ぶと3つ目のタブに見えるので、右側の
+   メタ情報（件数・エンジン名）側に寄せる。状態は下線ではなく枠と文字色で示す。 */
+#ct-toggle-macros {
+  margin-right: 4px;
+  background: none;
+  border: 1px solid #333;
+  border-radius: 3px;
+  color: #666;
+  padding: 2px 7px;
+  font-size: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#ct-toggle-macros:hover { color: #bbb; border-color: #444; }
+#ct-toggle-macros.on { color: #d4d4d4; border-color: #007acc; }
 
 #ct-body {
   flex: 1;
@@ -166,6 +190,9 @@ body.panel-mode #ct-close { display: none; }
   overflow: hidden;
 }
 .ct-node:hover { background: #2a2d2e; }
+/* 最後にジャンプした行。エディタ側を見て戻ったとき現在地を見失わないようにする。
+   :hover と同じ詳細度では負けるのでクラス2つ分で勝たせている。 */
+.ct-node.sel { background: #263239; box-shadow: inset 2px 0 0 #007acc; }
 
 .ct-indent {
   flex-shrink: 0;
@@ -203,19 +230,24 @@ body.panel-mode #ct-close { display: none; }
 }
 .ct-callee-name:hover { text-decoration: underline; }
 
+/* 位置は補助情報。#4ec9b0 は Monaco では型名の色で、意味が違ううえ
+   彩度が高くて関数名と注意を奪い合うため無彩色にしている。 */
 .ct-loc {
-  color: #4ec9b0;
-  margin-left: 4px;
+  color: #6b6b6b;
+  margin-left: 6px;
   font-size: 10px;
   cursor: pointer;
   overflow: hidden;
   text-overflow: ellipsis;
-  opacity: 0.8;
 }
-.ct-loc:hover { text-decoration: underline; }
+/* 直前の行と同じファイル = 行番号のみ。さらに落として、
+   ファイル名が出ている行（＝ファイルが切り替わる行）を目立たせる。 */
+.ct-loc.samefile { color: #555; }
+.ct-loc:hover { color: #9aa0a6; text-decoration: underline; }
 
 .ct-more {
   color: #444;
   padding: 3px 22px;
   font-size: 11px;
 }
+.ct-more.truncated { color: #8a6a3c; }
