@@ -18,6 +18,10 @@ import (
 // ツールチップにツール名やファイル名を一切出さない（document.title もミラーしない）。
 const windowTitle = ""
 
+// appIconResourceID は exe に埋め込んだアイコングループのリソース ID
+// （rsrc_windows_amd64.syso）。0 のままだと WebView2 窓は Windows 汎用アイコンになる。
+const appIconResourceID = 1
+
 // OpenWindow は url を埋め込み WebView2 で開き、閉じられるまでブロックする。
 // WebView2 はメインスレッドでメッセージループを回すため、メインスレッドから呼ぶこと。
 func OpenWindow(url string) error {
@@ -28,6 +32,7 @@ func OpenWindow(url string) error {
 			Width:  1400,
 			Height: 900,
 			Center: true,
+			IconId: appIconResourceID,
 		},
 	})
 	if w == nil {

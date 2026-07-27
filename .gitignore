@@ -23,6 +23,12 @@
 !desktop/**
 !proc/
 !proc/**
+!tools/
+!tools/**
+
+# アプリアイコン（tools/icongen が生成）と exe 埋め込み用リソース
+!static/favicon.ico
+!rsrc_windows_amd64.syso
 !static/
 !static/index.html
 !static/css/

@@ -12,8 +12,8 @@ import (
 	"fyne.io/systray"
 )
 
-//go:embed tray_icon.ico
-var trayIcon []byte
+//go:embed app_icon.ico
+var appIcon []byte
 
 // RunTray は grepnavi をトレイ常駐させる。サーバ（呼び出し側が起動済み）はバックグラウンドで
 // 動き続け、このプロセスはトレイに居座る。「開く」は同じ exe を -view <url> で別プロセス起動する
@@ -29,7 +29,7 @@ func RunTray(url string) error {
 	}
 
 	onReady := func() {
-		systray.SetIcon(trayIcon)
+		systray.SetIcon(appIcon)
 		systray.SetTooltip(windowTitle)
 		mOpen := systray.AddMenuItem("開く", "ウィンドウを開く")
 		systray.AddSeparator()

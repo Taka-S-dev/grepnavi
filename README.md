@@ -171,6 +171,18 @@ grepnavi/
 # ビルド
 go build .
 # → Windows: grepnavi.exe  Mac/Linux: grepnavi が生成されます
+
+# ウィンドウ版（コンソールなし・ダブルクリックでトレイ常駐）
+go build -ldflags "-H=windowsgui -X main.defaultTray=1" -o grepnaviw.exe .
+```
+
+アイコン（トレイ・exe・ウィンドウ・favicon で共用）は `rsrc_windows_amd64.syso` をリポジトリに含めているため、上記のビルドだけで exe に埋め込まれます。追加の手順は不要です。
+
+意匠を変更する場合のみ、原本である `tools/icongen` から再生成してください。
+
+```bash
+go run ./tools/icongen   # desktop/app_icon.ico と static/favicon.ico を再生成
+go run github.com/akavel/rsrc@latest -ico desktop/app_icon.ico -arch amd64 -o rsrc_windows_amd64.syso
 ```
 
 ### 起動
