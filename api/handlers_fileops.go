@@ -238,7 +238,9 @@ func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {
 		h.mu.RLock()
 		root := h.root
 		h.mu.RUnlock()
-		jsonOK(w, map[string]any{"root": root, "index": indexStatus(root)})
+		// graph は調査再開用のダイジェスト。これが無いと AI は root / graph_list /
+		// list_memos を別々に呼ぶことになるので、固定サイズの要約だけ同梱する。
+		jsonOK(w, map[string]any{"root": root, "index": indexStatus(root), "graph": h.store.GetDigest()})
 	case http.MethodPost:
 		var body struct {
 			Root string `json:"root"`

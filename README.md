@@ -324,6 +324,8 @@ AI に「`free_session()` の callers を 2 階層辿ってグラフに展開し
 
 ブリッジはソースコード read-only（memo / グラフのみ編集可）。grepnavi 側は外部プロセスからの API アクセスを許可するため `-mcp` フラグ付きで起動する。
 
+調査の進め方（どのツールをどの順で使うか、結果をどこまで信じてよいか）は [`mcp/skills/grepnavi/`](mcp/skills/grepnavi/) に Skill として分離してある。`cp -r mcp/skills/grepnavi ~/.claude/skills/` で有効化。入れなくても MCP 単体で動作する。
+
 ```bash
 cd mcp
 npm install

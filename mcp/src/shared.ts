@@ -42,6 +42,8 @@ export interface CallerTreeNode {
   line: number;
   call_line: number;
   indirect: boolean;
+  /** 呼び出し行のソース。これが無いと呼び出しの種類を判定するのに往復が要る。 */
+  text?: string;
   callers?: CallerTreeNode[];
   recursion_stopped?: "depth_limit" | "already_visited";
 }

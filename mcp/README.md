@@ -100,6 +100,31 @@ npm run build
 }
 ```
 
+### Skill (Claude Code / 任意)
+
+ツールの説明文は「そのツールが何をするか」までで、**どのツールをどの順で使うか・結果をどこまで信じてよいか**は
+[`mcp/skills/grepnavi/`](skills/grepnavi/) に Skill として分離してある。ツール定義は全リクエストに載るが、
+Skill は調査タスクのときだけロードされるので、常時コストを払わずに指南を厚くできる。
+
+```bash
+# リポジトリ直下で実行（Windows は Git Bash）
+cp -r mcp/skills/grepnavi ~/.claude/skills/
+```
+
+grepnavi は**他のリポジトリを調べる道具**なので、リポジトリスコープではなくユーザスコープ (`~/.claude/skills/`) に置く。
+入れなくても MCP は動作する (ツール説明文だけで完結する)。
+
+| ファイル | ロードされるタイミング |
+|---|---|
+| `SKILL.md` frontmatter (≒110 tokens) | 常時 |
+| `SKILL.md` 本体 (≒1,300 tokens) | 調査タスクと判断されたとき |
+| `references/workflows.md` — 要求→ツール連鎖のレシピ | 本体から必要に応じて |
+| `references/accuracy.md` — エンジンの限界・信頼度の読み方 | 同上 |
+| `references/graph-protocol.md` — グラフ/メモの書き方 | 同上 |
+
+Copilot 等 Skill 非対応のクライアントでは、同じ内容を `AGENTS.md` や
+`.github/copilot-instructions.md` に貼っても使える (素のマークダウンなので変換不要)。
+
 ## 使い方
 
 ### 基本フロー

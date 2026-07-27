@@ -7,6 +7,27 @@
 
 import { randomBytes } from "node:crypto";
 
+/** /api/root が返す調査ダイジェスト。前回の続きを1コールで把握するためのもの。 */
+export interface GraphDigest {
+  tree: string;
+  description?: string;
+  trees: number;
+  nodes: number;
+  unverified: number;
+  line_memos: number;
+  range_memos: number;
+  roots?: Array<{
+    id: string;
+    label: string;
+    file?: string;
+    line?: number;
+    memo?: string;
+    children?: number;
+  }>;
+  /** 起点を打ち切ったときだけ入る総数。あること自体が「全部ではない」の合図。 */
+  roots_total?: number;
+}
+
 export interface DefHit {
   file: string;
   line: number;
@@ -25,6 +46,8 @@ export interface CallSite {
   line: number;
   call_line: number;
   indirect: boolean;
+  /** 呼び出し行のソース (/api/callers が返す)。 */
+  text?: string;
 }
 
 export interface SearchMatch {
@@ -223,9 +246,9 @@ export class GrepnaviClient {
     }
   }
 
-  async root(): Promise<{ root: string }> {
+  async root(): Promise<{ root: string; index?: unknown; graph?: GraphDigest }> {
     const r = await this.req("/api/root");
-    return (await r.json()) as { root: string };
+    return (await r.json()) as { root: string; index?: unknown; graph?: GraphDigest };
   }
 
   // 相対パスを grepnavi root と join して絶対化する。Windows / POSIX どちらの root でも

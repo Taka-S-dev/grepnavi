@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -31,8 +33,8 @@ type Store struct {
 	mu        sync.RWMutex
 	pf        *ProjectFile
 	filePath  string
-	saveCh    chan saveJob     // バックグラウンド書き込みキュー（最新1件のみ保持）
-	undoStack []undoSnapshot   // アンドゥ履歴（メモリのみ、永続化しない）
+	saveCh    chan saveJob   // バックグラウンド書き込みキュー（最新1件のみ保持）
+	undoStack []undoSnapshot // アンドゥ履歴（メモリのみ、永続化しない）
 }
 
 func NewStore(filePath, rootDir string) *Store {
@@ -243,6 +245,118 @@ func (s *Store) GetGraphResponse() *GraphResponse {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.buildResponse(s.activeTree())
+}
+
+// ===== 調査ダイジェスト =====
+
+const (
+	_digestMaxRoots   = 10  // 起点ノードの表示上限
+	_digestMaxMemoLen = 120 // メモの切り詰め長
+)
+
+// DigestNode は Digest に載せる起点ノード1件。
+type DigestNode struct {
+	ID       string `json:"id"`
+	Label    string `json:"label"`
+	File     string `json:"file,omitempty"`
+	Line     int    `json:"line,omitempty"`
+	Memo     string `json:"memo,omitempty"`
+	Children int    `json:"children,omitempty"`
+}
+
+// Digest は調査の要約。セッションをまたいで再開するときに
+// 「何を調べていて、どこまで確認済みか」を1回の応答で分かるようにするためのもの。
+// 全ノードを返すグラフ取得とは別物で、上限を付けた固定サイズに保つ。
+type Digest struct {
+	Tree        string       `json:"tree"`
+	Description string       `json:"description,omitempty"`
+	Trees       int          `json:"trees"`
+	Nodes       int          `json:"nodes"`
+	Unverified  int          `json:"unverified"` // 未確認タグ付きメモの数
+	LineMemos   int          `json:"line_memos"`
+	RangeMemos  int          `json:"range_memos"`
+	Roots       []DigestNode `json:"roots,omitempty"`
+	// RootsTotal は Roots を打ち切ったときだけ入る起点の総数。
+	// 値があること自体が「これで全部ではない」の合図になる。
+	RootsTotal int `json:"roots_total,omitempty"`
+}
+
+// 未確認を表すタグ。client 側で自動付与されるものと同じ集合。
+var _unverifiedTags = []string{"[未確認]", "[未読]", "[推測]", "[unverified]", "[inferred]"}
+
+func isUnverifiedMemo(memo string) bool {
+	t := strings.TrimSpace(memo)
+	for _, tag := range _unverifiedTags {
+		if len(t) >= len(tag) && strings.EqualFold(t[:len(tag)], tag) {
+			return true
+		}
+	}
+	return false
+}
+
+func truncateMemo(memo string) string {
+	m := strings.TrimSpace(memo)
+	r := []rune(m)
+	if len(r) <= _digestMaxMemoLen {
+		return m
+	}
+	return string(r[:_digestMaxMemoLen]) + "…"
+}
+
+// GetDigest はアクティブツリーの要約を返す。
+func (s *Store) GetDigest() Digest {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	t := s.activeTree()
+	d := Digest{
+		Tree:        t.Name,
+		Description: s.pf.Description,
+		Trees:       len(s.pf.Trees),
+		Nodes:       len(t.Nodes),
+		LineMemos:   len(s.pf.LineMemos),
+		RangeMemos:  len(s.pf.RangeMemos),
+	}
+	for _, n := range t.Nodes {
+		if isUnverifiedMemo(n.Memo) {
+			d.Unverified++
+		}
+	}
+	// 起点は RootOrder の順（map の反復順はランダムなので、これがないと
+	// 同じグラフでも呼ぶたび並びが変わる）。RootOrder が空のこともあるので、その場合は親を持たないノードから組み立てる。
+	order := t.RootOrder
+	if len(order) == 0 {
+		child := map[string]bool{}
+		for _, n := range t.Nodes {
+			for _, c := range n.Children {
+				child[c] = true
+			}
+		}
+		for id := range t.Nodes {
+			if !child[id] {
+				order = append(order, id)
+			}
+		}
+		sort.Strings(order)
+	}
+	for _, id := range order {
+		if len(d.Roots) >= _digestMaxRoots {
+			d.RootsTotal = len(order)
+			break
+		}
+		n := t.Nodes[id]
+		if n == nil {
+			continue
+		}
+		d.Roots = append(d.Roots, DigestNode{
+			ID:       n.ID,
+			Label:    n.Label,
+			File:     n.Match.File,
+			Line:     n.Match.Line,
+			Memo:     truncateMemo(n.Memo),
+			Children: len(n.Children),
+		})
+	}
+	return d
 }
 
 func (s *Store) SetRootDir(root string) {

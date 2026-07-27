@@ -180,6 +180,7 @@ export async function callersTree(args: {
       line: s.line,
       call_line: s.call_line,
       indirect: s.indirect,
+      text: s.text,
     }));
     if (level >= maxDepth) {
       for (const n of nodes) n.recursion_stopped = "depth_limit";
