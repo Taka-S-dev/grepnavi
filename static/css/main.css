@@ -429,6 +429,8 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .node-row.sel .node-label{color:#fff}
 .node-sub{color:#888;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;margin-top:1px}
 #tree.hide-sub .node-sub{display:none}
+/* 現在のルート外のノード。見比べる用途は許すので禁止色ではなく識別色にする。 */
+.node-foreign{margin-left:5px;padding:0 4px;border-radius:2px;background:#4a3a20;color:#e0b070;font-size:9px;vertical-align:1px}
 .node-ifdef{color:#3a9a80;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
 .node-badge{display:inline-flex;align-items:center;justify-content:center;min-width:10px;height:10px;border-radius:5px;padding:0 4px;font-size:10px;font-weight:bold;color:#fff;flex-shrink:0;align-self:center;line-height:1;white-space:nowrap}
 .badge-swatch{display:inline-block;width:16px;height:16px;border-radius:4px;cursor:pointer;flex-shrink:0}
@@ -557,6 +559,8 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 #btn-project-menu{background:transparent;border:1px solid #4a4a4a;color:#999;font-size:11px;padding:2px 7px;border-radius:3px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:3px}
 #btn-project-menu:hover{background:#3c3c3c;border-color:#666;color:#ccc}
 #btn-project-menu #project-name{overflow:hidden;text-overflow:ellipsis;max-width:110px;display:inline-block;vertical-align:middle}
+/* 保存先が無い状態だけ色で示す。自動保存されている状態は警告ではない。 */
+#btn-project-menu #project-name.project-unsaved{color:#d7a35c}
 #project-menu{
   /* position:fixed で祖先（#pane-tree / #pane-right）の overflow:hidden に
      クリップされないようにする。top/right は開いたときに JS でボタン位置から設定。 */
@@ -566,6 +570,12 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
   max-height:calc(100vh - 56px);overflow-y:auto;
 }
 #project-menu.open{display:block}
+/* 現在どのファイルを編集しているかをメニューの先頭に出す。
+   ボタンはファイル名しか入らないので、フルパスと保存状態はここで示す。 */
+#pmenu-status{padding:8px 12px 7px;cursor:default;max-width:340px;user-select:text;-webkit-user-select:text}
+#pmenu-status-path{font-size:11px;color:#ccc;font-family:monospace;word-break:break-all;line-height:1.4}
+#pmenu-status-detail{font-size:10px;color:#888;margin-top:3px;line-height:1.4}
+#pmenu-status-detail.pmenu-unsaved{color:#d7a35c}
 .pmenu-item{padding:6px 12px;font-size:12px;color:#ccc;cursor:pointer;display:flex;justify-content:space-between;align-items:center;white-space:nowrap}
 .pmenu-item:hover{background:#094771;color:#fff}
 .pmenu-hint{color:#666;font-size:10px}

@@ -127,6 +127,17 @@ function highlightMatch(text, query) {
 
 // ===== ルート設定 =====
 async function setRoot(newRoot) {
+  // ルートを変えてもグラフは残る。これが linux の調査に openssl のノードが
+  // 混ざる経路なので、混ざる直前に一度だけ知らせる。
+  // （.grepnavi がある場合は下でプロジェクトごと切り替わるため、この時点では判定できない）
+  const willBeForeign = countForeignNodes(newRoot);
+  if(willBeForeign > 0) {
+    const keep = await showConfirm(
+      `現在のグラフの ${willBeForeign} 件のノードが、新しいルートの外になります。\n` +
+      `そのまま残しますか？（ルート外のノードには印が付きます）\n\n` +
+      `キャンセルするとルートを変更しません。`);
+    if(!keep) return false;
+  }
   const r = await fetch('/api/root', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
@@ -356,7 +367,15 @@ function initColResizer() {
 
 // ===== プロジェクト保存/開く =====
 let _dirty = false;
-function markDirty() { _dirty = true;  updateProjectUI(); }
+// 名前を付けずに調べ始めたことを一度だけ知らせる。起動時は毎回空から始まるので、
+// 保存しなければ次回は残らない。毎回出すと通知として無視されるので初回のみ。
+let _noticedUnnamed = false;
+function noticeUnnamedOnce() {
+  if(_noticedUnnamed || getProjectPath()) return;
+  _noticedUnnamed = true;
+  if(typeof st === 'function') st('保存先が未指定です。Ctrl+S で保存すると次回も開けます');
+}
+function markDirty() { _dirty = true;  noticeUnnamedOnce(); updateProjectUI(); }
 function markClean() { _dirty = false; updateProjectUI(); }
 
 // グラフ・ツリーを変更する API 呼び出しで自動的に dirty にする
@@ -505,19 +524,127 @@ function initGlobPicker() {
     else if(e.key === 'Escape') { drop.classList.remove('open'); }
   });
 }
+// グラフはサーバが変更のたびに作業ファイル（-graph、既定 graph.json）へ
+// 自動保存し、起動時に読み直す。名前を付けて保存していない状態でもデータは失われない。
+// 旧表示の「無題 (graph.json)」は「まだ何も保存されていない」と読めてしまい、
+// 実際には前回の続きが読み込まれているのに、それが伝わらなかった。
+// 保存状態は3つあり、旧 UI は下2つを同じ「無題 (graph.json)」で表示していた。
+// 片方は自動保存済みで安全、もう片方は保存先が無く閉じると消える。
+//   named    名前を付けて保存したファイルがある
+//   working  サーバの作業ファイル（-graph、既定 graph.json）に自動保存される
+//   unsaved  新規 JSON 直後・ルート切替直後。保存先が無く、書き込まれない
+// ===== 前回の作業の復元 =====
+// 起動時は必ず空のグラフから始める（名前を付けなければ一時的、というルールを一本にする）。
+// 前回の内容は復元ファイルへ退避されているので、戻る手段だけメニューに出す。
+let _recoverInfo = null;
+
+async function refreshRecoverItem() {
+  const item = id('pmenu-recover');
+  if(!item) return;
+  try {
+    const r = await fetch('/api/root');
+    const d = await r.json();
+    _recoverInfo = d.recover || null;
+  } catch(_) { _recoverInfo = null; }
+  if(_recoverInfo) {
+    item.textContent = `前回の作業を復元 (${_recoverInfo.nodes} ノード)`;
+    item.title = _recoverInfo.path;
+    item.style.display = '';
+  } else {
+    item.style.display = 'none';
+  }
+}
+
+async function restorePreviousWork() {
+  if(!_recoverInfo) return;
+  if(Object.keys(graph.nodes || {}).length > 0) {
+    const ok = await showConfirm(
+      `現在のグラフを、前回の作業 (${_recoverInfo.nodes} ノード) で置き換えます。よろしいですか？`);
+    if(!ok) return;
+  }
+  const r = await fetch('/api/graph/recover', {method: 'POST'}).catch(() => null);
+  const d = r && r.ok ? await r.json() : null;
+  if(!d || d.error) { st('復元できませんでした'); return; }
+  selNode = null; showDetail(null);
+  applyGraphResponse(d);
+  markClean();
+  await refreshRecoverItem();
+  st(`前回の作業を復元しました (${Object.keys(d.nodes || {}).length} ノード)`);
+}
+
+// 現在のグラフに、いまのルートの外を指すノードが何件あるか。
+function countForeignNodes(root) {
+  const r = root !== undefined ? root : projectRoot;
+  if(!r || !graph || !graph.nodes) return 0;
+  return Object.values(graph.nodes)
+    .filter(n => foreignRootName((n.match || {}).file || '', r)).length;
+}
+
+function saveStateOf(projectPath, serverPath) {
+  if(projectPath) return {kind: 'named', path: projectPath};
+  if(serverPath)  return {kind: 'working', path: serverPath};
+  return {kind: 'unsaved', path: ''};
+}
+
+function projectSaveState() {
+  return saveStateOf(getProjectPath(), window._serverGraphFile || '');
+}
+
 function updateProjectUI() {
-  const p = getProjectPath();
+  const st = projectSaveState();
   const el = id('project-name');
   if(!el) return;
-  const serverFile = window._serverGraphFile
-    ? window._serverGraphFile.replace(/\\/g, '/').split('/').pop()
-    : 'graph.json';
-  const base = p ? p.replace(/\\/g, '/').split('/').pop() : `無題 (${serverFile})`;
-  const name = _dirty ? '* ' + base : base;
-  el.textContent = name;
-  el.title = p || window._serverGraphFile || '';
+  const base = st.path ? st.path.replace(/\\/g, '/').split('/').pop() : '';
+
+  // * は「保存すべき変更がある」ことだけに使う。作業ファイルは自動保存される
+  // ので、そこで * を出すと消える危険があるように見えてしまう。
+  if(st.kind === 'named') {
+    el.textContent = (_dirty ? '* ' : '') + base;
+    el.title = st.path + (_dirty ? '\n未保存の変更があります (Ctrl+S)' : '\n保存済み');
+  } else if(st.kind === 'working') {
+    el.textContent = base;
+    el.title = st.path + '\n変更するたび自動保存されます';
+  } else {
+    el.textContent = '未保存';
+    el.title = '保存先が決まっていません。閉じるとグラフは失われます (Ctrl+S)';
+  }
+  el.classList.toggle('project-unsaved', st.kind === 'unsaved');
+
+  // 保存は名前が無くても動く（保存先を尋ねるダイアログが開く）。
+  // 灰色にすると押せないように見えるだけで、実際の挙動と食い違っていた。
   const saveItem = id('pmenu-save');
-  if(saveItem) saveItem.style.color = p ? '' : '#666';
+  if(saveItem) {
+    saveItem.style.color = '';
+    saveItem.firstChild.nodeValue = st.kind === 'named' ? '保存 ' : '保存… ';
+  }
+  updateProjectStatus(st);
+}
+
+// メニュー先頭に「今どのファイルを編集していて、どう保存されるか」を出す。
+// ボタンにはファイル名しか入らず、フルパスはホバーしないと見えなかった。
+function updateProjectStatus(st) {
+  const pathEl = id('pmenu-status-path');
+  const detailEl = id('pmenu-status-detail');
+  if(!pathEl || !detailEl) return;
+
+  pathEl.textContent = st.path || '保存先が決まっていません';
+  const nodes = (graph && graph.nodes) ? Object.values(graph.nodes) : [];
+  const detail = [`${nodes.length} ノード`];
+  // 別ツリーのノードが混ざっていることに気づけるようにする。
+  // 見比べる使い方は正当なので止めないが、黙って混ざるのは事故。
+  const foreign = countForeignNodes();
+  if(foreign) detail.push(`ルート外 ${foreign} 件`);
+  if(st.kind === 'named') {
+    detail.push(_dirty ? '未保存の変更あり — Ctrl+S で保存' : '保存済み');
+  } else if(st.kind === 'working') {
+    detail.push('変更するたび自動保存されます');
+  } else {
+    detail.push('閉じると失われます — Ctrl+S で保存先を指定');
+  }
+  detailEl.textContent = detail.join(' · ');
+  // 注意が要る状態だけ色を付ける。常時色付きだと警告として機能しない。
+  const warn = st.kind === 'unsaved' || (st.kind === 'named' && _dirty) || foreign > 0;
+  detailEl.classList.toggle('pmenu-unsaved', warn);
 }
 
 function showProjectModal(mode) {
@@ -765,3 +892,5 @@ async function saveProjectFileCurrent() {
 }
 
 // ファイルブラウザは filebrowser.js 参照
+
+if (typeof module !== "undefined") module.exports = { saveStateOf };

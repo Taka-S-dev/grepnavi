@@ -85,20 +85,20 @@ func (h *Handler) handleNodeByID(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPut:
 		var req struct {
-			Label       *string             `json:"label"`
-			Memo        *string             `json:"memo"`
-			Tags        []string            `json:"tags"`
-			PosX        *float64            `json:"pos_x"`
-			PosY        *float64            `json:"pos_y"`
-			Expanded    *bool               `json:"expanded"`
-			Children    []string            `json:"children"`
-			BadgeColor  *string             `json:"badge_color"`
-			BadgeText   *string             `json:"badge_text"`
-			Line        *int                `json:"line"` // Match.Line を手動補正するための後付けフィールド
-			DefOverride *graph.DefOverride  `json:"def_override"` // null 明示で解除、未指定で据え置き
-			ClearDefOverride bool            `json:"clear_def_override"` // true で override を消す
-			Def         *graph.DefRef       `json:"def"`          // frontend resolveNodeDef の解決結果キャッシュ
-			ClearDef    bool                `json:"clear_def"`    // true で def cache を消す
+			Label            *string            `json:"label"`
+			Memo             *string            `json:"memo"`
+			Tags             []string           `json:"tags"`
+			PosX             *float64           `json:"pos_x"`
+			PosY             *float64           `json:"pos_y"`
+			Expanded         *bool              `json:"expanded"`
+			Children         []string           `json:"children"`
+			BadgeColor       *string            `json:"badge_color"`
+			BadgeText        *string            `json:"badge_text"`
+			Line             *int               `json:"line"`               // Match.Line を手動補正するための後付けフィールド
+			DefOverride      *graph.DefOverride `json:"def_override"`       // null 明示で解除、未指定で据え置き
+			ClearDefOverride bool               `json:"clear_def_override"` // true で override を消す
+			Def              *graph.DefRef      `json:"def"`                // frontend resolveNodeDef の解決結果キャッシュ
+			ClearDef         bool               `json:"clear_def"`          // true で def cache を消す
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			jsonErr(w, err.Error(), http.StatusBadRequest)
@@ -595,6 +595,22 @@ func (h *Handler) handleGraphSaveAs(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- /api/graph/openfile ---
+
+// handleGraphRecover は退避しておいた前回の作業を読み込む。
+// 保存先は作業ファイルのままなので、復元しても「名前を付けていない」状態は変わらない。
+func (h *Handler) handleGraphRecover(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	g, err := h.store.RestoreRecover()
+	if err != nil {
+		jsonErr(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	h.events.Publish("graph.updated", map[string]interface{}{})
+	jsonOK(w, g)
+}
 
 func (h *Handler) handleGraphOpenFile(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {

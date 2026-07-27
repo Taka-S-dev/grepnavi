@@ -1099,6 +1099,16 @@ function makeNodeBody(node, m) {
     if (e.ctrlKey || e.metaKey) openFile(m.file, m.line);
   };
   sub.appendChild(subLink);
+  // 別ツリーのノード。グラフは root を切り替えても残るので、linux の調査に
+  // openssl のノードが混ざりうる。見比べる使い方は許すが、出自は必ず見せる。
+  const foreign = foreignRootName(m.file || "", projectRoot);
+  if (foreign) {
+    const chip = document.createElement("span");
+    chip.className = "node-foreign";
+    chip.textContent = foreign;
+    chip.title = "現在のルートの外です\n" + (m.file || "");
+    sub.appendChild(chip);
+  }
   const ifdefText = (m.ifdef_stack || [])
     .map((f) => "#" + f.directive + " " + f.condition)
     .join(" > ");

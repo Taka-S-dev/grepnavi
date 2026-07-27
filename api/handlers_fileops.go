@@ -240,7 +240,13 @@ func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {
 		h.mu.RUnlock()
 		// graph は調査再開用のダイジェスト。これが無いと AI は root / graph_list /
 		// list_memos を別々に呼ぶことになるので、固定サイズの要約だけ同梱する。
-		jsonOK(w, map[string]any{"root": root, "index": indexStatus(root), "graph": h.store.GetDigest()})
+		resp := map[string]any{"root": root, "index": indexStatus(root), "graph": h.store.GetDigest(root)}
+		// 前回の作業を退避したファイルがあれば「復元できる」ことを伝える。
+		// 起動時は必ず空から始めるので、これが無いと前回分に戻る手段が見えない。
+		if rec := h.store.Recover(); rec != nil {
+			resp["recover"] = rec
+		}
+		jsonOK(w, resp)
 	case http.MethodPost:
 		var body struct {
 			Root string `json:"root"`
@@ -598,7 +604,8 @@ func (h *Handler) handleNewWindow(w http.ResponseWriter, r *http.Request) {
 	h.mu.RUnlock()
 
 	graphPath := filepath.Join(filepath.Dir(exe), fmt.Sprintf("graph-%d.json", port))
-	cmd := proc.Command(exe, "-port", strconv.Itoa(port), "-root", root, "-graph", graphPath, "-no-browser")
+	// 新しいウィンドウは常に空のグラフで開く（前回分は復元ファイルへ退避される）
+	cmd := proc.Command(exe, "-port", strconv.Itoa(port), "-root", root, "-graph", graphPath, "-reset-graph", "-no-browser")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {

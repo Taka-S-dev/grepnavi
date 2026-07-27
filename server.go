@@ -10,8 +10,13 @@ import (
 	"grepnavi/graph"
 )
 
-func newServer(root string, rootExplicit bool, graphFile, addr string, debug, mcpEnabled bool) *http.Server {
-	store := graph.NewStore(graphFile, root)
+func newServer(root string, rootExplicit bool, graphFile string, graphExplicit bool, addr string, debug, mcpEnabled bool) *http.Server {
+	var store *graph.Store
+	if graphExplicit {
+		store = graph.NewStore(graphFile, root)
+	} else {
+		store = graph.NewWorkingStore(graphFile, root)
+	}
 
 	// -root フラグが明示されていない場合のみ、保存済みの root_dir を優先する
 	effectiveRoot := root

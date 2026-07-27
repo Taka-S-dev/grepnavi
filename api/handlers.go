@@ -54,6 +54,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/graph/clear", h.handleGraphClear)
 	mux.HandleFunc("/api/graph/saveas", h.handleGraphSaveAs)
 	mux.HandleFunc("/api/graph/openfile", h.handleGraphOpenFile)
+	mux.HandleFunc("/api/graph/recover", h.handleGraphRecover)
 	mux.HandleFunc("/api/graph/memos", h.handleGraphMemos)
 	mux.HandleFunc("/api/graph/description", h.handleGraphDescription)
 	mux.HandleFunc("/api/graph/descriptions", h.handleGraphDescriptions)
@@ -113,13 +114,13 @@ func (h *Handler) handleMemStats(w http.ResponseWriter, r *http.Request) {
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
 	jsonOK(w, map[string]uint64{
-		"HeapAlloc":   ms.HeapAlloc,
-		"HeapInuse":   ms.HeapInuse,
-		"HeapSys":     ms.HeapSys,
-		"HeapIdle":    ms.HeapIdle,
+		"HeapAlloc":    ms.HeapAlloc,
+		"HeapInuse":    ms.HeapInuse,
+		"HeapSys":      ms.HeapSys,
+		"HeapIdle":     ms.HeapIdle,
 		"HeapReleased": ms.HeapReleased,
-		"Sys":         ms.Sys,
-		"NumGC":       uint64(ms.NumGC),
+		"Sys":          ms.Sys,
+		"NumGC":        uint64(ms.NumGC),
 	})
 }
 

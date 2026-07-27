@@ -3,6 +3,7 @@ package graph
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"sort"
 	"strings"
@@ -34,15 +35,50 @@ type Store struct {
 	pf        *ProjectFile
 	filePath  string
 	saveCh    chan saveJob   // バックグラウンド書き込みキュー（最新1件のみ保持）
+	saveDone  chan struct{}  // saveLoop 終了の合図
+	closed    bool           // Close 済み。以降 saveCh へ送らない
 	undoStack []undoSnapshot // アンドゥ履歴（メモリのみ、永続化しない）
 }
 
+// Close は保存キューを閉じ、書き込み中のジョブが終わるまで待つ。
+// 書き込みは非同期なので、待たずに保存先ディレクトリを消すと
+// （テストの t.TempDir の後始末など）削除と書き込みが競合する。
+func (s *Store) Close() {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return
+	}
+	s.closed = true
+	s.mu.Unlock()
+	close(s.saveCh)
+	<-s.saveDone
+}
+
 func NewStore(filePath, rootDir string) *Store {
+	return newStore(filePath, rootDir, false)
+}
+
+// NewWorkingStore は作業ファイル用のストアを作る。
+//
+// 前回の内容をそのまま読み込むと「名前を付けて保存したものを開いている」ように
+// 見えてしまう。名前を付けなければ一時的、というルールを一本にするため、
+// 起動時は必ず空から始め、前回の内容は復元ファイルへ退避しておく。
+// （-graph を明示したときは利用者が名前を付けたのと同じなので NewStore を使う）
+func NewWorkingStore(filePath, rootDir string) *Store {
+	return newStore(filePath, rootDir, true)
+}
+
+func newStore(filePath, rootDir string, fresh bool) *Store {
 	s := &Store{
 		filePath: filePath,
 		saveCh:   make(chan saveJob, 1),
+		saveDone: make(chan struct{}),
 	}
-	if pf, err := loadProjectFile(filePath); err == nil {
+	if fresh {
+		rotateToRecover(filePath)
+		s.pf = NewProjectFile(rootDir)
+	} else if pf, err := loadProjectFile(filePath); err == nil {
 		s.pf = pf
 	} else {
 		s.pf = NewProjectFile(rootDir)
@@ -51,9 +87,92 @@ func NewStore(filePath, rootDir string) *Store {
 	return s
 }
 
+// RecoverPath は作業ファイルの退避先。graph.json → graph.recover.json
+func RecoverPath(filePath string) string {
+	if filePath == "" {
+		return ""
+	}
+	return strings.TrimSuffix(filePath, ".json") + ".recover.json"
+}
+
+// rotateToRecover は中身のある作業ファイルを復元ファイルへリネームする。
+// 空（ノード0件）なら復元する価値がないので、古い復元ファイルを残したまま消す。
+func rotateToRecover(filePath string) {
+	if filePath == "" {
+		return
+	}
+	pf, err := loadProjectFile(filePath)
+	if err != nil {
+		return // 無い / 壊れている → 退避するものが無い
+	}
+	if countNodes(pf) == 0 {
+		_ = os.Remove(filePath)
+		return
+	}
+	rp := RecoverPath(filePath)
+	_ = os.Remove(rp) // Rename は既存ファイルがあると Windows で失敗する
+	if err := os.Rename(filePath, rp); err != nil {
+		slog.Warn("failed to rotate working graph", "path", filePath, "err", err)
+	}
+}
+
+func countNodes(pf *ProjectFile) int {
+	n := 0
+	for _, t := range pf.Trees {
+		if t != nil {
+			n += len(t.Nodes)
+		}
+	}
+	return n
+}
+
+// RecoverInfo は復元ファイルの有無と規模。無ければ nil。
+type RecoverInfo struct {
+	Path  string `json:"path"`
+	Nodes int    `json:"nodes"`
+}
+
+// Recover は今の作業ファイルに対応する復元ファイルの情報を返す。
+func (s *Store) Recover() *RecoverInfo {
+	s.mu.RLock()
+	rp := RecoverPath(s.filePath)
+	s.mu.RUnlock()
+	if rp == "" {
+		return nil
+	}
+	pf, err := loadProjectFile(rp)
+	if err != nil {
+		return nil
+	}
+	n := countNodes(pf)
+	if n == 0 {
+		return nil
+	}
+	return &RecoverInfo{Path: rp, Nodes: n}
+}
+
+// RestoreRecover は復元ファイルの内容を読み込む。保存先は作業ファイルのまま変えない
+// （復元しても「名前を付けていない」状態は維持する）。
+func (s *Store) RestoreRecover() (*GraphResponse, error) {
+	rp := RecoverPath(s.filePath)
+	pf, err := loadProjectFile(rp)
+	if err != nil {
+		return nil, fmt.Errorf("復元できるデータがありません: %w", err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pf = pf
+	s.undoStack = nil
+	if err := s.save(); err != nil {
+		return nil, err
+	}
+	return s.buildResponse(s.activeTree()), nil
+}
+
 // saveLoop はバックグラウンドでディスク書き込みを処理する。
 // ミューテックスを保持せずに I/O を行うことで、書き込み競合によるロック詰まりを防ぐ。
 func (s *Store) saveLoop() {
+	defer close(s.saveDone)
 	for job := range s.saveCh {
 		if job.path == "" {
 			continue // 保存先未確定（新規 / 未保存グラフ）は書き込まない
@@ -97,6 +216,9 @@ func loadProjectFile(path string) (*ProjectFile, error) {
 // 実際のディスク書き込みは saveLoop で行われるため、この関数はブロックしない。
 // 連続して呼ばれた場合は最新の1件のみが書き込まれる（中間状態は破棄）。
 func (s *Store) save() error {
+	if s.closed {
+		return nil
+	}
 	s.pf.UpdatedAt = time.Now()
 	data, err := json.MarshalIndent(s.pf, "", "  ")
 	if err != nil {
@@ -268,13 +390,16 @@ type DigestNode struct {
 // 「何を調べていて、どこまで確認済みか」を1回の応答で分かるようにするためのもの。
 // 全ノードを返すグラフ取得とは別物で、上限を付けた固定サイズに保つ。
 type Digest struct {
-	Tree        string       `json:"tree"`
-	Description string       `json:"description,omitempty"`
-	Trees       int          `json:"trees"`
-	Nodes       int          `json:"nodes"`
-	Unverified  int          `json:"unverified"` // 未確認タグ付きメモの数
-	LineMemos   int          `json:"line_memos"`
-	RangeMemos  int          `json:"range_memos"`
+	Tree        string `json:"tree"`
+	Description string `json:"description,omitempty"`
+	Trees       int    `json:"trees"`
+	Nodes       int    `json:"nodes"`
+	Unverified  int    `json:"unverified"` // 未確認タグ付きメモの数
+	LineMemos   int    `json:"line_memos"`
+	RangeMemos  int    `json:"range_memos"`
+	// OutsideRoot は現在の root の外を指すノード数。グラフは root を切り替えても
+	// 残るので、別プロジェクトのノードが混ざりうる。0 のときは出さない。
+	OutsideRoot int          `json:"outside_root,omitempty"`
 	Roots       []DigestNode `json:"roots,omitempty"`
 	// RootsTotal は Roots を打ち切ったときだけ入る起点の総数。
 	// 値があること自体が「これで全部ではない」の合図になる。
@@ -303,8 +428,22 @@ func truncateMemo(memo string) string {
 	return string(r[:_digestMaxMemoLen]) + "…"
 }
 
+// isOutsideRoot は file が root 配下でないかを返す。
+// 大文字小文字と区切り文字を吸収する（Windows のパスは両方揺れる）。
+func isOutsideRoot(file, root string) bool {
+	if file == "" || root == "" {
+		return false
+	}
+	norm := func(p string) string {
+		return strings.ToLower(strings.TrimRight(strings.ReplaceAll(p, "\\", "/"), "/"))
+	}
+	return !strings.HasPrefix(norm(file)+"/", norm(root)+"/")
+}
+
 // GetDigest はアクティブツリーの要約を返す。
-func (s *Store) GetDigest() Digest {
+// root には現在の検索ルートを渡す。ProjectFile.RootDir とは限らない
+// （root を切り替えてもグラフは残るため、両者はずれうる）。
+func (s *Store) GetDigest(root string) Digest {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	t := s.activeTree()
@@ -319,6 +458,9 @@ func (s *Store) GetDigest() Digest {
 	for _, n := range t.Nodes {
 		if isUnverifiedMemo(n.Memo) {
 			d.Unverified++
+		}
+		if isOutsideRoot(n.Match.File, root) {
+			d.OutsideRoot++
 		}
 	}
 	// 起点は RootOrder の順（map の反復順はランダムなので、これがないと

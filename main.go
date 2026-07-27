@@ -37,6 +37,7 @@ func main() {
 	debug := flag.Bool("debug", false, "enable /debug/pprof endpoint")
 	mcp := flag.Bool("mcp", defaultMCP == "1", "allow non-browser API access (required for external bridges like grepnavi-mcp)")
 	tray := flag.Bool("tray", defaultTray == "1", "run resident in the system tray; open windows on demand (Windows only)")
+	resetGraph := flag.Bool("reset-graph", false, "internal: start from an empty graph even when -graph is given (used when spawning a new window)")
 	view := flag.String("view", "", "internal: open a WebView2 viewer at this URL without starting a server (used by -tray)")
 	flag.Parse()
 
@@ -68,6 +69,17 @@ func main() {
 	}
 
 	rootExplicit := *root != "."
+	// -graph を明示したときは利用者がファイルを指定した = 名前を付けたのと同じなので
+	// そのまま読み込む。既定の作業ファイルは毎回空から始める（前回分は退避される）。
+	graphExplicit := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "graph" {
+			graphExplicit = true
+		}
+	})
+	if *resetGraph {
+		graphExplicit = false // 新しいウィンドウは常に空から始める
+	}
 	absRoot, err := absPath(*root)
 	if err != nil {
 		slog.Error("invalid root", "err", err)
@@ -111,7 +123,7 @@ func main() {
 		fmt.Fprintln(os.Stderr)
 	}
 
-	srv := newServer(absRoot, rootExplicit, *graphFile, addr, *debug, *mcp)
+	srv := newServer(absRoot, rootExplicit, *graphFile, graphExplicit, addr, *debug, *mcp)
 
 	slog.Info("grepnavi started", "root", absRoot, "graph", *graphFile)
 	if *mcp {

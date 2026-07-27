@@ -72,6 +72,30 @@ function labelFrom(m) {
   return shortPath(m.file||'') + (m.line?':'+m.line:'');
 }
 
+// ===== 別ルートの検出 =====
+// グラフは root を切り替えても残るので、linux の調査に openssl のノードが
+// 混ざることがある。複数プロジェクトを見比べる使い方は塞がないが、
+// どちらのツリーのものかは常に分かるようにする。
+//
+// 現在の root の外なら「そのファイルがどのツリーに属するか」を表す短い名前を返す。
+// root 配下なら空文字。
+function foreignRootName(file, root) {
+  if(!file || !root) return '';
+  const norm = p => p.replace(/\\/g, '/').replace(/\/+$/, '');
+  const f = norm(file), r = norm(root);
+  if((f + '/').toLowerCase().startsWith((r + '/').toLowerCase())) return '';
+
+  // root と共通する部分の次のセグメントが、そのファイル側のツリー名。
+  //   root = .../work/C/linux, file = .../work/C/openssl-1.1.1q/ssl/x.c → openssl-1.1.1q
+  const fp = f.split('/'), rp = r.split('/');
+  let i = 0;
+  while(i < fp.length && i < rp.length && fp[i].toLowerCase() === rp[i].toLowerCase()) i++;
+  // 共通部分が無い（別ドライブ等）ならファイル側の先頭を出す
+  return fp[i] || fp[0] || '';
+}
+
+if (typeof module !== "undefined") module.exports = { shortPath, labelFrom, foreignRootName };
+
 function extractSym(text) {
   const m = text.match(/\b([a-zA-Z_][a-zA-Z0-9_]{2,})\b/);
   return m ? m[1] + '(' : '';

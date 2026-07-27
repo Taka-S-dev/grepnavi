@@ -173,10 +173,14 @@ addEventListener('DOMContentLoaded', async () => {
       menu.style.top = (r.bottom + 2) + 'px';
       menu.style.right = (window.innerWidth - r.right) + 'px';
       menu.style.left = 'auto';
+      updateProjectUI(); // 開くたびにノード数・保存状態を取り直す
+      refreshRecoverItem();
       _updateTopMenuGraphs();
     }
   };
   document.addEventListener('click', () => id('project-menu').classList.remove('open'));
+  // ステータス行はメニュー項目ではないので、クリックで閉じない（パスを選択してコピーできる）
+  id('pmenu-status')?.addEventListener('click', e => e.stopPropagation());
 
   id('btn-filter-help')?.addEventListener('click', e => {
     e.stopPropagation();
@@ -195,6 +199,7 @@ addEventListener('DOMContentLoaded', async () => {
     localStorage.removeItem('grepnavi_project_root');
     updateProjectUI();
   };
+  id('pmenu-recover').onclick    = () => { id('project-menu').classList.remove('open'); restorePreviousWork(); };
   id('pmenu-open').onclick       = () => { id('project-menu').classList.remove('open'); openProjectFilePicker(); };
   id('pmenu-saveas').onclick     = () => { id('project-menu').classList.remove('open'); saveAsProjectFilePicker(); };
   id('pmenu-save').onclick       = () => { id('project-menu').classList.remove('open'); saveProjectFileCurrent(); };
