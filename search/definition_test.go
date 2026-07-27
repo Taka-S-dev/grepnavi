@@ -1,20 +1,22 @@
 package search
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
 
 func TestPreferDefinitionHits(t *testing.T) {
 	tests := []struct {
-		name     string
-		hits     []DefHit
+		name      string
+		hits      []DefHit
 		wantFiles []string // 残るべきファイル名（順不同）
 	}{
 		{
 			name: "宣言と定義が両方ある場合、定義だけ残る",
 			hits: []DefHit{
-				{File: "foo.h", Line: 5,  Text: "void foo(int x);",   Kind: "func"}, // 宣言
-				{File: "foo.c", Line: 10, Text: "void foo(int x) {",  Kind: "func"}, // 定義
+				{File: "foo.h", Line: 5, Text: "void foo(int x);", Kind: "func"},   // 宣言
+				{File: "foo.c", Line: 10, Text: "void foo(int x) {", Kind: "func"}, // 定義
 			},
 			wantFiles: []string{"foo.c"},
 		},
@@ -28,8 +30,8 @@ func TestPreferDefinitionHits(t *testing.T) {
 		{
 			name: "定義が .h のみの場合（インライン実装）はそのまま返す",
 			hits: []DefHit{
-				{File: "foo.h", Line: 5,  Text: "void foo(int x);",          Kind: "func"}, // 宣言
-				{File: "bar.h", Line: 20, Text: "inline void foo(int x) {",  Kind: "func"}, // 定義（ヘッダ内）
+				{File: "foo.h", Line: 5, Text: "void foo(int x);", Kind: "func"},          // 宣言
+				{File: "bar.h", Line: 20, Text: "inline void foo(int x) {", Kind: "func"}, // 定義（ヘッダ内）
 			},
 			wantFiles: []string{"bar.h"},
 		},
@@ -43,25 +45,25 @@ func TestPreferDefinitionHits(t *testing.T) {
 		{
 			name: "宣言に末尾コメントがあっても宣言と判定できる",
 			hits: []DefHit{
-				{File: "foo.c", Line: 3,  Text: "static int foo(int x);   /* forward decl */", Kind: "func"}, // 宣言（コメント付き）
-				{File: "foo.c", Line: 10, Text: "static int foo(int x) {",                     Kind: "func"}, // 定義
+				{File: "foo.c", Line: 3, Text: "static int foo(int x);   /* forward decl */", Kind: "func"}, // 宣言（コメント付き）
+				{File: "foo.c", Line: 10, Text: "static int foo(int x) {", Kind: "func"},                    // 定義
 			},
 			wantFiles: []string{"foo.c"},
 		},
 		{
 			name: "宣言に /**/ コメントがあっても宣言と判定できる",
 			hits: []DefHit{
-				{File: "foo.c", Line: 3,  Text: "static int foo(int x);/**/", Kind: "func"}, // 宣言（/**/ 付き）
-				{File: "foo.c", Line: 10, Text: "static int foo(int x) {",    Kind: "func"}, // 定義
+				{File: "foo.c", Line: 3, Text: "static int foo(int x);/**/", Kind: "func"}, // 宣言（/**/ 付き）
+				{File: "foo.c", Line: 10, Text: "static int foo(int x) {", Kind: "func"},   // 定義
 			},
 			wantFiles: []string{"foo.c"},
 		},
 		{
 			name: "定義あり: .c と .h の定義が両方ある場合 .c を優先",
 			hits: []DefHit{
-				{File: "foo.h", Line: 5,  Text: "void foo(int x);",           Kind: "func"}, // 宣言
-				{File: "bar.h", Line: 20, Text: "inline void foo(int x) {",   Kind: "func"}, // 定義ヘッダ
-				{File: "foo.c", Line: 10, Text: "void foo(int x) {",          Kind: "func"}, // 定義実装
+				{File: "foo.h", Line: 5, Text: "void foo(int x);", Kind: "func"},          // 宣言
+				{File: "bar.h", Line: 20, Text: "inline void foo(int x) {", Kind: "func"}, // 定義ヘッダ
+				{File: "foo.c", Line: 10, Text: "void foo(int x) {", Kind: "func"},        // 定義実装
 			},
 			wantFiles: []string{"foo.c"},
 		},
@@ -164,3 +166,57 @@ func TestIsDefinitionHit_MultilineSignature(t *testing.T) {
 	}
 }
 
+func TestIsAnnotationLine(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	// カーネルの sparse 注釈: 関数名は次の行にある
+	kernel := write("xdp.c", `void __acquires(&lock->lock)
+__libeth_xdpsq_lock(struct libeth_xdpsq_lock *lock)
+{
+	spin_lock(&lock->lock);
+}
+`)
+	if !isAnnotationLine(kernel, 1) {
+		t.Error("line 1 annotates the function defined on line 2; must be rejected as a definition")
+	}
+	if isAnnotationLine(kernel, 2) {
+		t.Error("line 2 is the real signature and must be kept")
+	}
+
+	// 通常の定義（次行が本体）
+	normal := write("normal.c", `static int foo(int a)
+{
+	return a;
+}
+`)
+	if isAnnotationLine(normal, 1) {
+		t.Error("a signature followed by the body must be kept")
+	}
+
+	// 引数リストが複数行にまたがる定義
+	multi := write("multi.c", `static int bar(int a,
+	       int b)
+{
+	return a + b;
+}
+`)
+	if isAnnotationLine(multi, 1) {
+		t.Error("a signature split across lines must be kept")
+	}
+
+	// 同じ行に本体が始まる形
+	inline := write("inline.c", `void baz(void) {
+	return;
+}
+`)
+	if isAnnotationLine(inline, 1) {
+		t.Error("a signature with the brace on the same line must be kept")
+	}
+}

@@ -33,6 +33,39 @@ export const definitions: ToolDef[] = [
     },
   },
   {
+    name: "grepnavi_references",
+    description:
+      "Find every place a symbol is USED — not just called. Use this for struct members, global variables, enum constants and macros, which grepnavi_callers cannot see because it only resolves function calls.\n\n" +
+      "Typical questions: \"who writes this field?\", \"where is this global read?\", \"which code depends on this macro?\". Each hit carries `text` (the source line) and `func` when the reference sits inside a function, so you can classify read vs write without another fetch.\n\n" +
+      "Comment-only and string-only mentions are filtered out, as are references inside `#if 0`. Returns `{ references, count, engine, truncated }`; `truncated: true` means the cap was reached, so treat the list as a sample and narrow with `dir`.\n\n" +
+      "**Next step**: grepnavi_func_body on an interesting `func` to see the surrounding logic, or grepnavi_callers if the symbol turns out to be a function after all.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        word: { type: "string", description: "Symbol to look for (field, global, macro, enum constant...)." },
+        dir: { type: "string", description: "Optional subdirectory to limit the search." },
+        limit: { type: "integer", description: "Max references to return (default 100)." },
+      },
+      required: ["word"],
+    },
+  },
+  {
+    name: "grepnavi_ifdef_context",
+    description:
+      "Show which `#ifdef` / `#if` blocks enclose a line, outermost first.\n\n" +
+      "Use it before concluding that code is live. In C a function or branch often exists only under a config (`CONFIG_BLK_CGROUP_PUNT_BIO`, `_WIN32`, `DEBUG`), and definition / callers / callees results carry no such marker — only `grepnavi_search` hits do, via `ifdef_stack`.\n\n" +
+      "Returns `{ guarded, frames: [{ line, directive, condition }] }`; `frames` is empty when the line is unconditional. **This is structural nesting only** — grepnavi does not evaluate config values, so a condition means \"guarded by this\", never \"disabled\". Report the guard instead of deciding compiled-in yourself.\n\n" +
+      "**Next step**: grepnavi_search the condition name to see where it is set, or grepnavi_read_file around the directive lines to read the alternative branch.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        file: { type: "string", description: "File containing the line." },
+        line: { type: "integer", description: "1-based line number to inspect." },
+      },
+      required: ["file", "line"],
+    },
+  },
+  {
     name: "grepnavi_definitions",
     description:
       "Resolve MANY symbols in one call. Same engine and ranking as grepnavi_definition, run concurrently.\n\n" +
@@ -255,6 +288,37 @@ export const handlers: Record<string, ToolHandler> = {
       file: normalizeInputPath(a.file),
       dir: normalizeInputPath(a.dir),
     }));
+  },
+  grepnavi_references: async (args) => {
+    const a = args as { word: string; dir?: string; limit?: number };
+    if (!a.word) throw new Error("`word` is required");
+    const r = await client.references(a.word, {
+      dir: normalizeInputPath(a.dir),
+      limit: a.limit,
+    });
+    return ok({
+      references: r.refs,
+      count: r.refs.length,
+      engine: r.engine,
+      truncated: r.truncated,
+      note: r.truncated
+        ? "Capped: this is a sample, not every reference. Narrow with `dir` or raise `limit`."
+        : undefined,
+    });
+  },
+  grepnavi_ifdef_context: async (args) => {
+    const a = args as { file: string; line: number };
+    if (!a.file || !a.line) throw new Error("`file` and `line` are both required");
+    const frames = await client.ifdefStack(normalizeInputPath(a.file)!, a.line);
+    return ok({
+      file: a.file,
+      line: a.line,
+      guarded: frames.length > 0,
+      frames,
+      note: frames.length
+        ? "Structural nesting only: grepnavi does not evaluate config values, so this says the line is guarded, not that it is disabled."
+        : undefined,
+    });
   },
   grepnavi_definitions: async (args) => {
     const a = args as { words: string[]; file?: string; dir?: string };

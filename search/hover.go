@@ -301,9 +301,10 @@ func extractBraceBlock(lines []string, startLine int, maxLookAhead ...int) strin
 		}
 
 		if started && depth <= 0 {
-			// 閉じ } の次の行が識別子か ; で始まる場合のみ追加
-			// （typedef struct { ... } Name; パターン対応）
-			if i+1 < len(lines) {
+			// 閉じ } の次の行を取り込むのは `typedef struct { ... } Name;` の型名を
+			// 拾うためだけ。関数本体に適用すると直後の行（カーネルの
+			// EXPORT_SYMBOL_GPL(...) など）まで本体に混ざり、呼び出し先として現れる。
+			if i+1 < len(lines) && looksLikeTypeBlock(buf) {
 				next := strings.TrimLeftFunc(lines[i+1], unicode.IsSpace)
 				if len(next) > 0 && (next[0] == ';' || next[0] == '_' ||
 					(next[0] >= 'a' && next[0] <= 'z') ||
@@ -320,6 +321,22 @@ func extractBraceBlock(lines []string, startLine int, maxLookAhead ...int) strin
 		return ""
 	}
 	return stripCommonIndent(buf)
+}
+
+// looksLikeTypeBlock は抽出済みブロックが型定義（typedef / struct / union / enum）かを返す。
+// 関数本体と型定義で、閉じ } の次の行を取り込むべきかが変わる。
+func looksLikeTypeBlock(block []string) bool {
+	for _, l := range block {
+		t := strings.TrimSpace(l)
+		if t == "" || strings.HasPrefix(t, "//") || strings.HasPrefix(t, "*") {
+			continue
+		}
+		return strings.HasPrefix(t, "typedef") || strings.HasPrefix(t, "struct") ||
+			strings.HasPrefix(t, "union") || strings.HasPrefix(t, "enum") ||
+			strings.Contains(t, " struct ") || strings.Contains(t, " union ") ||
+			strings.Contains(t, " enum ")
+	}
+	return false
 }
 
 // findContainingBlockStart はメンバー行から逆方向に { を探し、その行の1-indexed行番号を返す。

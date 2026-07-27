@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"grepnavi/graph"
 	"grepnavi/search"
 )
 
@@ -567,6 +568,44 @@ func (h *Handler) handleCallees(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, hits)
 }
 
+// --- /api/references ---
+
+// handleReferences は word が使われている箇所を返す。
+// callers は関数呼び出し専用なので、構造体メンバ・グローバル変数・マクロの
+// 使用箇所はこちらでしか追えない。
+func (h *Handler) handleReferences(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	word := q.Get("word")
+	if word == "" {
+		jsonErr(w, "word required", http.StatusBadRequest)
+		return
+	}
+	h.mu.RLock()
+	hroot := h.root
+	h.mu.RUnlock()
+	dir := q.Get("dir")
+	if dir == "" {
+		dir = hroot
+	} else if !filepath.IsAbs(dir) {
+		dir = filepath.Join(hroot, dir)
+	}
+	limit, _ := strconv.Atoi(q.Get("limit"))
+
+	refs, truncated, engine, err := search.FindReferences(r.Context(), word, dir, limit)
+	if err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if refs == nil {
+		refs = []search.Reference{}
+	}
+	w.Header().Set("X-Engine", engine)
+	if truncated {
+		w.Header().Set("X-Truncated", "true")
+	}
+	jsonOK(w, refs)
+}
+
 // --- /api/snippet ---
 
 func (h *Handler) handleSnippet(w http.ResponseWriter, r *http.Request) {
@@ -614,6 +653,39 @@ func (h *Handler) handleSnippet(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- /api/ifdef ---
+
+// handleIfdefStack は file:line を囲む #ifdef / #if の入れ子を返す。
+// 「この行はどの条件付きコンパイルの中にあるか」を単体で引くための入口。
+// 検索結果には ifdef_stack が付くが、定義ジャンプやコールツリーの結果には
+// 付かないため、そこから辿った行の条件を知る手段がなかった。
+func (h *Handler) handleIfdefStack(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	file := q.Get("file")
+	if file == "" {
+		jsonErr(w, "file required", http.StatusBadRequest)
+		return
+	}
+	line, err := strconv.Atoi(q.Get("line"))
+	if err != nil || line < 1 {
+		jsonErr(w, "line must be a positive integer", http.StatusBadRequest)
+		return
+	}
+	if !filepath.IsAbs(file) {
+		h.mu.RLock()
+		root := h.root
+		h.mu.RUnlock()
+		file = filepath.Join(root, file)
+	}
+	stack, err := search.ExtractIfdefStack(file, line)
+	if err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if stack == nil {
+		stack = []graph.IfdefFrame{}
+	}
+	jsonOK(w, stack)
+}
 
 func (h *Handler) handleIfdef(w http.ResponseWriter, r *http.Request) {
 	file := r.URL.Query().Get("file")

@@ -69,6 +69,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/func-body", h.handleFuncBody)
 	mux.HandleFunc("/api/symbols", h.handleSymbols)
 	mux.HandleFunc("/api/ifdef", h.handleIfdef)
+	mux.HandleFunc("/api/ifdef-stack", h.handleIfdefStack)
 	mux.HandleFunc("/api/definition", h.handleDefinition)
 	mux.HandleFunc("/api/symbol-search", h.handleSymbolSearch)
 	mux.HandleFunc("/api/hover", h.handleHover)
@@ -87,6 +88,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	// call tree
 	mux.HandleFunc("/api/callers", h.handleCallers)
 	mux.HandleFunc("/api/callees", h.handleCallees)
+	mux.HandleFunc("/api/references", h.handleReferences)
 	// [GNU Global] 以下の4行を削除し、definition/hover/callersの分岐を除去で取り外し可能
 	mux.HandleFunc("/api/gtags/status", h.handleGtagsStatus)
 	mux.HandleFunc("/api/gtags/index", h.handleGtagsIndex)

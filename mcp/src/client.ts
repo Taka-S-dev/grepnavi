@@ -316,6 +316,36 @@ export class GrepnaviClient {
     };
   }
 
+  // /api/references は word が使われている箇所を返す（呼び出しに限らない）。
+  async references(
+    word: string,
+    opts: { dir?: string; limit?: number } = {},
+  ): Promise<{
+    refs: Array<{ file: string; line: number; text: string; func?: string }>;
+    engine: string;
+    truncated: boolean;
+  }> {
+    const params = new URLSearchParams({ word });
+    if (opts.dir) params.set("dir", opts.dir);
+    if (opts.limit) params.set("limit", String(opts.limit));
+    const r = await this.req("/api/references?" + params.toString());
+    return {
+      refs: (await r.json()) as Array<{ file: string; line: number; text: string; func?: string }>,
+      engine: r.headers.get("X-Engine") || "",
+      truncated: r.headers.get("X-Truncated") === "true",
+    };
+  }
+
+  // /api/ifdef-stack は file:line を囲む #ifdef / #if の入れ子を返す。
+  async ifdefStack(
+    file: string,
+    line: number,
+  ): Promise<Array<{ line: number; directive: string; condition: string }>> {
+    const params = new URLSearchParams({ file, line: String(line) });
+    const r = await this.req("/api/ifdef-stack?" + params.toString());
+    return (await r.json()) as Array<{ line: number; directive: string; condition: string }>;
+  }
+
   async callers(
     word: string,
     opts: { dir?: string; glob?: string } = {},

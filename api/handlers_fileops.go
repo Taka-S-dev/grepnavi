@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"grepnavi/proc"
@@ -201,13 +202,43 @@ func (h *Handler) handleGrepnavi(w http.ResponseWriter, r *http.Request) {
 
 // --- /api/root ---
 
+// indexStatus は定義解決に使う索引の状態を返す。
+//
+// 索引が古いと定義ジャンプは古い行番号を返すが、結果自体は正常に見える。
+// 呼び出し側（特に AI クライアント）が「この位置情報は信用できるか」を
+// 判断できるよう、鮮度そのものと "いつ時点の判定か" を併せて返す。
+func indexStatus(root string) map[string]any {
+	// stale 判定はファイル走査なので同期実行しない。前回結果を返しつつ、
+	// 古ければ裏で取り直す（常駐運用では起動時の判定だけでは陳腐化する）。
+	search.GtagsRefreshStaleAsync(root)
+
+	msAgo := func(t time.Time) any {
+		if t.IsZero() {
+			return nil
+		}
+		return time.Since(t).Milliseconds()
+	}
+	gtags := map[string]any{
+		"installed":            search.GtagsInPath(),
+		"indexed":              search.GtagsIndexed(root),
+		"stale":                search.GtagsIsStale(),
+		"stale_checked_ms_ago": msAgo(search.GtagsStaleCheckedAt()),
+		"built_ms_ago":         msAgo(search.IndexBuiltAt(root, "GTAGS")),
+	}
+	ctags := map[string]any{
+		"indexed":      search.CtagsIndexed(root),
+		"built_ms_ago": msAgo(search.IndexBuiltAt(root, "tags")),
+	}
+	return map[string]any{"gtags": gtags, "ctags": ctags}
+}
+
 func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		h.mu.RLock()
 		root := h.root
 		h.mu.RUnlock()
-		jsonOK(w, map[string]string{"root": root})
+		jsonOK(w, map[string]any{"root": root, "index": indexStatus(root)})
 	case http.MethodPost:
 		var body struct {
 			Root string `json:"root"`

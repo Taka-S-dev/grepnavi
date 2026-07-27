@@ -5,7 +5,9 @@ export const definitions: ToolDef[] = [
   {
     name: "grepnavi_root",
     description:
-      "Return grepnavi's current root directory (absolute path) and bridge_version. The root may DIFFER from your working directory — anchor all subsequent file paths to this root.\n\n" +
+      "Return grepnavi's current root directory (absolute path), bridge_version, and `index` — the state of the gtags / ctags indexes that back every symbol lookup.\n\n" +
+      "The root may DIFFER from your working directory — anchor all subsequent file paths to this root.\n\n" +
+      "**Check `index` before trusting locations.** Definitions, callers and callees are resolved from these indexes, so when one is out of date the results still look normal but point at stale line numbers. `index.gtags.stale: true` means source files are newer than the index: say so when you report file:line, and suggest rebuilding (the user can do it from grepnavi's engine popover). `stale_checked_ms_ago` tells you how old that judgement is — it is re-evaluated in the background, not per call — and `built_ms_ago` is the index's own age, which is always current.\n\n" +
       "**Read this first — investigation workflows.** Most user requests resolve through one of these chains. Use them as recipes; don't try to one-shot everything through grepnavi_search.\n\n" +
       "1. *\"Where is X output / written / created?\"*\n" +
       "   - grepnavi_search the keyword (e.g. \"recipe\") to find write-like call sites.\n" +

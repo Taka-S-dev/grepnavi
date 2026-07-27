@@ -77,6 +77,45 @@ func GtagsIsStale() bool {
 	return atomic.LoadInt32(&_gtagsStale) == 1
 }
 
+// _gtagsStaleCheckedAt は stale 判定が最後に完了した時刻（UnixNano）。
+// 判定は起動時とここからの再実行でしか走らないため、結果とセットで
+// 「いつ時点の判定か」を返せるようにしておく。
+var _gtagsStaleCheckedAt atomic.Int64
+
+// GtagsStaleCheckedAt は stale 判定が最後に完了した時刻を返す（未実施なら零値）。
+func GtagsStaleCheckedAt() time.Time {
+	ns := _gtagsStaleCheckedAt.Load()
+	if ns == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, ns)
+}
+
+// _gtagsStaleRecheckAfter を過ぎていれば stale 判定をやり直す。
+// 常駐運用ではセッションが数日続くため、起動時の判定だけでは
+// 「編集したのに fresh のまま」になる。
+const _gtagsStaleRecheckAfter = 5 * time.Minute
+
+// GtagsRefreshStaleAsync は前回判定から時間が経っていれば再判定を走らせる。
+// 判定自体はファイル走査なので同期させず、呼び出し側は直前の結果を使う。
+func GtagsRefreshStaleAsync(dir string) {
+	last := GtagsStaleCheckedAt()
+	if !last.IsZero() && time.Since(last) < _gtagsStaleRecheckAfter {
+		return
+	}
+	GtagsCheckStaleAsync(dir)
+}
+
+// IndexBuiltAt は dir にある索引ファイルの更新時刻を返す（無ければ零値）。
+// stale 判定と違い stat 1回で済み、常に現在の値を反映する。
+func IndexBuiltAt(dir, indexFile string) time.Time {
+	info, err := os.Stat(filepath.Join(dir, indexFile))
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
+}
+
 // GtagsCheckStaleAsync は goroutine でソースファイルの mtime と GTAGS を比較する。
 // GTAGS より新しいソースファイルが1件でもあれば stale フラグを立てる。
 var srcExts = map[string]bool{
@@ -102,6 +141,7 @@ func GtagsCheckStaleAsync(dir string) {
 		}
 		gtagsMtime := info.ModTime()
 
+		newer := false
 		_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return nil
@@ -120,11 +160,17 @@ func GtagsCheckStaleAsync(dir string) {
 				return nil
 			}
 			if fi.ModTime().After(gtagsMtime) {
+				newer = true
 				atomic.StoreInt32(&_gtagsStale, 1)
 				return filepath.SkipAll
 			}
 			return nil
 		})
+		// 走査しきって新しいソースが無ければ fresh 側に戻す（再生成後の復帰）
+		if !newer {
+			atomic.StoreInt32(&_gtagsStale, 0)
+		}
+		_gtagsStaleCheckedAt.Store(time.Now().UnixNano())
 	}()
 }
 

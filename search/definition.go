@@ -280,7 +280,7 @@ func findDefinitionsInFiles(ctx context.Context, word string, files []string) ([
 			Kind: classifyLineKind(m.Text),
 		})
 	}
-	return preferDefinitionHits(results), nil
+	return preferDefinitionHitsFor(results, word), nil
 }
 
 // FindDefinitionsN は最大件数を指定できる FindDefinitions。
@@ -381,7 +381,7 @@ func FindDefinitionsN(ctx context.Context, word, dir, glob string, maxPerQuery i
 		}
 	}
 
-	results = preferDefinitionHits(results)
+	results = preferDefinitionHitsFor(results, word)
 
 	slog.Debug("FindDefinitions", "word", word, "hits", len(results), "elapsed", time.Since(t1))
 	return results, nil
@@ -396,10 +396,81 @@ func FindDefinitionsN(ctx context.Context, word, dir, glob string, maxPerQuery i
 //  2. 拡張子ヒント: 定義の中で .c/.cpp 等があれば .h/.hpp を除外。
 //
 // func 以外の kind（#define, struct 等）は常に定義として扱う。
+// reSignatureStart は列0から始まる「識別子(」= 関数名と引数リストの開始行。
+var reSignatureStart = regexp.MustCompile(`^[A-Za-z_]\w*\s*\(`)
+
+// isAnnotationLine は、その行が「次行に本名がある関数の注釈行」かを返す。
+//
+//	void __acquires(&lock->lock)          ← この行
+//	__libeth_xdpsq_lock(struct ...)       ← 本当の関数名
+//	{
+//
+// カーネルの sparse 注釈（__acquires / __releases 等）はこの形で書かれるため、
+// 注釈名を検索すると「関数定義」に見えてしまい、無関係な関数の本体を
+// その注釈の実装として返してしまう。
+func isAnnotationLine(file string, line int) bool {
+	lines, err := CachedLines(file)
+	if err != nil || line < 1 || line > len(lines) {
+		return false
+	}
+	cur := strings.TrimSpace(lines[line-1])
+	if strings.Contains(cur, "{") || strings.HasSuffix(cur, ";") {
+		return false // 本体が始まっている / 宣言なら注釈行ではない
+	}
+	for i := line; i < len(lines) && i < line+3; i++ {
+		next := strings.TrimSpace(lines[i])
+		if next == "" {
+			continue
+		}
+		return reSignatureStart.MatchString(next)
+	}
+	return false
+}
+
+// reFuncNameCandidate は "識別子(" の出現を順に拾う。
+var reFuncNameCandidate = regexp.MustCompile(`([A-Za-z_]\w*)\s*\(`)
+
+// funcNameOnLine は関数定義行から関数名を返す。
+// 行内で最初に現れる "識別子(" が関数名で、それ以降の
+// __acquires(...) / __must_hold(...) 等は後置の注釈。
+func funcNameOnLine(text string) string {
+	for _, m := range reFuncNameCandidate.FindAllStringSubmatch(text, -1) {
+		if !ctKeywords[m[1]] {
+			return m[1]
+		}
+	}
+	return ""
+}
+
+// preferDefinitionHits は宣言より定義を優先する。word を渡すと、
+// 関数定義行のうち「その名前が関数名ではない」ヒットを落とす
+// （sparse 注釈のように、他の関数のシグネチャに現れるだけの名前）。
+func preferDefinitionHitsFor(hits []DefHit, word string) []DefHit {
+	if word == "" {
+		return preferDefinitionHits(hits)
+	}
+	filtered := make([]DefHit, 0, len(hits))
+	for _, h := range hits {
+		if h.Kind == "func" {
+			if name := funcNameOnLine(h.Text); name != "" && name != word && isDefinitionHit(h) {
+				slog.Debug("preferDefinitionHits skip: word is not the function name",
+					"word", word, "func", name, "file", h.File, "line", h.Line)
+				continue
+			}
+		}
+		filtered = append(filtered, h)
+	}
+	return preferDefinitionHits(filtered)
+}
+
 func preferDefinitionHits(hits []DefHit) []DefHit {
 	var defs []DefHit
 	for _, h := range hits {
 		isDef := isDefinitionHit(h)
+		if isDef && h.Kind == "func" && isAnnotationLine(h.File, h.Line) {
+			slog.Debug("preferDefinitionHits skip annotation line", "file", h.File, "line", h.Line, "text", h.Text)
+			continue
+		}
 		slog.Debug("preferDefinitionHits", "file", h.File, "line", h.Line, "text", h.Text, "isDef", isDef)
 		if isDef {
 			defs = append(defs, h)
