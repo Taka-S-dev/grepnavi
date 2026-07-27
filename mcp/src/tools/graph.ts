@@ -6,8 +6,17 @@ export const definitions: ToolDef[] = [
   {
     name: "grepnavi_graph_list",
     description:
-      "List nodes in the active investigation graph (id, label, file, line, memo, tags, badge, children). Call before grepnavi_graph_add_node to dedup (compare file+line) and pick `parent_id`.",
-    inputSchema: { type: "object", properties: {} },
+      "List nodes in the active investigation graph (id, label, file, line, memo, tags, badge, children). Call before grepnavi_graph_add_node to dedup (compare file+line) and pick `parent_id`.\n\n" +
+      "Pass `compact: true` when you only need to see what is already there — it returns id, label, line, `has_memo` and a child count, dropping the file paths and memo bodies that dominate the response.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        compact: {
+          type: "boolean",
+          description: "Omit file paths and memo bodies; keep ids so nodes stay referenceable (default false).",
+        },
+      },
+    },
   },
   {
     name: "grepnavi_graph_add_node",
@@ -171,19 +180,33 @@ export const definitions: ToolDef[] = [
 ];
 
 export const handlers: Record<string, ToolHandler> = {
-  grepnavi_graph_list: async () => {
+  grepnavi_graph_list: async (args) => {
+    const a = (args ?? {}) as { compact?: boolean };
     const g = await client.graph();
-    const summary = Object.values(g.nodes).map((n) => ({
-      id: n.id,
-      label: n.label,
-      file: n.match.file,
-      line: n.match.line,
-      memo: n.memo ?? "",
-      tags: n.tags ?? [],
-      badge_color: n.badge_color ?? "",
-      badge_text: n.badge_text ?? "",
-      children: n.children,
-    }));
+    // compact: 「何が入っているか」の確認だけなら file とメモ本文は要らない。
+    // 実測ではノードあたり file が 18%、label 13%、id 10% を占める。
+    // id は参照に必要なので残す（短縮すると他ツールへ渡せなくなる）。
+    const summary = Object.values(g.nodes).map((n) =>
+      a.compact
+        ? {
+            id: n.id,
+            label: n.label,
+            line: n.match.line,
+            has_memo: !!n.memo,
+            children: n.children.length,
+          }
+        : {
+            id: n.id,
+            label: n.label,
+            file: n.match.file,
+            line: n.match.line,
+            memo: n.memo ?? "",
+            tags: n.tags ?? [],
+            badge_color: n.badge_color ?? "",
+            badge_text: n.badge_text ?? "",
+            children: n.children,
+          },
+    );
     return ok({ root_dir: g.root_dir, active_tree: g.name, nodes: summary });
   },
   grepnavi_graph_add_node: async (args) => {

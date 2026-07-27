@@ -24,13 +24,20 @@
       backoff = 1000;
     });
 
-    es.addEventListener("graph.node_added", () => {
+    // graph.updated: グラフを変更する API 要求が成功したときに必ず流れる。
+    // ノードのメモ・ラベル更新や削除・移動もこれで届く（以前はノード追加と
+    // 行メモしか通知されず、AI がメモを付けてもタブを切り替えるまで反映されなかった）。
+    // memos は GraphResponse 内に含まれるので loadGraph で再取得される。
+    // browser 自身の save で発火しても局所 state と一致するので無害。
+    es.addEventListener("graph.updated", () => {
       reloadGraphIfPossible();
     });
 
+    // 旧イベント名。古い grepnavi 本体に新しい static/ を載せた場合の保険。
+    es.addEventListener("graph.node_added", () => {
+      reloadGraphIfPossible();
+    });
     es.addEventListener("memos.updated", () => {
-      // memos は GraphResponse 内に含まれるので loadGraph で再取得される。
-      // browser 自身の save で発火しても局所 state と一致するので無害。
       reloadGraphIfPossible();
     });
 

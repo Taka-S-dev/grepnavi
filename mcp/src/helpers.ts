@@ -594,6 +594,7 @@ export async function resolveAndEnrichCallees(args: {
   depth?: number;
   with_preview?: boolean;
   preview_lines?: number;
+  compact?: boolean;
 }) {
   let { word, file, line } = args;
   const maxDepth = Math.max(1, Math.min(5, args.depth ?? 1));
@@ -650,8 +651,35 @@ export async function resolveAndEnrichCallees(args: {
       macros: top.excludedMacroNames,
       non_callable: top.excludedNonCallableNames,
     },
-    callees: top.enriched,
+    callees: args.compact ? toCompactCallees(top.enriched) : top.enriched,
   };
+}
+
+// compact 形の callee。呼び出し先を「一覧して選ぶ」だけならこれで足り、
+// judge 用のフラグ一式（engine / confidence / likely_* / definitions[]）が丸ごと消える。
+// 既定は非 compact のまま: 判断材料を黙って削ると、AI は消えたことに気づけない。
+export type CompactCallee = {
+  name: string;
+  call_line: number;
+  kind?: string;
+  // recommended_for_tree は「何を pin するか」の判断そのものなので compact でも残す
+  pin?: boolean;
+  def?: string; // "file:line"。定義が引けなかったときは省略
+  children?: CompactCallee[];
+  recursion_stopped?: string;
+};
+
+export function toCompactCallees(nodes: EnrichedCallee[]): CompactCallee[] {
+  return nodes.map((n) => {
+    const def = n.definitions?.[0];
+    const c: CompactCallee = { name: n.name, call_line: n.call_line };
+    if (n.kind) c.kind = n.kind;
+    if (n.recommended_for_tree) c.pin = true;
+    if (def) c.def = `${def.file}:${def.line}`;
+    if (n.recursion_stopped) c.recursion_stopped = n.recursion_stopped;
+    if (n.children?.length) c.children = toCompactCallees(n.children);
+    return c;
+  });
 }
 
 // 1 件の callee を起点に深く掘る。visited で循環/重複を pruning する。

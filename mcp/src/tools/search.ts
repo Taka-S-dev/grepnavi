@@ -247,6 +247,7 @@ export const definitions: ToolDef[] = [
       "Pass `word` (caller name) for auto-resolve via grepnavi_definition; errors on ambiguity with candidate list, then disambiguate via `file`+`line`. Or pass `file`+`line` directly.\n\n" +
       "Each result: `name`, `call_line`, `kind`, `engine`, `confidence` ('high'|'medium'|'low' for the picked top definition — **'low' means the pick may be wrong**), `likely_macro`, `likely_non_callable`, `likely_trivial` (well-known primitives: locking / atomics / mem-str / printk / le_to_cpu / container_of etc — definition lookup is **skipped entirely** for these to avoid bogus picks like spin_lock → selftests/.../spinlock.c), `in_caller_subtree` (def shares caller's dir tree = same subsystem), `recommended_for_tree` (= !macro && !non_callable && !trivial — **the simple filter for 'what to actually pin'**), `definitions` (top 1, proximity-ranked), `definitions_total`. Caller itself auto-excluded.\n\n" +
       "**Defaults**: `exclude_macros: true`, `exclude_non_callable: true` (noise filtered out; pass false to see). The response's `excluded.macros` / `excluded.non_callable` are **arrays of NAMES** that were dropped — eyeball them to confirm they're real noise, no re-query needed.\n\n" +
+      "`compact: true` drops the judgement fields and returns name / call_line / kind / `pin` (= recommended_for_tree) / `def` only — a fraction of the tokens when you only need the list to pick from.\n\n" +
       "`depth` > 1 recurses (max 5). Macros / no-def / cycles don't recurse further. **Cost note**: each extra level fans out and can take seconds; start at depth 1 unless you need more.\n\n" +
       "**Call-tree node anchor (critical)**: when pinning callees as child nodes, use the CALLER's file + the callee's `call_line` — NOT the callee's definition. This activates grepnavi's call ↔ definition memo sync and keeps clicks in the parent's file.\n\n" +
       "**Next step**: pick `recommended_for_tree: true` entries, then grepnavi_func_body(definitions[0].file, definitions[0].line) to inspect each. For macros, grepnavi_search the name to find the #define.",
@@ -259,6 +260,11 @@ export const definitions: ToolDef[] = [
         exclude_macros: { type: "boolean", description: "Drop likely_macro entries. Default true." },
         exclude_non_callable: { type: "boolean", description: "Drop likely_non_callable entries. Default true." },
         depth: { type: "integer", description: "Recursion levels (default 1, max 5)." },
+        compact: {
+          type: "boolean",
+          description:
+            "Return only name, call_line, kind, `pin` (= recommended_for_tree) and `def` (\"file:line\"). Use when you just need the list of callees to pick from; omit it when you need the judgement fields (engine / confidence / likely_* / definitions).",
+        },
         with_preview: {
           type: "boolean",
           description:
@@ -383,6 +389,7 @@ export const handlers: Record<string, ToolHandler> = {
       depth?: number;
       with_preview?: boolean;
       preview_lines?: number;
+      compact?: boolean;
     };
     return ok(await resolveAndEnrichCallees({ ...a, file: normalizeInputPath(a.file) }));
   },
