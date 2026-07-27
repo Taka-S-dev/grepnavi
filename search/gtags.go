@@ -1469,6 +1469,7 @@ func GtagsFindRefs(ctx context.Context, word, dir string) ([]CallSite, error) {
 			File:     h.File,
 			Line:     defLine,
 			CallLine: h.Line,
+			Text:     callSiteText(lines, h.Line),
 		})
 	}
 	slog.Debug("gtags-find-refs result", "word", word, "results", len(results),

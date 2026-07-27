@@ -512,14 +512,18 @@ func (h *Handler) handleCallers(w http.ResponseWriter, r *http.Request) {
 	useGtags := q.Get("gtags") != "0" && search.GtagsAvailable(hroot)
 	var hits []search.CallSite
 	var err error
+	engine := "gtags"
+	truncated := false
 	if useGtags {
 		hits, err = search.GtagsFindRefs(r.Context(), word, hroot)
 		if err != nil || len(hits) == 0 {
 			err = nil
-			hits, err = search.FindCallers(r.Context(), word, dir, q.Get("glob"))
+			engine = "rg"
+			hits, truncated, err = search.FindCallers(r.Context(), word, dir, q.Get("glob"))
 		}
 	} else {
-		hits, err = search.FindCallers(r.Context(), word, dir, q.Get("glob"))
+		engine = "rg"
+		hits, truncated, err = search.FindCallers(r.Context(), word, dir, q.Get("glob"))
 	}
 	if err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
@@ -527,6 +531,12 @@ func (h *Handler) handleCallers(w http.ResponseWriter, r *http.Request) {
 	}
 	if hits == nil {
 		hits = []search.CallSite{}
+	}
+	// 呼び出し元が上限で切られたかを伝える。黙って切ると「これで全部」と誤解される。
+	// gtags は全件返すので、打ち切りが起きるのは rg 経路だけ。
+	w.Header().Set("X-Engine", engine)
+	if truncated {
+		w.Header().Set("X-Truncated", "true")
 	}
 	jsonOK(w, hits)
 }

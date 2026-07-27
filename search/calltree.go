@@ -9,18 +9,34 @@ import (
 )
 
 const (
-	_directCallerLimitPerCall   = 50 // 直接呼び出し（`foo()`）の1ファイル上限
-	_indirectCallerLimitPerCall = 30 // 間接呼び出し（`.ops = &foo`）の1ファイル上限
+	_directCallerLimitPerCall   = 50 // 直接呼び出し（`foo()`）の上限
+	_indirectCallerLimitPerCall = 30 // 間接呼び出し（`.ops = &foo`）の上限
 	_callerTotalCap             = 80 // 1リクエストで返す呼び出し元の全体上限
 )
 
 // CallSite はコール関係の1件。
 type CallSite struct {
-	Func     string `json:"func"`      // 関数名
-	File     string `json:"file"`      // ファイルパス
-	Line     int    `json:"line"`      // 関数定義行（1-indexed）
-	CallLine int    `json:"call_line"` // 実際の呼び出し行（callersのみ）
-	Indirect bool   `json:"indirect"`  // 関数ポインタ経由の参照
+	Func     string `json:"func"`           // 関数名
+	File     string `json:"file"`           // ファイルパス
+	Line     int    `json:"line"`           // 関数定義行（1-indexed）
+	CallLine int    `json:"call_line"`      // 実際の呼び出し行（callersのみ）
+	Indirect bool   `json:"indirect"`       // 関数ポインタ経由の参照
+	Text     string `json:"text,omitempty"` // 呼び出し行のソース（呼び出しか否かを呼び出し側で判断できるように）
+}
+
+// _callSiteTextMax は返す呼び出し行の最大長。
+// 判断材料として十分で、かつ AI クライアントのトークンを浪費しない長さ。
+const _callSiteTextMax = 200
+
+func callSiteText(lines []string, line int) string {
+	if line < 1 || line > len(lines) {
+		return ""
+	}
+	t := strings.TrimSpace(lines[line-1])
+	if len(t) > _callSiteTextMax {
+		t = t[:_callSiteTextMax] + "…"
+	}
+	return t
 }
 
 var reCalleeFunc = regexp.MustCompile(`\b([A-Za-z_]\w*)\s*\(`)
@@ -37,7 +53,8 @@ var ctKeywords = map[string]bool{
 }
 
 // FindCallers は word を呼び出している関数一覧を返す（最大50件直接 + 30件間接）。
-func FindCallers(ctx context.Context, word, dir, glob string) ([]CallSite, error) {
+// 第2戻り値は上限で打ち切ったか。false を返せた場合だけ「これで全部」と言える。
+func FindCallers(ctx context.Context, word, dir, glob string) ([]CallSite, bool, error) {
 	quoted := regexp.QuoteMeta(word)
 
 	// 直接呼び出し: word(
@@ -52,7 +69,7 @@ func FindCallers(ctx context.Context, word, dir, glob string) ([]CallSite, error
 	}
 	directMatches, err := Search(ctx, directOpts)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	// 間接参照: word が ( を伴わない形（関数ポインタ代入など）
@@ -75,6 +92,7 @@ func FindCallers(ctx context.Context, word, dir, glob string) ([]CallSite, error
 	reDeclWord := regexp.MustCompile(`\b` + quoted + `\s*\(.*\)`) // 宣言行除外用
 
 	var results []CallSite
+	truncated := false
 	seen := map[string]bool{} // "func\x00file" → 登録済み
 
 	code := codeOnlyCache{}
@@ -85,6 +103,7 @@ func FindCallers(ctx context.Context, word, dir, glob string) ([]CallSite, error
 		}
 		for _, m := range matches {
 			if len(results) >= _callerTotalCap {
+				truncated = true
 				break
 			}
 			lines, err := CachedLines(m.File)
@@ -125,6 +144,7 @@ func FindCallers(ctx context.Context, word, dir, glob string) ([]CallSite, error
 				}
 			}
 			if !indirect && count >= limit {
+				truncated = true
 				continue
 			}
 			indirectCount := 0
@@ -134,6 +154,7 @@ func FindCallers(ctx context.Context, word, dir, glob string) ([]CallSite, error
 				}
 			}
 			if indirect && indirectCount >= limit {
+				truncated = true
 				continue
 			}
 			results = append(results, CallSite{
@@ -142,13 +163,14 @@ func FindCallers(ctx context.Context, word, dir, glob string) ([]CallSite, error
 				Line:     defLine,
 				CallLine: m.Line,
 				Indirect: indirect,
+				Text:     callSiteText(lines, m.Line),
 			})
 		}
 	}
 
 	collect(directMatches, false)
 	collect(indirectMatches, true)
-	return results, nil
+	return results, truncated, nil
 }
 
 // FindCallees は file の line から始まる関数が呼び出す関数名一覧を返す（最大80件）。
@@ -157,6 +179,7 @@ type CalleeHit struct {
 	Name     string `json:"name"`
 	CallLine int    `json:"call_line"`      // 呼び出し行（1-indexed）
 	Kind     string `json:"kind,omitempty"` // 索引で確認できた種別（"func" / "define" 等）
+	Text     string `json:"text,omitempty"` // 呼び出し行のソース（callers と同じ判断材料を渡す）
 }
 
 // _calleeKindLookupMax は種別を照会する候補数の上限（1 件につき tags を 1 回引く）。
@@ -197,7 +220,11 @@ func FindCallees(_ context.Context, file string, line int, root string) ([]Calle
 				continue
 			}
 			seen[name] = true
-			result = append(result, CalleeHit{Name: name, CallLine: line + i})
+			result = append(result, CalleeHit{
+				Name:     name,
+				CallLine: line + i,
+				Text:     callSiteText(lines, line+i),
+			})
 		}
 	}
 	return annotateCalleeKinds(result, root), nil

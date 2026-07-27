@@ -320,11 +320,25 @@ export class GrepnaviClient {
     word: string,
     opts: { dir?: string; glob?: string } = {},
   ): Promise<CallSite[]> {
+    return (await this.callersWithMeta(word, opts)).sites;
+  }
+
+  // callersWithMeta は結果に加えて engine と打ち切り有無を返す。
+  // rg 経路は上限で切られることがあり、黙って切ると呼び出し側が
+  // 「これで全部」と誤解するため、明示的に伝える。
+  async callersWithMeta(
+    word: string,
+    opts: { dir?: string; glob?: string } = {},
+  ): Promise<{ sites: CallSite[]; engine: string; truncated: boolean }> {
     const params = new URLSearchParams({ word });
     if (opts.dir) params.set("dir", opts.dir);
     if (opts.glob) params.set("glob", opts.glob);
     const r = await this.req("/api/callers?" + params.toString());
-    return (await r.json()) as CallSite[];
+    return {
+      sites: (await r.json()) as CallSite[],
+      engine: r.headers.get("X-Engine") || "",
+      truncated: r.headers.get("X-Truncated") === "true",
+    };
   }
 
   // /api/callees は (file, line) で「その関数定義の中から呼ばれる識別子と呼び出し行」を返す。

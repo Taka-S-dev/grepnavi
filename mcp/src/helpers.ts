@@ -161,12 +161,19 @@ export async function callersTree(args: {
   callee: { word: string };
   depth: number;
   callers: CallerTreeNode[];
+  engine?: string;
+  truncated?: boolean;
+  note?: string;
 }> {
   const maxDepth = Math.max(1, Math.min(5, args.depth ?? 1));
   const visited = new Set<string>([args.word]);
+  const meta = { engine: "", truncated: false };
 
   async function expand(word: string, level: number): Promise<CallerTreeNode[]> {
-    const sites = await client.callers(word, { dir: args.dir, glob: args.glob });
+    const res = await client.callersWithMeta(word, { dir: args.dir, glob: args.glob });
+    const sites = res.sites;
+    if (!meta.engine) meta.engine = res.engine;
+    if (res.truncated) meta.truncated = true;
     const nodes: CallerTreeNode[] = sites.map((s) => ({
       func: s.func,
       file: s.file,
@@ -191,7 +198,16 @@ export async function callersTree(args: {
   }
 
   const top = await expand(args.word, 1);
-  return { callee: { word: args.word }, depth: maxDepth, callers: top };
+  return {
+    callee: { word: args.word },
+    depth: maxDepth,
+    callers: top,
+    engine: meta.engine || undefined,
+    truncated: meta.truncated || undefined,
+    note: meta.truncated
+      ? "Caller list was capped by the ripgrep fallback, so this is a sample, not every caller. Build a gtags index for the full set, or narrow with `dir`/`glob`."
+      : undefined,
+  };
 }
 
 // 配列を topo-sort: 親が空 / batch 外 / 先に置かれた、いずれかのときに置ける。

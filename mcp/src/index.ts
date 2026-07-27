@@ -9,6 +9,7 @@ import { BRIDGE_VERSION, grepnaviBaseUrl } from "./shared.js";
 import type { ToolDef, ToolHandler } from "./shared.js";
 import * as meta from "./tools/meta.js";
 import * as search from "./tools/search.js";
+import * as path from "./tools/path.js";
 import * as graph from "./tools/graph.js";
 import * as memo from "./tools/memo.js";
 
@@ -20,6 +21,7 @@ const server = new Server(
 const tools: ToolDef[] = [
   ...meta.definitions,
   ...search.definitions,
+  ...path.definitions,
   ...graph.definitions,
   ...memo.definitions,
 ];
@@ -27,6 +29,7 @@ const tools: ToolDef[] = [
 const handlers: Record<string, ToolHandler> = {
   ...meta.handlers,
   ...search.handlers,
+  ...path.handlers,
   ...graph.handlers,
   ...memo.handlers,
 };
