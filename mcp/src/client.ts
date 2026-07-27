@@ -11,6 +11,8 @@ export interface DefHit {
   file: string;
   line: number;
   text: string;
+  /** シンボル名。名前で検索する grepnavi_symbol_search でだけ返る。 */
+  name?: string;
   kind: string;
   engine?: string;
   likely_trivial?: boolean;

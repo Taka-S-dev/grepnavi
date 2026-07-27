@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,9 +19,13 @@ import (
 
 // DefHit は定義箇所の1件。
 type DefHit struct {
-	File   string `json:"file"`
-	Line   int    `json:"line"`
-	Text   string `json:"text"`
+	File string `json:"file"`
+	Line int    `json:"line"`
+	Text string `json:"text"`
+	// Name はシンボル名。検索語がそのまま名前になる経路（gtags / rg）では空で、
+	// 索引から名前を読み出すシンボル名検索でだけ埋まる。Text を名前と定義行の
+	// どちらの意味でも使っていたのを分離したもの。
+	Name   string `json:"name,omitempty"`
 	Kind   string `json:"kind"`             // "define" / "struct" / "enum" / "union" / "typedef" / "func"
 	Engine string `json:"engine,omitempty"` // 解決に使ったバックエンド ("gtags" / "ctags" / "rg")。API レイヤで後付けされる
 }
@@ -519,21 +524,73 @@ func isDefinitionHitLines(h DefHit, lines []string) bool {
 	return true // 判定不能 → 定義扱い
 }
 
+// ===== タグキーワード文脈 =====
+//
+// `struct autofs_dev_ioctl *param` の autofs_dev_ioctl は型であって、
+// 同名の関数ではない。C は名前空間が分かれているので同名の別種が普通に共存する。
+// 呼び出し側が直前のキーワードを渡してくれれば、その種別を先頭に寄せられる。
+
+// TagKeywordKind はタグキーワード（struct/union/enum）に対応する Kind を返す。
+// 対応がなければ空文字（＝並べ替えなし）。
+func TagKeywordKind(tag string) string {
+	switch tag {
+	case "struct", "union", "enum":
+		return tag
+	}
+	return ""
+}
+
+func rankByTagKind[T any](hits []T, kind string, kindOf func(T) string) []T {
+	if kind == "" || len(hits) < 2 {
+		return hits
+	}
+	// キャッシュ済みのスライスを渡されても壊さないよう複製してから並べ替える。
+	// 落とさずに並べ替えるだけなのは、キーワードの直後でも実際には
+	// マクロ経由で別物ということがあり、候補を消すと復帰できないため。
+	out := make([]T, len(hits))
+	copy(out, hits)
+	sort.SliceStable(out, func(i, j int) bool {
+		return kindOf(out[i]) == kind && kindOf(out[j]) != kind
+	})
+	return out
+}
+
+// RankDefHitsByTag は tag（struct/union/enum）に一致する種別のヒットを先頭に寄せる。
+func RankDefHitsByTag(hits []DefHit, tag string) []DefHit {
+	return rankByTagKind(hits, TagKeywordKind(tag), func(h DefHit) string { return h.Kind })
+}
+
+// RankHoverHitsByTag は RankDefHitsByTag のホバー版。
+func RankHoverHitsByTag(hits []HoverHit, tag string) []HoverHit {
+	return rankByTagKind(hits, TagKeywordKind(tag), func(h HoverHit) string { return h.Kind })
+}
+
 // implExts は実装ファイルの拡張子セット。
 var implExts = map[string]bool{
 	".c": true, ".cpp": true, ".cc": true, ".cxx": true, ".java": true,
 }
 
 // filterImplFiles は .c/.cpp 等の実装ファイルのヒットがあればヘッダを除外して返す。
+//
+// 「ヘッダは宣言、.c が実態」という前提は同じ種別の中でしか成り立たない。
+// 例えば struct autofs_dev_ioctl（ヘッダ）と関数 autofs_dev_ioctl（.c）は
+// 名前が同じだけの別物で、種別をまたいで比較するとヘッダ側の型が丸ごと消える。
 func filterImplFiles(hits []DefHit) []DefHit {
-	var impl []DefHit
+	implByKind := map[string]bool{}
 	for _, h := range hits {
 		if implExts[strings.ToLower(filepath.Ext(h.File))] {
-			impl = append(impl, h)
+			implByKind[h.Kind] = true
 		}
 	}
-	if len(impl) > 0 {
-		return impl
+	if len(implByKind) == 0 {
+		return hits
 	}
-	return hits
+	var kept []DefHit
+	for _, h := range hits {
+		if implByKind[h.Kind] && !implExts[strings.ToLower(filepath.Ext(h.File))] {
+			continue // その種別には実装ファイルの定義がある → ヘッダ側は宣言
+		}
+		kept = append(kept, h)
+	}
+	return kept
 }

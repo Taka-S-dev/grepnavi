@@ -62,7 +62,7 @@ func CtagsSearchSymbolNames(ctx context.Context, pattern, dir, kind string, case
 		if len(fields) < 3 || !re.MatchString(fields[0]) {
 			continue
 		}
-		h := ctagsParseFields(fields, fields[0], dir)
+		h := ctagsParseLine(line, fields[0], dir)
 		if h == nil || (kind != "" && h.Kind != kind) {
 			continue
 		}
@@ -101,7 +101,7 @@ func sortSymbolNameHits(hits []DefHit, pattern string) {
 		return 0
 	}
 	sort.SliceStable(hits, func(i, j int) bool {
-		ei, ej := strings.EqualFold(hits[i].Text, pattern), strings.EqualFold(hits[j].Text, pattern)
+		ei, ej := strings.EqualFold(hits[i].Name, pattern), strings.EqualFold(hits[j].Name, pattern)
 		if ei != ej {
 			return ei
 		}
@@ -109,6 +109,6 @@ func sortSymbolNameHits(hits []DefHit, pattern string) {
 		if ri != rj {
 			return ri > rj
 		}
-		return hits[i].Text < hits[j].Text
+		return hits[i].Name < hits[j].Name
 	})
 }

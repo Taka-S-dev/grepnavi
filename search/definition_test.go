@@ -220,3 +220,57 @@ __libeth_xdpsq_lock(struct libeth_xdpsq_lock *lock)
 		t.Error("a signature with the brace on the same line must be kept")
 	}
 }
+
+// 同名の別種シンボル（ヘッダの struct と .c の関数）は無関係な存在なので、
+// 「.c があればヘッダを落とす」を種別をまたいで適用してはいけない。
+func TestFilterImplFilesKeepsOtherKinds(t *testing.T) {
+	hits := []DefHit{
+		{File: `C:\p\fs\dev-ioctl.c`, Line: 757, Kind: "func", Text: "static long autofs_dev_ioctl("},
+		{File: `C:\p\include\auto_dev-ioctl.h`, Line: 89, Kind: "struct", Text: "struct autofs_dev_ioctl {"},
+		{File: `C:\p\include\autofs.h`, Line: 12, Kind: "func", Text: "long autofs_dev_ioctl(...);"},
+	}
+	got := filterImplFiles(hits)
+	if len(got) != 2 {
+		t.Fatalf("got %d hits, want 2: %+v", len(got), got)
+	}
+	if got[0].Kind != "func" || got[1].Kind != "struct" {
+		t.Errorf("want the .c func and the header struct, got %+v", got)
+	}
+}
+
+func TestFilterImplFilesDropsHeaderDeclOfSameKind(t *testing.T) {
+	hits := []DefHit{
+		{File: `C:\p\a.h`, Line: 1, Kind: "func"},
+		{File: `C:\p\a.c`, Line: 2, Kind: "func"},
+	}
+	got := filterImplFiles(hits)
+	if len(got) != 1 || got[0].Line != 2 {
+		t.Errorf("want only the .c hit, got %+v", got)
+	}
+}
+
+func TestRankDefHitsByTag(t *testing.T) {
+	hits := []DefHit{
+		{Line: 1, Kind: "func"},
+		{Line: 2, Kind: "struct"},
+		{Line: 3, Kind: "define"},
+	}
+	got := RankDefHitsByTag(hits, "struct")
+	if got[0].Kind != "struct" {
+		t.Errorf("want the struct first, got %+v", got)
+	}
+	// 残りの相対順は保つ
+	if got[1].Kind != "func" || got[2].Kind != "define" {
+		t.Errorf("want the remaining order preserved, got %+v", got)
+	}
+	// 元のスライスは並べ替えない（呼び出し側がキャッシュを渡してくる）
+	if hits[0].Kind != "func" {
+		t.Errorf("input was mutated: %+v", hits)
+	}
+	// タグ無し・未知のタグ・一致なしは素通し
+	for _, tag := range []string{"", "typedef", "class"} {
+		if got := RankDefHitsByTag(hits, tag); got[0].Kind != "func" {
+			t.Errorf("tag %q reordered hits: %+v", tag, got)
+		}
+	}
+}

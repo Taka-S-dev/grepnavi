@@ -48,9 +48,14 @@ func TestCtagsSearchSymbolNames(t *testing.T) {
 	// kind ランク順: func 2件 → define → typedef
 	wantOrder := []string{"recipe_load", "recipe_save", "RECIPE_MAX", "recipe_t"}
 	for i, want := range wantOrder {
-		if hits[i].Text != want {
-			t.Errorf("hits[%d] = %q, want %q", i, hits[i].Text, want)
+		if hits[i].Name != want {
+			t.Errorf("hits[%d] = %q, want %q", i, hits[i].Name, want)
 		}
+	}
+	// Name はシンボル名、Text は定義行。両方揃っていないと
+	// 一覧では名前で選び、選んだ先で中身を見る、という流れが作れない。
+	if hits[0].Text != "int recipe_load(void)" {
+		t.Errorf("Text = %q, want the definition line", hits[0].Text)
 	}
 	// file は dir 起点の絶対パスに解決される
 	if !filepath.IsAbs(hits[0].File) {
@@ -67,7 +72,7 @@ func TestCtagsSearchSymbolNamesExactFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(hits) == 0 || hits[0].Text != "recipe_t" {
+	if len(hits) == 0 || hits[0].Name != "recipe_t" {
 		t.Fatalf("expected exact match 'recipe_t' first, got %+v", hits)
 	}
 }

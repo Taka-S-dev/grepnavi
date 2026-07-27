@@ -116,7 +116,7 @@ export const definitions: ToolDef[] = [
     name: "grepnavi_symbol_search",
     description:
       "Find symbols by NAME PATTERN across the whole project (regex over ctags symbol names, case-insensitive by default). **Use when you don't know the exact identifier** — the user says \"the recipe save function\" and the name could be `save_recipe` / `RecipeSave` / `recipe_write`: search `recipe.*(save|write)` in ONE call instead of guessing names one by one through grepnavi_definition.\n\n" +
-      "Returns `{ symbols: [{name, kind, file, line}], count, truncated, hint? }`. Sorted: exact name match first, then `func > define > typedef > others`, then name. `truncated: true` = more matches exist — narrow the pattern or filter with `kind`.\n\n" +
+      "Returns `{ symbols: [{name, text, kind, file, line}], count, truncated, hint? }` where `text` is the definition line itself, so you can often pick the right symbol without reading the file. Sorted: exact name match first, then `func > define > typedef > others`, then name. `truncated: true` = more matches exist — narrow the pattern or filter with `kind`.\n\n" +
       "This searches symbol NAMES (definitions) only, not file content — for content matches use grepnavi_search.\n\n" +
       "**Next step**: pick the right name, then grepnavi_definition(name) for ranked resolution across engines, or jump straight to grepnavi_func_body(file, line) with the returned location.",
     inputSchema: {

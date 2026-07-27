@@ -14,8 +14,8 @@ type Symbol struct {
 }
 
 var (
-	symFuncRe  = regexp.MustCompile(`\b([a-zA-Z_]\w*)\s*\(`)
-	symSkip    = map[string]bool{
+	symFuncRe = regexp.MustCompile(`\b([a-zA-Z_]\w*)\s*\(`)
+	symSkip   = map[string]bool{
 		"if": true, "for": true, "while": true, "switch": true,
 		"do": true, "else": true, "return": true, "sizeof": true,
 		"typedef": true, "defined": true, "assert": true,
@@ -29,6 +29,26 @@ func ExtractSymbols(filePath string) ([]Symbol, error) {
 		return nil, err
 	}
 	return extractSymbols(lines), nil
+}
+
+// signatureStartLine は複数行シグネチャの先頭行 index を返す。
+// 直前の行が文の終わり（; } { */）やコメント・プリプロセッサ・空行なら、
+// そこでシグネチャは始まっていると判断して打ち止める。
+func signatureStartLine(lines []string, i int) int {
+	const maxLookback = 6 // シグネチャがこれ以上長いことは実際上ない
+	start := i
+	for start > 0 && i-start < maxLookback {
+		prev := strings.TrimSpace(lines[start-1])
+		// 引数リストの継続行は "," で終わるので、"," を打ち止め条件にしてはいけない
+		// （4引数の関数で注釈行から遡れなくなる）。文の終わりだけで判断する。
+		if prev == "" || strings.HasPrefix(prev, "#") || strings.HasPrefix(prev, "//") ||
+			strings.HasSuffix(prev, ";") || strings.HasSuffix(prev, "{") ||
+			strings.HasSuffix(prev, "}") || strings.HasSuffix(prev, "*/") {
+			break
+		}
+		start--
+	}
+	return start
 }
 
 func extractSymbols(lines []string) []Symbol {
@@ -54,6 +74,26 @@ func extractSymbols(lines []string) []Symbol {
 		if m == nil || symSkip[m[1]] {
 			continue
 		}
+		// { の直前の行が関数名を持っているとは限らない。カーネルでは
+		//     int blkg_conf_prep(struct blkcg *blkcg, ...,
+		//                        struct blkg_conf_ctx *ctx)
+		//         __acquires(&bdev->bd_queue->queue_lock)
+		//     {
+		// のようにシグネチャが複数行に渡り、最後に sparse 注釈が付く。
+		// この行だけ見ると __acquires が関数名になり、本当の関数は
+		// どのシンボルにも現れなくなる。シグネチャの先頭まで遡って名前を取る。
+		nameLine, name := i, m[1]
+		if start := signatureStartLine(lines, i); start < i {
+			for k := start; k <= i; k++ {
+				if n := funcNameOnLine(strings.TrimSpace(lines[k])); n != "" {
+					nameLine, name = k, n
+					break
+				}
+			}
+		}
+		if symSkip[name] {
+			continue
+		}
 		braceStart := i
 		if !strings.Contains(trimmed, "{") {
 			braceStart = i + 1
@@ -75,9 +115,9 @@ func extractSymbols(lines []string) []Symbol {
 			}
 		}
 		symbols = append(symbols, Symbol{
-			Name:      m[1],
-			Detail:    trimmed,
-			StartLine: i + 1,
+			Name:      name,
+			Detail:    strings.TrimSpace(lines[nameLine]),
+			StartLine: nameLine + 1,
 			EndLine:   endLine + 1,
 		})
 	}

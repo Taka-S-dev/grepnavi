@@ -1,6 +1,7 @@
 package search
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -95,5 +96,42 @@ EXPORT_SYMBOL_GPL(__libeth_xdpsq_lock);
 	}
 	if got["EXPORT_SYMBOL_GPL"] {
 		t.Errorf("EXPORT_SYMBOL_GPL sits after the closing brace and must not be a callee, got %v", got)
+	}
+}
+
+// シグネチャ行を走査すると関数自身と引数の型名が呼び出し先に混ざる。
+// 閉じ } の次の行（カーネルなら EXPORT_SYMBOL_GPL）も本体ではない。
+func TestFindCalleesSkipsSignatureAndTrailer(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "a.c")
+	src := `int blkg_conf_prep(struct blkcg *blkcg, const struct blkcg_policy *pol,
+		   struct blkg_conf_ctx *ctx)
+	__acquires(&bdev->bd_queue->queue_lock)
+{
+	int ret = blkg_conf_open_bdev(ctx);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(blkg_conf_prep);
+`
+	if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hits, err := FindCallees(context.Background(), file, 1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, h := range hits {
+		names = append(names, h.Name)
+	}
+	for _, bad := range []string{"blkg_conf_prep", "__acquires", "EXPORT_SYMBOL_GPL"} {
+		for _, n := range names {
+			if n == bad {
+				t.Errorf("%q should not be a callee; got %v", bad, names)
+			}
+		}
+	}
+	if len(names) != 1 || names[0] != "blkg_conf_open_bdev" {
+		t.Errorf("callees = %v, want just blkg_conf_open_bdev", names)
 	}
 }

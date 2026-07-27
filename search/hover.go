@@ -101,7 +101,6 @@ func FindHover(ctx context.Context, word, dir, glob, root string, includeChain .
 		}
 	}
 
-
 	var result []HoverHit
 	seen := map[string]bool{}
 	for _, h := range hits {
@@ -331,10 +330,16 @@ func looksLikeTypeBlock(block []string) bool {
 		if t == "" || strings.HasPrefix(t, "//") || strings.HasPrefix(t, "*") {
 			continue
 		}
+		// 引数に struct を取る関数は無数にあるので、" struct " の含有では判定できない
+		// （`int f(struct foo *a, ...)` が型定義扱いになり、閉じ } の次の行、
+		//  カーネルなら EXPORT_SYMBOL_GPL(...) が本体に混ざる）。
+		// 型定義はキーワードで始まり、かつ { の前に引数リストを持たない。
+		if brace := strings.Index(t, "{"); strings.Contains(t[:max(brace, 0)], "(") ||
+			(brace < 0 && strings.Contains(t, "(")) {
+			return false
+		}
 		return strings.HasPrefix(t, "typedef") || strings.HasPrefix(t, "struct") ||
-			strings.HasPrefix(t, "union") || strings.HasPrefix(t, "enum") ||
-			strings.Contains(t, " struct ") || strings.Contains(t, " union ") ||
-			strings.Contains(t, " enum ")
+			strings.HasPrefix(t, "union") || strings.HasPrefix(t, "enum")
 	}
 	return false
 }

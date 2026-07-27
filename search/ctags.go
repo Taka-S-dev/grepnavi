@@ -379,7 +379,7 @@ func CtagsSymbolsForFile(file, dir string) ([]DefHit, error) {
 		if len(fields) < 3 {
 			continue
 		}
-		if h := ctagsParseFields(fields, fields[0], dir); h != nil {
+		if h := ctagsParseLine(line, fields[0], dir); h != nil {
 			hits = append(hits, *h)
 		}
 	}
@@ -446,7 +446,7 @@ func ctagsFindBinarySearch(word, tagsPath, dir string) ([]DefHit, error) {
 		if sym != word {
 			continue
 		}
-		h := ctagsParseFields(fields, word, dir)
+		h := ctagsParseLine(line, word, dir)
 		if h != nil {
 			hits = append(hits, *h)
 		}
@@ -484,7 +484,7 @@ func ctagsFindRipgrep(word, tagsPath, dir string) ([]DefHit, error) {
 		if len(fields) < 3 || fields[0] != word {
 			continue
 		}
-		if h := ctagsParseFields(fields, word, dir); h != nil {
+		if h := ctagsParseLine(line, word, dir); h != nil {
 			hits = append(hits, *h)
 		}
 	}
@@ -493,46 +493,114 @@ func ctagsFindRipgrep(word, tagsPath, dir string) ([]DefHit, error) {
 	return preferDefinitionHits(hits), nil
 }
 
-// ctagsParseFields は tags ファイルの1行分のフィールドをパースして DefHit を返す。
+// ctagsParseLine は tags ファイルの1行をパースして DefHit を返す。
+// 形式は  name<TAB>file<TAB>address[;"<TAB>拡張フィールド...]
+//
+// address は /^定義行$/ という検索パターンで、インデントのタブをそのまま含む。
+// タブで単純分割するとパターンが複数フィールドに割れて定義行を復元できず、
+// 拡張フィールドの位置もずれるので、拡張フィールド区切り ;"<TAB> を境に切る。
 // line: が取得できない場合は nil を返す。
-func ctagsParseFields(fields []string, word, dir string) *DefHit {
-	file := fields[1]
+func ctagsParseLine(line, word, dir string) *DefHit {
+	i1 := strings.IndexByte(line, '\t')
+	if i1 < 0 {
+		return nil
+	}
+	i2 := strings.IndexByte(line[i1+1:], '\t')
+	if i2 < 0 {
+		return nil
+	}
+	i2 += i1 + 1
+	name, file, rest := line[:i1], line[i1+1:i2], line[i2+1:]
+
 	if !filepath.IsAbs(file) {
 		file = filepath.Join(dir, file)
+	}
+	// tags は絶対パスをスラッシュ区切りで持つ。gtags/rg 経由のヒットは
+	// OS 区切りなので、揃えないと同じファイルが別物として扱われる。
+	file = filepath.Clean(file)
+
+	addr, ext := rest, ""
+	if j := strings.LastIndex(rest, ";\"\t"); j >= 0 {
+		addr, ext = rest[:j], rest[j+3:]
+	} else {
+		addr = strings.TrimSuffix(rest, ";\"")
 	}
 
 	lineNum := 0
 	kind := ""
-	for _, ef := range fields[3:] {
-		if strings.HasPrefix(ef, "line:") {
-			n, err := strconv.Atoi(strings.TrimPrefix(ef, "line:"))
-			if err == nil {
-				lineNum = n
+	if ext != "" {
+		for _, ef := range strings.Split(ext, "\t") {
+			if strings.HasPrefix(ef, "line:") {
+				if n, err := strconv.Atoi(strings.TrimPrefix(ef, "line:")); err == nil {
+					lineNum = n
+				}
+			}
+			if len(ef) == 1 {
+				kind = ctagsKindToKind(ef)
 			}
 		}
-		if len(ef) == 1 {
-			kind = ctagsKindToKind(ef)
-		}
 	}
-	// line: フィールドがない場合はアドレスフィールド（"42;"形式）から取得
+	// line: フィールドがない場合はアドレスフィールド（"42" 形式）から取得
 	if lineNum == 0 {
-		addr := fields[2]
-		if idx := strings.Index(addr, ";"); idx >= 0 {
-			addr = addr[:idx]
-		}
-		if n, err := strconv.Atoi(addr); err == nil && n > 0 {
+		if n, err := strconv.Atoi(strings.TrimSuffix(addr, ";")); err == nil && n > 0 {
 			lineNum = n
 		}
 	}
 	if lineNum == 0 {
 		return nil
 	}
+	// アドレスが定義行そのものを持っているので、そこから復元する。
+	// これを使わないと Text がシンボル名のエコーになり、gtags 経由のヒットと違って
+	// 「その行が何なのか」が分からない（構造体メンバは必ずこの経路を通る）。
+	text := ctagsPatternText(addr)
+	if text == "" {
+		text = word // アドレスが行番号形式のときはパターンが無い
+	}
 	return &DefHit{
 		File: file,
 		Line: lineNum,
-		Text: word,
+		Text: text,
+		Name: name,
 		Kind: kind,
 	}
+}
+
+// ctagsPatternText は tags のアドレスフィールド /^...$/ から定義行を復元する。
+// 行番号形式（"42;"）や壊れた入力では空文字を返す。
+func ctagsPatternText(addr string) string {
+	// 拡張フィールドの区切り。パターン内にも ;" は現れうるので末尾側を採る。
+	if i := strings.LastIndex(addr, ";\""); i >= 0 {
+		addr = addr[:i]
+	}
+	if len(addr) < 2 || addr[0] != '/' || addr[len(addr)-1] != '/' {
+		return ""
+	}
+	body := strings.TrimSuffix(strings.TrimPrefix(addr, "/"), "/")
+	body = strings.TrimPrefix(body, "^")
+	body = strings.TrimSuffix(body, "$")
+	// ctags は / と \ をバックスラッシュでエスケープする。
+	// あわせて空白の連続を1つに畳む: 定義行はインデントや桁揃えのタブを含み、
+	// gtags 経由の Text も同じ形（空白1つ区切り）で返しているため。
+	var b strings.Builder
+	b.Grow(len(body))
+	space := false
+	for i := 0; i < len(body); i++ {
+		c := body[i]
+		if c == '\\' && i+1 < len(body) && (body[i+1] == '/' || body[i+1] == '\\') {
+			i++
+			c = body[i]
+		}
+		if c == ' ' || c == '\t' {
+			space = true
+			continue
+		}
+		if space && b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		space = false
+		b.WriteByte(c)
+	}
+	return b.String()
 }
 
 // ctagsFindStart はバイナリサーチで word の開始位置付近のオフセットを返す。

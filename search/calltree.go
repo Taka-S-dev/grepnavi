@@ -208,7 +208,19 @@ func FindCallees(_ context.Context, file string, line int, root string) ([]Calle
 	// （extractBraceBlock は startLine から順に行を append する）。
 	// 判定はコード部分だけで行う: ブロックコメントや文字列内の foo() を拾わない。
 	code := codeOnlyLines(lines)
+	// 本体が始まる { より前はシグネチャ。ここを走査すると関数自身が自分の
+	// 呼び出し先になり、sparse 注釈や引数の型名まで候補に混ざる。
+	bodyStart := 0
+	for i, l := range strings.Split(body, "\n") {
+		if strings.Contains(l, "{") {
+			bodyStart = i
+			break
+		}
+	}
 	for i := range strings.Split(body, "\n") {
+		if i < bodyStart {
+			continue
+		}
 		srcIdx := line - 1 + i
 		if srcIdx < 0 || srcIdx >= len(code) {
 			continue

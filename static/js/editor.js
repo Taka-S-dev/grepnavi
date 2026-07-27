@@ -839,6 +839,22 @@ function _samePath(a, b) {
   return a.replace(/\//g, '\\').toLowerCase() === b.replace(/\//g, '\\').toLowerCase();
 }
 
+// _tagContextAt は識別子の直前にある struct / union / enum キーワードを返す。
+// C は名前空間が分かれていて `struct autofs_dev_ioctl` と関数 autofs_dev_ioctl が
+// 同時に存在しうるので、これをサーバへ渡して同名の別種より先に並べてもらう。
+function _tagContextAt(model, lineNumber, startColumn) {
+  if(!model || startColumn <= 1) return '';
+  const before = model.getValueInRange(new monaco.Range(lineNumber, 1, lineNumber, startColumn));
+  const m = /\b(struct|union|enum)\s+$/.exec(before);
+  return m ? m[1] : '';
+}
+
+// _tagContextAtPosition は getWordAtPosition の結果からタグ文脈を取る。
+function _tagContextAtPosition(model, position) {
+  const word = model?.getWordAtPosition(position);
+  return word ? _tagContextAt(model, position.lineNumber, word.startColumn) : '';
+}
+
 // _isDefAnchored は「関数の実態そのものを pin したノード」かを判定する。
 // match (pin した位置) と _def (resolve した実態) が同一行なら、call site ではなく
 // 定義行を pin している。このノードだけが逆方向 sync (呼び出し箇所の強調) の対象。
@@ -1210,7 +1226,8 @@ async function ensureEditor() {
           }
 
           // A: キャッシュチェック（メモ以外の検索結果）
-          const cacheKey = `${word.word}:${glob}`;
+          const tagCtx = _tagContextAt(model, position.lineNumber, word.startColumn);
+          const cacheKey = `${word.word}:${glob}:${tagCtx}`;
           const cached = _hoverCache.get(cacheKey);
           if(cached && Date.now() - cached.time < HOVER_CACHE_TTL) {
             const allContents = [...contents, ...cached.contents];
@@ -1230,6 +1247,7 @@ async function ensureEditor() {
           // 2. /api/hover — struct/union/enum/define のブロック本体
           const hp = new URLSearchParams({word: word.word});
           if(glob) hp.set('glob', glob);
+          if(tagCtx) hp.set('tag', tagCtx);
           const hoverFile = tabs[activeTabIdx]?.file || '';
           if(hoverFile) hp.set('file', hoverFile);
           const hr = await fetch('/api/hover?' + hp, {signal: controller.signal});
@@ -1344,7 +1362,7 @@ async function ensureEditor() {
 
     const word = monacoEditor.getModel()?.getWordAtPosition(pos);
     if(!word) return;
-    if(e.event.ctrlKey) { e.event.preventDefault(); jumpToDefinition(word.word); }
+    if(e.event.ctrlKey) { e.event.preventDefault(); jumpToDefinition(word.word, _tagContextAt(monacoEditor.getModel(), pos.lineNumber, word.startColumn)); }
     else if(e.event.altKey) { e.event.preventDefault(); grepSearchWord(word.word); }
   });
 
@@ -1354,7 +1372,7 @@ async function ensureEditor() {
     keybindings: [monaco.KeyCode.F12],
     run: ed => {
       const word = ed.getModel()?.getWordAtPosition(ed.getPosition());
-      if(word) jumpToDefinition(word.word);
+      if(word) jumpToDefinition(word.word, _tagContextAtPosition(ed.getModel(), ed.getPosition()));
     }
   });
 
@@ -1422,7 +1440,7 @@ async function ensureEditor() {
     contextMenuOrder: 2,
     run: ed => {
       const word = ed.getModel()?.getWordAtPosition(ed.getPosition())?.word;
-      if(word) jumpToDefinition(word);
+      if(word) jumpToDefinition(word, _tagContextAtPosition(ed.getModel(), ed.getPosition()));
     }
   });
 
@@ -1721,7 +1739,7 @@ function fzfRenderSymbols(query) {
         const div = document.createElement('div');
         div.className = 'fzf-item' + (i === 0 ? ' fzf-sel' : '');
         div.innerHTML = `<span class="fzf-kind fzf-kind-${esc(s.kind || 'other')}">${esc((s.kind || '?')[0])}</span>`
-                      + `<span class="fzf-name">${fzfHighlight(s.text || '', query)}</span>`
+                      + `<span class="fzf-name">${fzfHighlight(s.name || s.text || '', query)}</span>`
                       + `<span class="fzf-dir">${esc(rel)}:${s.line}</span>`;
         div.onclick = () => { closeFzf(); openPeek(s.file, s.line); };
         list.appendChild(div);
@@ -2278,7 +2296,7 @@ function showDefPeek(hits, word, pixelPos) {
 
 // ===== 定義ジャンプ =====
 let _defAbortCtrl = null;
-async function jumpToDefinition(word) {
+async function jumpToDefinition(word, tagCtx = '') {
   if(!word || word.length < 2) return;
   if(_defAbortCtrl) _defAbortCtrl.abort();
   _defAbortCtrl = new AbortController();
@@ -2303,6 +2321,7 @@ async function jumpToDefinition(word) {
     const p = new URLSearchParams({word});
     if (glob) p.set('glob', glob);
     if (currentFile) p.set('file', currentFile);
+    if (tagCtx) p.set('tag', tagCtx);
     // エンジン優先順（設定 UI の並び）。サーバーはこの順に試行する。
     if (typeof window.getDefEngines === 'function') {
       p.set('engines', window.getDefEngines().join(','));

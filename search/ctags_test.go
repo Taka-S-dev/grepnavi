@@ -70,3 +70,101 @@ func TestMacroSidecarPathStaysInRoot(t *testing.T) {
 		t.Errorf("sidecar must live in the root dir, got %s", p)
 	}
 }
+
+func TestCtagsPatternText(t *testing.T) {
+	tests := []struct {
+		name string
+		addr string
+		want string
+	}{
+		{"function", `/^static struct blkcg_gq *blkg_alloc(struct blkcg *blkcg,$/;"`, `static struct blkcg_gq *blkg_alloc(struct blkcg *blkcg,`},
+		{"indentation and column padding collapse to single spaces", "/^\tblkcg_pol_alloc_pd_fn\t\t*pd_alloc_fn;$/;\"", `blkcg_pol_alloc_pd_fn *pd_alloc_fn;`},
+		{"no extension fields", `/^#define FOO 1$/`, `#define FOO 1`},
+		{"escaped slash", `/^\/* comment *\/$/;"`, `/* comment */`},
+		{"semicolon-quote inside pattern", `/^	foo(";");$/;"`, `foo(";");`},
+		{"line number address has no pattern", `182;"`, ``},
+		{"unanchored pattern", `/foo/;"`, `foo`},
+		{"garbage", `x`, ``},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ctagsPatternText(tt.addr); got != tt.want {
+				t.Errorf("ctagsPatternText(%q) = %q, want %q", tt.addr, got, tt.want)
+			}
+		})
+	}
+}
+
+// 実際の tags では検索パターンが定義行のインデントタブをそのまま含む。
+// タブ分割でフィールドを取ると壊れる（構造体メンバはほぼ必ずこの形）。
+func TestCtagsParseLine(t *testing.T) {
+	// 絶対パスは実行中の OS の形式で組み立てる。"C:/..." をベタ書きすると
+	// Windows でしか通らない（他 OS では相対パス扱いになり dir と連結される）。
+	dir := t.TempDir()
+	t.Run("pattern containing tabs", func(t *testing.T) {
+		// tags は絶対パスもスラッシュ区切りで書くため、区切りを揃えて渡す
+		line := "pd_alloc_fn\t" + filepath.ToSlash(filepath.Join(dir, "blk-cgroup.h")) + "\t" +
+			"/^\tblkcg_pol_alloc_pd_fn\t\t*pd_alloc_fn;$/;\"\tm\tline:182\tstruct:blkcg_policy"
+		h := ctagsParseLine(line, "pd_alloc_fn", dir)
+		if h == nil {
+			t.Fatal("returned nil")
+		}
+		if h.Text != "blkcg_pol_alloc_pd_fn *pd_alloc_fn;" {
+			t.Errorf("Text = %q, want the definition line", h.Text)
+		}
+		if h.Name != "pd_alloc_fn" {
+			t.Errorf("Name = %q", h.Name)
+		}
+		if h.Kind != "member" {
+			t.Errorf("Kind = %q, want member", h.Kind)
+		}
+		if h.Line != 182 {
+			t.Errorf("Line = %d, want 182", h.Line)
+		}
+		// tags は絶対パスをスラッシュ区切りで持つ。gtags 経由のヒットと
+		// 同じファイルが別物にならないよう OS の区切りに揃える。
+		if h.File != filepath.Join(dir, "blk-cgroup.h") {
+			t.Errorf("File = %q, want the OS-normalized form", h.File)
+		}
+	})
+
+	t.Run("relative path is resolved against dir", func(t *testing.T) {
+		h := ctagsParseLine("recipe_load\tsrc/recipe.c\t/^int recipe_load(void)$/;\"\tf\tline:10", "recipe_load", dir)
+		if h == nil {
+			t.Fatal("returned nil")
+		}
+		if h.File != filepath.Join(dir, "src", "recipe.c") {
+			t.Errorf("File = %q", h.File)
+		}
+		if h.Text != "int recipe_load(void)" {
+			t.Errorf("Text = %q", h.Text)
+		}
+	})
+
+	t.Run("line number address falls back to the symbol name", func(t *testing.T) {
+		h := ctagsParseLine("FOO\tsrc/a.h\t42;\"\td", "FOO", dir)
+		if h == nil {
+			t.Fatal("returned nil")
+		}
+		if h.Line != 42 {
+			t.Errorf("Line = %d, want 42", h.Line)
+		}
+		if h.Text != "FOO" {
+			t.Errorf("Text = %q, want the symbol name fallback", h.Text)
+		}
+	})
+
+	t.Run("unresolvable line is dropped", func(t *testing.T) {
+		if h := ctagsParseLine("FOO\tsrc/a.h\t/^#define FOO$/", "FOO", dir); h != nil {
+			t.Errorf("want nil for a hit with no line number, got %+v", h)
+		}
+	})
+
+	t.Run("malformed lines are dropped", func(t *testing.T) {
+		for _, line := range []string{"", "FOO", "FOO\tsrc/a.h"} {
+			if h := ctagsParseLine(line, "FOO", dir); h != nil {
+				t.Errorf("ctagsParseLine(%q) = %+v, want nil", line, h)
+			}
+		}
+	})
+}

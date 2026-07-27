@@ -247,7 +247,7 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 	cacheKey := word + "\x00" + dir + "\x00" + glob + "\x00" + orderKey
 	if cached, ok := defCacheGet(cacheKey); ok {
 		slog.Debug("definition cache hit", "word", word, "engine", cached.engine)
-		writeDefinitionResponse(w, word, hroot, cached)
+		writeDefinitionResponse(w, word, hroot, cached, q.Get("tag"))
 		return
 	}
 	// 同一キーの並行リクエストは1回の検索で済ませる（in-flight dedup）
@@ -333,19 +333,20 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeDefinitionResponse(w, word, hroot, res)
+	writeDefinitionResponse(w, word, hroot, res, q.Get("tag"))
 }
 
 // writeDefinitionResponse は X-Engine と（0件時の）X-Definition-Hint を添えて hits を返す。
 // 新規検索・キャッシュヒット・in-flight 待機のどの経路でも同じヘッダが付くよう一本化。
-func writeDefinitionResponse(w http.ResponseWriter, word, hroot string, res defResult) {
+func writeDefinitionResponse(w http.ResponseWriter, word, hroot string, res defResult, tag string) {
 	w.Header().Set("X-Engine", res.engine)
 	if len(res.hits) == 0 {
 		if hint := definitionEmptyHint(word, hroot); hint != "" {
 			w.Header().Set("X-Definition-Hint", hint)
 		}
 	}
-	jsonOK(w, res.hits)
+	// tag は呼び出し位置ごとに変わるのでキャッシュには載せず、応答直前に整列する。
+	jsonOK(w, search.RankDefHitsByTag(res.hits, tag))
 }
 
 // definitionEmptyHint は 0 件返却時に「なぜ見つからなかったか」のヒントを返す。
@@ -489,7 +490,9 @@ func (h *Handler) handleHover(w http.ResponseWriter, r *http.Request) {
 		hits = []search.HoverHit{}
 	}
 	hoverCacheSet(hoverKey, hits)
-	jsonOK(w, hits)
+	// 並べ替えはキャッシュ格納後に行う。tag は同じ単語でも呼び出し位置ごとに
+	// 変わるので、キャッシュキーには含めず表示直前の整列だけに使う。
+	jsonOK(w, search.RankHoverHitsByTag(hits, q.Get("tag")))
 }
 
 // --- /api/callers ---
