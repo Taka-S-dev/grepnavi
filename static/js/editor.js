@@ -2420,7 +2420,9 @@ function openFile(file, line) {
   if(line) params.set('line', line);
   const editorCmd = getEditorCmd();
   if(editorCmd) params.set('editor', editorCmd);
-  fetch('/api/open?' + params);
+  // POST 固定。任意コマンドを起動する要求なので、GET だと <img src> 等の
+  // マークアップだけで踏ませられてしまう（サーバ側も GET を拒否する）。
+  fetch('/api/open?' + params, {method: 'POST'});
 }
 
 // ===== ペインリサイズ =====

@@ -62,7 +62,15 @@ func setFilesCache(root, glob string, files []string) {
 
 // --- /api/open ---
 
+// handleOpen は外部エディタを起動する。任意のコマンドを実行できる要求なので、
+// GET では受け付けない。GET は <img src> / <script src> / リンク遷移など
+// マークアップだけで発火でき、CSRF の中で最も踏ませやすい経路になる。
+// POST なら攻撃者はスクリプトを実行できる状況が必要になる。
 func (h *Handler) handleOpen(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
 	q := r.URL.Query()
 	file := q.Get("file")
 	line := q.Get("line")
