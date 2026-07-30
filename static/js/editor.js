@@ -2004,6 +2004,23 @@ async function pollActiveFile() {
     const text = await r.text();
     tab.mtime = mtime;
     tab.model.setValue(text);
+    // setValue は Monaco の全デコレーションを破棄する。heal の成否と無関係に
+    // ガター印を必ず戻す。
+    refreshLineMemoDecorations();
+    refreshBookmarkDecorations();
+    refreshRangeMemoDecorations();
+    refreshGraphDecorations();
+    // 変更されたファイルのピンを自動追従させる。未保存のメモ編集が残ったまま
+    // サーバ側でキーが動くと巻き戻るので、先にフラッシュする。
+    await _flushMemoSave();
+    const d = await healAnchors(tab.file);
+    if (d) {
+      refreshGraphDecorations();
+      refreshLineMemoDecorations();
+      if (typeof renderCurrent === "function") renderCurrent();
+      if (typeof _memoListOpen !== "undefined" && _memoListOpen) renderMemoList();
+      if (d.healed?.length) st(`ピン位置を ${d.healed.length} 件自動調整しました`);
+    }
   } catch(_) {}
 }
 

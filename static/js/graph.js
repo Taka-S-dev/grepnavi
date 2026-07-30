@@ -89,8 +89,14 @@ async function loadGraph() {
     const g = await r.json();
     applyGraphResponse(g);
     if (typeof markClean === "function") markClean();
-    // ピン位置の点検は描画をブロックしない。結果が来たら印だけ付け直す。
-    refreshDriftedAnchors().then(() => renderCurrent());
+    // ピン位置の点検と自動追従は描画をブロックしない。結果が来たら反映する。
+    healAnchors().then((d) => {
+      renderCurrent();
+      if (typeof refreshGraphDecorations === "function") refreshGraphDecorations();
+      if (typeof refreshLineMemoDecorations === "function") refreshLineMemoDecorations();
+      if (typeof _memoListOpen !== "undefined" && _memoListOpen) renderMemoList();
+      if (d?.healed?.length) st(`ピン位置を ${d.healed.length} 件自動調整しました`);
+    });
   } catch (e) {}
 }
 
@@ -1173,16 +1179,58 @@ async function moveNodeToCursorLine(node) {
 // 判定はサーバ側（ファイルを読む必要があるため）。renderTree の前に取り直す。
 const _driftedNodes = new Map();
 
-async function refreshDriftedAnchors() {
+// ピン位置の自動追従。アンカーテキストが一意に1行だけ一致した項目はサーバが
+// 移動し、こちらは同じ移動を手元（localStorage / メモリ上の graph）へ適用する。
+// loadGraph を呼び直すとその中の heal が再帰するので、手元適用で済ませる。
+async function healAnchors(file) {
   try {
-    const r = await fetch("/api/graph/anchors");
-    if (!r.ok) return;
+    // デバウンス中の保存が heal と交差すると、旧キーの再アップロードで
+    // ずれた行がアンカーとして確定してしまう。保留中のときだけ先に流す。
+    if (typeof _memoSaveTimer !== "undefined" && _memoSaveTimer) await _flushMemoSave();
+    const r = await fetch("/api/graph/anchors/heal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(file ? { file } : {}),
+    });
+    if (!r.ok) return null;
     const d = await r.json();
-    _driftedNodes.clear();
-    // 行メモの項目 (node_id 無し) も同じレスポンスに載ってくるので除外する
-    for (const a of d.drifted || []) if (a.node_id) _driftedNodes.set(a.node_id, a);
+    const memos = getLineMemos(), cats = getLineMemoCategories(), srcs = getLineMemoSources();
+    let memoMoved = 0;
+    for (const m of d.healed || []) {
+      if (m.memo_key) {
+        const to = m.file + "::" + m.to_line;
+        if (m.memo_key in memos && !(to in memos)) {
+          memos[to] = memos[m.memo_key]; delete memos[m.memo_key];
+          if (m.memo_key in cats) { cats[to] = cats[m.memo_key]; delete cats[m.memo_key]; }
+          if (m.memo_key in srcs) { srcs[to] = srcs[m.memo_key]; delete srcs[m.memo_key]; }
+          memoMoved++;
+        }
+      } else if (m.node_id && graph?.nodes?.[m.node_id]?.match) {
+        graph.nodes[m.node_id].match.line = m.to_line;
+      }
+    }
+    if (memoMoved) {
+      // サーバ側で移動済みの状態に合わせるだけなので再保存はしない
+      localStorage.setItem("grepnavi-line-memos", JSON.stringify(memos));
+      localStorage.setItem("grepnavi-line-memo-categories", JSON.stringify(cats));
+      localStorage.setItem("grepnavi-line-memo-sources", JSON.stringify(srcs));
+    }
+    if (file) {
+      // file 指定時のレスポンスはそのファイル分の drifted しか含まないため、
+      // 全クリアすると他ファイルのずれチップまで消えてしまう。対象ファイル分だけ入れ替える。
+      for (const [k, v] of _driftedNodes) if (_samePath(v.file, file)) _driftedNodes.delete(k);
+      for (const [k, v] of _driftedMemos) if (_samePath(v.file, file)) _driftedMemos.delete(k);
+    } else {
+      _driftedNodes.clear();
+      _driftedMemos.clear();
+    }
+    for (const a of d.drifted || []) {
+      if (a.node_id) _driftedNodes.set(a.node_id, a);
+      else if (a.memo_key) _driftedMemos.set(a.memo_key, a);
+    }
+    return d;
   } catch (_) {
-    // 点検できなくても本体の描画は続ける（印が出ないだけ）
+    return null; // 追従できなくても本体の描画は続ける（ずれチップが残るだけ）
   }
 }
 
