@@ -89,6 +89,8 @@ async function loadGraph() {
     const g = await r.json();
     applyGraphResponse(g);
     if (typeof markClean === "function") markClean();
+    // ピン位置の点検は描画をブロックしない。結果が来たら印だけ付け直す。
+    refreshDriftedAnchors().then(() => renderCurrent());
   } catch (e) {}
 }
 
@@ -1099,6 +1101,24 @@ function makeNodeBody(node, m) {
     if (e.ctrlKey || e.metaKey) openFile(m.file, m.line);
   };
   sub.appendChild(subLink);
+  // ピン時の行と現在の行が食い違っているノード。外部の編集で位置がずれても
+  // grepnavi は気づかず、古い行番号を普通に指し続けるので必ず見せる。
+  const drift = _driftedNodes.get(node.id);
+  if (drift) {
+    const chip = document.createElement("button");
+    chip.className = "node-drift";
+    chip.textContent = drift.file_gone ? "読めず" : drift.missing ? "行なし" : "ずれ";
+    chip.onclick = (e) => { e.stopPropagation(); moveNodeToCursorLine(node); };
+    chip.title =
+      "ピンしたとき: " + drift.expected +
+      (drift.file_gone
+        ? "\n現在: ファイルが読めません（削除または移動された可能性）"
+        : drift.missing
+        ? "\n現在: この行はファイル末尾を超えています"
+        : "\n現在の行: " + (drift.actual || "(空行)")) +
+      "\n\nクリックすると、エディタのカーソル行へ移動します";
+    sub.appendChild(chip);
+  }
   // 別ツリーのノード。グラフは root を切り替えても残るので、linux の調査に
   // openssl のノードが混ざりうる。見比べる使い方は許すが、出自は必ず見せる。
   const foreign = foreignRootName(m.file || "", projectRoot);
@@ -1124,6 +1144,46 @@ function makeNodeBody(node, m) {
     body.appendChild(sub);
   }
   return { body, lbl };
+}
+
+// ノードをエディタのカーソル行へ移す。右クリックメニューと「ずれ」印の
+// 両方から呼ぶ。印を押しても直せないと、印を見た人が次に何をすればよいか分からない。
+async function moveNodeToCursorLine(node) {
+  const cur = typeof monacoEditor !== "undefined" && monacoEditor?.getPosition();
+  const openFileNow = tabs[activeTabIdx]?.file;
+  if (!cur || !openFileNow) { st("エディタでファイルを開き、移動先の行にカーソルを置いてください"); return; }
+  // ファイルをまたぐ移動は別の操作。黙って付け替えると元の位置が失われる。
+  if (!_samePath(openFileNow, node.match?.file)) {
+    st("別ファイルには移動できません（このノードは " + shortPath(node.match?.file || "") + "）");
+    return;
+  }
+  if (cur.lineNumber === node.match?.line) { st("すでにその行です"); return; }
+  const from = node.match?.line;
+  const r = await fetch("/api/graph/node/" + node.id, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ line: cur.lineNumber }),
+  }).catch(() => null);
+  if (!r || !r.ok) { st("移動に失敗しました"); return; }
+  await loadGraph();
+  st(`ノードを ${from} → ${cur.lineNumber} 行へ移動しました`);
+}
+
+// ピン位置がずれているノード: node_id → {expected, actual, missing}
+// 判定はサーバ側（ファイルを読む必要があるため）。renderTree の前に取り直す。
+const _driftedNodes = new Map();
+
+async function refreshDriftedAnchors() {
+  try {
+    const r = await fetch("/api/graph/anchors");
+    if (!r.ok) return;
+    const d = await r.json();
+    _driftedNodes.clear();
+    // 行メモの項目 (node_id 無し) も同じレスポンスに載ってくるので除外する
+    for (const a of d.drifted || []) if (a.node_id) _driftedNodes.set(a.node_id, a);
+  } catch (_) {
+    // 点検できなくても本体の描画は続ける（印が出ないだけ）
+  }
 }
 
 // ===== ノードフィールド編集モーダル：共通ファクトリ =====
@@ -1302,6 +1362,15 @@ function initNodeCtxMenu() {
     const { node } = _nodeCtxTarget;
     hideNodeCtxMenu();
     nodeLineEditor.open(node);
+  };
+  // 行がずれたノードを直す手段。行番号を打ち込むより、目的の行へ普通に移動して
+  // カーソルを置くほうが速く、距離にも依存しない（関数ごと 200 行動いた場合でも同じ操作）。
+  // 右クリックは skipOpen で選択するのでエディタのカーソルは動かない。
+  document.getElementById("node-ctx-move-cursor").onclick = () => {
+    if (!_nodeCtxTarget) return;
+    const { node } = _nodeCtxTarget;
+    hideNodeCtxMenu();
+    moveNodeToCursorLine(node);
   };
   document.getElementById("node-ctx-duplicate").onclick = async () => {
     if (!_nodeCtxTarget) return;

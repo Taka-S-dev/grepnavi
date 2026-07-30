@@ -266,6 +266,8 @@ function renderMemoList() {
   const panel = id('memo-list-panel');
   if (!panel) return;
   const allItems = getAllMemosOrdered();
+  // 点検は描画をブロックしない。結果が来たら印だけ付け直す。
+  refreshDriftedMemos().then(() => _renderMemoListBody(getAllMemosOrdered()));
 
   // 初回のみパネル骨格を構築
   if (!id('memo-list-hdr')) {
@@ -573,23 +575,38 @@ function _makeMemoRow(item) {
   const textContent = isBm ? esc((item.memo || '').substring(0, 60)) : esc(memoPreview);
   // node memo はマーク一覧から削除不可 (graph 側ライフサイクル) なので、
   // 誤クリック防止のため削除ボタン自体を出さない。
+  // 行メモはいつでも動かせるようにする。ずれ印は「気づく」ための表示であって、
+  // 移動できる条件ではない。印が出ないメモ（記録が無い古いメモ）も直せる必要がある。
+  // 移動は行メモ限定: 範囲メモ・ブックマークは moveLineMemo の対象外で、
+  // ボタンを出しても必ず失敗する。
+  const moveBtn = item.kind === 'line'
+    ? `<button class="memo-list-move" title="エディタのカーソル行へ移動">⇅</button>`
+    : '';
   const delBtn = item.kind === 'node'
     ? ''
     : `<button class="memo-list-del" title="削除"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><polyline points="2,4 14,4"/><path d="M5 4V2h6v2"/><path d="M3 4l1 10h8l1-10"/></svg></button>`;
+  // ずれチップは loc と同じセルに入れる（チップは出たり出なかったりするので、
+  // 独立したセルにすると grid の列がずれる）。
   row.innerHTML =
     `<span class="memo-list-drag" title="ドラッグして並べ替え">⠿</span>` +
     `<span class="memo-list-icon">${icon}</span>` +
-    `<span class="memo-list-loc" title="${esc(item.file)}">${esc(fileName)}<span class="memo-list-lineno">:${lineLabel}</span></span>` +
+    `<span class="memo-list-locwrap"><span class="memo-list-loc" title="${esc(item.file)}">${esc(fileName)}<span class="memo-list-lineno">:${lineLabel}</span></span>` +
+    _memoDriftChip(item) + `</span>` +
     `<span class="memo-list-text" ${isBm ? 'style="color:#666"' : ''}>${textContent}</span>` +
-    delBtn;
+    moveBtn + delBtn;
   row.addEventListener('click', e => {
-    if (e.target.closest('.memo-list-drag') || e.target.closest('.memo-list-del')) return;
+    if (e.target.closest('.memo-list-drag') || e.target.closest('.memo-list-del') ||
+        e.target.closest('.memo-list-move') || e.target.closest('.memo-list-drift')) return;
     _showMemoPreview(item);
   });
   row.addEventListener('dblclick', e => {
-    if (e.target.closest('.memo-list-drag') || e.target.closest('.memo-list-del')) return;
+    if (e.target.closest('.memo-list-drag') || e.target.closest('.memo-list-del') ||
+        e.target.closest('.memo-list-move') || e.target.closest('.memo-list-drift')) return;
     openPeek(item.file, item.line).then(() => monacoEditor?.focus());
   });
+  const onMove = async e => { e.stopPropagation(); await _moveMemoToCursor(item); };
+  row.querySelector('.memo-list-drift')?.addEventListener('click', onMove);
+  row.querySelector('.memo-list-move')?.addEventListener('click', onMove);
   row.querySelector('.memo-list-del')?.addEventListener('click', e => {
     e.stopPropagation();
     _deleteMemoItem(item);
@@ -947,4 +964,73 @@ function _initMemoListDnd(body, allItems, groups) {
       _renderMemoListBody(getAllMemosOrdered());
     }
   });
+}
+
+// ===== 行がずれたメモ =====
+// メモを付けた時点の行テキストはサーバが記録している (line_memo_texts)。
+// ノードにだけ「ずれ」の印が出てメモに出ないと、どちらを信じてよいか分からなくなる。
+// 判定はサーバ側 (/api/graph/anchors)。ここでは印を出すだけで、勝手には直さない。
+
+function _memoDriftChip(item) {
+  // 行メモ限定。node はツリー側に印が出るし、同じ file::line のブックマーク行に
+  // まで出すと「どの項目がずれているのか」が分からなくなる。
+  if (item.kind !== 'line') return '';
+  const d = _driftedMemos.get(item.file + '::' + item.line);
+  if (!d) return '';
+  const tip = 'メモを付けたとき: ' + d.expected +
+    (d.file_gone ? '\nファイルが読めません（削除または移動された可能性）'
+     : d.missing ? '\nこの行はファイル末尾を超えています'
+                 : '\n現在の行: ' + (d.actual || '(空行)')) +
+    '\n\nクリックすると、エディタのカーソル行へ移動します';
+  const label = d.file_gone ? '読めず' : d.missing ? '行なし' : 'ずれ';
+  return `<button class="memo-list-drift" title="${esc(tip)}">${label}</button>`;
+}
+
+// key ("file::line") → drift 情報
+const _driftedMemos = new Map();
+
+async function refreshDriftedMemos() {
+  try {
+    const r = await fetch('/api/graph/anchors');
+    if (!r.ok) return;
+    const d = await r.json();
+    _driftedMemos.clear();
+    for (const a of d.drifted || []) if (a.memo_key) _driftedMemos.set(a.memo_key, a);
+  } catch (_) {
+    // 点検できなくても一覧の描画は続ける（印が出ないだけ）
+  }
+}
+
+// 行メモを別の行へ移す。カテゴリと source を保ったままキーだけ差し替える
+// (setLineMemo を使うと新規扱いになり source が user に戻ってしまう)。
+function moveLineMemo(file, fromLine, toLine) {
+  const memos = getLineMemos(), cats = getLineMemoCategories(), srcs = getLineMemoSources();
+  const from = file + '::' + fromLine, to = file + '::' + toLine;
+  if (!(from in memos)) return false;
+  if (to in memos) return false;   // 移動先に別のメモがある。上書きしない
+  memos[to] = memos[from];         delete memos[from];
+  if (from in cats) { cats[to] = cats[from]; delete cats[from]; }
+  if (from in srcs) { srcs[to] = srcs[from]; delete srcs[from]; }
+  localStorage.setItem('grepnavi-line-memos', JSON.stringify(memos));
+  localStorage.setItem('grepnavi-line-memo-categories', JSON.stringify(cats));
+  localStorage.setItem('grepnavi-line-memo-sources', JSON.stringify(srcs));
+  _scheduleMemoSave();
+  return true;
+}
+
+// メモをエディタのカーソル行へ移す。「ずれ」印からも移動ボタンからも呼ぶ。
+async function _moveMemoToCursor(item) {
+  const cur = typeof monacoEditor !== 'undefined' && monacoEditor?.getPosition();
+  const openFileNow = tabs[activeTabIdx]?.file;
+  if (!cur || !openFileNow) { st('移動先の行をエディタで開き、カーソルを置いてから押してください'); return; }
+  if (!_samePath(openFileNow, item.file)) { st('別ファイルには移動できません（このメモは ' + shortPath(item.file) + '）'); return; }
+  if (cur.lineNumber === item.line) { st('すでにその行です'); return; }
+  if (!moveLineMemo(item.file, item.line, cur.lineNumber)) { st('移動できません（移動先に別のメモがあります）'); return; }
+  refreshLineMemoDecorations();
+  // 保存はデバウンス待ちなので、先にフラッシュしないとサーバは旧メモのまま。
+  // その状態で drift を取り直すと移動前の判定が表示されてしまう。
+  await _flushMemoSave();
+  await refreshDriftedMemos();
+  renderMemoList();
+  st(`メモを ${item.line} → ${cur.lineNumber} 行へ移動しました`);
 }

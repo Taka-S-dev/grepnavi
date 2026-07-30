@@ -566,6 +566,7 @@ grepnavi/
 | `POST` | `/api/graph/edge` | エッジ追加 |
 | `POST` | `/api/graph/reparent` | ノードの親を変更 |
 | `POST` | `/api/graph/rootorder` | ルートノードの並び順を保存 |
+| `GET` | `/api/graph/anchors` | ピン位置がずれたノード・行メモの列挙 |
 | `POST` | `/api/graph/saveas` | プロジェクトを名前を付けて保存 |
 | `POST` | `/api/graph/openfile` | プロジェクトファイルを開く |
 | `GET/POST` | `/api/root` | 検索ルートの取得/変更 |
@@ -580,7 +581,7 @@ grepnavi/
 | `GET` | `/api/search/stream` | 検索（SSE ストリーミング） |
 | `GET` | `/api/search` | 検索（ページネーション付き一括取得。MCP ブリッジ用） |
 | `GET` | `/api/symbol-search` | シンボル名のパターン検索（Alt+T / MCP 用、ctags 索引ベース） |
-| `GET` | `/api/open` | ファイルの内容取得 |
+| `POST` | `/api/open` | 外部エディタでファイルを開く |
 | `GET` | `/api/snippet` | スニペット取得 |
 | `GET` | `/api/definition` | 定義ジャンプ先の検索 |
 | `GET` | `/api/hover` | ホバープレビュー用スニペット取得 |

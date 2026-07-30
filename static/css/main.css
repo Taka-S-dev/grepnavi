@@ -430,6 +430,12 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .node-sub{color:#888;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;margin-top:1px}
 #tree.hide-sub .node-sub{display:none}
 /* 現在のルート外のノード。見比べる用途は許すので禁止色ではなく識別色にする。 */
+/* ピン位置がずれたノード。直す操作は右クリックにあるので、禁止色ではなく注意色。 */
+/* 行がずれたメモ。押すとカーソル行へ移動する。 */
+.memo-list-drift{margin-left:4px;padding:0 4px;border-radius:2px;background:#5a2a2a;color:#e08080;font-size:9px;border:none;cursor:pointer;flex-shrink:0}
+.memo-list-drift:hover{background:#7a3a3a;color:#fff}
+.node-drift{margin-left:5px;padding:0 4px;border-radius:2px;background:#5a2a2a;color:#e08080;font-size:9px;vertical-align:1px;border:none;cursor:pointer;font-family:inherit}
+.node-drift:hover{background:#7a3a3a;color:#fff}
 .node-foreign{margin-left:5px;padding:0 4px;border-radius:2px;background:#4a3a20;color:#e0b070;font-size:9px;vertical-align:1px}
 .node-ifdef{color:#3a9a80;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
 .node-badge{display:inline-flex;align-items:center;justify-content:center;min-width:10px;height:10px;border-radius:5px;padding:0 4px;font-size:10px;font-weight:bold;color:#fff;flex-shrink:0;align-self:center;line-height:1;white-space:nowrap}
@@ -1006,8 +1012,17 @@ body.calltree-mode #pane-left{display:none!important}
 #memo-list-filter-input:focus{border-color:#007acc}
 #memo-list-filter-clear{background:none;border:none;color:#666;cursor:pointer;font-size:12px;padding:2px 4px;border-radius:2px}
 #memo-list-filter-clear:hover{color:#ccc;background:#2a2d2e}
-.memo-list-item{grid-template-columns:16px 16px auto 1fr 16px}
+/* 列: drag / icon / loc(+ずれチップ) / text / move / del。
+   move・del が無い行でも列がずれないよう、del は末尾列に固定する。 */
+.memo-list-item{grid-template-columns:16px 16px auto 1fr 16px 16px}
+.memo-list-item .memo-list-move{grid-column:5}
+.memo-list-item .memo-list-del{grid-column:6}
+.memo-list-locwrap{display:flex;align-items:center;min-width:0}
 .memo-list-item--bm{grid-template-columns:16px auto 1fr 16px}
+/* 移動ボタン。削除と同じくホバーで現れる（常時出すと一覧が賑やかすぎる）。 */
+.memo-list-move{background:none;border:none;color:transparent;cursor:pointer;font-size:12px;padding:0 2px;border-radius:2px;line-height:1;flex-shrink:0}
+.memo-list-item:hover .memo-list-move{color:#555}
+.memo-list-move:hover{color:#4ec9b0!important;background:rgba(78,201,176,0.12)}
 .memo-list-del{background:none;border:none;color:transparent;cursor:pointer;font-size:13px;padding:0 2px;border-radius:2px;line-height:1}
 .memo-list-item:hover .memo-list-del{color:#555}
 .memo-list-del:hover{color:#f44!important;background:rgba(244,68,68,0.1)}

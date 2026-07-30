@@ -278,6 +278,7 @@ func (s *Store) buildResponse(t *Tree) *GraphResponse {
 		LineMemos:          s.pf.LineMemos,
 		LineMemoCategories: s.pf.LineMemoCategories,
 		LineMemoSources:    s.pf.LineMemoSources,
+		LineMemoTexts:      s.pf.LineMemoTexts,
 		RangeMemos:         s.pf.RangeMemos,
 		Bookmarks:          s.pf.Bookmarks,
 		RootOrder:          t.RootOrder,
@@ -903,6 +904,7 @@ type MemoSnapshot struct {
 	LineMemos          map[string]string
 	LineMemoCategories map[string]string
 	LineMemoSources    map[string]string
+	LineMemoTexts      map[string]string
 	RangeMemos         []RangeMemo
 	Bookmarks          map[string]string
 }
@@ -912,6 +914,7 @@ func (s *Store) UpdateMemos(m MemoSnapshot) error {
 	s.pf.LineMemos = m.LineMemos
 	s.pf.LineMemoCategories = m.LineMemoCategories
 	s.pf.LineMemoSources = m.LineMemoSources
+	s.pf.LineMemoTexts = m.LineMemoTexts
 	s.pf.RangeMemos = m.RangeMemos
 	s.pf.Bookmarks = m.Bookmarks
 	s.mu.Unlock()
@@ -924,6 +927,7 @@ func (s *Store) SaveAs(path string, m MemoSnapshot) error {
 	s.pf.LineMemos = m.LineMemos
 	s.pf.LineMemoCategories = m.LineMemoCategories
 	s.pf.LineMemoSources = m.LineMemoSources
+	s.pf.LineMemoTexts = m.LineMemoTexts
 	s.pf.RangeMemos = m.RangeMemos
 	s.pf.Bookmarks = m.Bookmarks
 	s.pf.UpdatedAt = time.Now()

@@ -270,21 +270,28 @@ function initPinnedHighlightInput() {
 
 let _memoSaveTimer = null;
 function _cancelMemoSave() { clearTimeout(_memoSaveTimer); _memoSaveTimer = null; }
+function _putMemos() {
+  return fetch('/api/graph/memos', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      line_memos: getLineMemos(),
+      line_memo_categories: getLineMemoCategories(),
+      line_memo_sources: getLineMemoSources(),
+      range_memos: getRangeMemos(),
+      bookmarks: getBookmarks(),
+    }),
+  });
+}
 function _scheduleMemoSave() {
   clearTimeout(_memoSaveTimer);
-  _memoSaveTimer = setTimeout(() => {
-    fetch('/api/graph/memos', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        line_memos: getLineMemos(),
-        line_memo_categories: getLineMemoCategories(),
-        line_memo_sources: getLineMemoSources(),
-        range_memos: getRangeMemos(),
-        bookmarks: getBookmarks(),
-      }),
-    });
-  }, 500);
+  _memoSaveTimer = setTimeout(_putMemos, 500);
+}
+// デバウンスを待たずに今すぐ保存する。保存直後のサーバ状態に依存する処理
+// （ずれ判定の取り直し等）は、これを await してから続ける。
+function _flushMemoSave() {
+  _cancelMemoSave();
+  return _putMemos();
 }
 
 function getLineMemos() {

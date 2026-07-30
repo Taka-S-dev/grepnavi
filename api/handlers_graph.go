@@ -58,6 +58,15 @@ func (h *Handler) handleNode(w http.ResponseWriter, r *http.Request) {
 		if req.EdgeLabel == "" {
 			req.EdgeLabel = "ref"
 		}
+		// ピンした行のテキストを控える。行がずれたことを後で検出する唯一の材料で、
+		// これが無いノードは「ずれているか判定できない」ままになる。
+		// MCP 経由の追加は text を省くことが多い（非 UTF-8 の取り違えを避けるため
+		// ツール説明が省略を勧めている）ので、サーバ側で埋める。
+		if strings.TrimSpace(req.Match.Text) == "" {
+			if t, ok := lineTextAt(h.absFromRoot(req.Match.File), req.Match.Line); ok {
+				req.Match.Text = t
+			}
+		}
 		node, edge, err := h.store.AddMatchAsNode(&req.Match, req.ParentID, req.EdgeLabel, req.Label)
 		if err != nil {
 			jsonErr(w, err.Error(), http.StatusInternalServerError)
@@ -149,6 +158,11 @@ func (h *Handler) handleNodeByID(w http.ResponseWriter, r *http.Request) {
 			}
 			if req.Line != nil && *req.Line > 0 {
 				n.Match.Line = *req.Line
+				// 行を移したら、その行のテキストも取り直す。放っておくと
+				// ピン時のテキストが残り、以後ずっと「ずれている」と判定される。
+				if t, ok := lineTextAt(h.absFromRoot(n.Match.File), *req.Line); ok {
+					n.Match.Text = t
+				}
 			}
 			if req.ClearDefOverride {
 				n.DefOverride = nil
@@ -418,10 +432,12 @@ func (h *Handler) handleGraphMemos(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	prev := h.store.GetGraphResponse()
 	if err := h.store.UpdateMemos(graph.MemoSnapshot{
 		LineMemos:          req.LineMemos,
 		LineMemoCategories: req.LineMemoCategories,
 		LineMemoSources:    req.LineMemoSources,
+		LineMemoTexts:      h.captureMemoAnchors(prev.LineMemos, prev.LineMemoTexts, req.LineMemos),
 		RangeMemos:         req.RangeMemos,
 		Bookmarks:          req.Bookmarks,
 	}); err != nil {
@@ -577,10 +593,14 @@ func (h *Handler) handleGraphSaveAs(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, "path is required", http.StatusBadRequest)
 		return
 	}
+	// LineMemoTexts を渡さないと SaveAs が nil で上書きし、蓄積したアンカー記録が
+	// 保存のたびに消える。通常保存 (handleGraphMemos) と同じ規則で引き継ぐ。
+	prev := h.store.GetGraphResponse()
 	if err := h.store.SaveAs(req.Path, graph.MemoSnapshot{
 		LineMemos:          req.LineMemos,
 		LineMemoCategories: req.LineMemoCategories,
 		LineMemoSources:    req.LineMemoSources,
+		LineMemoTexts:      h.captureMemoAnchors(prev.LineMemos, prev.LineMemoTexts, req.LineMemos),
 		RangeMemos:         req.RangeMemos,
 		Bookmarks:          req.Bookmarks,
 	}); err != nil {

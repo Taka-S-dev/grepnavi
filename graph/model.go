@@ -101,7 +101,7 @@ type Tree struct {
 // Category: "draft" / "ok" / "warn" / "error" / "note" / "" (未設定)
 // Source:   "ai" / "user" / "" (未設定 = 旧データ互換、user 扱い)
 //
-// LineMemoCategories / LineMemoSources は LineMemos と key 共通 ("file::line") で
+// LineMemoCategories / LineMemoSources / LineMemoTexts は LineMemos と key 共通 ("file::line") で
 // 並列に保持する。値が空 / map に key 無し なら未設定扱い。
 // 構造体化せず並列 map にした理由: 既存 graph.json との後方互換 (旧 grepnavi
 // でも読み書き可能) と、フィールド追加の容易さ。
@@ -129,9 +129,12 @@ type ProjectFile struct {
 	LineMemos          map[string]string `json:"line_memos,omitempty"`
 	LineMemoCategories map[string]string `json:"line_memo_categories,omitempty"`
 	LineMemoSources    map[string]string `json:"line_memo_sources,omitempty"`
-	RangeMemos         []RangeMemo       `json:"range_memos,omitempty"`
-	Bookmarks          map[string]string `json:"bookmarks,omitempty"`
-	UpdatedAt          time.Time         `json:"updated_at"`
+	// LineMemoTexts はメモを付けた時点の行テキスト。行がずれたことを検出するためだけに使う。
+	// 旧データには無いので、値が無いメモは「判定できない」として扱う（勝手に埋めない）。
+	LineMemoTexts map[string]string `json:"line_memo_texts,omitempty"`
+	RangeMemos    []RangeMemo       `json:"range_memos,omitempty"`
+	Bookmarks     map[string]string `json:"bookmarks,omitempty"`
+	UpdatedAt     time.Time         `json:"updated_at"`
 }
 
 // TreeMeta はツリー一覧用の軽量メタデータ。
@@ -155,9 +158,12 @@ type GraphResponse struct {
 	LineMemos          map[string]string `json:"line_memos,omitempty"`
 	LineMemoCategories map[string]string `json:"line_memo_categories,omitempty"`
 	LineMemoSources    map[string]string `json:"line_memo_sources,omitempty"`
-	RangeMemos         []RangeMemo       `json:"range_memos,omitempty"`
-	Bookmarks          map[string]string `json:"bookmarks,omitempty"`
-	RootOrder          []string          `json:"root_order,omitempty"`
+	// LineMemoTexts はメモを付けた時点の行テキスト。行がずれたことを検出するためだけに使う。
+	// 旧データには無いので、値が無いメモは「判定できない」として扱う（勝手に埋めない）。
+	LineMemoTexts map[string]string `json:"line_memo_texts,omitempty"`
+	RangeMemos    []RangeMemo       `json:"range_memos,omitempty"`
+	Bookmarks     map[string]string `json:"bookmarks,omitempty"`
+	RootOrder     []string          `json:"root_order,omitempty"`
 }
 
 func NewProjectFile(rootDir string) *ProjectFile {
