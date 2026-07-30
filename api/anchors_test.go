@@ -133,3 +133,30 @@ func TestAbsFromRoot(t *testing.T) {
 		t.Errorf("空文字は素通しのはず: %q", got)
 	}
 }
+
+// `}` のような頻出行は複数一致になり自動追従の対象外になる。
+// この「曖昧なら動かない」性質が自動修正の安全性そのもの。
+func TestUniqueAnchorLine(t *testing.T) {
+	lines := []string{"int foo(void)", "{", "\treturn 0;", "}", "int bar(void)", "{", "}"}
+	if got, ok := uniqueAnchorLine(lines, "return 0;"); !ok || got != 3 {
+		t.Errorf("一意一致: got (%d, %v), want (3, true)", got, ok)
+	}
+	if got, ok := uniqueAnchorLine(lines, "  int foo(void)  "); !ok || got != 1 {
+		t.Errorf("trim 比較のはず: got (%d, %v)", got, ok)
+	}
+	if _, ok := uniqueAnchorLine(lines, "}"); ok {
+		t.Error("複数一致で ok=true になってはいけない")
+	}
+	if _, ok := uniqueAnchorLine(lines, "no such line"); ok {
+		t.Error("0件で ok=true になってはいけない")
+	}
+}
+
+func TestSamePathLoose(t *testing.T) {
+	if !samePathLoose(`C:\proj\a.c`, `c:/proj/a.c`) {
+		t.Error("スラッシュ方向と大小文字は吸収するはず")
+	}
+	if samePathLoose(`C:\proj\a.c`, `C:\proj\b.c`) {
+		t.Error("別ファイルが同一判定された")
+	}
+}

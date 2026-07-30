@@ -1,11 +1,13 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"grepnavi/graph"
 	"grepnavi/search"
 )
 
@@ -70,12 +72,16 @@ func sameAnchorText(a, b string) bool {
 	return strings.TrimSpace(a) == strings.TrimSpace(b)
 }
 
-// handleGraphAnchors はピン位置がずれているノード・行メモを列挙する。
-func (h *Handler) handleGraphAnchors(w http.ResponseWriter, r *http.Request) {
-	g := h.store.GetGraphResponse()
+// collectDrifted はピン位置がずれている項目を列挙する。fileFilter 非空なら
+// そのファイルの項目だけを見る（対象外はどのカウンタにも入れない —
+// skipped は「見たが判定できない」の意味を保つ）。
+func (h *Handler) collectDrifted(g *graph.GraphResponse, fileFilter string) ([]DriftedAnchor, int, int) {
 	drifted := []DriftedAnchor{}
 	checked, skipped := 0, 0
 	for _, n := range g.Nodes {
+		if fileFilter != "" && !samePathLoose(h.absFromRoot(n.Match.File), h.absFromRoot(fileFilter)) {
+			continue
+		}
 		// Text が無いノード（古いグラフ・手で作ったノード）は判定材料が無い
 		if n.Match.File == "" || n.Match.Line < 1 || strings.TrimSpace(n.Match.Text) == "" {
 			skipped++
@@ -110,6 +116,9 @@ func (h *Handler) handleGraphAnchors(w http.ResponseWriter, r *http.Request) {
 			skipped++
 			continue
 		}
+		if fileFilter != "" && !samePathLoose(h.absFromRoot(file), h.absFromRoot(fileFilter)) {
+			continue
+		}
 		pinned, has := texts[key]
 		// 旧データのメモは記録が無く判定できない。無いことを skipped で伝える。
 		if !has || strings.TrimSpace(pinned) == "" {
@@ -136,6 +145,12 @@ func (h *Handler) handleGraphAnchors(w http.ResponseWriter, r *http.Request) {
 			FileGone: !ok && fileUnreadable(path),
 		})
 	}
+	return drifted, checked, skipped
+}
+
+// handleGraphAnchors はピン位置がずれているノード・行メモを列挙する。
+func (h *Handler) handleGraphAnchors(w http.ResponseWriter, r *http.Request) {
+	drifted, checked, skipped := h.collectDrifted(h.store.GetGraphResponse(), "")
 	jsonOK(w, map[string]any{
 		"drifted": drifted,
 		"checked": checked,
@@ -184,6 +199,164 @@ func (h *Handler) captureMemoAnchors(prevMemos, prevTexts, memos map[string]stri
 		}
 		if t, ok := lineTextAt(h.absFromRoot(file), line); ok {
 			out[k] = t
+		}
+	}
+	return out
+}
+
+// uniqueAnchorLine は anchor と一致する行がちょうど1行のときだけ行番号を返す。
+// 複数一致（`}` など）や0件で動かないことが「推測で再アンカーしない」の要。
+func uniqueAnchorLine(lines []string, anchor string) (int, bool) {
+	found, lineNo := 0, 0
+	for i, l := range lines {
+		if sameAnchorText(l, anchor) {
+			found++
+			if found > 1 {
+				return 0, false
+			}
+			lineNo = i + 1
+		}
+	}
+	return lineNo, found == 1
+}
+
+// samePathLoose は Windows 前提でスラッシュ方向と大小文字を吸収して比較する。
+func samePathLoose(a, b string) bool {
+	return strings.EqualFold(filepath.Clean(filepath.FromSlash(a)), filepath.Clean(filepath.FromSlash(b)))
+}
+
+// --- /api/graph/anchors/heal ---
+
+// HealedAnchor は自動追従で移動した1件。
+type HealedAnchor struct {
+	NodeID   string `json:"node_id,omitempty"`
+	MemoKey  string `json:"memo_key,omitempty"`
+	File     string `json:"file"`
+	FromLine int    `json:"from_line"`
+	ToLine   int    `json:"to_line"`
+}
+
+// handleGraphAnchorsHeal はアンカーテキストが一意に1行だけ一致する項目を
+// 自動で追従させる。曖昧（0件・複数件）なものは触らず drifted に残す。
+//
+// notifyGraphChange に包んではいけない: graph.updated → loadGraph → heal →
+// graph.updated のループになる。移動の反映は呼び出し元クライアントが行う。
+func (h *Handler) handleGraphAnchorsHeal(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		File string `json:"file"`
+	}
+	json.NewDecoder(r.Body).Decode(&req) // 空 body = 全体対象
+	drifted, _, _ := h.collectDrifted(h.store.GetGraphResponse(), req.File)
+
+	healed := []HealedAnchor{}
+	memoMoves := map[string]int{} // 旧 key → 新行
+	for _, d := range drifted {
+		if d.FileGone {
+			continue // 探す先が無い
+		}
+		lines, err := search.CachedLines(h.absFromRoot(d.File))
+		if err != nil {
+			continue
+		}
+		to, ok := uniqueAnchorLine(lines, d.Expected)
+		if !ok || to == d.Line {
+			continue
+		}
+		// collectDrifted の2つのループはノード側/メモ側を MemoKey の有無で
+		// 判別する（NodeID は手作りノードなどで空になり得るため、有無の判定には使えない）。
+		if d.MemoKey != "" {
+			memoMoves[d.MemoKey] = to
+		} else {
+			if _, err := h.store.UpdateNode(d.NodeID, func(n *graph.Node) {
+				n.Match.Line = to
+				n.Match.Text = lines[to-1] // 手動の行変更と同じくテキストも取り直す
+			}); err != nil {
+				continue
+			}
+			healed = append(healed, HealedAnchor{NodeID: d.NodeID, File: d.File, FromLine: d.Line, ToLine: to})
+		}
+	}
+	if len(memoMoves) > 0 {
+		moved, err := h.applyMemoMoves(memoMoves)
+		if err != nil {
+			jsonErr(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		healed = append(healed, moved...)
+	}
+	remaining, checked, skipped := h.collectDrifted(h.store.GetGraphResponse(), req.File)
+	jsonOK(w, map[string]any{
+		"healed":  healed,
+		"drifted": remaining,
+		"checked": checked,
+		"skipped": skipped,
+	})
+}
+
+// applyMemoMoves は行メモのキー移動を4マップへ一括適用する。
+// 移動先キーが占有されている移動はスキップ（手動移動と同じ規則）。
+func (h *Handler) applyMemoMoves(moves map[string]int) ([]HealedAnchor, error) {
+	g := h.store.GetGraphResponse()
+	memos := copyStrMap(g.LineMemos)
+	applied := map[string]string{} // 旧 key → 新 key
+	healed := []HealedAnchor{}
+	for from, to := range moves {
+		file, fromLine, ok := splitMemoKey(from)
+		if !ok {
+			continue
+		}
+		toKey := file + "::" + strconv.Itoa(to)
+		if _, occupied := memos[toKey]; occupied {
+			continue
+		}
+		v, ok := memos[from]
+		if !ok {
+			continue
+		}
+		memos[toKey] = v
+		delete(memos, from)
+		applied[from] = toKey
+		healed = append(healed, HealedAnchor{MemoKey: from, File: file, FromLine: fromLine, ToLine: to})
+	}
+	if len(applied) == 0 {
+		return nil, nil
+	}
+	texts := moveStrMapKeys(g.LineMemoTexts, applied)
+	for _, toKey := range applied {
+		file, line, _ := splitMemoKey(toKey)
+		if t, ok := lineTextAt(h.absFromRoot(file), line); ok {
+			texts[toKey] = t // 移動先の行で取り直す（ノードの行変更と同じ規則）
+		}
+	}
+	return healed, h.store.UpdateMemos(graph.MemoSnapshot{
+		LineMemos:          memos,
+		LineMemoCategories: moveStrMapKeys(g.LineMemoCategories, applied),
+		LineMemoSources:    moveStrMapKeys(g.LineMemoSources, applied),
+		LineMemoTexts:      texts,
+		RangeMemos:         g.RangeMemos,
+		Bookmarks:          g.Bookmarks,
+	})
+}
+
+func copyStrMap(m map[string]string) map[string]string {
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
+// moveStrMapKeys は applied (旧key→新key) に従ってキーを差し替えたコピーを返す。
+func moveStrMapKeys(m, applied map[string]string) map[string]string {
+	out := copyStrMap(m)
+	for from, to := range applied {
+		if v, ok := out[from]; ok {
+			out[to] = v
+			delete(out, from)
 		}
 	}
 	return out

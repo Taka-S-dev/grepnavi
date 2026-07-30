@@ -56,6 +56,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/graph/openfile", h.notifyGraphChange(h.handleGraphOpenFile))
 	mux.HandleFunc("/api/graph/recover", h.notifyGraphChange(h.handleGraphRecover))
 	mux.HandleFunc("/api/graph/anchors", h.handleGraphAnchors)
+	// notifyGraphChange に包まない: graph.updated → loadGraph → heal → graph.updated のループになる。
+	mux.HandleFunc("/api/graph/anchors/heal", h.handleGraphAnchorsHeal)
 	mux.HandleFunc("/api/graph/memos", h.notifyGraphChange(h.handleGraphMemos))
 	mux.HandleFunc("/api/graph/description", h.notifyGraphChange(h.handleGraphDescription))
 	mux.HandleFunc("/api/graph/descriptions", h.handleGraphDescriptions)

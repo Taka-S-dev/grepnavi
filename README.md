@@ -567,6 +567,7 @@ grepnavi/
 | `POST` | `/api/graph/reparent` | ノードの親を変更 |
 | `POST` | `/api/graph/rootorder` | ルートノードの並び順を保存 |
 | `GET` | `/api/graph/anchors` | ピン位置がずれたノード・行メモの列挙 |
+| `POST` | `/api/graph/anchors/heal` | 一意に見つかったずれの自動追従（曖昧なものは動かさない） |
 | `POST` | `/api/graph/saveas` | プロジェクトを名前を付けて保存 |
 | `POST` | `/api/graph/openfile` | プロジェクトファイルを開く |
 | `GET/POST` | `/api/root` | 検索ルートの取得/変更 |
