@@ -79,7 +79,7 @@ func (h *Handler) collectDrifted(g *graph.GraphResponse, fileFilter string) ([]D
 	drifted := []DriftedAnchor{}
 	checked, skipped := 0, 0
 	for _, n := range g.Nodes {
-		if fileFilter != "" && !samePathLoose(h.absFromRoot(n.Match.File), h.absFromRoot(fileFilter)) {
+		if fileFilter != "" && !graph.SamePathLoose(h.absFromRoot(n.Match.File), h.absFromRoot(fileFilter)) {
 			continue
 		}
 		// Text が無いノード（古いグラフ・手で作ったノード）は判定材料が無い
@@ -116,7 +116,7 @@ func (h *Handler) collectDrifted(g *graph.GraphResponse, fileFilter string) ([]D
 			skipped++
 			continue
 		}
-		if fileFilter != "" && !samePathLoose(h.absFromRoot(file), h.absFromRoot(fileFilter)) {
+		if fileFilter != "" && !graph.SamePathLoose(h.absFromRoot(file), h.absFromRoot(fileFilter)) {
 			continue
 		}
 		pinned, has := texts[key]
@@ -218,11 +218,6 @@ func uniqueAnchorLine(lines []string, anchor string) (int, bool) {
 		}
 	}
 	return lineNo, found == 1
-}
-
-// samePathLoose は Windows 前提でスラッシュ方向と大小文字を吸収して比較する。
-func samePathLoose(a, b string) bool {
-	return strings.EqualFold(filepath.Clean(filepath.FromSlash(a)), filepath.Clean(filepath.FromSlash(b)))
 }
 
 // --- /api/graph/anchors/heal ---

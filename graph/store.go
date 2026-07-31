@@ -282,6 +282,7 @@ func (s *Store) buildResponse(t *Tree) *GraphResponse {
 		RangeMemos:         s.pf.RangeMemos,
 		Bookmarks:          s.pf.Bookmarks,
 		RootOrder:          t.RootOrder,
+		Insertions:         s.pf.Insertions,
 	}
 }
 

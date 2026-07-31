@@ -119,6 +119,21 @@ type RangeMemo struct {
 	Source    string `json:"source,omitempty"`
 }
 
+// InsertionSite はデバッグ仕込みの1挿入箇所。
+type InsertionSite struct {
+	Line int    `json:"line"`
+	Text string `json:"text"` // 挿入した行そのもの (UTF-8、インデント込み)
+}
+
+// Insertion はデバッグ仕込み1件。sites が複数なら囲みペア (Plan 2)。
+type Insertion struct {
+	ID        string          `json:"id"` // "GN3"
+	File      string          `json:"file"`
+	Sites     []InsertionSite `json:"sites"`
+	Enabled   bool            `json:"enabled"`
+	CreatedAt time.Time       `json:"created_at"`
+}
+
 // ProjectFile はプロジェクトファイルのトップレベル構造（複数ツリー対応）。
 type ProjectFile struct {
 	Version            int               `json:"version"`
@@ -134,7 +149,9 @@ type ProjectFile struct {
 	LineMemoTexts map[string]string `json:"line_memo_texts,omitempty"`
 	RangeMemos    []RangeMemo       `json:"range_memos,omitempty"`
 	Bookmarks     map[string]string `json:"bookmarks,omitempty"`
-	UpdatedAt     time.Time         `json:"updated_at"`
+	// Insertions は旧 grepnavi が未知フィールドとして無視できるよう omitempty にする（後方互換）。
+	Insertions []Insertion `json:"insertions,omitempty"`
+	UpdatedAt  time.Time   `json:"updated_at"`
 }
 
 // TreeMeta はツリー一覧用の軽量メタデータ。
@@ -164,6 +181,7 @@ type GraphResponse struct {
 	RangeMemos    []RangeMemo       `json:"range_memos,omitempty"`
 	Bookmarks     map[string]string `json:"bookmarks,omitempty"`
 	RootOrder     []string          `json:"root_order,omitempty"`
+	Insertions    []Insertion       `json:"insertions,omitempty"`
 }
 
 func NewProjectFile(rootDir string) *ProjectFile {

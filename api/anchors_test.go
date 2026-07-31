@@ -152,11 +152,3 @@ func TestUniqueAnchorLine(t *testing.T) {
 	}
 }
 
-func TestSamePathLoose(t *testing.T) {
-	if !samePathLoose(`C:\proj\a.c`, `c:/proj/a.c`) {
-		t.Error("スラッシュ方向と大小文字は吸収するはず")
-	}
-	if samePathLoose(`C:\proj\a.c`, `C:\proj\b.c`) {
-		t.Error("別ファイルが同一判定された")
-	}
-}
