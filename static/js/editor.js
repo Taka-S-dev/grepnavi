@@ -1535,6 +1535,15 @@ async function ensureEditor() {
     }
   });
 
+  // Alt+P → デバッグ仕込み挿入ダイアログ (insertions.js)
+  monacoEditor.addAction({
+    id: 'grepnavi-insert-debug', label: 'デバッグ行を挿入 (Alt+P)',
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyP],
+    contextMenuGroupId: 'grepnavi-mark',
+    contextMenuOrder: 2.4,
+    run: () => { if (typeof openInsertDialog === 'function') openInsertDialog(); }
+  });
+
   monacoEditor.addAction({
     id: 'grepnavi-range-memo-delete', label: '選択範囲のメモを削除 (Delete)',
     keybindings: [monaco.KeyCode.Delete],
@@ -2010,6 +2019,7 @@ async function pollActiveFile() {
     refreshBookmarkDecorations();
     refreshRangeMemoDecorations();
     refreshGraphDecorations();
+    if (typeof refreshInsertionDecorations === "function") refreshInsertionDecorations();
     // 変更されたファイルのピンを自動追従させる。未保存のメモ編集が残ったまま
     // サーバ側でキーが動くと巻き戻るので、先にフラッシュする。
     await _flushMemoSave();
@@ -2017,6 +2027,7 @@ async function pollActiveFile() {
     if (d) {
       refreshGraphDecorations();
       refreshLineMemoDecorations();
+      if (typeof refreshInsertionDecorations === "function") refreshInsertionDecorations();
       if (typeof renderCurrent === "function") renderCurrent();
       if (typeof _memoListOpen !== "undefined" && _memoListOpen) renderMemoList();
       if (d.healed?.length) st(`ピン位置を ${d.healed.length} 件自動調整しました`);
@@ -2105,6 +2116,7 @@ async function switchTab(idx) {
   refreshRangeMemoDecorations();
   refreshBookmarkDecorations();
   refreshSymbolDecorations();
+  if (typeof refreshInsertionDecorations === "function") refreshInsertionDecorations();
   pinnedHighlights.forEach(ph => applyPinnedHighlightToModel(ph, tab.model));
   updatePinnedCounts();
   const isC = /\.(c|h|cpp|cc|cxx|hpp)$/i.test(tab.file);

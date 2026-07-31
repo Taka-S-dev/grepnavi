@@ -265,6 +265,9 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .range-memo-highlight-error { background: rgba(204,102,102,0.18); border-bottom: 2px solid rgba(204,102,102,0.7); }
 .range-memo-highlight-note  { background: rgba(106,141,181,0.16); border-bottom: 2px solid rgba(106,141,181,0.7); }
 .range-memo-overlay-item{color:#cc4444;font-style:normal;background:#2d1010;border:1px solid #7a2020;border-radius:3px;padding:0 6px}
+/* デバッグ仕込み行 (insertions.js) — line memo/bookmark と混同しないよう紫系で統一 */
+.insertion-line-deco{background:rgba(160,100,220,0.10)}
+.insertion-glyph{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M5 3l7 5-7 5z' fill='%23a064dc' stroke='none'/%3E%3C/svg%3E") center/12px no-repeat}
 .ifdef-inactive-text{color:#4a4a4a!important;font-style:italic}
 /* ピン固定ハイライト (8色) */
 .pinned-hl-0{background:rgba(0,220,255,0.25);border-bottom:1px solid rgba(0,180,255,0.9);border-radius:2px}
@@ -645,6 +648,7 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 #node-label-modal-box{min-width:min(480px,calc(100vw - 24px));max-width:min(720px,calc(100vw - 24px))}
 #node-memo-modal-box {min-width:min(420px,calc(100vw - 24px));max-width:min(560px,calc(100vw - 24px))}
 #node-line-modal-box {min-width:min(300px,calc(100vw - 24px));max-width:min(480px,calc(100vw - 24px))}
+#insert-dialog-modal-box {min-width:min(420px,calc(100vw - 24px));max-width:min(560px,calc(100vw - 24px))}
 
 /* プロジェクトモーダル */
 #project-modal{

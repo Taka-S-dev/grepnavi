@@ -326,6 +326,21 @@
   </div>
 </div>
 
+<!-- デバッグ仕込み挿入モーダル (Alt+P、insertions.js) -->
+<div id="insert-dialog-modal" class="node-modal">
+  <div id="insert-dialog-modal-box" class="node-modal-box">
+    <div class="node-modal-title">デバッグ行を挿入</div>
+    <div id="insert-dialog-file" style="font-size:11px;color:#888;font-family:Consolas,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+    <select id="insert-dialog-template" class="node-modal-input" title="テンプレート"></select>
+    <input id="insert-dialog-cond" class="node-modal-input" type="text" placeholder="条件式 (例: x == NULL)" title="条件式" style="display:none">
+    <textarea id="insert-dialog-ta" class="node-modal-textarea" rows="4" placeholder="挿入するコード" spellcheck="false"></textarea>
+    <div class="node-modal-btns">
+      <button id="insert-dialog-ok">挿入</button>
+      <button class="sec" id="insert-dialog-cancel">キャンセル</button>
+    </div>
+  </div>
+</div>
+
 <!-- 汎用テキスト入力モーダル -->
 <div id="input-modal">
   <div id="input-modal-box">
@@ -508,6 +523,7 @@
 <script src="/js/editor-c.js"></script>
 <script src="/js/editor-snapshot.js"></script>
 <script src="/js/editor.js"></script>
+<script src="/js/insertions.js"></script>
 <script src="/js/memo-list.js"></script>
 <script src="/js/filebrowser.js"></script>
 <script src="/js/project.js"></script>
