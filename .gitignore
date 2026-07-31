@@ -25,6 +25,8 @@
 !proc/**
 !tools/
 !tools/**
+!patch/
+!patch/**
 
 # アプリアイコン（tools/icongen が生成）と exe 埋め込み用リソース
 !static/favicon.ico

@@ -264,7 +264,14 @@ const (
 )
 
 // DetectEncoding はバイト列のエンコーディングを判定する。
-// 判定順は toUTF8 の従来挙動と同一 (BOM → UTF-8 → Shift-JIS → EUC-JP)。
+// 判定順は toUTF8 の従来挙動と同一 (BOM → UTF-8 → Shift-JIS/EUC-JP)。
+//
+// Shift-JIS/EUC-JP の判別は「エラーが出ない方を採用」ではできない: x/text の
+// 両デコーダは不正バイト列をエラーにせず U+FFFD へ置換するため、err はほぼ
+// 常に nil になり、判定順で先に試した方 (SJIS) が実質固定で勝ってしまう
+// (EUC-JP ファイルが化けたまま SJIS 判定される)。そこで両方でデコードし、
+// 置換文字 (U+FFFD) の出現数が少ない方を採用する。同数なら従来通り SJIS を
+// 優先。両方とも置換だらけなら日本語エンコーディングではないとみなす。
 func DetectEncoding(b []byte) Encoding {
 	if bytes.HasPrefix(b, []byte{0xEF, 0xBB, 0xBF}) {
 		return EncUTF8BOM
@@ -278,13 +285,34 @@ func DetectEncoding(b []byte) Encoding {
 	if utf8.Valid(b) {
 		return EncUTF8
 	}
-	if _, _, err := transform.Bytes(japanese.ShiftJIS.NewDecoder(), b); err == nil {
-		return EncSJIS
+	if len(b) == 0 {
+		return EncUnknown
 	}
-	if _, _, err := transform.Bytes(japanese.EUCJP.NewDecoder(), b); err == nil {
+	sjisOut, _, _ := transform.Bytes(japanese.ShiftJIS.NewDecoder(), b)
+	eucOut, _, _ := transform.Bytes(japanese.EUCJP.NewDecoder(), b)
+	sjisBad, sjisTotal := countReplacementRunes(sjisOut)
+	eucBad, eucTotal := countReplacementRunes(eucOut)
+	// 半分以上が置換文字なら、どちらのデコード結果ももはや妥当な日本語テキス
+	// トとは言えない。
+	if sjisTotal > 0 && eucTotal > 0 && sjisBad*2 > sjisTotal && eucBad*2 > eucTotal {
+		return EncUnknown
+	}
+	if eucBad < sjisBad {
 		return EncEUCJP
 	}
-	return EncUnknown
+	return EncSJIS
+}
+
+// countReplacementRunes はデコード結果に含まれる U+FFFD (置換文字) の数と
+// 総 rune 数を返す。
+func countReplacementRunes(b []byte) (bad, total int) {
+	for _, r := range string(b) {
+		total++
+		if r == utf8.RuneError {
+			bad++
+		}
+	}
+	return bad, total
 }
 
 // toUTF8 はバイト列のエンコーディングを判定して UTF-8 に変換する。
