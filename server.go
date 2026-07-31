@@ -32,6 +32,11 @@ func newServer(root string, rootExplicit bool, graphFile string, graphExplicit b
 
 	mux := http.NewServeMux()
 	h := api.NewHandler(store, effectiveRoot)
+	if isLoopbackHost(addr) {
+		// loopback バインドのときだけデバッグ仕込みAPI（ファイル書き換え）を許可する。
+		// -host でLAN公開した場合は任意ファイル書き込みの口を開かない。
+		h.EnableFileWrites()
+	}
 	h.Register(mux)
 	if debug {
 		mux.Handle("/debug/pprof/", http.DefaultServeMux)

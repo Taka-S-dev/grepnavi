@@ -17,6 +17,15 @@ type Handler struct {
 	events      *EventBus
 	editorState *editorStateCache
 	mu          sync.RWMutex
+	// fileWrites がfalseの間は挿入系APIを全て403にする。-host でLAN公開した
+	// 場合は EnableFileWrites が呼ばれず、任意ファイル書き込みの口を開かない。
+	fileWrites bool
+	// insMu は挿入系API (POST/PUT/DELETE/removeall) の
+	// load-modify-save + store 更新をまたいで直列化する。ファイルの
+	// read-modify-write と store 更新をまたぐため、store 自体のロックだけ
+	// では直列化できない（NextInsertionTag 採番から AddInsertion までの
+	// 間に別リクエストが割り込むとタグ重複や行番号の食い違いが起きる）。
+	insMu sync.Mutex
 }
 
 func NewHandler(store *graph.Store, root string) *Handler {
@@ -111,6 +120,11 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	// ブラウザ向け SSE push チャンネル (graph / memo 更新通知)。
 	mux.HandleFunc("/api/events", h.handleEvents)
 	mux.HandleFunc("/api/editor-state", h.handleEditorState)
+	// デバッグ仕込み。grepnavi のグラフ状態も変わるので notifyGraphChange で包む
+	// （heal と違い、これらのハンドラは loadGraph を再帰的に呼ばないのでループしない）。
+	mux.HandleFunc("/api/insertions", h.notifyGraphChange(h.handleInsertions))
+	mux.HandleFunc("/api/insertions/removeall", h.notifyGraphChange(h.handleInsertionsRemoveAll))
+	mux.HandleFunc("/api/insertions/", h.notifyGraphChange(h.handleInsertionByID))
 }
 
 func (h *Handler) handleMemStats(w http.ResponseWriter, r *http.Request) {
