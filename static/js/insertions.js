@@ -92,7 +92,11 @@ async function _insertDialogSubmit() {
   // サーバは要素内の改行混入を 400 で弾く (記録行数と実際の行数がずれると
   // 以後の照合が壊れるため) — ここで確実に満たす。
   const textLines = (ta?.value || '').split('\n').map(l => l.replace(/\r/g, ''));
-  if (!textLines.length || textLines.every(l => l.trim() === '')) { st('挿入する内容を入力してください'); return; }
+  // textarea の末尾の空行 (Enter だけで終わったもの) はダイアログの操作痕跡であって
+  // 意図した挿入内容ではないので落とす。ただし途中の空行はユーザが意図的に
+  // 入れた空行かもしれないので残す。
+  while (textLines.length && textLines[textLines.length - 1].trim() === '') textLines.pop();
+  if (!textLines.length) { st('挿入する内容を入力してください'); return; }
   closeInsertDialog();
   await submitInsert(file, line, textLines);
 }
@@ -112,6 +116,8 @@ async function submitInsert(file, line, textLines) {
   if (graph?.insertions) graph.insertions.push(d.insertion);
   await pollActiveFile(); // 変更したファイルを即再読込 (2秒のポーリング待ちをしない)
   refreshInsertionDecorations();
+  if (typeof updateInsertionBadge === 'function') updateInsertionBadge();
+  if (typeof renderMemoList === 'function' && typeof _memoListOpen !== 'undefined' && _memoListOpen) renderMemoList();
   st(`${d.insertion.id} を挿入しました`);
 }
 
@@ -156,9 +162,10 @@ function _moveKeys(storageKey, moves) {
   if (!moves || !Object.keys(moves).length) return;
   let m;
   try { m = JSON.parse(localStorage.getItem(storageKey) || '{}'); } catch { return; }
-  for (const [from, to] of Object.entries(moves)) {
-    if (from in m && !(to in m)) { m[to] = m[from]; delete m[from]; }
-  }
+  // 連鎖する移動 (::5→::6 と ::6→::7) を1件ずつ適用すると、適用順次第で
+  // 移動先が既存キーに見えて取りこぼす。_stageKeyMoves (graph.js、healAnchors と共有)
+  // で全 source を退避してから書き戻す。
+  _stageKeyMoves(m, Object.entries(moves));
   localStorage.setItem(storageKey, JSON.stringify(m));
 }
 
@@ -221,6 +228,108 @@ function refreshInsertionDecorations() {
     }
   }
   insertionDecoIds = monacoEditor.deltaDecorations(insertionDecoIds, decos);
+}
+
+// ===== 仕込み一覧・書き換え・撤去 (memo-list.js の行から呼ばれる) =====
+
+// 409 (手動変更あり) を一度でも返した仕込み ID。一覧に「手動変更」チップを出すためだけの
+// UI 状態で、サーバ側の真実の記録ではない (再試行して成功すれば消す)。
+const _insertionManualChangeIds = new Set();
+
+// PUT/DELETE 共通のステータス別文言。403 は書き込み無効 (-host 指定時など)。
+function _insertionWriteErrorMessage(r, id) {
+  if (r && r.status === 409) return '手動変更があるため操作できません (' + id + ')';
+  if (r && r.status === 403) return 'この構成ではファイル書き込みが無効です (-host 指定時など)';
+  return '操作に失敗しました' + (r ? ` (${r.status})` : ' (通信エラー)');
+}
+
+async function _deleteInsertion(item) {
+  const r = await fetch("/api/insertions/" + encodeURIComponent(item._insId), { method: "DELETE" }).catch(() => null);
+  if (!r || !r.ok) {
+    if (r && r.status === 409) { _insertionManualChangeIds.add(item._insId); renderMemoList(); }
+    st(_insertionWriteErrorMessage(r, item._insId));
+    return;
+  }
+  const d = await r.json();
+  for (const s of d.shifts || []) applyShift(s);
+  _insertionManualChangeIds.delete(item._insId);
+  graph.insertions = (graph.insertions || []).filter((i) => i.id !== item._insId);
+  await pollActiveFile();
+  refreshInsertionDecorations();
+  renderMemoList();
+  updateInsertionBadge();
+  st(item._insId + " を撤去しました");
+}
+
+// 一覧の ✎ ボタン: showInputModal で現在の site テキストを編集 → PUT →
+// graph.insertions の該当エントリを差し替える。Plan 1 なので site index は常に 0。
+async function _rewriteInsertion(item) {
+  const newTextRaw = await showInputModal('仕込みを書き換え', 'テキスト', item.memo);
+  if (newTextRaw == null) return;
+  // textarea 由来だと改行が混ざりうる。サーバは複数行を 400 で弾くので事前に単一行化する。
+  const newText = newTextRaw.replace(/[\r\n]+/g, ' ').trim();
+  if (!newText) { st('挿入する内容を入力してください'); return; }
+
+  const r = await fetch("/api/insertions/" + encodeURIComponent(item._insId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ site: 0, new_text: newText }),
+  }).catch(() => null);
+  if (!r || !r.ok) {
+    if (r && r.status === 409) { _insertionManualChangeIds.add(item._insId); renderMemoList(); }
+    st(_insertionWriteErrorMessage(r, item._insId));
+    return;
+  }
+  const d = await r.json();
+  const idx = (graph.insertions || []).findIndex((i) => i.id === item._insId);
+  if (idx >= 0) graph.insertions[idx] = d.insertion;
+  else { if (!Array.isArray(graph.insertions)) graph.insertions = []; graph.insertions.push(d.insertion); }
+  _insertionManualChangeIds.delete(item._insId);
+  await pollActiveFile();
+  refreshInsertionDecorations();
+  renderMemoList();
+  st(item._insId + " を書き換えました");
+}
+
+// ヘッダの「全部撤去」ボタン。skipped (手動変更等で撤去できなかった分) は
+// 一覧から消さず、理由を st にまとめて出す。
+async function removeAllInsertions() {
+  const n = (graph?.insertions || []).length;
+  if (!n) return;
+  if (!confirm(`仕込みを ${n} 件すべて撤去します。よろしいですか？`)) return;
+
+  const r = await fetch('/api/insertions/removeall', { method: 'POST' }).catch(() => null);
+  if (!r || !r.ok) {
+    if (r && r.status === 403) st('この構成ではファイル書き込みが無効です (-host 指定時など)');
+    else st('全部撤去に失敗しました');
+    return;
+  }
+  const d = await r.json();
+  for (const s of d.shifts || []) applyShift(s);
+  const removed = new Set(d.removed || []);
+  graph.insertions = (graph.insertions || []).filter((i) => !removed.has(i.id));
+  if (typeof pollActiveFile === "function") await pollActiveFile();
+  await loadGraph();
+  updateInsertionBadge();
+  if (d.skipped && d.skipped.length) {
+    st(`${removed.size} 件撤去 / ${d.skipped.length} 件スキップ: ` +
+       d.skipped.map((s) => `${s.id} (${s.reason})`).join(', '));
+  } else {
+    st(`仕込み ${removed.size} 件を撤去しました`);
+  }
+}
+
+// ツールバーの残数バッジ + マーク一覧ヘッダの「全部撤去」ボタンの表示切替。
+// 両方とも「今開いているとは限らないパネル要素」なので null ガード必須。
+function updateInsertionBadge() {
+  const n = (graph?.insertions || []).length;
+  const badge = document.getElementById('insertion-badge');
+  if (badge) {
+    badge.style.display = n ? '' : 'none';
+    badge.textContent = '仕込み ' + n;
+  }
+  const removeAllBtn = document.getElementById('memo-list-removeall-insertions');
+  if (removeAllBtn) removeAllBtn.style.display = n ? '' : 'none';
 }
 
 // ===== ダイアログの結線 (DOMContentLoaded 後、他の init と同じタイミング) =====

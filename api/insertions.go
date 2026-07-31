@@ -7,6 +7,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"net/http"
 	"path/filepath"
 	"sort"
@@ -193,6 +194,16 @@ func (h *Handler) deleteInsertionByID(w http.ResponseWriter, id string) {
 	}
 	shifts, err := h.deleteInsertionSites(ins)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			// ファイルごと消えている: ディスク側に splice する対象が無いので、
+			// 記録の削除だけを成功として扱う（仕様「ファイルなし → 記録の削除のみ可能」）。
+			if err := h.store.RemoveInsertion(id); err != nil {
+				jsonErr(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			jsonOK(w, map[string]any{"shifts": []graph.ShiftResult{}})
+			return
+		}
 		// ErrUnsupportedEncoding→415 / ErrMismatch・errRecordedLineModified→409
 		// など、POST/PUT と同じマッピングを通す（以前は一律500にしていた）。
 		patchErrStatus(w, err)
@@ -315,6 +326,15 @@ func (h *Handler) handleInsertionsRemoveAll(w http.ResponseWriter, r *http.Reque
 			}
 			siteShifts, err := h.deleteInsertionSites(ins)
 			if err != nil {
+				if errors.Is(err, fs.ErrNotExist) {
+					// ファイルごと消えている: 記録の削除だけを成功として扱う (DELETE と同じ規約)。
+					if err := h.store.RemoveInsertion(id); err != nil {
+						skipped = append(skipped, skippedInsertion{ID: id, Reason: err.Error()})
+						continue
+					}
+					removed = append(removed, id)
+					continue
+				}
 				skipped = append(skipped, skippedInsertion{ID: id, Reason: err.Error()})
 				continue
 			}

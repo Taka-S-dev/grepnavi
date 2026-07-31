@@ -51,6 +51,7 @@
 - **Ctrl+P ファイルクイックオープン** — fzf スタイルのファジー検索（スペース区切りで AND 絞り込み）
 - **Alt+T シンボルクイックオープン** — 関数・マクロ・typedef を名前のうろ覚えでジャンプ（`recipe save` → `recipe_save` の定義へ）。Ctrl+P 内で `#` 始まりでも起動。ctags 索引が必要
 - **スクロールバーマーカー** — グラフ pin・関数実態・呼び出し箇所（teal）と行メモ（カテゴリ色）をスクロールバー上に表示。長いファイルでも調査痕跡の分布が一目で分かる
+- **デバッグ仕込み** — カーソル行に printf 等のデバッグ行をテンプレ or 自由入力で挿入し、grepnavi が場所を記録。一覧からジャンプ・書き換え・個別/一括撤去でき、消し忘れは残数バッジで防ぐ。挿入行だけをファイルのエンコーディングに変換して書き込むため SJIS/EUC-JP のソースも壊さない（UTF-16 は非対応）。既存行の変更・削除は一切しない。ショートカットは Alt+P。
 
 ### 調査グラフ（ツリー）
 
@@ -568,6 +569,9 @@ grepnavi/
 | `POST` | `/api/graph/rootorder` | ルートノードの並び順を保存 |
 | `GET` | `/api/graph/anchors` | ピン位置がずれたノード・行メモの列挙 |
 | `POST` | `/api/graph/anchors/heal` | 一意に見つかったずれの自動追従（曖昧なものは動かさない） |
+| `POST` | `/api/insertions` | デバッグ仕込みの挿入（loopback バインド時のみ） |
+| `PUT/DELETE` | `/api/insertions/:id` | 仕込みの書き換え/撤去（記録行の照合付き） |
+| `POST` | `/api/insertions/removeall` | 全仕込みの一括撤去 |
 | `POST` | `/api/graph/saveas` | プロジェクトを名前を付けて保存 |
 | `POST` | `/api/graph/openfile` | プロジェクトファイルを開く |
 | `GET/POST` | `/api/root` | 検索ルートの取得/変更 |

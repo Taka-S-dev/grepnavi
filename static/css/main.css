@@ -177,6 +177,13 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 #btn-pinned-hl-toggle.on{color:#fff;background:#094771;border-radius:2px}
 #ifdef-apply{color:#7ec87e}
 #ifdef-clear{color:#888}
+/* 仕込み残数バッジ。挿入デコレーション (overviewRuler の紫) と色を揃える。 */
+#insertion-badge{font-size:10px;color:#c9a0dc;background:rgba(160,100,220,0.15);border:1px solid #6a4a80;border-radius:8px;padding:1px 8px;cursor:pointer;flex-shrink:0}
+#insertion-badge:hover{background:rgba(160,100,220,0.28)}
+/* マーク一覧ヘッダの「全部撤去」。破壊的操作なので memo-bulk-btn の赤ではなく
+   仕込み色 (紫) にして「別カテゴリの一括操作」だと分かるようにする。 */
+.memo-removeall-btn{background:rgba(160,100,220,0.10);border:1px solid #6a4a80;color:#c9a0dc;cursor:pointer;font-size:10px;padding:1px 8px;border-radius:3px;font-family:inherit}
+.memo-removeall-btn:hover{background:rgba(160,100,220,0.22);border-color:#8a5aa8}
 #ifdef-ui{border-left:1px solid #3c3c3c;border-right:1px solid #3c3c3c;padding:0 4px;margin:0 2px}
 #ifdef-cond{flex:0 0 200px;background:#1a1a1a;border:1px solid #444;color:#ccc;padding:1px 5px;border-radius:2px;font:11px Consolas,monospace}
 #peek-hint{color:#3a3a3a;font-size:10px;white-space:nowrap}
@@ -1020,6 +1027,7 @@ body.calltree-mode #pane-left{display:none!important}
    move・del が無い行でも列がずれないよう、del は末尾列に固定する。 */
 .memo-list-item{grid-template-columns:16px 16px auto 1fr 16px 16px}
 .memo-list-item .memo-list-move{grid-column:5}
+.memo-list-item .memo-list-rewrite{grid-column:5}
 .memo-list-item .memo-list-del{grid-column:6}
 .memo-list-locwrap{display:flex;align-items:center;min-width:0}
 .memo-list-item--bm{grid-template-columns:16px auto 1fr 16px}
@@ -1030,6 +1038,15 @@ body.calltree-mode #pane-left{display:none!important}
 .memo-list-del{background:none;border:none;color:transparent;cursor:pointer;font-size:13px;padding:0 2px;border-radius:2px;line-height:1}
 .memo-list-item:hover .memo-list-del{color:#555}
 .memo-list-del:hover{color:#f44!important;background:rgba(244,68,68,0.1)}
+/* 仕込みの書き換えボタン。move と同じホバー時だけ現れる列 (grid-column:5)。 */
+.memo-list-rewrite{background:none;border:none;color:transparent;cursor:pointer;font-size:11px;padding:0 2px;border-radius:2px;line-height:1;flex-shrink:0}
+.memo-list-item:hover .memo-list-rewrite{color:#555}
+.memo-list-rewrite:hover{color:#c9a0dc!important;background:rgba(160,100,220,0.15)}
+/* 手動変更チップ。drift チップの見た目の値だけ複製した独立クラス。
+   .memo-list-drift を共有すると行クリックの onMove ハンドラ (querySelector('.memo-list-drift'))
+   がこのチップも拾ってしまい、無関係な行メモを勝手に移動させてしまうため、
+   セレクタは完全に分離する (静的な span で押しても何も起きない)。 */
+.memo-list-manual-chip{margin-left:4px;padding:0 4px;border-radius:2px;background:#5a2a2a;color:#e08080;font-size:9px;border:none;cursor:default;flex-shrink:0}
 .memo-list-edit-ta{width:100%;height:54px;background:#1a1a1a;border:1px solid #007acc;color:#ccc;font:11px Consolas,monospace;padding:3px;resize:none;box-sizing:border-box;border-radius:2px;grid-column:3 / 6}
 .memo-list-item.memo-list-editing{grid-template-columns:16px 16px 1fr;flex-wrap:wrap}
 #memo-list-body{flex:1;overflow-y:auto;min-height:60px}

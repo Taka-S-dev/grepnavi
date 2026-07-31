@@ -333,6 +333,39 @@ func TestDeleteUnsupportedEncodingMapped(t *testing.T) {
 	}
 }
 
+// 挿入後にファイル自体が消えている場合、DELETE はファイルへの splice を
+// 諦めて記録だけを削除する (仕様「ファイルなし → 記録の削除のみ可能」)。
+// 以前は patch.Load の ErrNotExist が一律500に潰れ、記録が永久に残っていた。
+func TestDeleteInsertionFileGone(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo\nthree"), 0o644)
+	os.Chtimes(src, time.Unix(1000, 0), time.Unix(1000, 0))
+
+	rec := doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":1,"lines":["printf(\"hit\");"]}`)
+	if rec.Code != 200 {
+		t.Fatalf("insert status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var ins struct {
+		Insertion graph.Insertion `json:"insertion"`
+	}
+	decodeJSON(t, rec, &ins)
+	id := ins.Insertion.ID
+
+	if err := os.Remove(src); err != nil {
+		t.Fatal(err)
+	}
+
+	recDel := doInsertionsReq(h, "DELETE", "/api/insertions/"+id, "")
+	if recDel.Code != 200 {
+		t.Fatalf("delete status = %d, body = %s, want 200", recDel.Code, recDel.Body.String())
+	}
+	g := h.store.GetGraphResponse()
+	if len(g.Insertions) != 0 {
+		t.Errorf("insertion record still present after file was deleted: %+v", g.Insertions)
+	}
+}
+
 // insMu が POST の read-modify-write + store 更新を直列化しているか:
 // 同時に複数の挿入を投げても、タグが重複したり行が失われたりしない。
 func TestConcurrentInsertsSerialized(t *testing.T) {

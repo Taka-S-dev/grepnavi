@@ -416,6 +416,66 @@ func (h *Handler) handleRootOrder(w http.ResponseWriter, r *http.Request) {
 
 // --- /api/graph/memos ---
 
+// rangeMemoWire は PUT /api/graph/memos が受け取る range memo の1件分。
+// ブラウザ側 (static/js) は camelCase (startLine/endLine 等) で保存・送信するが、
+// graph.RangeMemo の JSON タグは snake_case (start_line/end_line) なので、
+// []graph.RangeMemo へ直接デコードすると camelCase の値が読み落とされ 0 のまま
+// 保存されてしまう (ShiftLines が何も動かさない実質 no-op になる原因)。
+// 両方の綴りを受け付け、camelCase が来ていればそちらを優先する。
+type rangeMemoWire struct {
+	ID         string `json:"id"`
+	File       string `json:"file"`
+	StartLine  int    `json:"start_line"`
+	StartLine2 int    `json:"startLine"`
+	StartCol   int    `json:"start_col"`
+	StartCol2  int    `json:"startCol"`
+	EndLine    int    `json:"end_line"`
+	EndLine2   int    `json:"endLine"`
+	EndCol     int    `json:"end_col"`
+	EndCol2    int    `json:"endCol"`
+	Memo       string `json:"memo"`
+	Category   string `json:"category"`
+	Source     string `json:"source"`
+}
+
+func (w rangeMemoWire) toRangeMemo() graph.RangeMemo {
+	startLine, endLine, startCol, endCol := w.StartLine, w.EndLine, w.StartCol, w.EndCol
+	if w.StartLine2 != 0 {
+		startLine = w.StartLine2
+	}
+	if w.EndLine2 != 0 {
+		endLine = w.EndLine2
+	}
+	if w.StartCol2 != 0 {
+		startCol = w.StartCol2
+	}
+	if w.EndCol2 != 0 {
+		endCol = w.EndCol2
+	}
+	return graph.RangeMemo{
+		ID:        w.ID,
+		File:      w.File,
+		StartLine: startLine,
+		StartCol:  startCol,
+		EndLine:   endLine,
+		EndCol:    endCol,
+		Memo:      w.Memo,
+		Category:  w.Category,
+		Source:    w.Source,
+	}
+}
+
+func toRangeMemos(wire []rangeMemoWire) []graph.RangeMemo {
+	if wire == nil {
+		return nil
+	}
+	out := make([]graph.RangeMemo, len(wire))
+	for i, w := range wire {
+		out[i] = w.toRangeMemo()
+	}
+	return out
+}
+
 func (h *Handler) handleGraphMemos(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
 		http.Error(w, "PUT only", http.StatusMethodNotAllowed)
@@ -425,20 +485,21 @@ func (h *Handler) handleGraphMemos(w http.ResponseWriter, r *http.Request) {
 		LineMemos          map[string]string `json:"line_memos"`
 		LineMemoCategories map[string]string `json:"line_memo_categories"`
 		LineMemoSources    map[string]string `json:"line_memo_sources"`
-		RangeMemos         []graph.RangeMemo `json:"range_memos"`
+		RangeMemos         []rangeMemoWire   `json:"range_memos"`
 		Bookmarks          map[string]string `json:"bookmarks"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonErr(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	rangeMemos := toRangeMemos(req.RangeMemos)
 	prev := h.store.GetGraphResponse()
 	if err := h.store.UpdateMemos(graph.MemoSnapshot{
 		LineMemos:          req.LineMemos,
 		LineMemoCategories: req.LineMemoCategories,
 		LineMemoSources:    req.LineMemoSources,
 		LineMemoTexts:      h.captureMemoAnchors(prev.LineMemos, prev.LineMemoTexts, req.LineMemos),
-		RangeMemos:         req.RangeMemos,
+		RangeMemos:         rangeMemos,
 		Bookmarks:          req.Bookmarks,
 	}); err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
@@ -448,7 +509,7 @@ func (h *Handler) handleGraphMemos(w http.ResponseWriter, r *http.Request) {
 	// 自分自身の POST でも届くが、loadGraph は冪等なので再 fetch は無害。
 	h.events.Publish("memos.updated", map[string]interface{}{
 		"line_count":  len(req.LineMemos),
-		"range_count": len(req.RangeMemos),
+		"range_count": len(rangeMemos),
 	})
 	jsonOK(w, map[string]string{"status": "ok"})
 }

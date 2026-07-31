@@ -64,6 +64,17 @@ function getAllMemosOrdered() {
     items.push({ kind: 'bookmark', id: 'bookmark::' + key, file, line, memo: text || '' });
   }
 
+  // 仕込み (デバッグ挿入)。Plan 1: 複数 site があっても sites[0] の1行のみを一覧に出す。
+  for (const ins of (typeof graph !== 'undefined' && graph?.insertions) || []) {
+    const site = ins.sites?.[0];
+    if (!site) continue;
+    items.push({
+      kind: 'insertion', id: 'insertion::' + ins.id,
+      file: ins.file, line: site.line, memo: site.text,
+      _insId: ins.id,
+    });
+  }
+
   // ツリーノード: memo が付いている＝ユーザがその場所を「注釈付き重要箇所」として
   // 扱っているサイン。マーク一覧の世界観 (注釈付き位置) と一致するので合流させる。
   // 編集・削除はグラフ側で行う前提（マーク一覧側からは jump only）。
@@ -276,10 +287,12 @@ function renderMemoList() {
     hdr.id = 'memo-list-hdr';
     hdr.innerHTML =
       `<span>マーク一覧</span>` +
+      `<button id="memo-list-removeall-insertions" class="memo-removeall-btn" title="仕込みをすべて撤去" style="display:none">⚡ 全部撤去</button>` +
       `<button id="memo-list-add-group" title="グループを追加"><i class="codicon codicon-add"></i></button>` +
       `<button id="memo-list-close" title="閉じる"><i class="codicon codicon-close"></i></button>`;
     panel.appendChild(hdr);
     id('memo-list-close').onclick = closeMemoList;
+    id('memo-list-removeall-insertions').onclick = removeAllInsertions;
     id('memo-list-add-group').onclick = async () => {
       const name = await showInputModal('グループを追加', 'グループ名');
       if (!name) return;
@@ -448,6 +461,7 @@ function renderMemoList() {
   }
 
   _renderMemoListBody(allItems);
+  if (typeof updateInsertionBadge === 'function') updateInsertionBadge();
 }
 
 function _showMemoPreview(item) {
@@ -465,7 +479,29 @@ function _showMemoPreview(item) {
   const icon = item.kind === 'bookmark'
     ? `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 16 16" style="vertical-align:middle"><path d="M5 2h6a1 1 0 0 1 1 1v10l-4-2.5L4 13V3a1 1 0 0 1 1-1z" fill="none" stroke="#888" stroke-width="1.5" stroke-linejoin="round"/></svg>`
     : item.kind === 'range' ? '▤'
-    : item.kind === 'node'  ? '◎' : '✎';
+    : item.kind === 'node'      ? '◎'
+    : item.kind === 'insertion' ? '⚡' : '✎';
+
+  // 仕込みは graph.insertions が正本。テキスト編集は PUT 経由 (_rewriteInsertion) で
+  // 行い、ここでの textarea 編集はしない（サーバ側での site 照合とズレる）。
+  if (item.kind === 'insertion') {
+    preview.innerHTML =
+      `<div id="memo-preview-hdr">` +
+        `<span class="memo-preview-icon">${icon}</span>` +
+        `<span class="memo-preview-loc" title="${esc(item.file)}">${esc(fileName)}<span style="color:#666">:${lineLabel}</span></span>` +
+        `<button id="memo-preview-jump" title="この行へジャンプ"><i class="codicon codicon-go-to-file"></i></button>` +
+      `</div>` +
+      `<textarea id="memo-preview-ta" spellcheck="false" readonly></textarea>` +
+      `<div id="memo-preview-actions">` +
+        `<button id="memo-preview-rewrite">書き換え</button>` +
+        `<button id="memo-preview-del" class="sec">撤去</button>` +
+      `</div>`;
+    id('memo-preview-ta').value = item.memo;
+    id('memo-preview-jump').onclick = () => openPeek(item.file, item.line);
+    id('memo-preview-rewrite').onclick = () => _rewriteInsertion(item);
+    id('memo-preview-del').onclick = () => _deleteInsertion(item);
+    return;
+  }
 
   // ツリーノードは jump only の read-only preview。
   // memo の編集・ノード削除はグラフ側のみ（マーク一覧との二重管理を避ける）。
@@ -559,7 +595,8 @@ function _makeMemoRow(item) {
   const icon = item.kind === 'bookmark'
     ? `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 16 16" style="vertical-align:middle"><path d="M5 2h6a1 1 0 0 1 1 1v10l-4-2.5L4 13V3a1 1 0 0 1 1-1z" fill="none" stroke="#888" stroke-width="1.5" stroke-linejoin="round"/></svg>`
     : item.kind === 'range' ? '▤'
-    : item.kind === 'node'  ? '◎' : '✎';
+    : item.kind === 'node'     ? '◎'
+    : item.kind === 'insertion' ? '⚡' : '✎';
   const row = document.createElement('div');
   const isBm = item.kind === 'bookmark';
   const catClass = item.category ? ` memo-list-item-${item.category}` : '';
@@ -579,37 +616,55 @@ function _makeMemoRow(item) {
   // 移動できる条件ではない。印が出ないメモ（記録が無い古いメモ）も直せる必要がある。
   // 移動は行メモ限定: 範囲メモ・ブックマークは moveLineMemo の対象外で、
   // ボタンを出しても必ず失敗する。
+  // 対象外: 範囲メモ・ブックマーク・仕込みは moveLineMemo の対象外なので出さない。
   const moveBtn = item.kind === 'line'
     ? `<button class="memo-list-move" title="エディタのカーソル行へ移動">⇅</button>`
+    : item.kind === 'insertion'
+    ? `<button class="memo-list-rewrite" title="挿入テキストを書き換え">✎</button>`
     : '';
   const delBtn = item.kind === 'node'
     ? ''
     : `<button class="memo-list-del" title="削除"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><polyline points="2,4 14,4"/><path d="M5 4V2h6v2"/><path d="M3 4l1 10h8l1-10"/></svg></button>`;
+  // 手動変更チップ: 撤去/書き換えが 409 で弾かれたことがある仕込みに出す。
+  // ずれチップと同じ見た目だが、押しても何も起きない (static span)。
+  // 独立クラス必須: .memo-list-drift を共有すると、行クリックの onMove ハンドラが
+  // querySelector('.memo-list-drift') でこのチップも拾ってしまい、同じ file::line に
+  // 行メモがある場合にそれを勝手にカーソル行へ移動させる事故になる。
+  const manualChip = item.kind === 'insertion' && typeof _insertionManualChangeIds !== 'undefined' && _insertionManualChangeIds.has(item._insId)
+    ? `<span class="memo-list-manual-chip" title="ファイル側で手動変更があり撤去・書き換えできません">手動変更</span>`
+    : '';
   // ずれチップは loc と同じセルに入れる（チップは出たり出なかったりするので、
   // 独立したセルにすると grid の列がずれる）。
   row.innerHTML =
     `<span class="memo-list-drag" title="ドラッグして並べ替え">⠿</span>` +
     `<span class="memo-list-icon">${icon}</span>` +
     `<span class="memo-list-locwrap"><span class="memo-list-loc" title="${esc(item.file)}">${esc(fileName)}<span class="memo-list-lineno">:${lineLabel}</span></span>` +
-    _memoDriftChip(item) + `</span>` +
+    _memoDriftChip(item) + manualChip + `</span>` +
     `<span class="memo-list-text" ${isBm ? 'style="color:#666"' : ''}>${textContent}</span>` +
     moveBtn + delBtn;
   row.addEventListener('click', e => {
     if (e.target.closest('.memo-list-drag') || e.target.closest('.memo-list-del') ||
-        e.target.closest('.memo-list-move') || e.target.closest('.memo-list-drift')) return;
+        e.target.closest('.memo-list-move') || e.target.closest('.memo-list-drift') ||
+        e.target.closest('.memo-list-rewrite')) return;
     _showMemoPreview(item);
   });
   row.addEventListener('dblclick', e => {
     if (e.target.closest('.memo-list-drag') || e.target.closest('.memo-list-del') ||
-        e.target.closest('.memo-list-move') || e.target.closest('.memo-list-drift')) return;
+        e.target.closest('.memo-list-move') || e.target.closest('.memo-list-drift') ||
+        e.target.closest('.memo-list-rewrite')) return;
     openPeek(item.file, item.line).then(() => monacoEditor?.focus());
   });
   const onMove = async e => { e.stopPropagation(); await _moveMemoToCursor(item); };
   row.querySelector('.memo-list-drift')?.addEventListener('click', onMove);
   row.querySelector('.memo-list-move')?.addEventListener('click', onMove);
-  row.querySelector('.memo-list-del')?.addEventListener('click', e => {
+  row.querySelector('.memo-list-rewrite')?.addEventListener('click', async e => {
     e.stopPropagation();
-    _deleteMemoItem(item);
+    await _rewriteInsertion(item);
+  });
+  row.querySelector('.memo-list-del')?.addEventListener('click', async e => {
+    e.stopPropagation();
+    if (item.kind === 'insertion') await _deleteInsertion(item);
+    else _deleteMemoItem(item);
     if (_memoListSelectedId === item.id) {
       _memoListSelectedId = null;
       const pv = id('memo-list-preview');

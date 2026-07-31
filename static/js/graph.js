@@ -79,6 +79,8 @@ function applyGraphResponse(g) {
   if (typeof refreshLineMemoDecorations === 'function')   refreshLineMemoDecorations();
   if (typeof refreshRangeMemoDecorations === 'function')  refreshRangeMemoDecorations();
   if (typeof refreshBookmarkDecorations === 'function')   refreshBookmarkDecorations();
+  if (typeof refreshInsertionDecorations === 'function')  refreshInsertionDecorations();
+  if (typeof updateInsertionBadge === 'function')         updateInsertionBadge();
   // プロジェクト切替時はマーク一覧パネルも更新（ノード描画後に呼ぶ）。
   if (projectChanged && typeof renderMemoList === 'function') renderMemoList();
 }
@@ -1175,6 +1177,19 @@ async function moveNodeToCursorLine(node) {
   st(`ノードを ${from} → ${cur.lineNumber} 行へ移動しました`);
 }
 
+// 二段階キー移動: 全 source を退避してから書き戻す共通ヘルパー。
+// 1件ずつ適用すると、連鎖する移動 (::5→::6 と ::6→::7 が同時に来た場合など)
+// で適用順次第では移動先が既存キーに見えて取りこぼす。
+// このファイルは insertions.js より先に読み込まれるため、healAnchors (このファイル)
+// と applyShift/_moveKeys (insertions.js) の両方から共有する。
+function _stageKeyMoves(m, movePairs) {
+  const staged = {};
+  for (const [from, to] of movePairs) {
+    if (from in m) { staged[to] = m[from]; delete m[from]; }
+  }
+  Object.assign(m, staged);
+}
+
 // ピン位置がずれているノード: node_id → {expected, actual, missing}
 // 判定はサーバ側（ファイルを読む必要があるため）。renderTree の前に取り直す。
 const _driftedNodes = new Map();
@@ -1195,21 +1210,21 @@ async function healAnchors(file) {
     if (!r.ok) return null;
     const d = await r.json();
     const memos = getLineMemos(), cats = getLineMemoCategories(), srcs = getLineMemoSources();
-    let memoMoved = 0;
+    const movePairs = [];
     for (const m of d.healed || []) {
       if (m.memo_key) {
-        const to = m.file + "::" + m.to_line;
-        if (m.memo_key in memos && !(to in memos)) {
-          memos[to] = memos[m.memo_key]; delete memos[m.memo_key];
-          if (m.memo_key in cats) { cats[to] = cats[m.memo_key]; delete cats[m.memo_key]; }
-          if (m.memo_key in srcs) { srcs[to] = srcs[m.memo_key]; delete srcs[m.memo_key]; }
-          memoMoved++;
-        }
+        movePairs.push([m.memo_key, m.file + "::" + m.to_line]);
       } else if (m.node_id && graph?.nodes?.[m.node_id]?.match) {
         graph.nodes[m.node_id].match.line = m.to_line;
       }
     }
+    // 連鎖する移動を1件ずつ適用すると取りこぼすため、_stageKeyMoves で
+    // 全 source を退避してから書き戻す (insertions.js の _moveKeys と同じ規約)。
+    const memoMoved = movePairs.filter(([from]) => from in memos).length;
     if (memoMoved) {
+      _stageKeyMoves(memos, movePairs);
+      _stageKeyMoves(cats, movePairs);
+      _stageKeyMoves(srcs, movePairs);
       // サーバ側で移動済みの状態に合わせるだけなので再保存はしない
       localStorage.setItem("grepnavi-line-memos", JSON.stringify(memos));
       localStorage.setItem("grepnavi-line-memo-categories", JSON.stringify(cats));
