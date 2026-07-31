@@ -250,43 +250,69 @@ func readLines(path string) ([]string, error) {
 	return lines, scanner.Err()
 }
 
+// Encoding は DetectEncoding が判定するファイルエンコーディング。
+type Encoding int
+
+const (
+	EncUTF8 Encoding = iota
+	EncUTF8BOM
+	EncUTF16LE
+	EncUTF16BE
+	EncSJIS
+	EncEUCJP
+	EncUnknown
+)
+
+// DetectEncoding はバイト列のエンコーディングを判定する。
+// 判定順は toUTF8 の従来挙動と同一 (BOM → UTF-8 → Shift-JIS → EUC-JP)。
+func DetectEncoding(b []byte) Encoding {
+	if bytes.HasPrefix(b, []byte{0xEF, 0xBB, 0xBF}) {
+		return EncUTF8BOM
+	}
+	if bytes.HasPrefix(b, []byte{0xFF, 0xFE}) {
+		return EncUTF16LE
+	}
+	if bytes.HasPrefix(b, []byte{0xFE, 0xFF}) {
+		return EncUTF16BE
+	}
+	if utf8.Valid(b) {
+		return EncUTF8
+	}
+	if _, _, err := transform.Bytes(japanese.ShiftJIS.NewDecoder(), b); err == nil {
+		return EncSJIS
+	}
+	if _, _, err := transform.Bytes(japanese.EUCJP.NewDecoder(), b); err == nil {
+		return EncEUCJP
+	}
+	return EncUnknown
+}
+
 // toUTF8 はバイト列のエンコーディングを判定して UTF-8 に変換する。
 // 対応: UTF-8 BOM, UTF-16 LE/BE BOM, Shift-JIS, EUC-JP。
 func toUTF8(b []byte) []byte {
-	// UTF-8 BOM
-	if bytes.HasPrefix(b, []byte{0xEF, 0xBB, 0xBF}) {
+	switch DetectEncoding(b) {
+	case EncUTF8BOM:
 		return b[3:]
-	}
-	// UTF-16 LE BOM
-	if bytes.HasPrefix(b, []byte{0xFF, 0xFE}) {
-		dec := unicode.UTF16(unicode.LittleEndian, unicode.UseBOM).NewDecoder()
-		out, _, err := transform.Bytes(dec, b)
-		if err == nil {
+	case EncUTF16LE:
+		if out, _, err := transform.Bytes(unicode.UTF16(unicode.LittleEndian, unicode.UseBOM).NewDecoder(), b); err == nil {
+			return out
+		}
+		// If UTF-16 decode fails, fall through to return b.
+		// Bytes starting with 0xFF/0xFE are invalid in UTF-8, SJIS, and EUC-JP,
+		// so returning unchanged is equivalent to the old inline try-all-encodings path.
+	case EncUTF16BE:
+		if out, _, err := transform.Bytes(unicode.UTF16(unicode.BigEndian, unicode.UseBOM).NewDecoder(), b); err == nil {
+			return out
+		}
+		// Same reasoning as UTF-16 LE above.
+	case EncSJIS:
+		if out, _, err := transform.Bytes(japanese.ShiftJIS.NewDecoder(), b); err == nil {
+			return out
+		}
+	case EncEUCJP:
+		if out, _, err := transform.Bytes(japanese.EUCJP.NewDecoder(), b); err == nil {
 			return out
 		}
 	}
-	// UTF-16 BE BOM
-	if bytes.HasPrefix(b, []byte{0xFE, 0xFF}) {
-		dec := unicode.UTF16(unicode.BigEndian, unicode.UseBOM).NewDecoder()
-		out, _, err := transform.Bytes(dec, b)
-		if err == nil {
-			return out
-		}
-	}
-	// 有効な UTF-8 ならそのまま
-	if utf8.Valid(b) {
-		return b
-	}
-	// Shift-JIS を試みる
-	out, _, err := transform.Bytes(japanese.ShiftJIS.NewDecoder(), b)
-	if err == nil {
-		return out
-	}
-	// EUC-JP を試みる
-	out, _, err = transform.Bytes(japanese.EUCJP.NewDecoder(), b)
-	if err == nil {
-		return out
-	}
-	// フォールバック: そのまま返す
 	return b
 }
