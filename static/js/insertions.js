@@ -255,6 +255,7 @@ function refreshInsertionDecorations() {
     }
   }
   insertionDecoIds = monacoEditor.deltaDecorations(insertionDecoIds, decos);
+  _updateInsertionCtxKey();
 }
 
 // ===== 仕込み一覧・書き換え・撤去 (memo-list.js の行から呼ばれる) =====
@@ -288,9 +289,11 @@ async function _deleteInsertion(item) {
   st(item._insId + " を撤去しました");
 }
 
-// 一覧の ✎ ボタン: showInputModal で現在の site テキストを編集 → PUT →
-// graph.insertions の該当エントリを差し替える。Plan 1 なので site index は常に 0。
-async function _rewriteInsertion(item) {
+// 一覧の ✎ ボタンとエディタ右クリックの両方から呼ぶ: showInputModal で
+// site テキストを編集 → PUT → graph.insertions の該当エントリを差し替える。
+// siteIdx は一覧からは常に 0 (sites[0] を表示しているため)、右クリックからは
+// カーソル行に一致した site。
+async function _rewriteInsertion(item, siteIdx = 0) {
   const newTextRaw = await showInputModal('仕込みを書き換え', 'テキスト', item.memo);
   if (newTextRaw == null) return;
   // textarea 由来だと改行が混ざりうる。サーバは複数行を 400 で弾くので事前に単一行化する。
@@ -300,7 +303,7 @@ async function _rewriteInsertion(item) {
   const r = await fetch("/api/insertions/" + encodeURIComponent(item._insId), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ site: 0, new_text: newText }),
+    body: JSON.stringify({ site: siteIdx, new_text: newText }),
   }).catch(() => null);
   if (!r || !r.ok) {
     if (r && r.status === 409) { _insertionManualChangeIds.add(item._insId); renderMemoList(); }
@@ -394,6 +397,57 @@ function updateInsertionBadge() {
       }
     }
   }
+}
+
+// ===== エディタ右クリックメニュー (仕込み行の上でのみ表示) =====
+
+// カーソル行に一致する仕込み site を返す。無ければ null。
+function _insertionSiteAtCursor() {
+  const file = tabs[activeTabIdx]?.file;
+  const line = monacoEditor?.getPosition()?.lineNumber;
+  if (!file || !line) return null;
+  for (const ins of (Array.isArray(graph?.insertions) ? graph.insertions : [])) {
+    if (!_samePath(ins.file, file)) continue;
+    const siteIdx = (ins.sites || []).findIndex((s) => s.line === line);
+    if (siteIdx >= 0) return { ins, siteIdx };
+  }
+  return null;
+}
+
+// 「仕込み行の上にいるか」のコンテキストキー。Monaco のコンテキストメニューは
+// precondition が false の項目を出さないので、これで表示自体を絞る。
+// カーソル移動だけでなく挿入・撤去・タブ切替でも変わるため、
+// refreshInsertionDecorations (全変化点から呼ばれる) でも更新する。
+let _insertionCtxKey = null;
+
+function _updateInsertionCtxKey() {
+  _insertionCtxKey?.set(!!_insertionSiteAtCursor());
+}
+
+function registerInsertionEditorActions() {
+  if (!monacoEditor || _insertionCtxKey) return;
+  _insertionCtxKey = monacoEditor.createContextKey('grepnaviOnInsertionLine', false);
+  monacoEditor.onDidChangeCursorPosition(_updateInsertionCtxKey);
+
+  monacoEditor.addAction({
+    id: 'grepnavi-insertion-rewrite', label: 'デバッグ行を書き換え',
+    contextMenuGroupId: 'grepnavi-mark', contextMenuOrder: 2.5,
+    precondition: 'grepnaviOnInsertionLine',
+    run: () => {
+      const hit = _insertionSiteAtCursor();
+      if (!hit) return;
+      _rewriteInsertion({ _insId: hit.ins.id, memo: hit.ins.sites[hit.siteIdx].text }, hit.siteIdx);
+    },
+  });
+  monacoEditor.addAction({
+    id: 'grepnavi-insertion-delete', label: 'デバッグ行を撤去',
+    contextMenuGroupId: 'grepnavi-mark', contextMenuOrder: 2.6,
+    precondition: 'grepnaviOnInsertionLine',
+    run: () => {
+      const hit = _insertionSiteAtCursor();
+      if (hit) _deleteInsertion({ _insId: hit.ins.id });
+    },
+  });
 }
 
 // ===== ダイアログの結線 (DOMContentLoaded 後、他の init と同じタイミング) =====

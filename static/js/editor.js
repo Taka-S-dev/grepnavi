@@ -1116,7 +1116,7 @@ async function ensureEditor() {
   // 右クリック → Jump Map に追加 (Alt+J)
   monacoEditor.addAction({
     id: 'grepnavi.addToJumpMap',
-    label: 'Add to Jump Map',
+    label: 'ジャンプマップに追加',
     contextMenuGroupId: 'navigation',
     contextMenuOrder: 1.5,
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyJ],
@@ -1134,7 +1134,7 @@ async function ensureEditor() {
   // ブックマークトグル (Alt+B)
   monacoEditor.addAction({
     id: 'grepnavi.toggleBookmark',
-    label: 'Toggle Bookmark',
+    label: 'ブックマークを切り替え',
     contextMenuGroupId: 'navigation',
     contextMenuOrder: 1.4,
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyB],
@@ -1385,10 +1385,10 @@ async function ensureEditor() {
 
   // Alt+N → メモを追加/編集（選択中なら範囲メモ、未選択なら行メモ）
   monacoEditor.addAction({
-    id: 'grepnavi-line-memo', label: 'メモを追加/編集 (Alt+N)',
+    id: 'grepnavi-line-memo', label: 'メモを追加/編集',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyN],
     contextMenuGroupId: 'grepnavi-mark',
-    contextMenuOrder: 2,
+    contextMenuOrder: 2.1,
     run: ed => {
       const file = tabs[activeTabIdx]?.file;
       if (!file) return;
@@ -1468,7 +1468,7 @@ async function ensureEditor() {
 
   // 右クリック → Floating Peek
   monacoEditor.addAction({
-    id: 'grepnavi-float-def', label: 'Floating Peek',
+    id: 'grepnavi-float-def', label: 'Floating Peek で開く',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyF],
     contextMenuGroupId: 'grepnavi-nav',
     contextMenuOrder: 4,
@@ -1500,7 +1500,7 @@ async function ensureEditor() {
 
   // Alt+H / 右クリック → 単語ハイライト固定/解除
   monacoEditor.addAction({
-    id: 'grepnavi-pin-highlight', label: '単語ハイライトを固定/解除 (Alt+H)',
+    id: 'grepnavi-pin-highlight', label: '単語ハイライトを固定/解除',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyH],
     contextMenuGroupId: 'grepnavi-mark',
     contextMenuOrder: 1,
@@ -1518,7 +1518,7 @@ async function ensureEditor() {
 
   // Alt+G → 選択行をノードに追加
   monacoEditor.addAction({
-    id: 'grepnavi-add-node', label: 'ノードに追加 (Alt+G)',
+    id: 'grepnavi-add-node', label: 'ノードに追加',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyG],
     contextMenuGroupId: 'grepnavi-mark',
     contextMenuOrder: 2,
@@ -1537,18 +1537,20 @@ async function ensureEditor() {
 
   // Alt+P → デバッグ仕込み挿入ダイアログ (insertions.js)
   monacoEditor.addAction({
-    id: 'grepnavi-insert-debug', label: 'デバッグ行を挿入 (Alt+P)',
+    id: 'grepnavi-insert-debug', label: 'デバッグ行を挿入',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyP],
     contextMenuGroupId: 'grepnavi-mark',
     contextMenuOrder: 2.4,
     run: () => { if (typeof openInsertDialog === 'function') openInsertDialog(); }
   });
+  // 仕込み行の上でだけ出る「書き換え / 撤去」(insertions.js)
+  if (typeof registerInsertionEditorActions === 'function') registerInsertionEditorActions();
 
   monacoEditor.addAction({
-    id: 'grepnavi-range-memo-delete', label: '選択範囲のメモを削除 (Delete)',
+    id: 'grepnavi-range-memo-delete', label: '選択範囲のメモを削除',
     keybindings: [monaco.KeyCode.Delete],
     contextMenuGroupId: 'grepnavi-mark',
-    contextMenuOrder: 2.5,
+    contextMenuOrder: 2.2,
     run: ed => {
       const sel = ed.getSelection();
       const file = tabs[activeTabIdx]?.file;
