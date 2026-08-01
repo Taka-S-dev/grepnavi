@@ -346,26 +346,64 @@ async function _rewriteInsertion(item, siteIdx = 0) {
   // textarea 由来だと改行が混ざりうる。サーバは複数行を 400 で弾くので事前に単一行化する。
   const newText = newTextRaw.replace(/[\r\n]+/g, ' ').trim();
   if (!newText) { st('挿入する内容を入力してください'); return; }
+  if (await _putInsertionText(item._insId, siteIdx, newText)) {
+    st(item._insId + ' を書き換えました');
+  }
+}
 
-  const r = await fetch("/api/insertions/" + encodeURIComponent(item._insId), {
+// PUT の共通部。書き換えモーダルと Tab 字下げの両方から呼ぶ。
+// 成功時は graph.insertions を差し替えてから再描画する。
+async function _putInsertionText(insId, siteIdx, newText) {
+  const r = await fetch("/api/insertions/" + encodeURIComponent(insId), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ site: siteIdx, new_text: newText }),
   }).catch(() => null);
   if (!r || !r.ok) {
-    if (r && r.status === 409) { _insertionManualChangeIds.add(item._insId); renderMemoList(); }
-    st(_insertionWriteErrorMessage(r, item._insId));
-    return;
+    if (r && r.status === 409) { _insertionManualChangeIds.add(insId); renderMemoList(); }
+    st(_insertionWriteErrorMessage(r, insId));
+    return false;
   }
   const d = await r.json();
-  const idx = (graph.insertions || []).findIndex((i) => i.id === item._insId);
+  const idx = (graph.insertions || []).findIndex((i) => i.id === insId);
   if (idx >= 0) graph.insertions[idx] = d.insertion;
   else { if (!Array.isArray(graph.insertions)) graph.insertions = []; graph.insertions.push(d.insertion); }
-  _insertionManualChangeIds.delete(item._insId);
+  _insertionManualChangeIds.delete(insId);
   await pollActiveFile();
   refreshInsertionDecorations();
   renderMemoList();
-  st(item._insId + " を書き換えました");
+  return true;
+}
+
+// デバッグ行の字下げ単位。前の行 (無ければ自分) のインデントにタブが
+// 使われていればタブ、そうでなければスペース4つ — ファイルの流儀に合わせる。
+function _indentUnitAt(line) {
+  const model = monacoEditor?.getModel();
+  if (!model) return '\t';
+  for (const ln of [line - 1, line]) {
+    if (ln < 1 || ln > model.getLineCount()) continue;
+    const ind = (model.getLineContent(ln).match(/^[ \t]*/) || [''])[0];
+    if (ind.includes('\t')) return '\t';
+    if (ind.length) return '    ';
+  }
+  return '\t';
+}
+
+// カーソル行のデバッグ行を1段字下げ (delta>0) / 字上げ (delta<0) する。
+async function _indentInsertionAtCursor(delta) {
+  const hit = _insertionSiteAtCursor();
+  if (!hit) return;
+  const site = hit.ins.sites[hit.siteIdx];
+  let text = site.text;
+  if (delta > 0) {
+    text = _indentUnitAt(site.line) + text;
+  } else if (text.startsWith('\t')) {
+    text = text.slice(1);
+  } else {
+    text = text.replace(/^ {1,4}/, '');
+  }
+  if (text === site.text) return; // 既に行頭
+  await _putInsertionText(hit.ins.id, hit.siteIdx, text);
 }
 
 // ヘッダの「全部撤去」ボタンとグループ撤去セレクト。skipped (手動変更等で
@@ -495,6 +533,22 @@ function registerInsertionEditorActions() {
       if (hit) _deleteInsertion({ _insId: hit.ins.id });
     },
   });
+  // Tab / Shift+Tab はデバッグ行の上でだけ字下げ・字上げとして働く。
+  // keybindingContext で縛るので、通常の行では Monaco 既定の挙動のまま。
+  monacoEditor.addAction({
+    id: 'grepnavi-insertion-indent', label: 'デバッグ行を字下げ',
+    keybindings: [monaco.KeyCode.Tab],
+    keybindingContext: 'grepnaviOnInsertionLine',
+    precondition: 'grepnaviOnInsertionLine',
+    run: () => _indentInsertionAtCursor(1),
+  });
+  monacoEditor.addAction({
+    id: 'grepnavi-insertion-outdent', label: 'デバッグ行を字上げ',
+    keybindings: [monaco.KeyMod.Shift | monaco.KeyCode.Tab],
+    keybindingContext: 'grepnaviOnInsertionLine',
+    precondition: 'grepnaviOnInsertionLine',
+    run: () => _indentInsertionAtCursor(-1),
+  });
 }
 
 // ===== ダイアログの結線 (DOMContentLoaded 後、他の init と同じタイミング) =====
@@ -520,11 +574,22 @@ function _initInsertDialog() {
     if (e.key === 'Escape') { e.stopPropagation(); closeInsertDialog(); }
     else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); _insertDialogSubmit(); }
     else if (e.key === 'Tab') {
-      // textarea 内では Tab はフォーカス移動ではなくタブ文字挿入にする。
+      // textarea 内では Tab はフォーカス移動ではなく字下げ操作にする。
+      // Shift+Tab はカーソル行の行頭からタブ1つ (無ければスペース最大4つ) を外す。
       e.preventDefault();
       const start = ta.selectionStart, end = ta.selectionEnd;
-      ta.value = ta.value.slice(0, start) + '\t' + ta.value.slice(end);
-      ta.selectionStart = ta.selectionEnd = start + 1;
+      if (e.shiftKey) {
+        const lineStart = ta.value.lastIndexOf('\n', start - 1) + 1;
+        const head = ta.value.slice(lineStart);
+        const m = head.match(/^(\t| {1,4})/);
+        if (!m) return;
+        ta.value = ta.value.slice(0, lineStart) + ta.value.slice(lineStart + m[1].length);
+        const pos = Math.max(lineStart, start - m[1].length);
+        ta.selectionStart = ta.selectionEnd = pos;
+      } else {
+        ta.value = ta.value.slice(0, start) + '\t' + ta.value.slice(end);
+        ta.selectionStart = ta.selectionEnd = start + 1;
+      }
     }
   });
 }
