@@ -287,20 +287,10 @@ function renderMemoList() {
     hdr.id = 'memo-list-hdr';
     hdr.innerHTML =
       `<span>マーク一覧</span>` +
-      `<select id="memo-list-insgroup-remove" class="memo-removeall-btn" title="仕込みグループ単位で撤去" style="display:none"></select>` +
-      `<button id="memo-list-removeall-insertions" class="memo-removeall-btn" title="仕込みをすべて撤去" style="display:none">⚡ 全部撤去</button>` +
       `<button id="memo-list-add-group" title="グループを追加"><i class="codicon codicon-add"></i></button>` +
       `<button id="memo-list-close" title="閉じる"><i class="codicon codicon-close"></i></button>`;
     panel.appendChild(hdr);
     id('memo-list-close').onclick = closeMemoList;
-    id('memo-list-removeall-insertions').onclick = () => removeAllInsertions();
-    id('memo-list-insgroup-remove').onchange = (e) => {
-      const v = e.target.value;
-      e.target.selectedIndex = 0; // 実行後は「グループ撤去…」表示に戻す
-      if (!v) return;
-      // 先頭が空白の値は「無グループ」を表す番兵。グループ名は trim 済みなので衝突しない。
-      removeAllInsertions(v === ' ungrouped' ? '' : v);
-    };
     id('memo-list-add-group').onclick = async () => {
       const name = await showInputModal('グループを追加', 'グループ名');
       if (!name) return;
@@ -327,10 +317,11 @@ function renderMemoList() {
     typeBar.id = 'memo-list-type-bar';
     const bmSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 16 16"><path d="M5 2h6a1 1 0 0 1 1 1v10l-4-2.5L4 13V3a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
     const typeButtons = [
-      { kind: 'bookmark', label: bmSvg,  title: 'ブックマーク' },
-      { kind: 'line',     label: '✎',   title: 'ラインメモ' },
-      { kind: 'range',    label: '▤',   title: '範囲メモ' },
-      { kind: 'node',     label: '◎',   title: 'ツリーノード（memo 付き）' },
+      { kind: 'bookmark',  label: bmSvg,  title: 'ブックマーク' },
+      { kind: 'line',      label: '✎',   title: 'ラインメモ' },
+      { kind: 'range',     label: '▤',   title: '範囲メモ' },
+      { kind: 'node',      label: '◎',   title: 'ツリーノード（memo 付き）' },
+      { kind: 'insertion', label: '⚡',   title: 'デバッグ行' },
     ];
     typeButtons.forEach(({ kind, label, title }) => {
       const btn = document.createElement('button');
@@ -347,7 +338,21 @@ function renderMemoList() {
       };
       typeBar.appendChild(btn);
     });
+    // 仕込みの撤去操作は ⚡ フィルタと同じ行の右端に置く。カテゴリバーが
+    // 「メモのフィルタ＋メモの削除 (右端)」なのと同じ構成にして、
+    // 各削除ボタンが何を対象にするかを置き場所でも示す。
+    typeBar.insertAdjacentHTML('beforeend',
+      `<select id="memo-list-insgroup-remove" class="memo-removeall-btn" title="デバッグ行のグループ単位で撤去" style="display:none;margin-left:auto"></select>` +
+      `<button id="memo-list-removeall-insertions" class="memo-removeall-btn" title="デバッグ行をすべて撤去する。メモは消えない" style="display:none">⚡ デバッグ行全部撤去</button>`);
     panel.appendChild(typeBar);
+    id('memo-list-removeall-insertions').onclick = () => removeAllInsertions();
+    id('memo-list-insgroup-remove').onchange = (e) => {
+      const v = e.target.value;
+      e.target.selectedIndex = 0; // 実行後は「グループ撤去…」表示に戻す
+      if (!v) return;
+      // 先頭が空白の値は「無グループ」を表す番兵。グループ名は trim 済みなので衝突しない。
+      removeAllInsertions(v === ' ungrouped' ? '' : v);
+    };
 
     // category フィルタ + source フィルタ + bulk delete (draft) を集約したバー
     const catBar = document.createElement('div');
@@ -401,7 +406,7 @@ function renderMemoList() {
     const bulkBtn = document.createElement('button');
     bulkBtn.id = 'memo-list-bulk-del-drafts';
     bulkBtn.className = 'memo-bulk-btn';
-    bulkBtn.textContent = '🗑 draft 全削除';
+    bulkBtn.textContent = '🗑 draft メモ全削除';
     bulkBtn.title = 'カテゴリ "draft" のメモを一括削除 (確認 dialog あり)';
     bulkBtn.onclick = _bulkDeleteDrafts;
     catBar.appendChild(bulkBtn);
@@ -610,6 +615,7 @@ function _makeMemoRow(item) {
   const catClass = item.category ? ` memo-list-item-${item.category}` : '';
   const srcClass = item.source === 'ai' ? ' memo-list-item-ai' : '';
   row.className = 'memo-list-item' + catClass + srcClass +
+                  (item.kind === 'insertion' ? ' memo-list-item-insertion' : '') +
                   (_memoListSelectedId === item.id ? ' memo-list-selected' : '');
   row.draggable = true;
   row.dataset.id = item.id;
@@ -644,7 +650,7 @@ function _makeMemoRow(item) {
   // 仕込みグループのチップ。マーク一覧自体の表示グループとは別物なので、
   // 見出しではなく行内チップで示す（撤去単位であることをツールチップで補足）。
   const insGroupChip = item.kind === 'insertion' && item._group
-    ? `<span class="memo-list-insgroup" title="仕込みグループ (グループ単位で撤去できる)">${esc(item._group)}</span>`
+    ? `<span class="memo-list-insgroup" title="デバッグ行のグループ (グループ単位で撤去できる)">${esc(item._group)}</span>`
     : '';
   // ずれチップは loc と同じセルに入れる（チップは出たり出なかったりするので、
   // 独立したセルにすると grid の列がずれる）。

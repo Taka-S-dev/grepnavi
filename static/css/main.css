@@ -1047,6 +1047,10 @@ body.calltree-mode #pane-left{display:none!important}
    がこのチップも拾ってしまい、無関係な行メモを勝手に移動させてしまうため、
    セレクタは完全に分離する (静的な span で押しても何も起きない)。 */
 .memo-list-manual-chip{margin-left:4px;padding:0 4px;border-radius:2px;background:#5a2a2a;color:#e08080;font-size:9px;border:none;cursor:default;flex-shrink:0}
+/* 仕込み行はメモ（残す知見）と違い「最後に消す足場」なので、一覧上でも
+   エディタの挿入行装飾と同じ紫系でひと目で区別できるようにする。 */
+.memo-list-item-insertion:not(.memo-list-selected){background:rgba(160,100,220,0.07)}
+.memo-list-item-insertion:not(.memo-list-selected):hover{background:rgba(160,100,220,0.14)}
 .insert-dialog-row{display:flex;gap:6px;align-items:center}
 .insert-dialog-label{font-size:10px;color:#888;margin-top:4px}
 /* 仕込みグループのチップ。挿入行装飾と同じ紫系で「仕込みの属性」だと分かるようにする。 */

@@ -292,7 +292,7 @@ function refreshInsertionDecorations() {
           isWholeLine: true,
           className: 'insertion-line-deco',
           glyphMarginClassName: 'insertion-glyph',
-          glyphMarginHoverMessage: { value: `仕込み ${ins.id}: ${site.text}` },
+          glyphMarginHoverMessage: { value: `デバッグ行 ${ins.id}: ${site.text}` },
           overviewRuler: {
             color: 'rgba(160,100,220,0.8)',
             position: monaco.editor.OverviewRulerLane.Right,
@@ -341,7 +341,7 @@ async function _deleteInsertion(item) {
 // siteIdx は一覧からは常に 0 (sites[0] を表示しているため)、右クリックからは
 // カーソル行に一致した site。
 async function _rewriteInsertion(item, siteIdx = 0) {
-  const newTextRaw = await showInputModal('仕込みを書き換え', 'テキスト', item.memo);
+  const newTextRaw = await showInputModal('デバッグ行を書き換え', 'テキスト', item.memo);
   if (newTextRaw == null) return;
   // textarea 由来だと改行が混ざりうる。サーバは複数行を 400 で弾くので事前に単一行化する。
   const newText = newTextRaw.replace(/[\r\n]+/g, ' ').trim();
@@ -378,7 +378,7 @@ async function removeAllInsertions(group) {
   const n = targets.length;
   if (!n) return;
   const label = group === undefined ? 'すべて' : group === '' ? '無グループの' : `グループ「${group}」の`;
-  if (!confirm(`${label}仕込み ${n} 件を撤去します。よろしいですか？`)) return;
+  if (!confirm(`${label}デバッグ行 ${n} 件を撤去します。よろしいですか？`)) return;
 
   const r = await fetch('/api/insertions/removeall', {
     method: 'POST',
@@ -401,7 +401,7 @@ async function removeAllInsertions(group) {
     st(`${removed.size} 件撤去 / ${d.skipped.length} 件スキップ: ` +
        d.skipped.map((s) => `${s.id} (${s.reason})`).join(', '));
   } else {
-    st(`仕込み ${removed.size} 件を撤去しました`);
+    st(`デバッグ行 ${removed.size} 件を撤去しました`);
   }
 }
 
@@ -412,7 +412,7 @@ function updateInsertionBadge() {
   const badge = document.getElementById('insertion-badge');
   if (badge) {
     badge.style.display = n ? '' : 'none';
-    badge.textContent = '仕込み ' + n;
+    badge.textContent = 'デバッグ行 ' + n;
   }
   const removeAllBtn = document.getElementById('memo-list-removeall-insertions');
   if (removeAllBtn) removeAllBtn.style.display = n ? '' : 'none';
@@ -428,7 +428,7 @@ function updateInsertionBadge() {
       sel.innerHTML = '';
       const ph = document.createElement('option');
       ph.value = '';
-      ph.textContent = 'グループ撤去…';
+      ph.textContent = 'デバッグ行グループ撤去…';
       sel.appendChild(ph);
       for (const name of named) {
         const opt = document.createElement('option');
