@@ -50,22 +50,9 @@ function updateSearchTitle(query, count) {
   document.title = '"' + q + '"' + countStr + (rootName ? ' – ' + rootName : '');
 }
 
-// ===== 汎用確認ダイアログ =====
-function showConfirm(msg) {
-  return new Promise(resolve => {
-    id('confirm-modal-msg').textContent = msg;
-    id('confirm-modal').classList.add('open');
-    const ok     = id('confirm-modal-ok');
-    const cancel = id('confirm-modal-cancel');
-    function close(result) {
-      id('confirm-modal').classList.remove('open');
-      ok.onclick = null; cancel.onclick = null;
-      resolve(result);
-    }
-    ok.onclick     = () => close(true);
-    cancel.onclick = () => close(false);
-  });
-}
+// 確認ダイアログは utils.js の showConfirm (gn-dialog) を使う。
+// かつてここに独自実装があり、読み込み順の後勝ちで utils 版を上書きして
+// danger 等のオプションを黙って無効化していた。同名関数の二重定義は禁止。
 
 // ===== ルートチップ =====
 function updateRootChip() {

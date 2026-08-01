@@ -107,7 +107,10 @@ async function _deleteInsertPreset() {
   if (!m) return;
   const presets = _insertPresets();
   const name = presets[+m[1]]?.label || '';
-  if (!confirm(`プリセット「${name}」を削除しますか？`)) return;
+  const proceed = typeof showConfirm === 'function'
+    ? await showConfirm(`プリセット「${name}」を削除しますか？`, { danger: true })
+    : confirm(`プリセット「${name}」を削除しますか？`);
+  if (!proceed) return;
   presets.splice(+m[1], 1);
   localStorage.setItem(LS_INSERT_PRESETS, JSON.stringify(presets));
   _rebuildTemplateSelect('printf');
@@ -415,8 +418,13 @@ async function removeAllInsertions(group) {
   const targets = group === undefined ? all : all.filter((i) => (i.group || '') === group);
   const n = targets.length;
   if (!n) return;
-  const label = group === undefined ? 'すべて' : group === '' ? '無グループの' : `グループ「${group}」の`;
-  if (!confirm(`${label}デバッグ行 ${n} 件を撤去します。よろしいですか？`)) return;
+  const msg = group === undefined ? `デバッグ行 ${n} 件をすべて撤去します。よろしいですか？`
+    : group === '' ? `無グループのデバッグ行 ${n} 件を撤去します。よろしいですか？`
+    : `グループ「${group}」のデバッグ行 ${n} 件を撤去します。よろしいですか？`;
+  const proceed = typeof showConfirm === 'function'
+    ? await showConfirm(msg, { danger: true })
+    : confirm(msg);
+  if (!proceed) return;
 
   const r = await fetch('/api/insertions/removeall', {
     method: 'POST',

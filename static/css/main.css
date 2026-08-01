@@ -619,19 +619,6 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 .fzf-kind-typedef,.fzf-kind-struct,.fzf-kind-enum,.fzf-kind-union{background:#1d2d3d;color:#9cdcfe}
 .fzf-empty{padding:14px;font-size:11px;color:#666;text-align:center}
 
-/* 汎用確認ダイアログ */
-#confirm-modal{
-  display:none;position:fixed;inset:0;z-index:var(--z-modal);
-  background:rgba(0,0,0,0.6);align-items:center;justify-content:center;
-}
-#confirm-modal.open{display:flex}
-#confirm-modal-box{
-  background:#252526;border:1px solid #555;border-radius:4px;
-  padding:16px 20px;display:flex;flex-direction:column;gap:4px;
-  min-width:min(280px,calc(100vw - 24px));max-width:min(420px,calc(100vw - 24px));
-}
-#confirm-modal-msg{font-size:13px;color:#ccc;line-height:1.5}
-
 /* ===== ノードフィールド編集モーダル（共通基底）。サイズは ID で個別上書き ===== */
 .node-modal{
   display:none;position:fixed;inset:0;z-index:var(--z-modal);
