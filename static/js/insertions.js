@@ -58,7 +58,61 @@ function _insertDialogRebuildTextarea() {
   const cond = condInput.value.trim() || 'cond';
   const body = tpl.needsCond ? tpl.template.replace('{cond}', cond) : tpl.template;
   const indent = _insertDialogState?.indent || '';
-  ta.value = body ? indent + body : indent;
+  // 複数行テンプレは全行にインデントを前置する（1行目だけだと段がずれる）。
+  ta.value = body ? body.split('\n').map(l => indent + l).join('\n') : indent;
+  const delBtn = document.getElementById('insert-dialog-del-preset');
+  if (delBtn) delBtn.style.display = /^preset\d+$/.test(sel.value) ? '' : 'none';
+}
+
+// テンプレ select の再構築。selectId を渡すとそれを選択状態にする
+// （プリセット保存直後に保存したものを選ぶため）。
+function _rebuildTemplateSelect(selectId) {
+  const sel = document.getElementById('insert-dialog-template');
+  if (!sel) return;
+  sel.innerHTML = '';
+  _insertTemplates().forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = t.label;
+    sel.appendChild(opt);
+  });
+  if (selectId && [...sel.options].some(o => o.value === selectId)) sel.value = selectId;
+}
+
+// 今の textarea の内容を名前付きテンプレとして保存する。保存するのは
+// 「ダイアログを開いた行のインデントを除いた中身」— テンプレは挿入のたびに
+// その場のインデントが前置されるので、保存時のインデントを含めると二重になる。
+// {tag} {cond} {group} は文字列のまま保存され、次回の挿入時に展開される。
+async function _saveInsertPreset() {
+  const ta = document.getElementById('insert-dialog-ta');
+  const indent = _insertDialogState?.indent || '';
+  const lines = (ta?.value || '').split('\n').map(l =>
+    indent && l.startsWith(indent) ? l.slice(indent.length) : l);
+  while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
+  const template = lines.join('\n');
+  if (!template.trim()) { st('保存する内容がありません'); return; }
+  const name = await showInputModal('プリセットとして保存', 'プリセット名');
+  if (!name) return;
+  const presets = _insertPresets();
+  presets.push({ label: name, template, needsCond: template.includes('{cond}') });
+  localStorage.setItem(LS_INSERT_PRESETS, JSON.stringify(presets));
+  _rebuildTemplateSelect('preset' + (presets.length - 1));
+  _insertDialogRebuildTextarea();
+  st(`プリセット「${name}」を保存しました`);
+}
+
+async function _deleteInsertPreset() {
+  const sel = document.getElementById('insert-dialog-template');
+  const m = /^preset(\d+)$/.exec(sel?.value || '');
+  if (!m) return;
+  const presets = _insertPresets();
+  const name = presets[+m[1]]?.label || '';
+  if (!confirm(`プリセット「${name}」を削除しますか？`)) return;
+  presets.splice(+m[1], 1);
+  localStorage.setItem(LS_INSERT_PRESETS, JSON.stringify(presets));
+  _rebuildTemplateSelect('printf');
+  _insertDialogRebuildTextarea();
+  st(`プリセット「${name}」を削除しました`);
 }
 
 function openInsertDialog() {
@@ -73,14 +127,7 @@ function openInsertDialog() {
   const indent = (lineContent.match(/^[ \t]*/) || [''])[0];
   _insertDialogState = { file: tab.file, line, indent };
 
-  const sel = document.getElementById('insert-dialog-template');
-  sel.innerHTML = '';
-  _insertTemplates().forEach(t => {
-    const opt = document.createElement('option');
-    opt.value = t.id;
-    opt.textContent = t.label;
-    sel.appendChild(opt);
-  });
+  _rebuildTemplateSelect();
   const fileLabel = document.getElementById('insert-dialog-file');
   if (fileLabel) fileLabel.textContent = tab.file.replace(/\\/g, '/') + ' : L' + line + ' の次に挿入';
   document.getElementById('insert-dialog-cond').value = '';
@@ -464,6 +511,10 @@ function _initInsertDialog() {
   condInput.addEventListener('input', _insertDialogRebuildTextarea);
   btnOk.onclick = _insertDialogSubmit;
   btnCancel.onclick = closeInsertDialog;
+  const btnSavePreset = document.getElementById('insert-dialog-save-preset');
+  const btnDelPreset = document.getElementById('insert-dialog-del-preset');
+  if (btnSavePreset) btnSavePreset.onclick = _saveInsertPreset;
+  if (btnDelPreset) btnDelPreset.onclick = _deleteInsertPreset;
   modal.addEventListener('click', (e) => { if (e.target === modal) closeInsertDialog(); });
   ta.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { e.stopPropagation(); closeInsertDialog(); }
