@@ -1543,7 +1543,7 @@ async function ensureEditor() {
     contextMenuOrder: 2.4,
     run: () => { if (typeof openInsertDialog === 'function') openInsertDialog(); }
   });
-  // 仕込み行の上でだけ出る「書き換え / 撤去」(insertions.js)
+  // デバッグ行の上でだけ出る「書き換え / 撤去」(insertions.js)
   if (typeof registerInsertionEditorActions === 'function') registerInsertionEditorActions();
 
   monacoEditor.addAction({

@@ -146,9 +146,9 @@ func TestUTF16Rejected(t *testing.T) {
 }
 
 func TestBOMlessUTF16Rejected(t *testing.T) {
-	// "a\n" as UTF-16LE without a BOM. utf8.Valid accepts the embedded NUL
-	// bytes, so without an explicit NUL check this would be misdetected as
-	// EncUTF8 and InsertAfter would corrupt it (0x0A appears mid-character).
+	// BOM 無し UTF-16LE の "a\n"。utf8.Valid は NUL バイトを許すため、明示的な
+	// NUL チェックが無いと EncUTF8 と誤判定され、文字の途中に現れる 0x0A で
+	// InsertAfter が行を切ってファイルを壊してしまう。
 	p := write(t, []byte{'a', 0x00, '\n', 0x00})
 	if _, err := Load(p); !errors.Is(err, ErrUnsupportedEncoding) {
 		t.Fatalf("err = %v, want ErrUnsupportedEncoding", err)
@@ -156,11 +156,10 @@ func TestBOMlessUTF16Rejected(t *testing.T) {
 }
 
 func TestEUCJPRoundTripsThroughEUCJPNotSJIS(t *testing.T) {
-	// Regression for the dead EncEUCJP branch: an EUC-JP file must be
-	// decoded/encoded as EUC-JP, not silently treated as Shift-JIS. "日本語"
-	// in EUC-JP decodes with a substitution char under Shift-JIS, so before
-	// the DetectEncoding fix this file was misclassified as EncSJIS and any
-	// inserted line would have been written in the wrong encoding.
+	// 到達不能だった EncEUCJP 分岐の回帰テスト: EUC-JP のファイルは EUC-JP と
+	// して復号・符号化されねばならない。EUC-JP の「日本語」を Shift-JIS として
+	// 復号すると置換文字が混ざる。DetectEncoding の修正前は EncSJIS と誤判定
+	// され、挿入行が誤ったエンコーディングで書き込まれていた。
 	orig := append([]byte{0xC6, 0xFC, 0xCB, 0xDC, 0xB8, 0xEC}, '\n') // "日本語\n" in EUC-JP
 	p := write(t, orig)
 	f, err := Load(p)
@@ -190,10 +189,9 @@ func TestEUCJPRoundTripsThroughEUCJPNotSJIS(t *testing.T) {
 }
 
 func TestMatchGuardRejectsLossyDecode(t *testing.T) {
-	// Two different SJIS byte sequences that both decode to the same
-	// replacement-char-laden UTF-8 string must not be treated as equal:
-	// a decoded result containing U+FFFD can't be trusted as a basis for
-	// exact-match comparison, so DeleteLine/ReplaceLine must reject it
+	// 異なる SJIS バイト列が同じ置換文字混じりの UTF-8 文字列に復号され得る。
+	// U+FFFD を含む復号結果は完全一致比較の根拠にならないので、
+	// DeleteLine / ReplaceLine は一致して見えても拒否しなければならない
 	// with ErrMismatch instead of risking touching the wrong line.
 	//
 	// 0x81 0x3F is not a valid SJIS sequence (0x3F is not a valid trail
@@ -210,8 +208,8 @@ func TestMatchGuardRejectsLossyDecode(t *testing.T) {
 	if !strings.ContainsRune(line2, utf8.RuneError) {
 		t.Fatalf("expected line 2 to contain a replacement char, got %q", line2)
 	}
-	// Passing the exact lossy string back should still be rejected: it is
-	// not proof the underlying bytes match.
+	// 復号結果と同じ文字列を渡し返しても拒否されること: 文字列の一致は
+	// 元のバイト列が一致する証拠にならない。
 	if err := f.DeleteLine(2, line2); !errors.Is(err, ErrMismatch) {
 		t.Fatalf("DeleteLine err = %v, want ErrMismatch", err)
 	}
@@ -221,18 +219,15 @@ func TestMatchGuardRejectsLossyDecode(t *testing.T) {
 }
 
 func TestSaveOnReadOnlyFile(t *testing.T) {
-	// Save must not silently upgrade a restrictively-permissioned file to
-	// 0644. On POSIX this is directly observable: Stat().Mode().Perm()
-	// after Save should still be read-only. On Windows, os.FileMode only
-	// distinguishes writable vs read-only (chmod 0600/0644/0666 all read
-	// back as -rw-rw-rw-), and os.Rename refuses to overwrite a read-only
-	// destination at all (Access is denied) — so a full round-trip through
-	// a truly read-only *original* file can't be asserted on Windows; Save
-	// itself errors at the rename step, which is a pre-existing Windows
-	// rename limitation unrelated to this fix. What we can and do assert
-	// on both platforms: the temp file Save writes just before renaming
-	// picks up the *original* file's permission bits (not a hardcoded
-	// 0644) — that's the actual behavior this fix changes.
+	// Save が制限されたパーミッションのファイルを黙って 0644 に広げないこと。
+	// POSIX では Save 後の Stat().Mode().Perm() が read-only のままであることを
+	// 直接確認できる。Windows の os.FileMode は書込可/読取専用の2値しか区別
+	// せず (chmod 0600/0644/0666 はどれも -rw-rw-rw- に見える)、os.Rename は
+	// 読取専用ファイルへの上書きを拒否するため、真に読取専用な元ファイルでの
+	// 往復は Windows では検証できない (rename 段階の失敗はこの修正と無関係な
+	// 既存の制約)。両プラットフォームで検証できるのは「rename 直前に書く
+	// 一時ファイルが固定の 0644 ではなく元ファイルのパーミッションを引き継ぐ
+	// こと」で、それがこの修正の実挙動そのもの。
 	p := write(t, []byte("one\ntwo\n"))
 	if err := os.Chmod(p, 0o444); err != nil {
 		t.Fatal(err)
@@ -247,7 +242,7 @@ func TestSaveOnReadOnlyFile(t *testing.T) {
 	saveErr := f.Save()
 	tmp := p + ".gn.tmp"
 	if saveErr == nil {
-		// POSIX: rename succeeded: the final file must still be read-only.
+		// POSIX: rename が成功した場合、最終ファイルは read-only のままのはず。
 		fi, err := os.Stat(p)
 		if err != nil {
 			t.Fatal(err)
@@ -257,9 +252,9 @@ func TestSaveOnReadOnlyFile(t *testing.T) {
 		}
 		return
 	}
-	// Windows: rename onto the read-only original failed, leaving the tmp
-	// file behind. Confirm it was created with the source file's (in this
-	// case read-only) permission bits rather than a hardcoded 0644.
+	// Windows: 読取専用の元ファイルへの rename は失敗し、一時ファイルが残る。
+	// その一時ファイルが固定の 0644 ではなく元ファイルの (この場合は読取専用の)
+	// パーミッションで作られていることを確認する。
 	fi, err := os.Stat(tmp)
 	if err != nil {
 		t.Fatalf("Save failed (%v) and tmp file %s is also missing: %v", saveErr, tmp, err)

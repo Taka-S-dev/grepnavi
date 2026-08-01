@@ -1,4 +1,4 @@
-// ===== デバッグ仕込み挿入 (Alt+P) =====
+// ===== デバッグ行の挿入 (Alt+P) =====
 // ダイアログの開閉、POST /api/insertions の送信、行シフトのクライアント側反映
 // (localStorage 各マップ + in-memory graph.nodes) を担当する。
 // サーバは ShiftLines を「挿入前」に適用済みなので、ここでは再計算せず
@@ -7,7 +7,7 @@
 const LS_INSERT_PRESETS = 'grepnavi-insert-presets';
 const LS_INSERT_LAST_GROUP = 'grepnavi-insert-last-group';
 
-// 既存の仕込みからグループ名一覧を作る（datalist と撤去セレクトの共通ソース）。
+// 既存のデバッグ行からグループ名一覧を作る（datalist と撤去メニューの共通ソース）。
 function _insertionGroups() {
   const counts = new Map(); // name -> count（"" = 無グループ）
   for (const ins of (Array.isArray(graph?.insertions) ? graph.insertions : [])) {
@@ -274,7 +274,7 @@ function _applyRangeShift(rangeMoves, rangesDropped) {
   saveRangeMemos(arr); // 内部で _scheduleMemoSave も呼ぶ
 }
 
-// ===== アクティブファイルの仕込み行装飾 (背景 + ガター + overviewRuler) =====
+// ===== アクティブファイルのデバッグ行装飾 (背景 + ガター + overviewRuler) =====
 let insertionDecoIds = [];
 
 function refreshInsertionDecorations() {
@@ -308,9 +308,9 @@ function refreshInsertionDecorations() {
   _updateInsertionCtxKey();
 }
 
-// ===== 仕込み一覧・書き換え・撤去 (memo-list.js の行から呼ばれる) =====
+// ===== デバッグ行の一覧・書き換え・撤去 (memo-list.js の行から呼ばれる) =====
 
-// 409 (手動変更あり) を一度でも返した仕込み ID。一覧に「手動変更」チップを出すためだけの
+// 409 (手動変更あり) を一度でも返したデバッグ行 ID。一覧に「手動変更」チップを出すためだけの
 // UI 状態で、サーバ側の真実の記録ではない (再試行して成功すれば消す)。
 const _insertionManualChangeIds = new Set();
 
@@ -509,9 +509,9 @@ function hideInsGroupMenu() {
   document.getElementById('insgroup-menu')?.remove();
 }
 
-// ===== エディタ右クリックメニュー (仕込み行の上でのみ表示) =====
+// ===== エディタ右クリックメニュー (デバッグ行の上でのみ表示) =====
 
-// カーソル行に一致する仕込み site を返す。無ければ null。
+// カーソル行に一致するデバッグ行の site を返す。無ければ null。
 function _insertionSiteAtCursor() {
   const file = tabs[activeTabIdx]?.file;
   const line = monacoEditor?.getPosition()?.lineNumber;
@@ -524,7 +524,7 @@ function _insertionSiteAtCursor() {
   return null;
 }
 
-// 「仕込み行の上にいるか」のコンテキストキー。Monaco のコンテキストメニューは
+// 「デバッグ行の上にいるか」のコンテキストキー。Monaco のコンテキストメニューは
 // precondition が false の項目を出さないので、これで表示自体を絞る。
 // カーソル移動だけでなく挿入・撤去・タブ切替でも変わるため、
 // refreshInsertionDecorations (全変化点から呼ばれる) でも更新する。

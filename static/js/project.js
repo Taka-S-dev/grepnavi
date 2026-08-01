@@ -50,9 +50,9 @@ function updateSearchTitle(query, count) {
   document.title = '"' + q + '"' + countStr + (rootName ? ' – ' + rootName : '');
 }
 
-// 確認ダイアログは utils.js の showConfirm (gn-dialog) を使う。
-// かつてここに独自実装があり、読み込み順の後勝ちで utils 版を上書きして
-// danger 等のオプションを黙って無効化していた。同名関数の二重定義は禁止。
+// 確認ダイアログは utils.js の showConfirm (gn-dialog) を使う。かつてここに
+// 独自実装があり、読み込み順の後勝ちで utils 版を上書きして danger 等の
+// オプションを黙って無効化していた。
 
 // ===== ルートチップ =====
 function updateRootChip() {

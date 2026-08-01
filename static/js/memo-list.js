@@ -29,8 +29,7 @@ function saveMemoGroups(arr) {
   localStorage.setItem('grepnavi-memo-groups', JSON.stringify(arr));
 }
 
-// デバッグ行のアイコン。絵文字 (⚡) は OS のカラー絵文字フォントで描画されて
-// 他のモノクロアイコンから浮くため、bookmark と同じ currentColor の SVG にする。
+// カラー絵文字 (⚡) は他のモノクロアイコンから浮くため、currentColor の SVG で持つ。
 const INSERTION_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 16 16" style="vertical-align:middle"><path d="M9 1.5 3.5 9H7l-1.5 5.5L11 7H7.5L9 1.5z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>`;
 
 function getAllMemosOrdered() {
@@ -68,7 +67,7 @@ function getAllMemosOrdered() {
     items.push({ kind: 'bookmark', id: 'bookmark::' + key, file, line, memo: text || '' });
   }
 
-  // 仕込み (デバッグ挿入)。Plan 1: 複数 site があっても sites[0] の1行のみを一覧に出す。
+  // デバッグ行。Plan 1: 複数 site があっても sites[0] の1行のみを一覧に出す。
   for (const ins of (typeof graph !== 'undefined' && graph?.insertions) || []) {
     const site = ins.sites?.[0];
     if (!site) continue;
@@ -392,7 +391,7 @@ function renderMemoList() {
     });
     panel.appendChild(catBar);
 
-    // 一括操作バー: 押すと消える系のボタンはフィルタ行に混ぜず、この1行に集める。
+    // 一括操作バー: 破壊的なボタンはフィルタ行に混ぜず、この1行に集める。
     // 「破壊的な操作は最下段の1行にしかない」という構造で迷いを無くす
     // （対象の区別は各ラベルの「デバッグ行/draft メモ」が名乗る）。
     const actionBar = document.createElement('div');
@@ -495,7 +494,7 @@ function _showMemoPreview(item) {
     : item.kind === 'node'      ? '◎'
     : item.kind === 'insertion' ? INSERTION_ICON_SVG : '✎';
 
-  // 仕込みは graph.insertions が正本。テキスト編集は PUT 経由 (_rewriteInsertion) で
+  // デバッグ行は graph.insertions が正本。テキスト編集は PUT 経由 (_rewriteInsertion) で
   // 行い、ここでの textarea 編集はしない（サーバ側での site 照合とズレる）。
   if (item.kind === 'insertion') {
     preview.innerHTML =
@@ -630,7 +629,7 @@ function _makeMemoRow(item) {
   // 移動できる条件ではない。印が出ないメモ（記録が無い古いメモ）も直せる必要がある。
   // 移動は行メモ限定: 範囲メモ・ブックマークは moveLineMemo の対象外で、
   // ボタンを出しても必ず失敗する。
-  // 対象外: 範囲メモ・ブックマーク・仕込みは moveLineMemo の対象外なので出さない。
+  // 対象外: 範囲メモ・ブックマーク・デバッグ行は moveLineMemo の対象外なので出さない。
   const moveBtn = item.kind === 'line'
     ? `<button class="memo-list-move" title="エディタのカーソル行へ移動">⇅</button>`
     : item.kind === 'insertion'
@@ -639,7 +638,7 @@ function _makeMemoRow(item) {
   const delBtn = item.kind === 'node'
     ? ''
     : `<button class="memo-list-del" title="削除"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><polyline points="2,4 14,4"/><path d="M5 4V2h6v2"/><path d="M3 4l1 10h8l1-10"/></svg></button>`;
-  // 手動変更チップ: 撤去/書き換えが 409 で弾かれたことがある仕込みに出す。
+  // 手動変更チップ: 撤去/書き換えが 409 で弾かれたことがあるデバッグ行に出す。
   // ずれチップと同じ見た目だが、押しても何も起きない (static span)。
   // 独立クラス必須: .memo-list-drift を共有すると、行クリックの onMove ハンドラが
   // querySelector('.memo-list-drift') でこのチップも拾ってしまい、同じ file::line に
@@ -647,7 +646,7 @@ function _makeMemoRow(item) {
   const manualChip = item.kind === 'insertion' && typeof _insertionManualChangeIds !== 'undefined' && _insertionManualChangeIds.has(item._insId)
     ? `<span class="memo-list-manual-chip" title="ファイル側で手動変更があり撤去・書き換えできません">手動変更</span>`
     : '';
-  // 仕込みグループのチップ。マーク一覧自体の表示グループとは別物なので、
+  // デバッグ行のグループチップ。マーク一覧自体の表示グループとは別物なので、
   // 見出しではなく行内チップで示す（撤去単位であることをツールチップで補足）。
   const insGroupChip = item.kind === 'insertion' && item._group
     ? `<span class="memo-list-insgroup" title="デバッグ行のグループ (グループ単位で撤去できる)">${esc(item._group)}</span>`

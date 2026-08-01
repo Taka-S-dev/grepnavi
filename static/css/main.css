@@ -1045,7 +1045,7 @@ body.calltree-mode #pane-left{display:none!important}
 .memo-list-item-insertion:not(.memo-list-selected):hover{background:rgba(160,100,220,0.14)}
 .insert-dialog-row{display:flex;gap:6px;align-items:center}
 .insert-dialog-label{font-size:10px;color:#888;margin-top:4px}
-/* 仕込みグループのチップ。挿入行装飾と同じ紫系で「仕込みの属性」だと分かるようにする。 */
+/* デバッグ行のグループチップ。挿入行装飾と同じ紫系で「デバッグ行の属性」だと分かるようにする。 */
 .memo-list-insgroup{margin-left:4px;padding:0 4px;border-radius:2px;background:#3d2a52;color:#c9a0e8;font-size:9px;cursor:default;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;max-width:90px;white-space:nowrap}
 .memo-list-edit-ta{width:100%;height:54px;background:#1a1a1a;border:1px solid #007acc;color:#ccc;font:11px Consolas,monospace;padding:3px;resize:none;box-sizing:border-box;border-radius:2px;grid-column:3 / 6}
 .memo-list-item.memo-list-editing{grid-template-columns:16px 16px 1fr;flex-wrap:wrap}
