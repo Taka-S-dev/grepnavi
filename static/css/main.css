@@ -1047,6 +1047,11 @@ body.calltree-mode #pane-left{display:none!important}
    がこのチップも拾ってしまい、無関係な行メモを勝手に移動させてしまうため、
    セレクタは完全に分離する (静的な span で押しても何も起きない)。 */
 .memo-list-manual-chip{margin-left:4px;padding:0 4px;border-radius:2px;background:#5a2a2a;color:#e08080;font-size:9px;border:none;cursor:default;flex-shrink:0}
+/* グループ撤去のポップアップ。右クリックメニュー (#node-ctx-menu) と同じ見た目。 */
+#insgroup-menu{position:fixed;z-index:var(--z-context-menu);background:#2d2d2d;border:1px solid #555;border-radius:3px;box-shadow:0 4px 12px rgba(0,0,0,.5);padding:3px 0;min-width:160px;font-size:12px}
+/* 一括操作バー。破壊的なボタンをフィルタ行から分離してここに集約する。 */
+#memo-list-action-bar{display:flex;align-items:center;gap:4px;padding:3px 8px;border-bottom:1px solid #333;flex-shrink:0}
+#memo-list-action-label{font-size:9px;color:#666;margin-right:2px;flex-shrink:0}
 /* 仕込み行はメモ（残す知見）と違い「最後に消す足場」なので、一覧上でも
    エディタの挿入行装飾と同じ紫系でひと目で区別できるようにする。 */
 .memo-list-item-insertion:not(.memo-list-selected){background:rgba(160,100,220,0.07)}

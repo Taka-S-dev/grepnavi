@@ -455,33 +455,50 @@ function updateInsertionBadge() {
   const removeAllBtn = document.getElementById('memo-list-removeall-insertions');
   if (removeAllBtn) removeAllBtn.style.display = n ? '' : 'none';
 
-  // グループ撤去セレクト: 名前付きグループが1つ以上あるときだけ出す
+  // グループ撤去ボタン: 名前付きグループが1つ以上あるときだけ出す
   // （グループ未使用のユーザに余計な UI を見せない）。
-  const sel = document.getElementById('memo-list-insgroup-remove');
-  if (sel) {
-    const counts = _insertionGroups();
-    const named = [...counts.keys()].filter(Boolean).sort();
-    sel.style.display = named.length ? '' : 'none';
-    if (named.length) {
-      sel.innerHTML = '';
-      const ph = document.createElement('option');
-      ph.value = '';
-      ph.textContent = 'デバッグ行グループ撤去…';
-      sel.appendChild(ph);
-      for (const name of named) {
-        const opt = document.createElement('option');
-        opt.value = name;
-        opt.textContent = `${name} (${counts.get(name)})`;
-        sel.appendChild(opt);
-      }
-      if (counts.has('')) {
-        const opt = document.createElement('option');
-        opt.value = ' ungrouped'; // 先頭が空白 = 無グループの番兵 (グループ名は trim 済み)
-        opt.textContent = `無グループ (${counts.get('')})`;
-        sel.appendChild(opt);
-      }
-    }
+  const grpBtn = document.getElementById('memo-list-insgroup-remove');
+  if (grpBtn) {
+    const named = [..._insertionGroups().keys()].filter(Boolean);
+    grpBtn.style.display = named.length ? '' : 'none';
   }
+}
+
+// グループ撤去メニュー。select は「閉じているときに選択中の項目を表示する」
+// 部品なので、命令メニューに使うと見出し行が必要になって紛らわしい。
+// 右クリックメニューと同じボタン + ポップアップにして、命令だけを並べる。
+function showInsGroupMenu(anchorBtn) {
+  hideInsGroupMenu();
+  const counts = _insertionGroups();
+  const named = [...counts.keys()].filter(Boolean).sort();
+  if (!named.length) return;
+  const menu = document.createElement('div');
+  menu.id = 'insgroup-menu';
+  const addItem = (label, group) => {
+    const it = document.createElement('div');
+    it.className = 'tab-ctx-item';
+    it.textContent = label;
+    it.onclick = () => { hideInsGroupMenu(); removeAllInsertions(group); };
+    menu.appendChild(it);
+  };
+  for (const name of named) addItem(`「${name}」を撤去 (${counts.get(name)}件)`, name);
+  if (counts.has('')) addItem(`無グループを撤去 (${counts.get('')}件)`, '');
+  document.body.appendChild(menu);
+  const r = anchorBtn.getBoundingClientRect();
+  menu.style.left = r.left + 'px';
+  menu.style.top = (r.bottom + 2) + 'px';
+  // ボタンを押した mousedown 自体で即閉じないよう、次の tick で外側クリック監視を張る
+  setTimeout(() => document.addEventListener('mousedown', _insGroupMenuOutside), 0);
+}
+
+function _insGroupMenuOutside(e) {
+  if (e.target.closest('#insgroup-menu')) return;
+  hideInsGroupMenu();
+}
+
+function hideInsGroupMenu() {
+  document.removeEventListener('mousedown', _insGroupMenuOutside);
+  document.getElementById('insgroup-menu')?.remove();
 }
 
 // ===== エディタ右クリックメニュー (仕込み行の上でのみ表示) =====

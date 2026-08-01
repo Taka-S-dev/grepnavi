@@ -29,6 +29,10 @@ function saveMemoGroups(arr) {
   localStorage.setItem('grepnavi-memo-groups', JSON.stringify(arr));
 }
 
+// デバッグ行のアイコン。絵文字 (⚡) は OS のカラー絵文字フォントで描画されて
+// 他のモノクロアイコンから浮くため、bookmark と同じ currentColor の SVG にする。
+const INSERTION_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 16 16" style="vertical-align:middle"><path d="M9 1.5 3.5 9H7l-1.5 5.5L11 7H7.5L9 1.5z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>`;
+
 function getAllMemosOrdered() {
   const lineMemos = getLineMemos();
   const lineCats = typeof getLineMemoCategories === 'function' ? getLineMemoCategories() : {};
@@ -321,7 +325,7 @@ function renderMemoList() {
       { kind: 'line',      label: '✎',   title: 'ラインメモ' },
       { kind: 'range',     label: '▤',   title: '範囲メモ' },
       { kind: 'node',      label: '◎',   title: 'ツリーノード（memo 付き）' },
-      { kind: 'insertion', label: '⚡',   title: 'デバッグ行' },
+      { kind: 'insertion', label: INSERTION_ICON_SVG, title: 'デバッグ行' },
     ];
     typeButtons.forEach(({ kind, label, title }) => {
       const btn = document.createElement('button');
@@ -338,21 +342,7 @@ function renderMemoList() {
       };
       typeBar.appendChild(btn);
     });
-    // 仕込みの撤去操作は ⚡ フィルタと同じ行の右端に置く。カテゴリバーが
-    // 「メモのフィルタ＋メモの削除 (右端)」なのと同じ構成にして、
-    // 各削除ボタンが何を対象にするかを置き場所でも示す。
-    typeBar.insertAdjacentHTML('beforeend',
-      `<select id="memo-list-insgroup-remove" class="memo-removeall-btn" title="デバッグ行のグループ単位で撤去" style="display:none;margin-left:auto"></select>` +
-      `<button id="memo-list-removeall-insertions" class="memo-removeall-btn" title="デバッグ行をすべて撤去する。メモは消えない" style="display:none">⚡ デバッグ行全部撤去</button>`);
     panel.appendChild(typeBar);
-    id('memo-list-removeall-insertions').onclick = () => removeAllInsertions();
-    id('memo-list-insgroup-remove').onchange = (e) => {
-      const v = e.target.value;
-      e.target.selectedIndex = 0; // 実行後は「グループ撤去…」表示に戻す
-      if (!v) return;
-      // 先頭が空白の値は「無グループ」を表す番兵。グループ名は trim 済みなので衝突しない。
-      removeAllInsertions(v === ' ungrouped' ? '' : v);
-    };
 
     // category フィルタ + source フィルタ + bulk delete (draft) を集約したバー
     const catBar = document.createElement('div');
@@ -400,17 +390,27 @@ function renderMemoList() {
       };
       catBar.appendChild(btn);
     });
-    const sep2 = document.createElement('span');
-    sep2.className = 'memo-cat-bar-sep';
-    catBar.appendChild(sep2);
+    panel.appendChild(catBar);
+
+    // 一括操作バー: 押すと消える系のボタンはフィルタ行に混ぜず、この1行に集める。
+    // 「破壊的な操作は最下段の1行にしかない」という構造で迷いを無くす
+    // （対象の区別は各ラベルの「デバッグ行/draft メモ」が名乗る）。
+    const actionBar = document.createElement('div');
+    actionBar.id = 'memo-list-action-bar';
+    actionBar.insertAdjacentHTML('beforeend',
+      `<span id="memo-list-action-label">一括操作</span>` +
+      `<button id="memo-list-insgroup-remove" class="memo-removeall-btn" title="デバッグ行のグループ単位で撤去" style="display:none">グループ撤去 ▾</button>` +
+      `<button id="memo-list-removeall-insertions" class="memo-removeall-btn" title="デバッグ行をすべて撤去する。メモは消えない" style="display:none">${INSERTION_ICON_SVG} デバッグ行全部撤去</button>`);
     const bulkBtn = document.createElement('button');
     bulkBtn.id = 'memo-list-bulk-del-drafts';
     bulkBtn.className = 'memo-bulk-btn';
     bulkBtn.textContent = '🗑 draft メモ全削除';
     bulkBtn.title = 'カテゴリ "draft" のメモを一括削除 (確認 dialog あり)';
     bulkBtn.onclick = _bulkDeleteDrafts;
-    catBar.appendChild(bulkBtn);
-    panel.appendChild(catBar);
+    actionBar.appendChild(bulkBtn);
+    panel.appendChild(actionBar);
+    id('memo-list-removeall-insertions').onclick = () => removeAllInsertions();
+    id('memo-list-insgroup-remove').onclick = (e) => showInsGroupMenu(e.currentTarget);
 
     // リスト本体
     const body = document.createElement('div');
@@ -493,7 +493,7 @@ function _showMemoPreview(item) {
     ? `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 16 16" style="vertical-align:middle"><path d="M5 2h6a1 1 0 0 1 1 1v10l-4-2.5L4 13V3a1 1 0 0 1 1-1z" fill="none" stroke="#888" stroke-width="1.5" stroke-linejoin="round"/></svg>`
     : item.kind === 'range' ? '▤'
     : item.kind === 'node'      ? '◎'
-    : item.kind === 'insertion' ? '⚡' : '✎';
+    : item.kind === 'insertion' ? INSERTION_ICON_SVG : '✎';
 
   // 仕込みは graph.insertions が正本。テキスト編集は PUT 経由 (_rewriteInsertion) で
   // 行い、ここでの textarea 編集はしない（サーバ側での site 照合とズレる）。
@@ -609,7 +609,7 @@ function _makeMemoRow(item) {
     ? `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 16 16" style="vertical-align:middle"><path d="M5 2h6a1 1 0 0 1 1 1v10l-4-2.5L4 13V3a1 1 0 0 1 1-1z" fill="none" stroke="#888" stroke-width="1.5" stroke-linejoin="round"/></svg>`
     : item.kind === 'range' ? '▤'
     : item.kind === 'node'     ? '◎'
-    : item.kind === 'insertion' ? '⚡' : '✎';
+    : item.kind === 'insertion' ? INSERTION_ICON_SVG : '✎';
   const row = document.createElement('div');
   const isBm = item.kind === 'bookmark';
   const catClass = item.category ? ` memo-list-item-${item.category}` : '';
