@@ -88,6 +88,7 @@ func (h *Handler) handleInsertions(w http.ResponseWriter, r *http.Request) {
 		File  string   `json:"file"`
 		Line  int      `json:"line"`
 		Lines []string `json:"lines"`
+		Group string   `json:"group"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonErr(w, err.Error(), http.StatusBadRequest)
@@ -95,6 +96,11 @@ func (h *Handler) handleInsertions(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(req.Lines) == 0 {
 		jsonErr(w, "lines required", http.StatusBadRequest)
+		return
+	}
+	req.Group = strings.TrimSpace(req.Group)
+	if strings.ContainsAny(req.Group, "\n\r") || len(req.Group) > 120 {
+		jsonErr(w, "invalid group name", http.StatusBadRequest)
 		return
 	}
 	for _, l := range req.Lines {
@@ -125,6 +131,9 @@ func (h *Handler) handleInsertions(w http.ResponseWriter, r *http.Request) {
 	lines := make([]string, len(req.Lines))
 	for i, l := range req.Lines {
 		lines[i] = strings.ReplaceAll(l, "{tag}", tag)
+		// {group} を実行出力にも埋め込めば、どのグループの仕込みが発火したか
+		// プログラムの出力からも判別できる。
+		lines[i] = strings.ReplaceAll(lines[i], "{group}", req.Group)
 	}
 
 	pf, err := patch.Load(abs)
@@ -150,7 +159,7 @@ func (h *Handler) handleInsertions(w http.ResponseWriter, r *http.Request) {
 	for i, l := range lines {
 		sites[i] = graph.InsertionSite{Line: req.Line + 1 + i, Text: l}
 	}
-	ins := graph.Insertion{ID: tag, File: abs, Sites: sites, Enabled: true, CreatedAt: time.Now()}
+	ins := graph.Insertion{ID: tag, File: abs, Sites: sites, Group: req.Group, Enabled: true, CreatedAt: time.Now()}
 	if err := h.store.AddInsertion(ins); err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -296,6 +305,13 @@ func (h *Handler) handleInsertionsRemoveAll(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// group フィルタ: nil = 全部（従来挙動）、"" = 無グループのみ、"x" = そのグループのみ。
+	// ポインタなのは「フィールド省略」と「空文字指定」を区別するため。
+	var req struct {
+		Group *string `json:"group"`
+	}
+	json.NewDecoder(r.Body).Decode(&req) // 空 body = 全部対象
+
 	// GetGraphResponse の読み出しから各 RemoveInsertion までを直列化する
 	// （他の挿入系APIと衝突すると読み出した一覧がその場で古くなる）。
 	h.insMu.Lock()
@@ -304,6 +320,9 @@ func (h *Handler) handleInsertionsRemoveAll(w http.ResponseWriter, r *http.Reque
 	all := h.store.GetGraphResponse().Insertions
 	byFile := map[string][]string{} // file -> ids, ファイル毎にまとめて処理順を作る
 	for _, ins := range all {
+		if req.Group != nil && ins.Group != *req.Group {
+			continue
+		}
 		byFile[ins.File] = append(byFile[ins.File], ins.ID)
 	}
 

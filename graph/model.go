@@ -127,11 +127,14 @@ type InsertionSite struct {
 
 // Insertion はデバッグ仕込み1件。sites が複数なら囲みペア (Plan 2)。
 type Insertion struct {
-	ID        string          `json:"id"` // "GN3"
-	File      string          `json:"file"`
-	Sites     []InsertionSite `json:"sites"`
-	Enabled   bool            `json:"enabled"`
-	CreatedAt time.Time       `json:"created_at"`
+	ID    string          `json:"id"` // "GN3"
+	File  string          `json:"file"`
+	Sites []InsertionSite `json:"sites"`
+	// Group は撤去の単位となる任意の名前（例: "path-A"）。空は無グループ。
+	// 仮説ごとに撒き分けて片方だけ畳む、という使い方のためにある。
+	Group     string    `json:"group,omitempty"`
+	Enabled   bool      `json:"enabled"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // ProjectFile はプロジェクトファイルのトップレベル構造（複数ツリー対応）。

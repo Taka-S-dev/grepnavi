@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -417,4 +418,81 @@ func jsonPath(p string) string {
 	b, _ := json.Marshal(p)
 	s := string(b)
 	return s[1 : len(s)-1] // 前後の " を剥がす（呼び出し側で文字列に埋め込むため）
+}
+
+// グループは撤去の単位。挿入時に記録され、{group} でテンプレにも埋め込める。
+func TestInsertGroupStoredAndPlaceholder(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo"), 0o644)
+	os.Chtimes(src, time.Unix(1000, 0), time.Unix(1000, 0))
+
+	rec := doInsertionsReq(h, "POST", "/api/insertions",
+		`{"file":"`+jsonPath(src)+`","line":1,"group":"path-A","lines":["printf(\"[{tag}|{group}]\\n\");"]}`)
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	g := h.store.GetGraphResponse()
+	if len(g.Insertions) != 1 || g.Insertions[0].Group != "path-A" {
+		t.Fatalf("group が記録されていない: %+v", g.Insertions)
+	}
+	got, _ := os.ReadFile(src)
+	if want := "one\nprintf(\"[GN1|path-A]\\n\");\ntwo"; string(got) != want {
+		t.Fatalf("{group} 置換: got %q, want %q", got, want)
+	}
+}
+
+func TestInsertGroupRejectsNewline(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\n"), 0o644)
+	rec := doInsertionsReq(h, "POST", "/api/insertions",
+		`{"file":"`+jsonPath(src)+`","line":1,"group":"a\nb","lines":["x"]}`)
+	if rec.Code != 400 {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+// removeall の group フィルタ: 指定グループだけ撤去。"" は無グループのみ、
+// フィールド省略は従来どおり全部。
+func TestRemoveAllGroupFilter(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo\nthree"), 0o644)
+	os.Chtimes(src, time.Unix(1000, 0), time.Unix(1000, 0))
+
+	post := func(line int, group, text string) {
+		body := `{"file":"` + jsonPath(src) + `","line":` + strconv.Itoa(line) + `,"lines":["` + text + `"]`
+		if group != "" {
+			body += `,"group":"` + group + `"`
+		}
+		body += `}`
+		rec := doInsertionsReq(h, "POST", "/api/insertions", body)
+		if rec.Code != 200 {
+			t.Fatalf("insert(%s) = %d: %s", group, rec.Code, rec.Body.String())
+		}
+	}
+	post(1, "A", "// a1")
+	post(2, "A", "// a2")
+	post(3, "", "// ungrouped")
+
+	rec := doInsertionsReq(h, "POST", "/api/insertions/removeall", `{"group":"A"}`)
+	if rec.Code != 200 {
+		t.Fatalf("removeall(A) = %d: %s", rec.Code, rec.Body.String())
+	}
+	g := h.store.GetGraphResponse()
+	if len(g.Insertions) != 1 || g.Insertions[0].Group != "" {
+		t.Fatalf("A だけ消えるはず: %+v", g.Insertions)
+	}
+
+	rec = doInsertionsReq(h, "POST", "/api/insertions/removeall", `{"group":""}`)
+	if rec.Code != 200 {
+		t.Fatalf("removeall(\"\") = %d: %s", rec.Code, rec.Body.String())
+	}
+	if g := h.store.GetGraphResponse(); len(g.Insertions) != 0 {
+		t.Fatalf("無グループも消えるはず: %+v", g.Insertions)
+	}
+	if got, _ := os.ReadFile(src); string(got) != "one\ntwo\nthree" {
+		t.Fatalf("復元されていない: %q", got)
+	}
 }

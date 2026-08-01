@@ -5,6 +5,17 @@
 // サーバが返した ShiftResult をそのまま追従させるだけ (healAnchors と同じ規約)。
 
 const LS_INSERT_PRESETS = 'grepnavi-insert-presets';
+const LS_INSERT_LAST_GROUP = 'grepnavi-insert-last-group';
+
+// 既存の仕込みからグループ名一覧を作る（datalist と撤去セレクトの共通ソース）。
+function _insertionGroups() {
+  const counts = new Map(); // name -> count（"" = 無グループ）
+  for (const ins of (Array.isArray(graph?.insertions) ? graph.insertions : [])) {
+    const g = ins.group || '';
+    counts.set(g, (counts.get(g) || 0) + 1);
+  }
+  return counts;
+}
 
 // {cond} を使わないテンプレは needsCond:false → 条件入力欄を隠す。
 const _INSERT_BUILTIN_TEMPLATES = [
@@ -73,6 +84,20 @@ function openInsertDialog() {
   const fileLabel = document.getElementById('insert-dialog-file');
   if (fileLabel) fileLabel.textContent = tab.file.replace(/\\/g, '/') + ' : L' + line + ' の次に挿入';
   document.getElementById('insert-dialog-cond').value = '';
+
+  // グループ: 既存グループ名を datalist で補完し、前回使ったものを既定にする
+  // （連続で同じ調査に撒くのが典型パターンのため）。
+  const groupInput = document.getElementById('insert-dialog-group');
+  const groupList = document.getElementById('insert-dialog-group-list');
+  if (groupInput && groupList) {
+    groupList.innerHTML = '';
+    for (const name of [..._insertionGroups().keys()].filter(Boolean).sort()) {
+      const opt = document.createElement('option');
+      opt.value = name;
+      groupList.appendChild(opt);
+    }
+    groupInput.value = localStorage.getItem(LS_INSERT_LAST_GROUP) || '';
+  }
   _insertDialogRebuildTextarea();
 
   document.getElementById('insert-dialog-modal')?.classList.add('open');
@@ -97,15 +122,17 @@ async function _insertDialogSubmit() {
   // 入れた空行かもしれないので残す。
   while (textLines.length && textLines[textLines.length - 1].trim() === '') textLines.pop();
   if (!textLines.length) { st('挿入する内容を入力してください'); return; }
+  const group = (document.getElementById('insert-dialog-group')?.value || '').trim();
+  localStorage.setItem(LS_INSERT_LAST_GROUP, group);
   closeInsertDialog();
-  await submitInsert(file, line, textLines);
+  await submitInsert(file, line, textLines, group);
 }
 
-async function submitInsert(file, line, textLines) {
+async function submitInsert(file, line, textLines, group) {
   const r = await fetch('/api/insertions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ file, line, lines: textLines }),
+    body: JSON.stringify({ file, line, lines: textLines, group: group || '' }),
   }).catch(() => null);
   if (!r || !r.ok) { st(await _insertErrorMessage(r)); return; }
   const d = await r.json();
@@ -291,14 +318,23 @@ async function _rewriteInsertion(item) {
   st(item._insId + " を書き換えました");
 }
 
-// ヘッダの「全部撤去」ボタン。skipped (手動変更等で撤去できなかった分) は
-// 一覧から消さず、理由を st にまとめて出す。
-async function removeAllInsertions() {
-  const n = (graph?.insertions || []).length;
+// ヘッダの「全部撤去」ボタンとグループ撤去セレクト。skipped (手動変更等で
+// 撤去できなかった分) は一覧から消さず、理由を st にまとめて出す。
+// group: undefined = 全部、"" = 無グループのみ、"x" = そのグループのみ
+// （サーバ側は「フィールド省略」と「空文字」をポインタで区別する）。
+async function removeAllInsertions(group) {
+  const all = graph?.insertions || [];
+  const targets = group === undefined ? all : all.filter((i) => (i.group || '') === group);
+  const n = targets.length;
   if (!n) return;
-  if (!confirm(`仕込みを ${n} 件すべて撤去します。よろしいですか？`)) return;
+  const label = group === undefined ? 'すべて' : group === '' ? '無グループの' : `グループ「${group}」の`;
+  if (!confirm(`${label}仕込み ${n} 件を撤去します。よろしいですか？`)) return;
 
-  const r = await fetch('/api/insertions/removeall', { method: 'POST' }).catch(() => null);
+  const r = await fetch('/api/insertions/removeall', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: group === undefined ? '{}' : JSON.stringify({ group }),
+  }).catch(() => null);
   if (!r || !r.ok) {
     if (r && r.status === 403) st('この構成ではファイル書き込みが無効です (-host 指定時など)');
     else st('全部撤去に失敗しました');
@@ -330,6 +366,34 @@ function updateInsertionBadge() {
   }
   const removeAllBtn = document.getElementById('memo-list-removeall-insertions');
   if (removeAllBtn) removeAllBtn.style.display = n ? '' : 'none';
+
+  // グループ撤去セレクト: 名前付きグループが1つ以上あるときだけ出す
+  // （グループ未使用のユーザに余計な UI を見せない）。
+  const sel = document.getElementById('memo-list-insgroup-remove');
+  if (sel) {
+    const counts = _insertionGroups();
+    const named = [...counts.keys()].filter(Boolean).sort();
+    sel.style.display = named.length ? '' : 'none';
+    if (named.length) {
+      sel.innerHTML = '';
+      const ph = document.createElement('option');
+      ph.value = '';
+      ph.textContent = 'グループ撤去…';
+      sel.appendChild(ph);
+      for (const name of named) {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = `${name} (${counts.get(name)})`;
+        sel.appendChild(opt);
+      }
+      if (counts.has('')) {
+        const opt = document.createElement('option');
+        opt.value = ' ungrouped'; // 先頭が空白 = 無グループの番兵 (グループ名は trim 済み)
+        opt.textContent = `無グループ (${counts.get('')})`;
+        sel.appendChild(opt);
+      }
+    }
+  }
 }
 
 // ===== ダイアログの結線 (DOMContentLoaded 後、他の init と同じタイミング) =====

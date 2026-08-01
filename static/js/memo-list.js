@@ -71,7 +71,7 @@ function getAllMemosOrdered() {
     items.push({
       kind: 'insertion', id: 'insertion::' + ins.id,
       file: ins.file, line: site.line, memo: site.text,
-      _insId: ins.id,
+      _insId: ins.id, _group: ins.group || '',
     });
   }
 
@@ -287,12 +287,20 @@ function renderMemoList() {
     hdr.id = 'memo-list-hdr';
     hdr.innerHTML =
       `<span>マーク一覧</span>` +
+      `<select id="memo-list-insgroup-remove" class="memo-removeall-btn" title="仕込みグループ単位で撤去" style="display:none"></select>` +
       `<button id="memo-list-removeall-insertions" class="memo-removeall-btn" title="仕込みをすべて撤去" style="display:none">⚡ 全部撤去</button>` +
       `<button id="memo-list-add-group" title="グループを追加"><i class="codicon codicon-add"></i></button>` +
       `<button id="memo-list-close" title="閉じる"><i class="codicon codicon-close"></i></button>`;
     panel.appendChild(hdr);
     id('memo-list-close').onclick = closeMemoList;
-    id('memo-list-removeall-insertions').onclick = removeAllInsertions;
+    id('memo-list-removeall-insertions').onclick = () => removeAllInsertions();
+    id('memo-list-insgroup-remove').onchange = (e) => {
+      const v = e.target.value;
+      e.target.selectedIndex = 0; // 実行後は「グループ撤去…」表示に戻す
+      if (!v) return;
+      // 先頭が空白の値は「無グループ」を表す番兵。グループ名は trim 済みなので衝突しない。
+      removeAllInsertions(v === ' ungrouped' ? '' : v);
+    };
     id('memo-list-add-group').onclick = async () => {
       const name = await showInputModal('グループを追加', 'グループ名');
       if (!name) return;
@@ -633,13 +641,18 @@ function _makeMemoRow(item) {
   const manualChip = item.kind === 'insertion' && typeof _insertionManualChangeIds !== 'undefined' && _insertionManualChangeIds.has(item._insId)
     ? `<span class="memo-list-manual-chip" title="ファイル側で手動変更があり撤去・書き換えできません">手動変更</span>`
     : '';
+  // 仕込みグループのチップ。マーク一覧自体の表示グループとは別物なので、
+  // 見出しではなく行内チップで示す（撤去単位であることをツールチップで補足）。
+  const insGroupChip = item.kind === 'insertion' && item._group
+    ? `<span class="memo-list-insgroup" title="仕込みグループ (グループ単位で撤去できる)">${esc(item._group)}</span>`
+    : '';
   // ずれチップは loc と同じセルに入れる（チップは出たり出なかったりするので、
   // 独立したセルにすると grid の列がずれる）。
   row.innerHTML =
     `<span class="memo-list-drag" title="ドラッグして並べ替え">⠿</span>` +
     `<span class="memo-list-icon">${icon}</span>` +
     `<span class="memo-list-locwrap"><span class="memo-list-loc" title="${esc(item.file)}">${esc(fileName)}<span class="memo-list-lineno">:${lineLabel}</span></span>` +
-    _memoDriftChip(item) + manualChip + `</span>` +
+    _memoDriftChip(item) + manualChip + insGroupChip + `</span>` +
     `<span class="memo-list-text" ${isBm ? 'style="color:#666"' : ''}>${textContent}</span>` +
     moveBtn + delBtn;
   row.addEventListener('click', e => {
