@@ -275,6 +275,9 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 /* デバッグ仕込み行 (insertions.js) — line memo/bookmark と混同しないよう紫系で統一 */
 .insertion-line-deco{background:rgba(160,100,220,0.10)}
 .insertion-glyph{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M5 3l7 5-7 5z' fill='%23a064dc' stroke='none'/%3E%3C/svg%3E") center/12px no-repeat}
+/* OFF (コメントアウト中) のデバッグ行: 紫→グレー、ガターは再生→一時停止。 */
+.insertion-line-deco-off{background:rgba(128,128,128,0.07)}
+.insertion-glyph-off{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M5 3h2.2v10H5zM8.8 3H11v10H8.8z' fill='%23777' stroke='none'/%3E%3C/svg%3E") center/12px no-repeat}
 .ifdef-inactive-text{color:#4a4a4a!important;font-style:italic}
 /* ピン固定ハイライト (8色) */
 .pinned-hl-0{background:rgba(0,220,255,0.25);border-bottom:1px solid rgba(0,180,255,0.9);border-radius:2px}
@@ -1025,7 +1028,7 @@ body.calltree-mode #pane-left{display:none!important}
 .memo-list-del{background:none;border:none;color:transparent;cursor:pointer;font-size:13px;padding:0 2px;border-radius:2px;line-height:1}
 .memo-list-item:hover .memo-list-del{color:#555}
 .memo-list-del:hover{color:#f44!important;background:rgba(244,68,68,0.1)}
-/* 仕込みの書き換えボタン。move と同じホバー時だけ現れる列 (grid-column:5)。 */
+/* デバッグ行の書き換えボタン。move と同じホバー時だけ現れる列。 */
 .memo-list-rewrite{background:none;border:none;color:transparent;cursor:pointer;font-size:11px;padding:0 2px;border-radius:2px;line-height:1;flex-shrink:0}
 .memo-list-item:hover .memo-list-rewrite{color:#555}
 .memo-list-rewrite:hover{color:#c9a0dc!important;background:rgba(160,100,220,0.15)}
@@ -1043,6 +1046,18 @@ body.calltree-mode #pane-left{display:none!important}
    エディタの挿入行装飾と同じ紫系でひと目で区別できるようにする。 */
 .memo-list-item-insertion:not(.memo-list-selected){background:rgba(160,100,220,0.07)}
 .memo-list-item-insertion:not(.memo-list-selected):hover{background:rgba(160,100,220,0.14)}
+/* デバッグ行は ON/OFF・書き換え・削除の3ボタンなので1列多い7列 grid。 */
+.memo-list-item-insertion{grid-template-columns:16px 16px auto 1fr 16px 16px 16px}
+.memo-list-item-insertion .memo-list-instoggle-btn{grid-column:5}
+.memo-list-item-insertion .memo-list-rewrite{grid-column:6}
+.memo-list-item-insertion .memo-list-del{grid-column:7}
+/* ON/OFF ボタン。書き換えと同じホバー時だけ現れる。 */
+.memo-list-instoggle-btn{background:none;border:none;color:transparent;cursor:pointer;font-size:11px;padding:0 2px;border-radius:2px;line-height:1;flex-shrink:0}
+.memo-list-item:hover .memo-list-instoggle-btn{color:#555}
+.memo-list-instoggle-btn:hover{color:#c9a0dc!important;background:rgba(160,100,220,0.15)}
+/* OFF (コメントアウト中) のデバッグ行: 減光 + 打ち消し線で「今は動かない」を示す。 */
+.memo-list-item-insoff{opacity:0.55}
+.memo-list-item-insoff .memo-list-text{text-decoration:line-through}
 .insert-dialog-row{display:flex;gap:6px;align-items:center}
 .insert-dialog-label{font-size:10px;color:#888;margin-top:4px}
 /* デバッグ行のグループチップ。挿入行装飾と同じ紫系で「デバッグ行の属性」だと分かるようにする。 */

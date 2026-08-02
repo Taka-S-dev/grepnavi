@@ -287,17 +287,20 @@ function refreshInsertionDecorations() {
   const insertions = Array.isArray(graph?.insertions) ? graph.insertions : [];
   const decos = [];
   for (const ins of insertions) {
-    if (!ins.enabled || !_samePath(ins.file, file)) continue;
+    if (!_samePath(ins.file, file)) continue;
+    // OFF (コメントアウト中) の行も装飾は出す — 消すと右クリックで ON に
+    // 戻す入口ごと見えなくなる。色をグレーに落として状態だけ区別する。
+    const off = ins.enabled === false;
     for (const site of (ins.sites || [])) {
       decos.push({
         range: new monaco.Range(site.line, 1, site.line, 1),
         options: {
           isWholeLine: true,
-          className: 'insertion-line-deco',
-          glyphMarginClassName: 'insertion-glyph',
-          glyphMarginHoverMessage: { value: `デバッグ行 ${ins.id}: ${site.text}` },
+          className: off ? 'insertion-line-deco-off' : 'insertion-line-deco',
+          glyphMarginClassName: off ? 'insertion-glyph-off' : 'insertion-glyph',
+          glyphMarginHoverMessage: { value: `デバッグ行 ${ins.id}${off ? ' (OFF)' : ''}: ${site.text}` },
           overviewRuler: {
-            color: 'rgba(160,100,220,0.8)',
+            color: off ? 'rgba(128,128,128,0.5)' : 'rgba(160,100,220,0.8)',
             position: monaco.editor.OverviewRulerLane.Right,
           },
         },
@@ -409,6 +412,75 @@ async function _indentInsertionAtCursor(delta) {
   await _putInsertionText(hit.ins.id, hit.siteIdx, text);
 }
 
+// デバッグ行の一時 OFF (行頭 // でコメントアウト) / ON (コメント解除)。
+// 撤去と違って行位置の記録が生きたままなので、何度でも往復できる。
+// opts: {id} で1件 / {group} でそのグループ ("" は無グループ) / どちらも無し = 全部。
+async function toggleInsertions(opts) {
+  const body = { enabled: !!opts.enabled };
+  if (opts.id) body.id = opts.id;
+  else if (opts.group !== undefined) body.group = opts.group;
+  const r = await fetch('/api/insertions/toggle', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).catch(() => null);
+  if (!r || !r.ok) { st(_insertionWriteErrorMessage(r, opts.id || '')); return; }
+  const d = await r.json();
+  for (const u of d.insertions || []) {
+    const idx = (graph.insertions || []).findIndex((i) => i.id === u.id);
+    if (idx >= 0) graph.insertions[idx] = u;
+  }
+  await pollActiveFile();
+  refreshInsertionDecorations();
+  renderMemoList();
+  updateInsertionBadge();
+  const verb = opts.enabled ? 'ON' : 'OFF (コメントアウト)';
+  const n = (d.toggled || []).length;
+  if (d.skipped && d.skipped.length) {
+    st(`${n} 件を ${verb} / ${d.skipped.length} 件スキップ: ` +
+       d.skipped.map((s) => `${s.id} (${s.reason})`).join(', '));
+  } else if (n) {
+    st(`デバッグ行 ${n} 件を ${verb} にしました`);
+  } else {
+    st('対象がありません (既にその状態です)');
+  }
+}
+
+// 選択範囲を #if 0 / #endif で囲む。既存行は書き換えず前後に1行ずつ挿入する
+// だけなので、撤去すれば完全に元へ戻る。グループ・ON/OFF・撤去は printf の
+// デバッグ行とまったく同じに扱える (2 sites の1レコード)。
+async function wrapSelectionInIfZero() {
+  const ed = monacoEditor;
+  const tab = tabs[activeTabIdx];
+  if (!ed || !tab?.file) { st('対象のファイルがありません'); return; }
+  const sel = ed.getSelection();
+  if (!sel || sel.isEmpty()) { st('囲む範囲を選択してください'); return; }
+  let startLine = sel.startLineNumber, endLine = sel.endLineNumber;
+  // 行頭 (次行の0文字目) まで伸びた選択は、その行を含める意図ではない。
+  if (endLine > startLine && sel.endColumn === 1) endLine--;
+  const group = await showInputModal('選択範囲を #if 0 で囲む', 'グループ (空欄可)',
+    localStorage.getItem(LS_INSERT_LAST_GROUP) || '');
+  if (group == null) return;
+  const g = group.trim();
+  localStorage.setItem(LS_INSERT_LAST_GROUP, g);
+
+  const r = await fetch('/api/insertions/wrap', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file: tab.file, start_line: startLine, end_line: endLine, group: g }),
+  }).catch(() => null);
+  if (!r || !r.ok) { st(await _insertErrorMessage(r)); return; }
+  const d = await r.json();
+  for (const s of d.shifts || []) applyShift(s);
+  if (graph && !Array.isArray(graph.insertions)) graph.insertions = [];
+  if (graph?.insertions) graph.insertions.push(d.insertion);
+  await pollActiveFile();
+  refreshInsertionDecorations();
+  updateInsertionBadge();
+  if (typeof renderMemoList === 'function' && typeof _memoListOpen !== 'undefined' && _memoListOpen) renderMemoList();
+  st(`${d.insertion.id} で L${startLine}–L${endLine} を #if 0 で囲みました`);
+}
+
 // ヘッダの「全部撤去」ボタンとグループ撤去セレクト。skipped (手動変更等で
 // 撤去できなかった分) は一覧から消さず、理由を st にまとめて出す。
 // group: undefined = 全部、"" = 無グループのみ、"x" = そのグループのみ
@@ -454,11 +526,13 @@ async function removeAllInsertions(group) {
 // ツールバーの残数バッジ + マーク一覧ヘッダの「全部撤去」ボタンの表示切替。
 // 両方とも「今開いているとは限らないパネル要素」なので null ガード必須。
 function updateInsertionBadge() {
-  const n = (graph?.insertions || []).length;
+  const all = graph?.insertions || [];
+  const n = all.length;
+  const off = all.filter((i) => i.enabled === false).length;
   const badge = document.getElementById('insertion-badge');
   if (badge) {
     badge.style.display = n ? '' : 'none';
-    badge.textContent = 'デバッグ行 ' + n;
+    badge.textContent = 'デバッグ行 ' + n + (off ? ` (OFF ${off})` : '');
   }
   const removeAllBtn = document.getElementById('memo-list-removeall-insertions');
   if (removeAllBtn) removeAllBtn.style.display = n ? '' : 'none';
@@ -470,6 +544,9 @@ function updateInsertionBadge() {
     const named = [..._insertionGroups().keys()].filter(Boolean);
     grpBtn.style.display = named.length ? '' : 'none';
   }
+  // ON/OFF ボタンはデバッグ行が1件でもあれば出す (グループ未使用でも使える)。
+  const toggleBtn = document.getElementById('memo-list-instoggle');
+  if (toggleBtn) toggleBtn.style.display = n ? '' : 'none';
 }
 
 // グループ撤去メニュー。select は「閉じているときに選択中の項目を表示する」
@@ -496,6 +573,52 @@ function showInsGroupMenu(anchorBtn) {
   menu.style.left = r.left + 'px';
   menu.style.top = (r.bottom + 2) + 'px';
   // ボタンを押した mousedown 自体で即閉じないよう、次の tick で外側クリック監視を張る
+  setTimeout(() => document.addEventListener('mousedown', _insGroupMenuOutside), 0);
+}
+
+// ON/OFF メニュー。撤去メニューと同じポップアップ形式で、全部・グループ別の
+// 一時 OFF / ON を並べる。件数 0 の項目は出さない (押しても何も起きない項目を
+// 並べない)。
+function showInsToggleMenu(anchorBtn) {
+  hideInsGroupMenu();
+  const all = Array.isArray(graph?.insertions) ? graph.insertions : [];
+  if (!all.length) return;
+  const menu = document.createElement('div');
+  menu.id = 'insgroup-menu';
+  const addItem = (label, opts) => {
+    const it = document.createElement('div');
+    it.className = 'tab-ctx-item';
+    it.textContent = label;
+    it.onclick = () => { hideInsGroupMenu(); toggleInsertions(opts); };
+    menu.appendChild(it);
+  };
+  const counts = new Map(); // group -> {on, off}（"" = 無グループ）
+  for (const ins of all) {
+    const g = ins.group || '';
+    const c = counts.get(g) || { on: 0, off: 0 };
+    if (ins.enabled === false) c.off++; else c.on++;
+    counts.set(g, c);
+  }
+  const onTotal = all.filter((i) => i.enabled !== false).length;
+  const offTotal = all.length - onTotal;
+  if (onTotal) addItem(`すべて OFF (${onTotal}件)`, { enabled: false });
+  if (offTotal) addItem(`すべて ON (${offTotal}件)`, { enabled: true });
+  const named = [...counts.keys()].filter(Boolean).sort();
+  for (const name of named) {
+    const c = counts.get(name);
+    if (c.on) addItem(`「${name}」を OFF (${c.on}件)`, { group: name, enabled: false });
+    if (c.off) addItem(`「${name}」を ON (${c.off}件)`, { group: name, enabled: true });
+  }
+  // 無グループ項目は名前付きグループがあるときだけ (無ければ「すべて」と同じで冗長)。
+  if (named.length && counts.has('')) {
+    const c = counts.get('');
+    if (c.on) addItem(`無グループを OFF (${c.on}件)`, { group: '', enabled: false });
+    if (c.off) addItem(`無グループを ON (${c.off}件)`, { group: '', enabled: true });
+  }
+  document.body.appendChild(menu);
+  const r = anchorBtn.getBoundingClientRect();
+  menu.style.left = r.left + 'px';
+  menu.style.top = (r.bottom + 2) + 'px';
   setTimeout(() => document.addEventListener('mousedown', _insGroupMenuOutside), 0);
 }
 
@@ -528,16 +651,30 @@ function _insertionSiteAtCursor() {
 // precondition が false の項目を出さないので、これで表示自体を絞る。
 // カーソル移動だけでなく挿入・撤去・タブ切替でも変わるため、
 // refreshInsertionDecorations (全変化点から呼ばれる) でも更新する。
+// grepnaviInsertionOff は OFF/ON をメニュー項目の出し分けに使う
+// (「OFF にする」と「ON に戻す」を同時に出さない)。
 let _insertionCtxKey = null;
+let _insertionOffCtxKey = null;
 
 function _updateInsertionCtxKey() {
-  _insertionCtxKey?.set(!!_insertionSiteAtCursor());
+  const hit = _insertionSiteAtCursor();
+  _insertionCtxKey?.set(!!hit);
+  _insertionOffCtxKey?.set(!!hit && hit.ins.enabled === false);
 }
 
 function registerInsertionEditorActions() {
   if (!monacoEditor || _insertionCtxKey) return;
   _insertionCtxKey = monacoEditor.createContextKey('grepnaviOnInsertionLine', false);
+  _insertionOffCtxKey = monacoEditor.createContextKey('grepnaviInsertionOff', false);
   monacoEditor.onDidChangeCursorPosition(_updateInsertionCtxKey);
+
+  // 挿入 (2.4, editor.js) と書き換え (2.5) の間: 選択があるときだけ出す。
+  monacoEditor.addAction({
+    id: 'grepnavi-insertion-wrap', label: '選択範囲を #if 0 で囲む',
+    contextMenuGroupId: 'grepnavi-mark', contextMenuOrder: 2.45,
+    precondition: 'editorHasSelection',
+    run: () => wrapSelectionInIfZero(),
+  });
 
   monacoEditor.addAction({
     id: 'grepnavi-insertion-rewrite', label: 'デバッグ行を書き換え',
@@ -547,6 +684,26 @@ function registerInsertionEditorActions() {
       const hit = _insertionSiteAtCursor();
       if (!hit) return;
       _rewriteInsertion({ _insId: hit.ins.id, memo: hit.ins.sites[hit.siteIdx].text }, hit.siteIdx);
+    },
+  });
+  // ON/OFF は排他で片方だけ出す。対象は site 単位ではなくデバッグ行1件の
+  // 全 sites (囲みの #if 0 / #endif ペアを片方だけ OFF にすると壊れるため)。
+  monacoEditor.addAction({
+    id: 'grepnavi-insertion-off', label: 'デバッグ行を OFF (コメントアウト)',
+    contextMenuGroupId: 'grepnavi-mark', contextMenuOrder: 2.55,
+    precondition: 'grepnaviOnInsertionLine && !grepnaviInsertionOff',
+    run: () => {
+      const hit = _insertionSiteAtCursor();
+      if (hit) toggleInsertions({ id: hit.ins.id, enabled: false });
+    },
+  });
+  monacoEditor.addAction({
+    id: 'grepnavi-insertion-on', label: 'デバッグ行を ON (コメント解除)',
+    contextMenuGroupId: 'grepnavi-mark', contextMenuOrder: 2.55,
+    precondition: 'grepnaviOnInsertionLine && grepnaviInsertionOff',
+    run: () => {
+      const hit = _insertionSiteAtCursor();
+      if (hit) toggleInsertions({ id: hit.ins.id, enabled: true });
     },
   });
   monacoEditor.addAction({

@@ -75,6 +75,7 @@ function getAllMemosOrdered() {
       kind: 'insertion', id: 'insertion::' + ins.id,
       file: ins.file, line: site.line, memo: site.text,
       _insId: ins.id, _group: ins.group || '',
+      _enabled: ins.enabled !== false,
     });
   }
 
@@ -398,6 +399,7 @@ function renderMemoList() {
     actionBar.id = 'memo-list-action-bar';
     actionBar.insertAdjacentHTML('beforeend',
       `<span id="memo-list-action-label">一括操作</span>` +
+      `<button id="memo-list-instoggle" class="memo-removeall-btn" title="デバッグ行をまとめて一時 OFF (コメントアウト) / ON に戻す" style="display:none">ON/OFF ▾</button>` +
       `<button id="memo-list-insgroup-remove" class="memo-removeall-btn" title="デバッグ行のグループ単位で撤去" style="display:none">グループ撤去 ▾</button>` +
       `<button id="memo-list-removeall-insertions" class="memo-removeall-btn" title="デバッグ行をすべて撤去する。メモは消えない" style="display:none">${INSERTION_ICON_SVG} デバッグ行全部撤去</button>`);
     const bulkBtn = document.createElement('button');
@@ -410,6 +412,7 @@ function renderMemoList() {
     panel.appendChild(actionBar);
     id('memo-list-removeall-insertions').onclick = () => removeAllInsertions();
     id('memo-list-insgroup-remove').onclick = (e) => showInsGroupMenu(e.currentTarget);
+    id('memo-list-instoggle').onclick = (e) => showInsToggleMenu(e.currentTarget);
 
     // リスト本体
     const body = document.createElement('div');
@@ -615,6 +618,7 @@ function _makeMemoRow(item) {
   const srcClass = item.source === 'ai' ? ' memo-list-item-ai' : '';
   row.className = 'memo-list-item' + catClass + srcClass +
                   (item.kind === 'insertion' ? ' memo-list-item-insertion' : '') +
+                  (item.kind === 'insertion' && !item._enabled ? ' memo-list-item-insoff' : '') +
                   (_memoListSelectedId === item.id ? ' memo-list-selected' : '');
   row.draggable = true;
   row.dataset.id = item.id;
@@ -634,6 +638,13 @@ function _makeMemoRow(item) {
     ? `<button class="memo-list-move" title="エディタのカーソル行へ移動">⇅</button>`
     : item.kind === 'insertion'
     ? `<button class="memo-list-rewrite" title="挿入テキストを書き換え">✎</button>`
+    : '';
+  // ON/OFF ボタン (デバッグ行のみ)。電源アイコンは currentColor の SVG
+  // (他のモノクロアイコンと揃える)。
+  const toggleBtn = item.kind === 'insertion'
+    ? `<button class="memo-list-instoggle-btn" title="${item._enabled
+        ? 'OFF にする (コメントアウトして一時停止)'
+        : 'ON に戻す (コメント解除)'}"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 2.5v5"/><path d="M4.8 4.6a4.6 4.6 0 1 0 6.4 0"/></svg></button>`
     : '';
   const delBtn = item.kind === 'node'
     ? ''
@@ -659,17 +670,17 @@ function _makeMemoRow(item) {
     `<span class="memo-list-locwrap"><span class="memo-list-loc" title="${esc(item.file)}">${esc(fileName)}<span class="memo-list-lineno">:${lineLabel}</span></span>` +
     _memoDriftChip(item) + manualChip + insGroupChip + `</span>` +
     `<span class="memo-list-text" ${isBm ? 'style="color:#666"' : ''}>${textContent}</span>` +
-    moveBtn + delBtn;
+    toggleBtn + moveBtn + delBtn;
   row.addEventListener('click', e => {
     if (e.target.closest('.memo-list-drag') || e.target.closest('.memo-list-del') ||
         e.target.closest('.memo-list-move') || e.target.closest('.memo-list-drift') ||
-        e.target.closest('.memo-list-rewrite')) return;
+        e.target.closest('.memo-list-rewrite') || e.target.closest('.memo-list-instoggle-btn')) return;
     _showMemoPreview(item);
   });
   row.addEventListener('dblclick', e => {
     if (e.target.closest('.memo-list-drag') || e.target.closest('.memo-list-del') ||
         e.target.closest('.memo-list-move') || e.target.closest('.memo-list-drift') ||
-        e.target.closest('.memo-list-rewrite')) return;
+        e.target.closest('.memo-list-rewrite') || e.target.closest('.memo-list-instoggle-btn')) return;
     openPeek(item.file, item.line).then(() => monacoEditor?.focus());
   });
   const onMove = async e => { e.stopPropagation(); await _moveMemoToCursor(item); };
@@ -678,6 +689,10 @@ function _makeMemoRow(item) {
   row.querySelector('.memo-list-rewrite')?.addEventListener('click', async e => {
     e.stopPropagation();
     await _rewriteInsertion(item);
+  });
+  row.querySelector('.memo-list-instoggle-btn')?.addEventListener('click', async e => {
+    e.stopPropagation();
+    await toggleInsertions({ id: item._insId, enabled: !item._enabled });
   });
   row.querySelector('.memo-list-del')?.addEventListener('click', async e => {
     e.stopPropagation();
