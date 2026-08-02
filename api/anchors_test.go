@@ -122,11 +122,15 @@ func TestCaptureMemoAnchors(t *testing.T) {
 // MCP 経由のノードは grepnavi_root 基準の相対パスで来ることがある。
 // 生のまま開くと cwd 依存で失敗し、偽の「行なし」判定になる。
 func TestAbsFromRoot(t *testing.T) {
-	h := &Handler{root: `C:\proj`}
-	if got := h.absFromRoot(`src\a.c`); got != `C:\proj\src\a.c` {
+	// Windows パスをベタ書きすると Linux の CI で filepath の解釈が変わり
+	// 落ちるため、実行 OS で組み立てた絶対パスを使う。
+	root := t.TempDir()
+	h := &Handler{root: root}
+	if got := h.absFromRoot(filepath.Join("src", "a.c")); got != filepath.Join(root, "src", "a.c") {
 		t.Errorf("相対パスが root で解決されていない: %q", got)
 	}
-	if got := h.absFromRoot(`C:\other\b.c`); got != `C:\other\b.c` {
+	abs := filepath.Join(root, "b.c")
+	if got := h.absFromRoot(abs); got != abs {
 		t.Errorf("絶対パスは素通しのはず: %q", got)
 	}
 	if got := h.absFromRoot(""); got != "" {

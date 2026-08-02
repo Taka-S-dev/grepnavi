@@ -2,15 +2,20 @@ package graph
 
 import (
 	"fmt"
-	"path/filepath"
+	"path"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// SamePathLoose は Windows 前提でスラッシュ方向と大小文字を吸収して比較する。
+// SamePathLoose はスラッシュ方向と大小文字を吸収して比較する。
+// filepath.FromSlash は Linux では no-op で `\` を吸収できないため、
+// 実行 OS に依存しない明示的な置換で寄せる（クライアントの _samePath と同じ規約）。
 func SamePathLoose(a, b string) bool {
-	return strings.EqualFold(filepath.Clean(filepath.FromSlash(a)), filepath.Clean(filepath.FromSlash(b)))
+	norm := func(p string) string {
+		return path.Clean(strings.ReplaceAll(p, `\`, `/`))
+	}
+	return strings.EqualFold(norm(a), norm(b))
 }
 
 // NextInsertionTag は既存の仕込み ID (GN連番) の最大+1を返す。
