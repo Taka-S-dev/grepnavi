@@ -32,6 +32,10 @@ func doInsertionsReq(h *Handler, method, path, body string) *httptest.ResponseRe
 		h.handleInsertions(rec, req)
 	case path == "/api/insertions/removeall":
 		h.handleInsertionsRemoveAll(rec, req)
+	case path == "/api/insertions/toggle":
+		h.handleInsertionsToggle(rec, req)
+	case path == "/api/insertions/wrap":
+		h.handleInsertionsWrap(rec, req)
 	default:
 		h.handleInsertionByID(rec, req)
 	}
@@ -494,5 +498,228 @@ func TestRemoveAllGroupFilter(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(src); string(got) != "one\ntwo\nthree" {
 		t.Fatalf("復元されていない: %q", got)
+	}
+}
+
+// トグルの核心は往復の可逆性: OFF はインデントの直後に // を入れるだけ、
+// ON で挿入直後とバイト同一に戻る。行数が変わらないのでシフトも起きない。
+func TestToggleRoundTrip(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo\nthree"), 0o644)
+
+	rec := doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":1,"lines":["\tprintf(\"hit\");"]}`)
+	if rec.Code != 200 {
+		t.Fatalf("insert = %d: %s", rec.Code, rec.Body.String())
+	}
+	afterInsert, _ := os.ReadFile(src)
+
+	rec = doInsertionsReq(h, "POST", "/api/insertions/toggle", `{"id":"GN1","enabled":false}`)
+	if rec.Code != 200 {
+		t.Fatalf("toggle off = %d: %s", rec.Code, rec.Body.String())
+	}
+	if got, _ := os.ReadFile(src); string(got) != "one\n\t//printf(\"hit\");\ntwo\nthree" {
+		t.Fatalf("OFF はインデント直後に // が入るはず: %q", got)
+	}
+	g := h.store.GetGraphResponse()
+	if len(g.Insertions) != 1 || g.Insertions[0].Enabled {
+		t.Fatalf("enabled=false になっていない: %+v", g.Insertions)
+	}
+	if g.Insertions[0].Sites[0].Text != "\t//printf(\"hit\");" {
+		t.Fatalf("Sites[].Text はディスクの行を写すはず: %q", g.Insertions[0].Sites[0].Text)
+	}
+
+	rec = doInsertionsReq(h, "POST", "/api/insertions/toggle", `{"id":"GN1","enabled":true}`)
+	if rec.Code != 200 {
+		t.Fatalf("toggle on = %d: %s", rec.Code, rec.Body.String())
+	}
+	if got, _ := os.ReadFile(src); !bytes.Equal(got, afterInsert) {
+		t.Fatalf("ON で挿入直後に戻るはず: %q -> %q", afterInsert, got)
+	}
+	if g := h.store.GetGraphResponse(); !g.Insertions[0].Enabled {
+		t.Fatalf("enabled=true に戻っていない: %+v", g.Insertions)
+	}
+}
+
+// OFF 中でも撤去できること (Sites[].Text がディスクを写しているので照合が通る)。
+func TestToggleOffThenRemoveAllRestoresOriginal(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	original := []byte("one\ntwo\nthree")
+	os.WriteFile(src, original, 0o644)
+
+	doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":2,"lines":["x"]}`)
+	rec := doInsertionsReq(h, "POST", "/api/insertions/toggle", `{"enabled":false}`)
+	if rec.Code != 200 {
+		t.Fatalf("toggle = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = doInsertionsReq(h, "POST", "/api/insertions/removeall", "{}")
+	if rec.Code != 200 {
+		t.Fatalf("removeall = %d: %s", rec.Code, rec.Body.String())
+	}
+	if got, _ := os.ReadFile(src); !bytes.Equal(got, original) {
+		t.Fatalf("OFF 中の撤去で復元されるはず: %q", got)
+	}
+}
+
+// group フィルタは removeall と同じポインタ規約 (省略=全部、""=無グループ)。
+func TestToggleGroupFilter(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo\nthree"), 0o644)
+
+	doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":1,"group":"A","lines":["a"]}`)
+	doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":3,"group":"B","lines":["b"]}`)
+
+	rec := doInsertionsReq(h, "POST", "/api/insertions/toggle", `{"group":"A","enabled":false}`)
+	if rec.Code != 200 {
+		t.Fatalf("toggle(A) = %d: %s", rec.Code, rec.Body.String())
+	}
+	var res struct {
+		Toggled []string `json:"toggled"`
+	}
+	decodeJSON(t, rec, &res)
+	if len(res.Toggled) != 1 || res.Toggled[0] != "GN1" {
+		t.Fatalf("A の1件だけトグルされるはず: %+v", res.Toggled)
+	}
+	for _, ins := range h.store.GetGraphResponse().Insertions {
+		if ins.Group == "A" && ins.Enabled {
+			t.Errorf("A が無効化されていない: %+v", ins)
+		}
+		if ins.Group == "B" && !ins.Enabled {
+			t.Errorf("B まで無効化された: %+v", ins)
+		}
+	}
+}
+
+// 手動変更された行はトグルせず skipped に積む (409 と同じ「止まる」規約)。
+// 対象外の他のデバッグ行は巻き添えにしない。
+func TestToggleSkipsManuallyModifiedLine(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo"), 0o644)
+
+	doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":1,"lines":["x"]}`)
+	doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":3,"lines":["y"]}`)
+	// GN1 の行 (2行目) を手で書き換える
+	os.WriteFile(src, []byte("one\nMODIFIED\ntwo\ny"), 0o644)
+
+	rec := doInsertionsReq(h, "POST", "/api/insertions/toggle", `{"enabled":false}`)
+	if rec.Code != 200 {
+		t.Fatalf("toggle = %d: %s", rec.Code, rec.Body.String())
+	}
+	var res struct {
+		Toggled []string           `json:"toggled"`
+		Skipped []skippedInsertion `json:"skipped"`
+	}
+	decodeJSON(t, rec, &res)
+	if len(res.Toggled) != 1 || res.Toggled[0] != "GN2" {
+		t.Fatalf("無事な GN2 はトグルされるはず: %+v", res.Toggled)
+	}
+	if len(res.Skipped) != 1 || res.Skipped[0].ID != "GN1" {
+		t.Fatalf("GN1 は skipped に積まれるはず: %+v", res.Skipped)
+	}
+}
+
+// 囲みは「選択範囲の前後に1行ずつ挿入」なので、撤去すれば完全に元へ戻る。
+// ガード行のタグはずれた時の完全一致探索を一意にするための印。
+func TestWrapAndDeleteRestoresFile(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	original := []byte("one\ntwo\nthree\nfour")
+	os.WriteFile(src, original, 0o644)
+
+	rec := doInsertionsReq(h, "POST", "/api/insertions/wrap",
+		`{"file":"`+jsonPath(src)+`","start_line":2,"end_line":3,"group":"G"}`)
+	if rec.Code != 200 {
+		t.Fatalf("wrap = %d: %s", rec.Code, rec.Body.String())
+	}
+	if got, _ := os.ReadFile(src); string(got) != "one\n#if 0 /* GN1 */\ntwo\nthree\n#endif /* GN1 */\nfour" {
+		t.Fatalf("囲み後のファイル: %q", got)
+	}
+	g := h.store.GetGraphResponse()
+	if len(g.Insertions) != 1 {
+		t.Fatalf("記録は1件のはず: %+v", g.Insertions)
+	}
+	sites := g.Insertions[0].Sites
+	if len(sites) != 2 || sites[0].Line != 2 || sites[1].Line != 5 {
+		t.Fatalf("sites は 2行目と5行目のはず: %+v", sites)
+	}
+	if g.Insertions[0].Group != "G" {
+		t.Fatalf("group が記録されていない: %+v", g.Insertions[0])
+	}
+
+	recDel := doInsertionsReq(h, "DELETE", "/api/insertions/GN1", "")
+	if recDel.Code != 200 {
+		t.Fatalf("delete = %d: %s", recDel.Code, recDel.Body.String())
+	}
+	if got, _ := os.ReadFile(src); !bytes.Equal(got, original) {
+		t.Fatalf("撤去で復元されるはず: %q", got)
+	}
+}
+
+// 囲みの2回の ShiftLines が正しい座標系で呼ばれること: 囲み範囲より下の
+// 既存デバッグ行は2行 (上下のガード分) 下がる。
+func TestWrapShiftsExistingRecords(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("a\nb\nc\nd"), 0o644)
+
+	doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":4,"lines":["x"]}`)
+	rec := doInsertionsReq(h, "POST", "/api/insertions/wrap",
+		`{"file":"`+jsonPath(src)+`","start_line":2,"end_line":3}`)
+	if rec.Code != 200 {
+		t.Fatalf("wrap = %d: %s", rec.Code, rec.Body.String())
+	}
+	for _, ins := range h.store.GetGraphResponse().Insertions {
+		if ins.ID == "GN1" && ins.Sites[0].Line != 7 {
+			t.Errorf("GN1 は5行目から7行目へ2行下がるはず: %+v", ins.Sites)
+		}
+	}
+}
+
+// 囲みのトグル: ガード2行の行頭に // が入って囲みが無力化され、ON で戻る。
+func TestWrapToggleNeutralizesGuards(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo"), 0o644)
+
+	doInsertionsReq(h, "POST", "/api/insertions/wrap",
+		`{"file":"`+jsonPath(src)+`","start_line":1,"end_line":2}`)
+	afterWrap, _ := os.ReadFile(src)
+
+	rec := doInsertionsReq(h, "POST", "/api/insertions/toggle", `{"id":"GN1","enabled":false}`)
+	if rec.Code != 200 {
+		t.Fatalf("toggle = %d: %s", rec.Code, rec.Body.String())
+	}
+	if got, _ := os.ReadFile(src); string(got) != "//#if 0 /* GN1 */\none\ntwo\n//#endif /* GN1 */" {
+		t.Fatalf("ガード2行が同時にコメントアウトされるはず: %q", got)
+	}
+	rec = doInsertionsReq(h, "POST", "/api/insertions/toggle", `{"id":"GN1","enabled":true}`)
+	if rec.Code != 200 {
+		t.Fatalf("toggle on = %d: %s", rec.Code, rec.Body.String())
+	}
+	if got, _ := os.ReadFile(src); !bytes.Equal(got, afterWrap) {
+		t.Fatalf("ON で囲み直後に戻るはず: %q", got)
+	}
+}
+
+func TestWrapRejectsInvalidRange(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo"), 0o644)
+
+	for _, body := range []string{
+		`{"file":"` + jsonPath(src) + `","start_line":0,"end_line":1}`,
+		`{"file":"` + jsonPath(src) + `","start_line":2,"end_line":1}`,
+		`{"file":"` + jsonPath(src) + `","start_line":1,"end_line":99}`,
+	} {
+		rec := doInsertionsReq(h, "POST", "/api/insertions/wrap", body)
+		if rec.Code != 400 {
+			t.Errorf("body %s: status = %d, want 400", body, rec.Code)
+		}
+	}
+	if got, _ := os.ReadFile(src); string(got) != "one\ntwo" {
+		t.Fatalf("不正入力でファイルが変わった: %q", got)
 	}
 }

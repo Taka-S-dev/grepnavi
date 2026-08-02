@@ -124,6 +124,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	// （heal と違い、これらのハンドラは loadGraph を再帰的に呼ばないのでループしない）。
 	mux.HandleFunc("/api/insertions", h.notifyGraphChange(h.handleInsertions))
 	mux.HandleFunc("/api/insertions/removeall", h.notifyGraphChange(h.handleInsertionsRemoveAll))
+	// 固定パスは ServeMux の最長一致で末尾スラッシュのプレフィックス
+	// ("/api/insertions/{id}") より優先される。ID は GN 連番なので衝突しない。
+	mux.HandleFunc("/api/insertions/toggle", h.notifyGraphChange(h.handleInsertionsToggle))
+	mux.HandleFunc("/api/insertions/wrap", h.notifyGraphChange(h.handleInsertionsWrap))
 	mux.HandleFunc("/api/insertions/", h.notifyGraphChange(h.handleInsertionByID))
 }
 

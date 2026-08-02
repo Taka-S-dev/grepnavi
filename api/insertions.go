@@ -7,6 +7,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"path/filepath"
@@ -63,6 +64,16 @@ func patchErrStatus(w http.ResponseWriter, err error) {
 	}
 }
 
+// normalizeGroup はグループ名を正規化して妥当性を検証する (POST と wrap で共通)。
+// 改行はグラフ JSON 上は表現できても UI の1行チップ表示を壊すので弾く。
+func normalizeGroup(g string) (string, bool) {
+	g = strings.TrimSpace(g)
+	if strings.ContainsAny(g, "\n\r") || len(g) > 120 {
+		return "", false
+	}
+	return g, true
+}
+
 // findInsertion は現在の Insertions からID一致のものを1件返す。
 func (h *Handler) findInsertion(id string) (graph.Insertion, bool) {
 	for _, ins := range h.store.GetGraphResponse().Insertions {
@@ -98,11 +109,12 @@ func (h *Handler) handleInsertions(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, "lines required", http.StatusBadRequest)
 		return
 	}
-	req.Group = strings.TrimSpace(req.Group)
-	if strings.ContainsAny(req.Group, "\n\r") || len(req.Group) > 120 {
+	group, ok := normalizeGroup(req.Group)
+	if !ok {
 		jsonErr(w, "invalid group name", http.StatusBadRequest)
 		return
 	}
+	req.Group = group
 	for _, l := range req.Lines {
 		if strings.ContainsAny(l, "\n\r") {
 			// 改行を含む要素は1サイトが複数物理行になり、記録行数と
@@ -403,6 +415,245 @@ func resolveSitePosition(pf *patch.File, abs string, site graph.InsertionSite) (
 		return 0, errRecordedLineModified
 	}
 	return line, nil
+}
+
+// --- POST /api/insertions/toggle ---
+
+// disableMarker は一時無効化 (コメントアウト) のマーカ。無効化は「先頭空白の
+// 直後に // を入れる」、有効化は「取り除く」の対で、字下げ (行頭への空白追加)
+// と干渉しない。Sites[].Text は常にディスク上の行そのものを写すので、
+// 無効化中も既存の照合・撤去・書き換えロジックがそのまま働く。
+const disableMarker = "//"
+
+func splitIndent(s string) (indent, rest string) {
+	i := 0
+	for i < len(s) && (s[i] == ' ' || s[i] == '\t') {
+		i++
+	}
+	return s[:i], s[i:]
+}
+
+func disabledSiteText(s string) string {
+	indent, rest := splitIndent(s)
+	return indent + disableMarker + rest
+}
+
+// enabledSiteText はマーカを外した行を返す。マーカが見つからない場合は
+// 記録と実ファイルの対応が崩れているので ok=false (呼び出し側で409扱い)。
+func enabledSiteText(s string) (string, bool) {
+	indent, rest := splitIndent(s)
+	if !strings.HasPrefix(rest, disableMarker) {
+		return "", false
+	}
+	return indent + strings.TrimPrefix(rest, disableMarker), true
+}
+
+// toggleInsertionSites は ins の全 sites を desired (true=有効) の形へ書き換え、
+// 書き換え後の sites (解決済み行番号 + 新テキスト) を返す。deleteInsertionSites と
+// 同じ verify-then-apply: 全 sites の位置と新テキストを確定させてから一括で
+// Save し、部分適用にしない。行数は変わらないのでシフトは発生しない。
+func (h *Handler) toggleInsertionSites(ins graph.Insertion, desired bool) ([]graph.InsertionSite, error) {
+	pf, err := patch.Load(ins.File)
+	if err != nil {
+		return nil, err
+	}
+	sites := make([]graph.InsertionSite, len(ins.Sites))
+	for i, site := range ins.Sites {
+		line, err := resolveSitePosition(pf, ins.File, site)
+		if err != nil {
+			return nil, err
+		}
+		newText := ""
+		if desired {
+			t, ok := enabledSiteText(site.Text)
+			if !ok {
+				return nil, errRecordedLineModified
+			}
+			newText = t
+		} else {
+			newText = disabledSiteText(site.Text)
+		}
+		sites[i] = graph.InsertionSite{Line: line, Text: newText}
+	}
+	for i, site := range ins.Sites {
+		if err := pf.ReplaceLine(sites[i].Line, site.Text, sites[i].Text); err != nil {
+			return nil, err
+		}
+	}
+	if err := pf.Save(); err != nil {
+		return nil, err
+	}
+	return sites, nil
+}
+
+// handleInsertionsToggle はデバッグ行の一時無効化と再有効化。撤去と違って
+// 行数が変わらないので、行位置の再指定なしに ON/OFF を何度でも往復できる。
+// 対象は id 指定で1件、group 指定でそのグループ、どちらも無しで全部
+// (removeall と同じポインタ規約: group 省略=全部、""=無グループのみ)。
+func (h *Handler) handleInsertionsToggle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if !h.fileWrites {
+		jsonErr(w, "file writes disabled (bind to loopback to enable)", http.StatusForbidden)
+		return
+	}
+	var req struct {
+		ID      string  `json:"id"`
+		Group   *string `json:"group"`
+		Enabled *bool   `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonErr(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.Enabled == nil {
+		jsonErr(w, "enabled required", http.StatusBadRequest)
+		return
+	}
+	desired := *req.Enabled
+
+	// 対象の読み出しから UpdateInsertion までを直列化する (他の挿入系APIと同じ)。
+	h.insMu.Lock()
+	defer h.insMu.Unlock()
+
+	var targets []graph.Insertion
+	if req.ID != "" {
+		ins, ok := h.findInsertion(req.ID)
+		if !ok {
+			jsonErr(w, "insertion not found", http.StatusNotFound)
+			return
+		}
+		targets = append(targets, ins)
+	} else {
+		for _, ins := range h.store.GetGraphResponse().Insertions {
+			if req.Group != nil && ins.Group != *req.Group {
+				continue
+			}
+			targets = append(targets, ins)
+		}
+	}
+
+	toggled := []string{}
+	skipped := []skippedInsertion{}
+	updated := []graph.Insertion{}
+	for _, ins := range targets {
+		if ins.Enabled == desired {
+			continue // 既に目的の状態。エラーではなく単なる no-op。
+		}
+		sites, err := h.toggleInsertionSites(ins, desired)
+		if err != nil {
+			skipped = append(skipped, skippedInsertion{ID: ins.ID, Reason: err.Error()})
+			continue
+		}
+		var u graph.Insertion
+		if err := h.store.UpdateInsertion(ins.ID, func(p *graph.Insertion) {
+			p.Enabled = desired
+			p.Sites = sites
+			u = *p
+		}); err != nil {
+			skipped = append(skipped, skippedInsertion{ID: ins.ID, Reason: err.Error()})
+			continue
+		}
+		toggled = append(toggled, ins.ID)
+		updated = append(updated, u)
+	}
+	jsonOK(w, map[string]any{"toggled": toggled, "skipped": skipped, "insertions": updated})
+}
+
+// --- POST /api/insertions/wrap ---
+
+// handleInsertionsWrap は選択範囲を #if 0 / #endif で囲む。囲みは「既存行の
+// 書き換えなし・前後への行挿入だけ」で実現できるので、byte-splice の不変条件
+// (既存バイトは再エンコードしない) をそのまま満たす。ガード行にタグを埋める
+// のは、ずれた時の完全一致探索 (resolveSitePosition) がちょうど1行に絞れる
+// 一意性を持たせるため。
+func (h *Handler) handleInsertionsWrap(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if !h.fileWrites {
+		jsonErr(w, "file writes disabled (bind to loopback to enable)", http.StatusForbidden)
+		return
+	}
+	var req struct {
+		File      string `json:"file"`
+		StartLine int    `json:"start_line"`
+		EndLine   int    `json:"end_line"`
+		Group     string `json:"group"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonErr(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.StartLine < 1 || req.EndLine < req.StartLine {
+		jsonErr(w, "invalid range", http.StatusBadRequest)
+		return
+	}
+	group, ok := normalizeGroup(req.Group)
+	if !ok {
+		jsonErr(w, "invalid group name", http.StatusBadRequest)
+		return
+	}
+	abs, ok := h.resolveWithinRoot(req.File)
+	if !ok {
+		jsonErr(w, "file outside root", http.StatusForbidden)
+		return
+	}
+
+	// 採番から AddInsertion までを直列化する (POST と同じ臨界区間)。
+	h.insMu.Lock()
+	defer h.insMu.Unlock()
+
+	tag := h.store.NextInsertionTag()
+	top := fmt.Sprintf("#if 0 /* %s */", tag)
+	bottom := fmt.Sprintf("#endif /* %s */", tag)
+
+	pf, err := patch.Load(abs)
+	if err != nil {
+		patchErrStatus(w, err)
+		return
+	}
+	if req.EndLine > pf.LineCount() {
+		jsonErr(w, "range out of file", http.StatusBadRequest)
+		return
+	}
+	if err := pf.InsertAfter(req.StartLine-1, []string{top}); err != nil {
+		patchErrStatus(w, err)
+		return
+	}
+	// 1行目の挿入で選択範囲は1行下がっている: 元の EndLine 行は今 EndLine+1 行目。
+	if err := pf.InsertAfter(req.EndLine+1, []string{bottom}); err != nil {
+		patchErrStatus(w, err)
+		return
+	}
+	if err := pf.Save(); err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// ShiftLines は AddInsertion より先 (POST と同じ契約)。2回目のシフト位置は
+	// 1回目の挿入を反映した座標系で指定する (下側ガードは EndLine+2 行目に入る)。
+	shifts := []graph.ShiftResult{
+		h.store.ShiftLines(abs, req.StartLine, 1),
+		h.store.ShiftLines(abs, req.EndLine+2, 1),
+	}
+	ins := graph.Insertion{
+		ID:   tag,
+		File: abs,
+		Sites: []graph.InsertionSite{
+			{Line: req.StartLine, Text: top},
+			{Line: req.EndLine + 2, Text: bottom},
+		},
+		Group: group, Enabled: true, CreatedAt: time.Now(),
+	}
+	if err := h.store.AddInsertion(ins); err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, map[string]any{"insertion": ins, "shifts": shifts})
 }
 
 // deleteInsertionSites は ins の全 sites を撤去し、site ごとの ShiftResult を
