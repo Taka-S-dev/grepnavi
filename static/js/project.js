@@ -177,7 +177,6 @@ async function setRoot(newRoot) {
   const cleared = await fetch('/api/graph/clear', { method: 'POST' }).then(r => r.json()).catch(() => null);
   if(cleared) applyGraphResponse(cleared);
   else applyGraphResponse({ nodes: {}, edges: [], root_dir: data.root });
-  markClean();
   updateProjectUI();
   st('ルート変更: ' + data.root);
   return true;
@@ -353,32 +352,19 @@ function initColResizer() {
 }
 
 // ===== プロジェクト保存/開く =====
-let _dirty = false;
-// 名前を付けずに調べ始めたことを一度だけ知らせる。起動時は毎回空から始まるので、
-// 保存しなければ次回は残らない。毎回出すと通知として無視されるので初回のみ。
+// 未保存マーク (*) は置かない。サーバは変更のたびに「今開いているファイル」へ
+// 自動保存し、名前を付けて保存するとその名前付きファイルが保存先になる
+// (Store.SaveAs が filePath を差し替える)。名前付きでも自動保存される以上、
+// 「保存すべき変更が溜まっている」状態は存在しない。
+// 以前は API の URL から dirty を推測していたが、読み取り専用の POST まで
+// 変更と数えてしまい、印が常時点灯したり一瞬で消えたりして機能していなかった。
+// 危険なのは保存先そのものが無いとき (kind:'unsaved') だけなので、そこに絞って知らせる。
 let _noticedUnnamed = false;
 function noticeUnnamedOnce() {
-  if(_noticedUnnamed || getProjectPath()) return;
+  if(_noticedUnnamed) return;
   _noticedUnnamed = true;
   if(typeof st === 'function') st('保存先が未指定です。Ctrl+S で保存すると次回も開けます');
 }
-function markDirty() { _dirty = true;  noticeUnnamedOnce(); updateProjectUI(); }
-function markClean() { _dirty = false; updateProjectUI(); }
-
-// グラフ・ツリーを変更する API 呼び出しで自動的に dirty にする
-const _SKIP_DIRTY_ENDPOINTS = new Set(['/api/graph/clear', '/api/graph/openfile', '/api/graph/import', '/api/graph/saveas', '/api/graph/export', '/api/graph/memos']);
-(function() {
-  const _orig = window.fetch;
-  window.fetch = function(url, opts) {
-    const method = ((opts && opts.method) || 'GET').toUpperCase();
-    if(method !== 'GET' && typeof url === 'string' &&
-       (url.startsWith('/api/graph') || url.startsWith('/api/trees')) &&
-       !_SKIP_DIRTY_ENDPOINTS.has(url)) {
-      markDirty();
-    }
-    return _orig.apply(this, arguments);
-  };
-})();
 
 const LS_PROJECT_PATH    = 'grepnavi_project_path';
 const LS_PROJECT_HISTORY = 'grepnavi_project_history';
@@ -554,7 +540,7 @@ async function restorePreviousWork() {
   if(!d || d.error) { st('復元できませんでした'); return; }
   selNode = null; showDetail(null);
   applyGraphResponse(d);
-  markClean();
+  updateProjectUI();
   await refreshRecoverItem();
   st(`前回の作業を復元しました (${Object.keys(d.nodes || {}).length} ノード)`);
 }
@@ -583,17 +569,15 @@ function updateProjectUI() {
   if(!el) return;
   const base = st.path ? st.path.replace(/\\/g, '/').split('/').pop() : '';
 
-  // * は「保存すべき変更がある」ことだけに使う。作業ファイルは自動保存される
-  // ので、そこで * を出すと消える危険があるように見えてしまう。
-  if(st.kind === 'named') {
-    el.textContent = (_dirty ? '* ' : '') + base;
-    el.title = st.path + (_dirty ? '\n未保存の変更があります (Ctrl+S)' : '\n保存済み');
-  } else if(st.kind === 'working') {
-    el.textContent = base;
-    el.title = st.path + '\n変更するたび自動保存されます';
-  } else {
+  // 名前付きも作業ファイルも保存先が決まっている点は同じで、どちらも自動保存
+  // される。区別が要るのは「保存先が無い」ときだけ。
+  if(st.kind === 'unsaved') {
     el.textContent = '未保存';
     el.title = '保存先が決まっていません。閉じるとグラフは失われます (Ctrl+S)';
+    noticeUnnamedOnce();
+  } else {
+    el.textContent = base;
+    el.title = st.path + '\n変更するたび自動保存されます';
   }
   el.classList.toggle('project-unsaved', st.kind === 'unsaved');
 
@@ -621,16 +605,14 @@ function updateProjectStatus(st) {
   // 見比べる使い方は正当なので止めないが、黙って混ざるのは事故。
   const foreign = countForeignNodes();
   if(foreign) detail.push(`ルート外 ${foreign} 件`);
-  if(st.kind === 'named') {
-    detail.push(_dirty ? '未保存の変更あり — Ctrl+S で保存' : '保存済み');
-  } else if(st.kind === 'working') {
-    detail.push('変更するたび自動保存されます');
-  } else {
+  if(st.kind === 'unsaved') {
     detail.push('閉じると失われます — Ctrl+S で保存先を指定');
+  } else {
+    detail.push('変更するたび自動保存されます');
   }
   detailEl.textContent = detail.join(' · ');
   // 注意が要る状態だけ色を付ける。常時色付きだと警告として機能しない。
-  const warn = st.kind === 'unsaved' || (st.kind === 'named' && _dirty) || foreign > 0;
+  const warn = st.kind === 'unsaved' || foreign > 0;
   detailEl.classList.toggle('pmenu-unsaved', warn);
 }
 
@@ -689,7 +671,6 @@ async function saveProject(path) {
     return;
   }
   if(!d || d.error) { st('保存エラー: ' + (d?.error || '不明なエラー')); return; }
-  _dirty = false;
   setProjectPath(path);
   await writeGrepnavi(path);
   addSaveDirHistory(path.replace(/\\/g, '/').split('/').slice(0, -1).join('/'));
@@ -731,7 +712,6 @@ async function openProject(path) {
   refreshRangeMemoDecorations();
   refreshBookmarkDecorations();
   renderMemoList();
-  _dirty = false;
   // サーバーがrootを切り替えた場合はUIに反映
   if (d.root) {
     projectRoot = d.root;

@@ -197,7 +197,6 @@ async function _switchToGraph(proj, graphPath) {
   if (typeof openProject === 'function') await openProject(graphPath);
 
   if (typeof setProjectPath === 'function') setProjectPath(graphPath);
-  if (typeof markClean === 'function') markClean();
 
   _renderProjectsPanel();
   _updateTopMenuGraphs();

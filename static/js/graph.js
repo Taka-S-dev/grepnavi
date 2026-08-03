@@ -90,7 +90,8 @@ async function loadGraph() {
     const r = await fetch("/api/graph");
     const g = await r.json();
     applyGraphResponse(g);
-    if (typeof markClean === "function") markClean();
+    // 保存先やノード数の表示を読み込み後の内容に合わせる。
+    if (typeof updateProjectUI === "function") updateProjectUI();
     // ピン位置の点検と自動追従は描画をブロックしない。結果が来たら反映する。
     healAnchors().then((d) => {
       renderCurrent();
