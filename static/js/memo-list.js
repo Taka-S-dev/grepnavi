@@ -659,9 +659,13 @@ function _makeMemoRow(item) {
     : '';
   // デバッグ行のグループチップ。マーク一覧自体の表示グループとは別物なので、
   // 見出しではなく行内チップで示す（撤去単位であることをツールチップで補足）。
-  const insGroupChip = item.kind === 'insertion' && item._group
-    ? `<span class="memo-list-insgroup" title="デバッグ行のグループ (グループ単位で撤去できる)">${esc(item._group)}</span>`
-    : '';
+  // クリックで付け替えられる。無グループの行にも入口が要る（撒いた後に単位を
+  // 決めるのが普通の流れ）ので、その場合はホバー時だけ出る薄いチップにする。
+  // 他の行内操作と同じく button にする（span だとキーボードで到達できない）。
+  const insGroupChip = item.kind !== 'insertion' ? ''
+    : item._group
+    ? `<button class="memo-list-insgroup" title="グループ (クリックで変更。撤去・ON/OFF のまとめ単位)">${esc(item._group)}</button>`
+    : `<button class="memo-list-insgroup memo-list-insgroup-empty" title="グループに入れる (撤去・ON/OFF のまとめ単位)">+ グループ</button>`;
   // ずれチップは loc と同じセルに入れる（チップは出たり出なかったりするので、
   // 独立したセルにすると grid の列がずれる）。
   row.innerHTML =
@@ -671,16 +675,16 @@ function _makeMemoRow(item) {
     _memoDriftChip(item) + manualChip + insGroupChip + `</span>` +
     `<span class="memo-list-text" ${isBm ? 'style="color:#666"' : ''}>${textContent}</span>` +
     toggleBtn + moveBtn + delBtn;
+  // 行内の操作部品はプレビュー表示・ジャンプの対象外にする。
+  const _onCtl = e => e.target.closest(
+    '.memo-list-drag, .memo-list-del, .memo-list-move, .memo-list-drift, ' +
+    '.memo-list-rewrite, .memo-list-instoggle-btn, .memo-list-insgroup');
   row.addEventListener('click', e => {
-    if (e.target.closest('.memo-list-drag') || e.target.closest('.memo-list-del') ||
-        e.target.closest('.memo-list-move') || e.target.closest('.memo-list-drift') ||
-        e.target.closest('.memo-list-rewrite') || e.target.closest('.memo-list-instoggle-btn')) return;
+    if (_onCtl(e)) return;
     _showMemoPreview(item);
   });
   row.addEventListener('dblclick', e => {
-    if (e.target.closest('.memo-list-drag') || e.target.closest('.memo-list-del') ||
-        e.target.closest('.memo-list-move') || e.target.closest('.memo-list-drift') ||
-        e.target.closest('.memo-list-rewrite') || e.target.closest('.memo-list-instoggle-btn')) return;
+    if (_onCtl(e)) return;
     openPeek(item.file, item.line).then(() => monacoEditor?.focus());
   });
   const onMove = async e => { e.stopPropagation(); await _moveMemoToCursor(item); };
@@ -693,6 +697,10 @@ function _makeMemoRow(item) {
   row.querySelector('.memo-list-instoggle-btn')?.addEventListener('click', async e => {
     e.stopPropagation();
     await toggleInsertions({ id: item._insId, enabled: !item._enabled });
+  });
+  row.querySelector('.memo-list-insgroup')?.addEventListener('click', e => {
+    e.stopPropagation();
+    showInsGroupPicker(e.currentTarget, item._insId);
   });
   row.querySelector('.memo-list-del')?.addEventListener('click', async e => {
     e.stopPropagation();

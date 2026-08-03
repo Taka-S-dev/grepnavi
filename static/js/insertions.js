@@ -549,49 +549,83 @@ function updateInsertionBadge() {
   if (toggleBtn) toggleBtn.style.display = n ? '' : 'none';
 }
 
-// グループ撤去メニュー。select は「閉じているときに選択中の項目を表示する」
-// 部品なので、命令メニューに使うと見出し行が必要になって紛らわしい。
-// 右クリックメニューと同じボタン + ポップアップにして、命令だけを並べる。
+// デバッグ行まわりのポップアップメニューの共通部。select は「閉じているときに
+// 選択中の項目を表示する」部品なので、命令メニューに使うと見出し行が必要になって
+// 紛らわしい。右クリックメニューと同じ見た目のポップアップに、命令だけを並べる。
+// items: [{label, run, checked}]。checked は「今その状態」を示すだけで、押せる。
+function _showInsMenu(anchorEl, items) {
+  hideInsGroupMenu();
+  if (!items.length) return;
+  const menu = document.createElement('div');
+  menu.id = 'insgroup-menu';
+  // チェック印を使うメニューだけ印の列を作る。使わないメニュー (撤去・ON/OFF)
+  // にも列を空けると、全項目が理由もなく右へずれる。
+  const hasCheck = items.some((it) => it.checked);
+  for (const it of items) {
+    const el = document.createElement('div');
+    el.className = 'tab-ctx-item';
+    if (hasCheck) {
+      // 印は固定幅の枠に入れる。テキストへ空白を足す方式は、HTML の空白
+      // 畳み込みに引っかかると幅が出ず、印の有無で文字位置がずれる。
+      const mark = document.createElement('span');
+      mark.className = 'ins-menu-check';
+      mark.textContent = it.checked ? '✓' : '';
+      el.appendChild(mark);
+    }
+    el.appendChild(document.createTextNode(it.label));
+    el.onclick = () => { hideInsGroupMenu(); it.run(); };
+    menu.appendChild(el);
+  }
+  document.body.appendChild(menu);
+  // 画面外にはみ出さないよう、実寸を測ってから収める。
+  const r = anchorEl.getBoundingClientRect();
+  const box = menu.getBoundingClientRect();
+  const below = r.bottom + 2;
+  menu.style.left = Math.max(4, Math.min(r.left, window.innerWidth - box.width - 4)) + 'px';
+  menu.style.top = (below + box.height <= window.innerHeight - 4
+    ? below
+    : Math.max(4, r.top - box.height - 2)) + 'px'; // 下に入らなければアンカーの上へ
+  // 開くきっかけの mousedown 自体で即閉じないよう、次の tick で外側クリック監視を張る
+  setTimeout(() => document.addEventListener('mousedown', _insGroupMenuOutside), 0);
+  document.addEventListener('keydown', _insGroupMenuKey, true);
+}
+
+// Escape で閉じる。マウスを動かさずに取り消せる方が速い。
+// capture 段階で受けて stopImmediatePropagation するのは、document に付いた
+// 他の Escape 処理 (フローティング定義・エクスプローラのメニュー等) と
+// 二重に発火させないため。同じ document 上の listener は stopPropagation では止まらない。
+function _insGroupMenuKey(e) {
+  if (e.key !== 'Escape') return;
+  e.stopImmediatePropagation();
+  e.preventDefault();
+  hideInsGroupMenu();
+}
+
+// グループ撤去メニュー。
+// 各 show* の先頭で閉じるのは、項目が空で早期 return する経路でも
+// 開きっぱなしのメニューを残さないため (_showInsMenu まで届かない)。
 function showInsGroupMenu(anchorBtn) {
   hideInsGroupMenu();
   const counts = _insertionGroups();
   const named = [...counts.keys()].filter(Boolean).sort();
   if (!named.length) return;
-  const menu = document.createElement('div');
-  menu.id = 'insgroup-menu';
-  const addItem = (label, group) => {
-    const it = document.createElement('div');
-    it.className = 'tab-ctx-item';
-    it.textContent = label;
-    it.onclick = () => { hideInsGroupMenu(); removeAllInsertions(group); };
-    menu.appendChild(it);
-  };
-  for (const name of named) addItem(`「${name}」を撤去 (${counts.get(name)}件)`, name);
-  if (counts.has('')) addItem(`無グループを撤去 (${counts.get('')}件)`, '');
-  document.body.appendChild(menu);
-  const r = anchorBtn.getBoundingClientRect();
-  menu.style.left = r.left + 'px';
-  menu.style.top = (r.bottom + 2) + 'px';
-  // ボタンを押した mousedown 自体で即閉じないよう、次の tick で外側クリック監視を張る
-  setTimeout(() => document.addEventListener('mousedown', _insGroupMenuOutside), 0);
+  const items = named.map((name) => ({
+    label: `「${name}」を撤去 (${counts.get(name)}件)`,
+    run: () => removeAllInsertions(name),
+  }));
+  if (counts.has('')) {
+    items.push({ label: `無グループを撤去 (${counts.get('')}件)`, run: () => removeAllInsertions('') });
+  }
+  _showInsMenu(anchorBtn, items);
 }
 
-// ON/OFF メニュー。撤去メニューと同じポップアップ形式で、全部・グループ別の
-// 一時 OFF / ON を並べる。件数 0 の項目は出さない (押しても何も起きない項目を
-// 並べない)。
+// ON/OFF メニュー。件数 0 の項目は出さない (押しても何も起きない項目を並べない)。
 function showInsToggleMenu(anchorBtn) {
   hideInsGroupMenu();
   const all = Array.isArray(graph?.insertions) ? graph.insertions : [];
   if (!all.length) return;
-  const menu = document.createElement('div');
-  menu.id = 'insgroup-menu';
-  const addItem = (label, opts) => {
-    const it = document.createElement('div');
-    it.className = 'tab-ctx-item';
-    it.textContent = label;
-    it.onclick = () => { hideInsGroupMenu(); toggleInsertions(opts); };
-    menu.appendChild(it);
-  };
+  const items = [];
+  const add = (label, opts) => items.push({ label, run: () => toggleInsertions(opts) });
   const counts = new Map(); // group -> {on, off}（"" = 無グループ）
   for (const ins of all) {
     const g = ins.group || '';
@@ -601,25 +635,82 @@ function showInsToggleMenu(anchorBtn) {
   }
   const onTotal = all.filter((i) => i.enabled !== false).length;
   const offTotal = all.length - onTotal;
-  if (onTotal) addItem(`すべて OFF (${onTotal}件)`, { enabled: false });
-  if (offTotal) addItem(`すべて ON (${offTotal}件)`, { enabled: true });
+  if (onTotal) add(`すべて OFF (${onTotal}件)`, { enabled: false });
+  if (offTotal) add(`すべて ON (${offTotal}件)`, { enabled: true });
   const named = [...counts.keys()].filter(Boolean).sort();
   for (const name of named) {
     const c = counts.get(name);
-    if (c.on) addItem(`「${name}」を OFF (${c.on}件)`, { group: name, enabled: false });
-    if (c.off) addItem(`「${name}」を ON (${c.off}件)`, { group: name, enabled: true });
+    if (c.on) add(`「${name}」を OFF (${c.on}件)`, { group: name, enabled: false });
+    if (c.off) add(`「${name}」を ON (${c.off}件)`, { group: name, enabled: true });
   }
   // 無グループ項目は名前付きグループがあるときだけ (無ければ「すべて」と同じで冗長)。
   if (named.length && counts.has('')) {
     const c = counts.get('');
-    if (c.on) addItem(`無グループを OFF (${c.on}件)`, { group: '', enabled: false });
-    if (c.off) addItem(`無グループを ON (${c.off}件)`, { group: '', enabled: true });
+    if (c.on) add(`無グループを OFF (${c.on}件)`, { group: '', enabled: false });
+    if (c.off) add(`無グループを ON (${c.off}件)`, { group: '', enabled: true });
   }
-  document.body.appendChild(menu);
-  const r = anchorBtn.getBoundingClientRect();
-  menu.style.left = r.left + 'px';
-  menu.style.top = (r.bottom + 2) + 'px';
-  setTimeout(() => document.addEventListener('mousedown', _insGroupMenuOutside), 0);
+  _showInsMenu(anchorBtn, items);
+}
+
+// 1件のデバッグ行の所属グループを選ぶメニュー。既存グループから選べるように
+// するのは、手入力だと表記ゆれで別グループになってしまうため。
+function showInsGroupPicker(anchorEl, insId) {
+  hideInsGroupMenu();
+  const ins = (graph?.insertions || []).find((i) => i.id === insId);
+  if (!ins) return;
+  const cur = ins.group || '';
+  const items = [];
+  for (const name of [..._insertionGroups().keys()].filter(Boolean).sort()) {
+    items.push({ label: `「${name}」へ移す`, checked: name === cur, run: () => _setInsertionGroup(insId, name) });
+  }
+  if (cur) items.push({ label: '無グループにする', run: () => _setInsertionGroup(insId, '') });
+  items.push({
+    label: '新しいグループ…',
+    run: async () => {
+      const name = await showInputModal('デバッグ行のグループ', 'グループ名', cur);
+      if (name == null) return;
+      await _setInsertionGroup(insId, name.trim());
+    },
+  });
+  _showInsMenu(anchorEl, items);
+}
+
+// テキスト中に「グループ名そのもの」が現れているか。{group} の展開結果は
+// [GN1|name] のように区切り文字に挟まれるので、前後が語の一部でない出現だけを
+// 数える。境界を ASCII だけで判定すると日本語名 (「テスト」が「テストデータ」に
+// 当たる等) で誤検知が残るため、Unicode プロパティで語構成文字を判定する。
+// 名前に正規表現の特殊文字が入りうるのでエスケープしてから使う。
+function _textMentionsGroup(sites, name) {
+  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp('(^|[^\\p{L}\\p{N}_])' + esc + '([^\\p{L}\\p{N}_]|$)', 'u');
+  return sites.some((s) => re.test(s.text));
+}
+
+async function _setInsertionGroup(insId, group) {
+  const before = (graph?.insertions || []).find((i) => i.id === insId);
+  const oldGroup = before?.group || '';
+  // 同じ名前を選んだ・入力したときも「効かないボタン」に見えないよう一言返す
+  // （チェック印の付いた項目も押せるので、この経路は普通に踏まれる）。
+  if (group === oldGroup) { st('グループは変わっていません'); return; }
+  const r = await fetch('/api/insertions/group', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: insId, group }),
+  }).catch(() => null);
+  if (!r || !r.ok) { st(_insertionWriteErrorMessage(r, insId)); return; }
+  const d = await r.json();
+  const idx = (graph.insertions || []).findIndex((i) => i.id === insId);
+  if (idx >= 0) graph.insertions[idx] = d.insertion;
+  renderMemoList();
+  updateInsertionBadge();
+  // {group} は挿入時にテキストへ焼き込まれるので、付け替えても実行時の出力は
+  // 古い名前のまま。それが起きている行のときだけ知らせる (毎回言うと雑音)。
+  // 単純な部分一致だと "io" のような短い名前が無関係な語に当たるため、
+  // 識別子の一部になっていない出現だけを見る (完全な判定はできない)。
+  const stale = oldGroup && _textMentionsGroup(d.insertion.sites || [], oldGroup);
+  const dest = group ? `「${group}」` : '無グループ';
+  st(`${insId} を ${dest} へ移しました` +
+     (stale ? `（挿入テキストの「${oldGroup}」はそのままです。必要なら書き換えてください）` : ''));
 }
 
 function _insGroupMenuOutside(e) {
@@ -629,6 +720,7 @@ function _insGroupMenuOutside(e) {
 
 function hideInsGroupMenu() {
   document.removeEventListener('mousedown', _insGroupMenuOutside);
+  document.removeEventListener('keydown', _insGroupMenuKey, true);
   document.getElementById('insgroup-menu')?.remove();
 }
 
@@ -704,6 +796,26 @@ function registerInsertionEditorActions() {
     run: () => {
       const hit = _insertionSiteAtCursor();
       if (hit) toggleInsertions({ id: hit.ins.id, enabled: true });
+    },
+  });
+  // グループはまとめ単位で、撒き終わってから決めたくなる。エディタ側にも
+  // 入口を置いて、一覧を開かずに付け替えられるようにする。
+  monacoEditor.addAction({
+    id: 'grepnavi-insertion-group', label: 'デバッグ行のグループを変更',
+    contextMenuGroupId: 'grepnavi-mark', contextMenuOrder: 2.57,
+    precondition: 'grepnaviOnInsertionLine',
+    run: () => {
+      const hit = _insertionSiteAtCursor();
+      if (!hit) return;
+      // アンカーはカーソル行の画面座標。エディタ内に出す方が視線移動が少ない。
+      // 座標が取れないときはエディタの左上に寄せる (document.body を使うと
+      // bottom が文書全体の高さになり、画面外へ飛ぶ)。
+      const box = monacoEditor.getDomNode()?.getBoundingClientRect();
+      const pos = monacoEditor.getScrolledVisiblePosition(monacoEditor.getPosition());
+      const rect = !box ? null
+        : pos ? { left: box.left + pos.left, top: box.top + pos.top, bottom: box.top + pos.top + pos.height }
+        : { left: box.left, top: box.top, bottom: box.top };
+      showInsGroupPicker(rect ? { getBoundingClientRect: () => rect } : document.body, hit.ins.id);
     },
   });
   monacoEditor.addAction({

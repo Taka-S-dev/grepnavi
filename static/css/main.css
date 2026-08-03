@@ -1038,7 +1038,9 @@ body.calltree-mode #pane-left{display:none!important}
    セレクタは完全に分離する (静的な span で押しても何も起きない)。 */
 .memo-list-manual-chip{margin-left:4px;padding:0 4px;border-radius:2px;background:#5a2a2a;color:#e08080;font-size:9px;border:none;cursor:default;flex-shrink:0}
 /* グループ撤去のポップアップ。右クリックメニュー (#node-ctx-menu) と同じ見た目。 */
-#insgroup-menu{position:fixed;z-index:var(--z-context-menu);background:#2d2d2d;border:1px solid #555;border-radius:3px;box-shadow:0 4px 12px rgba(0,0,0,.5);padding:3px 0;min-width:160px;font-size:12px}
+/* グループが多いと項目が画面高を超えうるので、その場合だけスクロールさせる
+   (JS 側の位置決めは実寸を測るので、上限が効いた高さでそのまま収まる)。 */
+#insgroup-menu{position:fixed;z-index:var(--z-context-menu);background:#2d2d2d;border:1px solid #555;border-radius:3px;box-shadow:0 4px 12px rgba(0,0,0,.5);padding:3px 0;min-width:160px;font-size:12px;max-height:calc(100vh - 8px);overflow-y:auto}
 /* 一括操作バー。破壊的なボタンをフィルタ行から分離してここに集約する。 */
 #memo-list-action-bar{display:flex;align-items:center;gap:4px;padding:3px 8px;border-bottom:1px solid #333;flex-shrink:0}
 #memo-list-action-label{font-size:9px;color:#666;margin-right:2px;flex-shrink:0}
@@ -1061,7 +1063,20 @@ body.calltree-mode #pane-left{display:none!important}
 .insert-dialog-row{display:flex;gap:6px;align-items:center}
 .insert-dialog-label{font-size:10px;color:#888;margin-top:4px}
 /* デバッグ行のグループチップ。挿入行装飾と同じ紫系で「デバッグ行の属性」だと分かるようにする。 */
-.memo-list-insgroup{margin-left:4px;padding:0 4px;border-radius:2px;background:#3d2a52;color:#c9a0e8;font-size:9px;cursor:default;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;max-width:90px;white-space:nowrap}
+.memo-list-insgroup{margin-left:4px;padding:0 4px;border:none;border-radius:2px;background:#3d2a52;color:#c9a0e8;font:inherit;font-size:9px;line-height:1.6;cursor:pointer;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;max-width:90px;white-space:nowrap}
+.memo-list-insgroup:hover{background:#523570;color:#e0c0f8}
+/* 無グループ行の「+ グループ」。常時出すと一覧が賑やかになるので、他の行内
+   ボタンと同じくホバー時だけ見えるようにする。透明にするだけでは幅を取り続け、
+   ファイル名の列を押し出してしまうので、畳んで幅ごと消す。 */
+/* border は max-width に含まれないので、畳むときは幅も 0 にする。 */
+.memo-list-insgroup-empty{max-width:0;margin:0;padding:0;background:none;color:transparent;border:0 dashed transparent}
+/* キーボードで来たときは行にホバーしていないので、focus でも開く
+   （見えない的を撃たせない）。 */
+.memo-list-item:hover .memo-list-insgroup-empty,
+.memo-list-insgroup-empty:focus-visible{max-width:90px;margin-left:4px;padding:0 4px;border-width:1px;color:#666;border-color:#4a4a4a}
+.memo-list-item:hover .memo-list-insgroup-empty:hover{color:#c9a0e8;border-color:#7a5a9a;background:none}
+/* メニューのチェック印の枠。印の有無で項目の文字位置がずれないように固定幅。 */
+.ins-menu-check{display:inline-block;width:12px}
 .memo-list-edit-ta{width:100%;height:54px;background:#1a1a1a;border:1px solid #007acc;color:#ccc;font:11px Consolas,monospace;padding:3px;resize:none;box-sizing:border-box;border-radius:2px;grid-column:3 / 6}
 .memo-list-item.memo-list-editing{grid-template-columns:16px 16px 1fr;flex-wrap:wrap}
 #memo-list-body{flex:1;overflow-y:auto;min-height:60px}
