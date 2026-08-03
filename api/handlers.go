@@ -128,6 +128,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	// ("/api/insertions/{id}") より優先される。ID は GN 連番なので衝突しない。
 	mux.HandleFunc("/api/insertions/toggle", h.notifyGraphChange(h.handleInsertionsToggle))
 	mux.HandleFunc("/api/insertions/wrap", h.notifyGraphChange(h.handleInsertionsWrap))
+	mux.HandleFunc("/api/insertions/group", h.notifyGraphChange(h.handleInsertionsGroup))
 	mux.HandleFunc("/api/insertions/", h.notifyGraphChange(h.handleInsertionByID))
 }
 

@@ -64,7 +64,7 @@ func patchErrStatus(w http.ResponseWriter, err error) {
 	}
 }
 
-// normalizeGroup はグループ名を正規化して妥当性を検証する (POST と wrap で共通)。
+// normalizeGroup はグループ名を正規化して妥当性を検証する (挿入・囲み・付け替えで共通)。
 // 改行はグラフ JSON 上は表現できても UI の1行チップ表示を壊すので弾く。
 func normalizeGroup(g string) (string, bool) {
 	g = strings.TrimSpace(g)
@@ -560,6 +560,66 @@ func (h *Handler) handleInsertionsToggle(w http.ResponseWriter, r *http.Request)
 		updated = append(updated, u)
 	}
 	jsonOK(w, map[string]any{"toggled": toggled, "skipped": skipped, "insertions": updated})
+}
+
+// --- POST /api/insertions/group ---
+
+// handleInsertionsGroup はデバッグ行の所属グループだけを付け替える。
+// グループは撤去・ON/OFF のまとめ単位で、どれを1単位にしたいかは撒き終わって
+// から分かることが多い。ファイルには一切触らないので、行の照合も 409 も無い。
+//
+// 挿入時に {group} を展開したテキストは、その時点の名前のまま残る（行を
+// 書き換えると 409 の余地が生まれるため、記録は動かさない）。呼び出し側で
+// 古い名前が残っていることを知らせる。
+func (h *Handler) handleInsertionsGroup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if !h.fileWrites {
+		jsonErr(w, "file writes disabled (bind to loopback to enable)", http.StatusForbidden)
+		return
+	}
+	// removeall/toggle の Group は「省略 = 全部」を表すためポインタだが、こちらは
+	// 絞り込みではなく代入なので素の string でよい（省略 = 無グループにする）。
+	var req struct {
+		ID    string `json:"id"`
+		Group string `json:"group"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonErr(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.ID == "" {
+		jsonErr(w, "id required", http.StatusBadRequest)
+		return
+	}
+	group, ok := normalizeGroup(req.Group)
+	if !ok {
+		jsonErr(w, "invalid group name", http.StatusBadRequest)
+		return
+	}
+	// 他の挿入系APIと同じく直列化する。ファイル I/O は無いので待ちは一瞬だが、
+	// 存在確認と更新の間に DELETE が入ると「無い」を 500 として報告してしまう。
+	h.insMu.Lock()
+	defer h.insMu.Unlock()
+
+	// 存在確認を先に済ませる。UpdateInsertion は「見つからない」と「保存に失敗した」
+	// を同じ error で返すので、まとめて 404 にすると保存できなかったときに
+	// 「無い」と嘘をつき、記録はメモリ上だけ変わって残る。
+	if _, ok := h.findInsertion(req.ID); !ok {
+		jsonErr(w, "insertion not found", http.StatusNotFound)
+		return
+	}
+	var updated graph.Insertion
+	if err := h.store.UpdateInsertion(req.ID, func(u *graph.Insertion) {
+		u.Group = group
+		updated = *u
+	}); err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, map[string]any{"insertion": updated})
 }
 
 // --- POST /api/insertions/wrap ---

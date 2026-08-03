@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -36,6 +37,8 @@ func doInsertionsReq(h *Handler, method, path, body string) *httptest.ResponseRe
 		h.handleInsertionsToggle(rec, req)
 	case path == "/api/insertions/wrap":
 		h.handleInsertionsWrap(rec, req)
+	case path == "/api/insertions/group":
+		h.handleInsertionsGroup(rec, req)
 	default:
 		h.handleInsertionByID(rec, req)
 	}
@@ -701,6 +704,147 @@ func TestWrapToggleNeutralizesGuards(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(src); !bytes.Equal(got, afterWrap) {
 		t.Fatalf("ON で囲み直後に戻るはず: %q", got)
+	}
+}
+
+// グループの付け替えはメタデータだけの操作。撒き終わってから単位を決められる
+// ことが目的なので、無グループ↔名前付きの両方向が通り、ファイルは動かない。
+func TestSetGroupMovesRecordWithoutTouchingFile(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo"), 0o644)
+
+	doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":1,"lines":["x"]}`)
+	before, _ := os.ReadFile(src)
+
+	rec := doInsertionsReq(h, "POST", "/api/insertions/group", `{"id":"GN1","group":"probe"}`)
+	if rec.Code != 200 {
+		t.Fatalf("set group = %d: %s", rec.Code, rec.Body.String())
+	}
+	if g := h.store.GetGraphResponse(); g.Insertions[0].Group != "probe" {
+		t.Fatalf("グループが付いていない: %+v", g.Insertions[0])
+	}
+	// 空文字は「無グループへ戻す」。removeall/toggle の "" と同じ意味にそろえる。
+	rec = doInsertionsReq(h, "POST", "/api/insertions/group", `{"id":"GN1","group":""}`)
+	if rec.Code != 200 {
+		t.Fatalf("clear group = %d: %s", rec.Code, rec.Body.String())
+	}
+	if g := h.store.GetGraphResponse(); g.Insertions[0].Group != "" {
+		t.Fatalf("無グループへ戻っていない: %+v", g.Insertions[0])
+	}
+	if after, _ := os.ReadFile(src); !bytes.Equal(before, after) {
+		t.Errorf("ファイルが変わった: %q -> %q", before, after)
+	}
+}
+
+// 変更後のグループが撤去・ON/OFF の絞り込みに効くことまで見る
+// （付け替えても記録が繋がっていなければ意味がない）。
+func TestSetGroupThenRemoveAllByNewGroup(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	original := []byte("one\ntwo\nthree")
+	os.WriteFile(src, original, 0o644)
+
+	doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":1,"lines":["a"]}`)
+	doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":3,"lines":["b"]}`)
+	doInsertionsReq(h, "POST", "/api/insertions/group", `{"id":"GN1","group":"keep"}`)
+
+	rec := doInsertionsReq(h, "POST", "/api/insertions/removeall", `{"group":"keep"}`)
+	if rec.Code != 200 {
+		t.Fatalf("removeall = %d: %s", rec.Code, rec.Body.String())
+	}
+	g := h.store.GetGraphResponse()
+	if len(g.Insertions) != 1 || g.Insertions[0].ID != "GN2" {
+		t.Fatalf("付け替えた GN1 だけ消えるはず: %+v", g.Insertions)
+	}
+}
+
+// 付け替えは絞り込みから外れる方向も効かないと意味がない
+// （移した先だけ消えて、元のグループ指定では残る）。
+func TestSetGroupRemovesRecordFromOldGroupFilter(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo"), 0o644)
+
+	doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":1,"group":"old","lines":["x"]}`)
+	doInsertionsReq(h, "POST", "/api/insertions/group", `{"id":"GN1","group":"new"}`)
+
+	rec := doInsertionsReq(h, "POST", "/api/insertions/removeall", `{"group":"old"}`)
+	if rec.Code != 200 {
+		t.Fatalf("removeall(old) = %d: %s", rec.Code, rec.Body.String())
+	}
+	var res struct {
+		Removed []string `json:"removed"`
+	}
+	decodeJSON(t, rec, &res)
+	if len(res.Removed) != 0 {
+		t.Fatalf("旧グループ指定では消えないはず: %+v", res.Removed)
+	}
+	// ON/OFF も同じ絞り込みを使うので、そちらも新グループ側で拾えることを見る。
+	rec = doInsertionsReq(h, "POST", "/api/insertions/toggle", `{"group":"new","enabled":false}`)
+	var tg struct {
+		Toggled []string `json:"toggled"`
+	}
+	decodeJSON(t, rec, &tg)
+	if len(tg.Toggled) != 1 || tg.Toggled[0] != "GN1" {
+		t.Fatalf("新グループ指定で ON/OFF できるはず: %+v", tg.Toggled)
+	}
+}
+
+func TestSetGroupTrimsName(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\n"), 0o644)
+	doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":1,"lines":["x"]}`)
+
+	doInsertionsReq(h, "POST", "/api/insertions/group", `{"id":"GN1","group":"  probe  "}`)
+	if g := h.store.GetGraphResponse(); g.Insertions[0].Group != "probe" {
+		t.Fatalf("前後の空白は落とすはず: %q", g.Insertions[0].Group)
+	}
+}
+
+func TestSetGroupMethodAndWriteGuards(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\n"), 0o644)
+	doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":1,"lines":["x"]}`)
+
+	if rec := doInsertionsReq(h, "GET", "/api/insertions/group", ""); rec.Code != 405 {
+		t.Errorf("GET status = %d, want 405", rec.Code)
+	}
+	h.fileWrites = false
+	rec := doInsertionsReq(h, "POST", "/api/insertions/group", `{"id":"GN1","group":"x"}`)
+	if rec.Code != 403 {
+		t.Errorf("書き込み無効時 status = %d, want 403", rec.Code)
+	}
+	if g := h.store.GetGraphResponse(); g.Insertions[0].Group != "" {
+		t.Errorf("403 なのに記録が変わった: %+v", g.Insertions[0])
+	}
+}
+
+func TestSetGroupRejectsBadInput(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\n"), 0o644)
+	doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":1,"lines":["x"]}`)
+
+	cases := []struct {
+		body string
+		want int
+	}{
+		{`{"id":"GN1","group":"a\nb"}`, 400},
+		{`{"id":"GN1","group":"` + strings.Repeat("a", 121) + `"}`, 400},
+		{`{"group":"x"}`, 400},
+		{`{"id":"GN99","group":"x"}`, 404},
+	}
+	for _, c := range cases {
+		rec := doInsertionsReq(h, "POST", "/api/insertions/group", c.body)
+		if rec.Code != c.want {
+			t.Errorf("body %s: status = %d, want %d", c.body, rec.Code, c.want)
+		}
+	}
+	if g := h.store.GetGraphResponse(); g.Insertions[0].Group != "" {
+		t.Errorf("弾いた入力でグループが変わった: %+v", g.Insertions[0])
 	}
 }
 
