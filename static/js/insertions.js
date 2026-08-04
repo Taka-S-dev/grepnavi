@@ -347,11 +347,13 @@ async function _deleteInsertion(item) {
 // siteIdx は一覧からは常に 0 (sites[0] を表示しているため)、右クリックからは
 // カーソル行に一致した site。
 async function _rewriteInsertion(item, siteIdx = 0) {
-  const newTextRaw = await showInputModal('デバッグ行を書き換え', 'テキスト', item.memo);
+  // code: 等幅・広い枠で開き、行頭の字下げを保つ。trim すると Tab で付けた
+  // 段が書き換えのたびに消えてしまう。
+  const newTextRaw = await showInputModal('デバッグ行を書き換え', 'テキスト', item.memo, { code: true });
   if (newTextRaw == null) return;
-  // textarea 由来だと改行が混ざりうる。サーバは複数行を 400 で弾くので事前に単一行化する。
-  const newText = newTextRaw.replace(/[\r\n]+/g, ' ').trim();
-  if (!newText) { st('挿入する内容を入力してください'); return; }
+  // 貼り付けで改行が混ざりうる。サーバは複数行を 400 で弾くので事前に単一行化する。
+  const newText = newTextRaw.replace(/[\r\n]+/g, ' ');
+  if (!newText.trim()) { st('挿入する内容を入力してください'); return; }
   if (await _putInsertionText(item._insId, siteIdx, newText)) {
     st(item._insId + ' を書き換えました');
   }

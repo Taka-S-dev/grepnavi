@@ -243,28 +243,41 @@ function cycleSearchEncFromBadge() {
 }
 
 // ===== 汎用テキスト入力モーダル =====
-// showInputModal(title, placeholder, defaultVal) → Promise<string|null>
+// showInputModal(title, placeholder, defaultVal, opts) → Promise<string|null>
+// opts.code: ソース行を編集する用途。等幅で枠を広げ、行頭の字下げも編集対象
+// なので trim しない（既定の trim はグループ名などの短い入力向け）。
 let _inputModalResolve = null;
-function showInputModal(title, placeholder, defaultVal = '') {
+let _inputModalCode = false;
+function showInputModal(title, placeholder, defaultVal = '', opts = {}) {
   return new Promise(resolve => {
     _inputModalResolve = resolve;
+    _inputModalCode = !!opts.code;
     id('input-modal-title').textContent = title;
     const inp = id('input-modal-input');
     inp.placeholder = placeholder || '';
     inp.value = defaultVal;
+    id('input-modal-box').classList.toggle('input-modal-code', _inputModalCode);
+    inp.classList.toggle('input-modal-input-code', _inputModalCode);
     id('input-modal').classList.add('open');
     setTimeout(() => { inp.focus(); inp.select(); }, 30);
   });
+}
+
+// 空白だけの入力は取り消し扱い。中身があるときだけ、code 用途では原文のまま返す。
+function _inputModalValue() {
+  const v = id('input-modal-input').value;
+  if (!v.trim()) return null;
+  return _inputModalCode ? v : v.trim();
 }
 function _inputModalClose(val) {
   id('input-modal').classList.remove('open');
   if (_inputModalResolve) { _inputModalResolve(val); _inputModalResolve = null; }
 }
 document.addEventListener('DOMContentLoaded', () => {
-  id('input-modal-ok').onclick = () => _inputModalClose(id('input-modal-input').value.trim() || null);
+  id('input-modal-ok').onclick = () => _inputModalClose(_inputModalValue());
   id('input-modal-cancel').onclick = () => _inputModalClose(null);
   id('input-modal-input').onkeydown = e => {
-    if (e.key === 'Enter') { e.preventDefault(); _inputModalClose(id('input-modal-input').value.trim() || null); }
+    if (e.key === 'Enter') { e.preventDefault(); _inputModalClose(_inputModalValue()); }
     if (e.key === 'Escape') { e.preventDefault(); _inputModalClose(null); }
   };
   id('input-modal').addEventListener('click', e => {

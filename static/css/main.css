@@ -680,6 +680,10 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
   color:#ccc;padding:5px 8px;font:13px/1.4 'Segoe UI',sans-serif;outline:none;box-sizing:border-box;
 }
 #input-modal-input:focus{border-color:#007acc}
+/* ソース行の編集用。既定の幅ではデバッグ行 1 本が枠に収まらず、
+   プロポーショナル字体だとエディタ上の見え方とも一致しない。 */
+#input-modal-box.input-modal-code{min-width:min(600px,calc(100vw - 24px));max-width:min(820px,calc(100vw - 24px))}
+#input-modal-input.input-modal-input-code{font:12px/1.5 Consolas,'Courier New',monospace;padding:7px 8px}
 
 /* 汎用 確認/通知 モーダル */
 #gn-dialog{
