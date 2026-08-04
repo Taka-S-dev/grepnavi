@@ -2300,7 +2300,9 @@ function showDefPeek(hits, word, pixelPos) {
   const rows = hits.map((h, i) => {
     const row = document.createElement('div');
     row.className = 'def-peek-row' + (i === 0 ? ' def-peek-sel' : '');
-    row.innerHTML = `<span class="def-peek-loc">${esc(shortPath(h.file))}:${h.line}</span><span class="def-peek-txt">${esc((h.text || '').trim())}</span>`;
+    row.innerHTML = `<span class="def-peek-loc">${esc(shortPath(h.file))}:${h.line}</span>` +
+      (h.healed ? `<span class="def-peek-healed" title="索引の行番号と実際の位置がずれていたため、行の内容が一致する場所へ調整しました">調整</span>` : '') +
+      `<span class="def-peek-txt">${esc((h.text || '').trim())}</span>`;
     row.onclick = async () => { closeDefPeek(); if(typeof window.recordJump === 'function') window.recordJump(word, null, null, h.file, h.line); await openPeekPermanent(h.file, h.line); monacoEditor.focus(); };
     row.onmouseenter = () => { rows[sel].classList.remove('def-peek-sel'); sel = i; rows[sel].classList.add('def-peek-sel'); };
     list.appendChild(row);
@@ -2397,16 +2399,19 @@ async function jumpToDefinition(word, tagCtx = '') {
   }
 
   const _engLabel = window._lastDefEngine ? ` [${window._lastDefEngine}]` : '';
+  // 索引の行と実際の位置がずれていて、サーバーが着地点を動かしたときの断り。
+  // 黙って動かすと、万一外したときに気づく手掛かりが無くなる。
+  const _healedNote = ' — 索引の位置からずれていたため調整しました（索引を更新すると出なくなります）';
   // 1件なら直接ジャンプ
   if(hits.length === 1) {
-    st(`定義: ${shortPath(hits[0].file)}:${hits[0].line}${_engLabel}`);
+    st(`定義: ${shortPath(hits[0].file)}:${hits[0].line}${_engLabel}` + (hits[0].healed ? _healedNote : ''));
     if(typeof window.recordJump === 'function') window.recordJump(word, curFile, curLine, hits[0].file, hits[0].line);
     await openPeekPermanent(hits[0].file, hits[0].line);
     return;
   }
 
   // 複数件はピークウィジェットで表示（検索欄を汚染しない）
-  st(`定義 ${hits.length}件${_engLabel}`);
+  st(`定義 ${hits.length}件${_engLabel}` + (hits.some(x => x.healed) ? _healedNote : ''));
   const monacoPos = monacoEditor.getPosition() || { lineNumber: 1, column: 1 };
   const pixelPos = monacoEditor.getScrolledVisiblePosition(monacoPos) || { top: 40, left: 40 };
   // 1行分下にずらして表示
