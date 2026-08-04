@@ -125,7 +125,12 @@ type InsertionSite struct {
 	Text string `json:"text"` // 挿入した行そのもの (UTF-8、インデント込み)
 }
 
-// Insertion はデバッグ仕込み1件。sites が複数なら囲みペア (Plan 2)。
+// InsertionKindWrap は「対象コードを挟む囲み」であることを表す。行を挟む構造
+// なので、全行をまとめて置き換える操作の対象にしてはいけない（#endif が消える）。
+// 空の Kind は通常の挿入。この機能より前に作られた記録も空になる。
+const InsertionKindWrap = "wrap"
+
+// Insertion はデバッグ行1件。sites が複数なら複数行の塊、または囲みペア。
 type Insertion struct {
 	ID    string          `json:"id"` // "GN3"
 	File  string          `json:"file"`
@@ -133,6 +138,7 @@ type Insertion struct {
 	// Group は撤去の単位となる任意の名前（例: "path-A"）。空は無グループ。
 	// 仮説ごとに撒き分けて片方だけ畳む、という使い方のためにある。
 	Group     string    `json:"group,omitempty"`
+	Kind      string    `json:"kind,omitempty"`
 	Enabled   bool      `json:"enabled"`
 	CreatedAt time.Time `json:"created_at"`
 }

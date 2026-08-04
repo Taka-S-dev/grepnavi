@@ -86,6 +86,31 @@ func Load(path string) (*File, error) {
 
 func (f *File) LineCount() int { return len(f.lines) }
 
+// EndsWithNewline は最終行に行終端があるかを返す。
+//
+// 末尾に改行が無いファイルはその性質ごと保つ決まりだが、末尾の行を消したり
+// 足したりすると終端は前後の行へ移る。行の入れ替えを挟む操作では、変更前に
+// この値を控えて、最後に SetFinalNewline で戻す。
+func (f *File) EndsWithNewline() bool {
+	if len(f.terms) == 0 {
+		return true // 空ファイルには保つべき性質が無い
+	}
+	return f.terms[len(f.terms)-1] != ""
+}
+
+// SetFinalNewline は最終行の終端の有無を on に合わせる。
+func (f *File) SetFinalNewline(on bool) {
+	if len(f.terms) == 0 {
+		return
+	}
+	last := len(f.terms) - 1
+	if !on {
+		f.terms[last] = ""
+	} else if f.terms[last] == "" {
+		f.terms[last] = f.newline
+	}
+}
+
 func (f *File) LineUTF8(line int) (string, bool) {
 	if line < 1 || line > len(f.lines) {
 		return "", false

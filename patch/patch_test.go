@@ -71,6 +71,38 @@ func TestInsertAtEOFKeepsNoTrailingNewline(t *testing.T) {
 	}
 }
 
+// 末尾の行を消して足し直すと、終端の有無は前後の行へ移ってしまう。
+// 変更前の状態を控えて戻せることを確認する（挿入・撤去・全行の差し替えは
+// これを使って「末尾改行なし」を保つ）。
+func TestFinalNewlineIsRestorable(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		orig string
+		want string
+	}{
+		{"末尾改行なし", "one\ntwo", "one\nnew"},
+		{"末尾改行あり", "one\ntwo\n", "one\nnew\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := write(t, []byte(tc.orig))
+			roundtrip(t, p, func(f *File) error {
+				had := f.EndsWithNewline()
+				if err := f.DeleteLine(2, "two"); err != nil {
+					return err
+				}
+				if err := f.InsertAfter(1, []string{"new"}); err != nil {
+					return err
+				}
+				f.SetFinalNewline(had)
+				return nil
+			})
+			if got := read(t, p); string(got) != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestInsertAtTop(t *testing.T) {
 	p := write(t, []byte("one\n"))
 	roundtrip(t, p, func(f *File) error { return f.InsertAfter(0, []string{"zero"}) })

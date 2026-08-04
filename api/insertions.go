@@ -238,19 +238,33 @@ func (h *Handler) deleteInsertionByID(w http.ResponseWriter, id string) {
 }
 
 func (h *Handler) putInsertionByID(w http.ResponseWriter, r *http.Request, id string) {
+	// lines を送ると「このデバッグ行の全行を差し替える」(行数が変わってよい)。
+	// site + new_text は従来どおり1行だけの置き換えで、行数は変わらない。
+	// 囲みのように site が離れているレコードは前者を使えないので、後者が残る。
 	var req struct {
-		Site    int    `json:"site"`
-		NewText string `json:"new_text"`
+		Site    int      `json:"site"`
+		NewText string   `json:"new_text"`
+		Lines   []string `json:"lines"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonErr(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if strings.ContainsAny(req.NewText, "\n\r") {
-		// POST と同じ理由: 改行混入は記録行数とファイルの実行数をずらし、
-		// 以後の照合を永久に破綻させる。
-		jsonErr(w, "lines must not contain newline characters", http.StatusBadRequest)
+	texts := req.Lines
+	if texts == nil {
+		texts = []string{req.NewText}
+	}
+	if len(texts) == 0 {
+		jsonErr(w, "lines required", http.StatusBadRequest)
 		return
+	}
+	for _, l := range texts {
+		if strings.ContainsAny(l, "\n\r") {
+			// POST と同じ理由: 改行混入は記録行数とファイルの実行数をずらし、
+			// 以後の照合を永久に破綻させる。
+			jsonErr(w, "lines must not contain newline characters", http.StatusBadRequest)
+			return
+		}
 	}
 
 	// 位置解決 (resolveSitePosition) から UpdateInsertion までを直列化する。
@@ -260,6 +274,10 @@ func (h *Handler) putInsertionByID(w http.ResponseWriter, r *http.Request, id st
 	ins, ok := h.findInsertion(id)
 	if !ok {
 		jsonErr(w, "insertion not found", http.StatusNotFound)
+		return
+	}
+	if req.Lines != nil {
+		h.replaceInsertionBlock(w, ins, req.Lines)
 		return
 	}
 	if req.Site < 0 || req.Site >= len(ins.Sites) {
@@ -298,6 +316,131 @@ func (h *Handler) putInsertionByID(w http.ResponseWriter, r *http.Request, id st
 		return
 	}
 	jsonOK(w, map[string]any{"insertion": updated})
+}
+
+// errSitesNotContiguous は「レコードの行が連続していないので塊として置き換え
+// られない」ことを表す。囲み (#if 0 / #endif) は間に対象コードを挟むため必ず
+// これに当たる。丸ごと置き換えると #endif を消してしまうので、構造として弾く。
+var errSitesNotContiguous = errors.New("insertion: sites are not contiguous")
+
+// isWrapRecord は「対象コードを挟む囲み」かを判定する。
+//
+// Kind はこの判定を入れた後に作られた記録にしか無いので、それより前の囲みは
+// ガード行の形から見分ける（生成時の形は決まっており、OFF 中は行頭にコメント
+// 記号が付く）。誤って囲みでないと見なすとガードを消してしまうのに対し、
+// 逆の誤りは「まとめて書き換えられない」だけなので、片方でも当たれば囲み扱いにする。
+func isWrapRecord(ins graph.Insertion) bool {
+	if ins.Kind == graph.InsertionKindWrap {
+		return true
+	}
+	if len(ins.Sites) != 2 {
+		return false
+	}
+	guard := func(text, prefix string) bool {
+		t := strings.TrimSpace(text)
+		t = strings.TrimSpace(strings.TrimPrefix(t, disableMarker))
+		return strings.HasPrefix(t, prefix)
+	}
+	return guard(ins.Sites[0].Text, "#if 0") || guard(ins.Sites[1].Text, "#endif")
+}
+
+// replaceInsertionBlock はデバッグ行の全行を lines で置き換える。行数が変わって
+// よい点が site 単位の書き換えとの違いで、1行を数行に育てたり、複数行で撒いた
+// 塊をまとめて直したりできる。
+//
+// 手順は挿入・撤去と同じ verify-then-apply: 先に全 site の現在位置を確定させ、
+// 途中で不一致が出たらファイルには触らない。適用は「降順に消してから元の位置へ
+// 挿入」で、既存バイトを書き換えない byte-splice の性質を保つ。
+func (h *Handler) replaceInsertionBlock(w http.ResponseWriter, ins graph.Insertion, lines []string) {
+	if len(ins.Sites) == 0 {
+		// 記録が壊れている (手で編集した project JSON など)。置き換える対象が
+		// 無いので、位置を求める前に断る。
+		jsonErr(w, "insertion has no sites", http.StatusBadRequest)
+		return
+	}
+	if isWrapRecord(ins) {
+		// 囲みは #if 0 と #endif で対象コードを挟む。丸ごと置き換えると
+		// #endif が消えて囲みが壊れる。行が連続していても (中身を手で消した
+		// 場合など) 種類で断る。
+		jsonErr(w, errSitesNotContiguous.Error(), http.StatusBadRequest)
+		return
+	}
+	pf, err := patch.Load(ins.File)
+	if err != nil {
+		patchErrStatus(w, err)
+		return
+	}
+	type sitePos struct {
+		line int
+		text string
+	}
+	positions := make([]sitePos, len(ins.Sites))
+	for i, s := range ins.Sites {
+		line, err := resolveSitePosition(pf, ins.File, s)
+		if err != nil {
+			patchErrStatus(w, err)
+			return
+		}
+		positions[i] = sitePos{line: line, text: s.Text}
+	}
+	sort.Slice(positions, func(a, b int) bool { return positions[a].line < positions[b].line })
+	for i, p := range positions {
+		if p.line != positions[0].line+i {
+			jsonErr(w, errSitesNotContiguous.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	// 末尾の行を消して足し直すと終端の有無が前後の行へ移るので、控えて戻す。
+	hadFinalNewline := pf.EndsWithNewline()
+	start, n, m := positions[0].line, len(positions), len(lines)
+	for i := n - 1; i >= 0; i-- { // 降順に消せば、まだ消していない行の番号が崩れない
+		if err := pf.DeleteLine(positions[i].line, positions[i].text); err != nil {
+			patchErrStatus(w, err)
+			return
+		}
+	}
+	if err := pf.InsertAfter(start-1, lines); err != nil {
+		patchErrStatus(w, err)
+		return
+	}
+	pf.SetFinalNewline(hadFinalNewline)
+	if err := pf.Save(); err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 旧ブロックの直後から m-n 行ずれる。ShiftLines は自分の sites も対象に
+	// するが、それらは全て start+n より上にあるので触られない (この後で明示的に
+	// 置き直す)。挿入と同じく、記録の更新より先に呼ぶ。
+	// 行数が変わらないときは動かす対象が無いので、走らせない
+	// (メモ4マップの作り直しと保存が丸ごと無駄になる)。
+	var shift *graph.ShiftResult
+	if m != n {
+		s := h.store.ShiftLines(ins.File, start+n, m-n)
+		shift = &s
+	}
+
+	sites := make([]graph.InsertionSite, m)
+	for i, l := range lines {
+		sites[i] = graph.InsertionSite{Line: start + i, Text: l}
+	}
+	var updated graph.Insertion
+	if err := h.store.UpdateInsertion(ins.ID, func(u *graph.Insertion) {
+		u.Sites = sites
+		// OFF のまま中身を書き換えてコメント記号を外すと、記録は OFF なのに
+		// コードは生きた状態で固定され、ON にも OFF にもできなくなる。
+		// 実際の中身に合わせて直す (OFF→ON の向きだけ。生きている行を
+		// 勝手に OFF 扱いにはしない)。
+		if !u.Enabled && !allSitesDisabled(sites) {
+			u.Enabled = true
+		}
+		updated = *u
+	}); err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, map[string]any{"insertion": updated, "shift": shift})
 }
 
 // --- POST /api/insertions/removeall ---
@@ -436,6 +579,17 @@ func splitIndent(s string) (indent, rest string) {
 func disabledSiteText(s string) string {
 	indent, rest := splitIndent(s)
 	return indent + disableMarker + rest
+}
+
+// allSitesDisabled は全行がコメントアウト済みか。OFF の記録と実際の中身が
+// 食い違ったときの復旧判定に使う。
+func allSitesDisabled(sites []graph.InsertionSite) bool {
+	for _, s := range sites {
+		if _, ok := enabledSiteText(s.Text); !ok {
+			return false
+		}
+	}
+	return len(sites) > 0
 }
 
 // enabledSiteText はマーカを外した行を返す。マーカが見つからない場合は
@@ -707,7 +861,7 @@ func (h *Handler) handleInsertionsWrap(w http.ResponseWriter, r *http.Request) {
 			{Line: req.StartLine, Text: top},
 			{Line: req.EndLine + 2, Text: bottom},
 		},
-		Group: group, Enabled: true, CreatedAt: time.Now(),
+		Group: group, Kind: graph.InsertionKindWrap, Enabled: true, CreatedAt: time.Now(),
 	}
 	if err := h.store.AddInsertion(ins); err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
@@ -740,14 +894,18 @@ func (h *Handler) deleteInsertionSites(ins graph.Insertion) ([]graph.ShiftResult
 		}
 		positions[i] = sitePos{line: line, text: site.Text}
 	}
-	// 降順で消す: 複数 sites (Plan 2 の囲みペア) でも、上の行番号を崩さない。
+	// 降順で消す: 複数 sites (囲みペアや複数行の塊) でも、上の行番号を崩さない。
 	sort.Slice(positions, func(a, b int) bool { return positions[a].line > positions[b].line })
 
+	// 末尾の行を消すと終端の有無が手前の行へ移る。末尾に撒いたデバッグ行を
+	// 撤去したときに、元ファイルに無かった改行が増えないよう控えて戻す。
+	hadFinalNewline := pf.EndsWithNewline()
 	for _, p := range positions {
 		if err := pf.DeleteLine(p.line, p.text); err != nil {
 			return nil, err
 		}
 	}
+	pf.SetFinalNewline(hadFinalNewline)
 	if err := pf.Save(); err != nil {
 		return nil, err
 	}

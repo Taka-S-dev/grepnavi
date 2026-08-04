@@ -707,6 +707,255 @@ func TestWrapToggleNeutralizesGuards(t *testing.T) {
 	}
 }
 
+// 1行のデバッグ行を複数行へ育てる。増えた分だけ後続がずれ、撤去すれば
+// 元のファイルに戻る（記録と実ファイルの行数が食い違っていないことの証明）。
+func TestRewriteBlockGrowsAndRestores(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	original := []byte("one\ntwo\nthree")
+	os.WriteFile(src, original, 0o644)
+
+	doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":1,"lines":["x"]}`)
+	// 後続レコード: ずれ追従の確認用
+	doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":3,"lines":["tail"]}`)
+
+	rec := doInsertionsReq(h, "PUT", "/api/insertions/GN1", `{"lines":["a1","a2","a3"]}`)
+	if rec.Code != 200 {
+		t.Fatalf("block rewrite = %d: %s", rec.Code, rec.Body.String())
+	}
+	if got, _ := os.ReadFile(src); string(got) != "one\na1\na2\na3\ntwo\ntail\nthree" {
+		t.Fatalf("置き換え後のファイル: %q", got)
+	}
+	var res struct {
+		Insertion graph.Insertion `json:"insertion"`
+	}
+	decodeJSON(t, rec, &res)
+	if len(res.Insertion.Sites) != 3 || res.Insertion.Sites[0].Line != 2 || res.Insertion.Sites[2].Line != 4 {
+		t.Fatalf("sites が 2..4 行目になっていない: %+v", res.Insertion.Sites)
+	}
+	for _, ins := range h.store.GetGraphResponse().Insertions {
+		if ins.ID == "GN2" && ins.Sites[0].Line != 6 {
+			t.Errorf("後続レコードが 4→6 行目へ追従していない: %+v", ins.Sites)
+		}
+	}
+
+	if rec := doInsertionsReq(h, "POST", "/api/insertions/removeall", "{}"); rec.Code != 200 {
+		t.Fatalf("removeall = %d: %s", rec.Code, rec.Body.String())
+	}
+	if got, _ := os.ReadFile(src); !bytes.Equal(got, original) {
+		t.Fatalf("撤去で元に戻るはず: %q", got)
+	}
+}
+
+// 複数行の塊を減らす方向。行数が減っても記録と実ファイルが一致し続ける。
+func TestRewriteBlockShrinks(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	original := []byte("one\ntwo")
+	os.WriteFile(src, original, 0o644)
+
+	doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":1,"lines":["a","b","c"]}`)
+	rec := doInsertionsReq(h, "PUT", "/api/insertions/GN1", `{"lines":["only"]}`)
+	if rec.Code != 200 {
+		t.Fatalf("shrink = %d: %s", rec.Code, rec.Body.String())
+	}
+	if got, _ := os.ReadFile(src); string(got) != "one\nonly\ntwo" {
+		t.Fatalf("縮めた後のファイル: %q", got)
+	}
+	if g := h.store.GetGraphResponse(); len(g.Insertions[0].Sites) != 1 {
+		t.Fatalf("sites が 1 件になっていない: %+v", g.Insertions[0].Sites)
+	}
+	if rec := doInsertionsReq(h, "DELETE", "/api/insertions/GN1", ""); rec.Code != 200 {
+		t.Fatalf("delete = %d: %s", rec.Code, rec.Body.String())
+	}
+	if got, _ := os.ReadFile(src); !bytes.Equal(got, original) {
+		t.Fatalf("撤去で元に戻るはず: %q", got)
+	}
+}
+
+// 囲みは #if 0 と #endif の間に対象コードを挟むので連続していない。
+// 丸ごと置き換えると #endif が消えて囲みが壊れるため、構造として弾く。
+func TestRewriteBlockRejectsNonContiguousSites(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo\nthree"), 0o644)
+
+	doInsertionsReq(h, "POST", "/api/insertions/wrap", `{"file":"`+jsonPath(src)+`","start_line":1,"end_line":2}`)
+	before, _ := os.ReadFile(src)
+
+	rec := doInsertionsReq(h, "PUT", "/api/insertions/GN1", `{"lines":["broken"]}`)
+	if rec.Code != 400 {
+		t.Fatalf("status = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	if after, _ := os.ReadFile(src); !bytes.Equal(before, after) {
+		t.Errorf("弾いたのにファイルが変わった: %q -> %q", before, after)
+	}
+	// 囲みでも 1 行ずつの書き換えは従来どおり通る。
+	if rec := doInsertionsReq(h, "PUT", "/api/insertions/GN1", `{"site":0,"new_text":"#if 0 /* edited */"}`); rec.Code != 200 {
+		t.Fatalf("site 単位の書き換え = %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// 手動変更された行は塊置換の対象にしない (verify-then-apply で部分適用を防ぐ)。
+func TestRewriteBlockStopsOnManualChange(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo"), 0o644)
+
+	doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":1,"lines":["a","b"]}`)
+	os.WriteFile(src, []byte("one\na\nMODIFIED\ntwo"), 0o644)
+	before, _ := os.ReadFile(src)
+
+	rec := doInsertionsReq(h, "PUT", "/api/insertions/GN1", `{"lines":["x","y","z"]}`)
+	if rec.Code != 409 {
+		t.Fatalf("status = %d, want 409: %s", rec.Code, rec.Body.String())
+	}
+	if after, _ := os.ReadFile(src); !bytes.Equal(before, after) {
+		t.Errorf("409 なのにファイルが変わった: %q -> %q", before, after)
+	}
+}
+
+// 末尾に改行が無いファイルは、その性質ごと保つのがこのツールの約束。
+// 末尾のデバッグ行を書き換えても撤去しても、勝手に改行を足さない。
+func TestNoTrailingNewlineSurvivesRewriteAndRemove(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	original := []byte("one")
+	os.WriteFile(src, original, 0o644)
+
+	doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":1,"lines":["x"]}`)
+	if got, _ := os.ReadFile(src); string(got) != "one\nx" {
+		t.Fatalf("挿入直後: %q", got)
+	}
+	if rec := doInsertionsReq(h, "PUT", "/api/insertions/GN1", `{"lines":["y"]}`); rec.Code != 200 {
+		t.Fatalf("rewrite = %d: %s", rec.Code, rec.Body.String())
+	}
+	if got, _ := os.ReadFile(src); string(got) != "one\ny" {
+		t.Fatalf("書き換えで末尾に改行が増えた: %q", got)
+	}
+	if rec := doInsertionsReq(h, "DELETE", "/api/insertions/GN1", ""); rec.Code != 200 {
+		t.Fatalf("delete = %d: %s", rec.Code, rec.Body.String())
+	}
+	if got, _ := os.ReadFile(src); !bytes.Equal(got, original) {
+		t.Fatalf("撤去で完全に元へ戻るはず: %q", got)
+	}
+}
+
+// 中身を手で消して囲みの2行が隣り合っても、囲みは塊置換の対象にしない。
+// 連続かどうかではなく種類で判定する。
+func TestRewriteBlockRejectsWrapEvenWhenContiguous(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo\nthree"), 0o644)
+
+	doInsertionsReq(h, "POST", "/api/insertions/wrap", `{"file":"`+jsonPath(src)+`","start_line":2,"end_line":2}`)
+	// 囲んだ中身を手で削除 → ガード2行が隣り合う
+	os.WriteFile(src, []byte("one\n#if 0 /* GN1 */\n#endif /* GN1 */\nthree"), 0o644)
+	before, _ := os.ReadFile(src)
+
+	rec := doInsertionsReq(h, "PUT", "/api/insertions/GN1", `{"lines":["printf(\"hi\");"]}`)
+	if rec.Code != 400 {
+		t.Fatalf("status = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	if after, _ := os.ReadFile(src); !bytes.Equal(before, after) {
+		t.Errorf("弾いたのにファイルが変わった: %q -> %q", before, after)
+	}
+}
+
+// kind を持たない古い記録の囲みも、ガード行の形から囲みと分かる。
+// kind だけで判定すると、この機能より前に作られた囲みが素通りしてしまう。
+func TestRewriteBlockRejectsLegacyWrapWithoutKind(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\n#if 0 /* GN1 */\n#endif /* GN1 */\nthree"), 0o644)
+	before, _ := os.ReadFile(src)
+
+	// Kind を付けずに登録する（旧バージョンが保存した project JSON 相当）
+	h.store.AddInsertion(graph.Insertion{
+		ID: "GN1", File: src, Enabled: true,
+		Sites: []graph.InsertionSite{
+			{Line: 2, Text: "#if 0 /* GN1 */"},
+			{Line: 3, Text: "#endif /* GN1 */"},
+		},
+	})
+
+	rec := doInsertionsReq(h, "PUT", "/api/insertions/GN1", `{"lines":["printf(\"x\");"]}`)
+	if rec.Code != 400 {
+		t.Fatalf("status = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	if after, _ := os.ReadFile(src); !bytes.Equal(before, after) {
+		t.Errorf("ガードが消された: %q -> %q", before, after)
+	}
+}
+
+// OFF のまま中身を書き換えてコメント記号を外したら、記録も ON に直す。
+// 直さないと「OFF なのにコードは生きている」状態で固定され、
+// ON にも OFF にもできなくなる。
+func TestRewriteBlockRepairsEnabledWhenMarkerRemoved(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo"), 0o644)
+
+	doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":1,"lines":["x"]}`)
+	doInsertionsReq(h, "POST", "/api/insertions/toggle", `{"id":"GN1","enabled":false}`)
+	if g := h.store.GetGraphResponse(); g.Insertions[0].Enabled {
+		t.Fatalf("前提: OFF になっていない")
+	}
+
+	// コメント記号を外して書き換える
+	if rec := doInsertionsReq(h, "PUT", "/api/insertions/GN1", `{"lines":["printf(\"live\");"]}`); rec.Code != 200 {
+		t.Fatalf("rewrite = %d: %s", rec.Code, rec.Body.String())
+	}
+	if g := h.store.GetGraphResponse(); !g.Insertions[0].Enabled {
+		t.Fatalf("実際の中身に合わせて ON へ直すはず: %+v", g.Insertions[0])
+	}
+	// コメントアウトされた内容のまま書き換えたときは OFF のまま
+	doInsertionsReq(h, "POST", "/api/insertions/toggle", `{"id":"GN1","enabled":false}`)
+	if rec := doInsertionsReq(h, "PUT", "/api/insertions/GN1", `{"lines":["//printf(\"still off\");"]}`); rec.Code != 200 {
+		t.Fatalf("rewrite = %d: %s", rec.Code, rec.Body.String())
+	}
+	if g := h.store.GetGraphResponse(); g.Insertions[0].Enabled {
+		t.Fatalf("コメントのままなら OFF を保つはず: %+v", g.Insertions[0])
+	}
+}
+
+// 行数が変わらない書き換えでは、動かす対象が無いのでシフトを返さない。
+func TestRewriteBlockSameLineCountReturnsNoShift(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo"), 0o644)
+	doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":1,"lines":["x"]}`)
+
+	rec := doInsertionsReq(h, "PUT", "/api/insertions/GN1", `{"lines":["y"]}`)
+	var res struct {
+		Shift *graph.ShiftResult `json:"shift"`
+	}
+	decodeJSON(t, rec, &res)
+	if res.Shift != nil {
+		t.Fatalf("shift は返さないはず: %+v", res.Shift)
+	}
+}
+
+func TestRewriteBlockRejectsBadInput(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\n"), 0o644)
+	doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":1,"lines":["x"]}`)
+	before, _ := os.ReadFile(src)
+
+	for _, body := range []string{
+		`{"lines":[]}`,
+		`{"lines":["a\nb"]}`,
+	} {
+		if rec := doInsertionsReq(h, "PUT", "/api/insertions/GN1", body); rec.Code != 400 {
+			t.Errorf("body %s: status = %d, want 400", body, rec.Code)
+		}
+	}
+	if after, _ := os.ReadFile(src); !bytes.Equal(before, after) {
+		t.Errorf("弾いた入力でファイルが変わった: %q -> %q", before, after)
+	}
+}
+
 // グループの付け替えはメタデータだけの操作。撒き終わってから単位を決められる
 // ことが目的なので、無グループ↔名前付きの両方向が通り、ファイルは動かない。
 func TestSetGroupMovesRecordWithoutTouchingFile(t *testing.T) {
