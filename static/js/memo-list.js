@@ -76,6 +76,7 @@ function getAllMemosOrdered() {
       file: ins.file, line: site.line, memo: site.text,
       _insId: ins.id, _group: ins.group || '',
       _enabled: ins.enabled !== false,
+      _siteCount: ins.sites.length,
     });
   }
 
@@ -673,7 +674,11 @@ function _makeMemoRow(item) {
     `<span class="memo-list-icon">${icon}</span>` +
     `<span class="memo-list-locwrap"><span class="memo-list-loc" title="${esc(item.file)}">${esc(fileName)}<span class="memo-list-lineno">:${lineLabel}</span></span>` +
     _memoDriftChip(item) + manualChip + insGroupChip + `</span>` +
-    `<span class="memo-list-text" ${isBm ? 'style="color:#666"' : ''}>${textContent}</span>` +
+    `<span class="memo-list-text" ${isBm ? 'style="color:#666"' : ''}>${textContent}` +
+    // 一覧は 1 行目しか出さないので、残りが何行あるかを添える
+    // （見えていない行があることが分からないと、書き換えで面食らう）。
+    (item._siteCount > 1 ? `<span class="memo-list-insmore">+${item._siteCount - 1}行</span>` : '') +
+    `</span>` +
     toggleBtn + moveBtn + delBtn;
   // 行内の操作部品はプレビュー表示・ジャンプの対象外にする。
   const _onCtl = e => e.target.closest(

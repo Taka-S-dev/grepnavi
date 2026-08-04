@@ -684,6 +684,18 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
    プロポーショナル字体だとエディタ上の見え方とも一致しない。 */
 #input-modal-box.input-modal-code{min-width:min(600px,calc(100vw - 24px));max-width:min(820px,calc(100vw - 24px))}
 #input-modal-input.input-modal-input-code{font:12px/1.5 Consolas,'Courier New',monospace;padding:7px 8px}
+/* 複数行モード: 1行入力と入れ替える (同時には出さない)。 */
+#input-modal-ta,#input-modal-hint{display:none}
+#input-modal-box.input-modal-multiline #input-modal-input{display:none}
+#input-modal-box.input-modal-multiline #input-modal-ta{display:block}
+#input-modal-box.input-modal-multiline #input-modal-hint{display:block}
+#input-modal-ta{
+  width:100%;background:#1e1e1e;border:1px solid #555;border-radius:3px;color:#ccc;
+  padding:7px 8px;font:12px/1.5 Consolas,'Courier New',monospace;outline:none;
+  box-sizing:border-box;resize:vertical;white-space:pre;overflow-x:auto;
+}
+#input-modal-ta:focus{border-color:#007acc}
+#input-modal-hint{font-size:10px;color:#777}
 
 /* 汎用 確認/通知 モーダル */
 #gn-dialog{
@@ -1081,6 +1093,8 @@ body.calltree-mode #pane-left{display:none!important}
 .memo-list-item:hover .memo-list-insgroup-empty:hover{color:#c9a0e8;border-color:#7a5a9a;background:none}
 /* メニューのチェック印の枠。印の有無で項目の文字位置がずれないように固定幅。 */
 .ins-menu-check{display:inline-block;width:12px}
+/* 複数行のデバッグ行で、一覧に出ていない残り行数。 */
+.memo-list-insmore{margin-left:6px;color:#7a5a9a;font-size:9px}
 .memo-list-edit-ta{width:100%;height:54px;background:#1a1a1a;border:1px solid #007acc;color:#ccc;font:11px Consolas,monospace;padding:3px;resize:none;box-sizing:border-box;border-radius:2px;grid-column:3 / 6}
 .memo-list-item.memo-list-editing{grid-template-columns:16px 16px 1fr;flex-wrap:wrap}
 #memo-list-body{flex:1;overflow-y:auto;min-height:60px}

@@ -244,31 +244,90 @@ function cycleSearchEncFromBadge() {
 
 // ===== 汎用テキスト入力モーダル =====
 // showInputModal(title, placeholder, defaultVal, opts) → Promise<string|null>
-// opts.code: ソース行を編集する用途。等幅で枠を広げ、行頭の字下げも編集対象
-// なので trim しない（既定の trim はグループ名などの短い入力向け）。
+// opts.code:      ソース行を編集する用途。等幅で枠を広げ、行頭の字下げも編集対象
+//                 なので trim しない（既定の trim はグループ名などの短い入力向け）。
+// opts.multiline: 1行入力を textarea に差し替える。Ctrl+Enter で確定、Enter は改行。
 let _inputModalResolve = null;
 let _inputModalCode = false;
+let _inputModalMultiline = false;
+
+// 今どちらの入力欄を使っているか。表示の切り替えは CSS 側 (.input-modal-multiline)。
+function _inputModalField() {
+  return id(_inputModalMultiline ? 'input-modal-ta' : 'input-modal-input');
+}
+
 function showInputModal(title, placeholder, defaultVal = '', opts = {}) {
   return new Promise(resolve => {
     _inputModalResolve = resolve;
     _inputModalCode = !!opts.code;
+    _inputModalMultiline = !!opts.multiline;
     id('input-modal-title').textContent = title;
-    const inp = id('input-modal-input');
-    inp.placeholder = placeholder || '';
-    inp.value = defaultVal;
-    id('input-modal-box').classList.toggle('input-modal-code', _inputModalCode);
-    inp.classList.toggle('input-modal-input-code', _inputModalCode);
+    const box = id('input-modal-box');
+    box.classList.toggle('input-modal-code', _inputModalCode);
+    box.classList.toggle('input-modal-multiline', _inputModalMultiline);
+    // 1行入力の等幅化は textarea 側には要らない (元から等幅)。
+    id('input-modal-input').classList.toggle('input-modal-input-code', _inputModalCode && !_inputModalMultiline);
+    const el = _inputModalField();
+    el.placeholder = placeholder || '';
+    el.value = defaultVal;
     id('input-modal').classList.add('open');
-    setTimeout(() => { inp.focus(); inp.select(); }, 30);
+    setTimeout(() => {
+      el.focus();
+      // 1行入力は「丸ごと打ち直す」のが普通なので全選択する。複数行は既存の
+      // 内容に手を入れる用途なので、全選択したまま Tab や文字入力を受けると
+      // 中身が消える。末尾にキャレットを置く。
+      if (_inputModalMultiline) el.setSelectionRange(el.value.length, el.value.length);
+      else el.select();
+    }, 30);
   });
 }
 
 // 空白だけの入力は取り消し扱い。中身があるときだけ、code 用途では原文のまま返す。
 function _inputModalValue() {
-  const v = id('input-modal-input').value;
+  const v = _inputModalField().value;
   if (!v.trim()) return null;
   return _inputModalCode ? v : v.trim();
 }
+// textarea 内の Tab をフォーカス移動ではなく字下げ操作にする。
+// 複数行を選択しているときは行ごとに字下げ・字上げする。選択を潰して
+// タブ1文字に置き換えてしまうと、編集中の内容が消える。
+// outdent は行頭からタブ1つ (無ければスペース最大4つ) を外す。
+function _taIndent(ta, outdent) {
+  const v = ta.value, start = ta.selectionStart, end = ta.selectionEnd;
+  // 行頭で終わる選択は、その行を含める意図ではない (エディタ共通の作法)。
+  const selEnd = end > start && v[end - 1] === '\n' ? end - 1 : end;
+  const spansLines = v.slice(start, selEnd).includes('\n');
+  // 選択を1つのタブで置き換えてよいのは、その選択が1行に収まっているときだけ。
+  // 行頭で終わる選択 (selEnd !== end) は行単位の操作として扱う。
+  if (!spansLines && !outdent && selEnd === end) { // 単純な字下げ挿入
+    ta.value = v.slice(0, start) + '\t' + v.slice(end);
+    ta.selectionStart = ta.selectionEnd = start + 1;
+    return;
+  }
+  const from = v.lastIndexOf('\n', start - 1) + 1;  // 先頭行の行頭
+  let to = v.indexOf('\n', selEnd);                 // 末尾行の行末
+  if (to < 0) to = v.length;
+  let headDelta = 0, totalDelta = 0;
+  const orig = v.slice(from, to);
+  const body = orig.split('\n').map((line, i) => {
+    if (outdent) {
+      const m = line.match(/^(\t| {1,4})/);
+      if (!m) return line;
+      if (i === 0) headDelta = -m[1].length;
+      totalDelta -= m[1].length;
+      return line.slice(m[1].length);
+    }
+    if (i === 0) headDelta = 1;
+    totalDelta += 1;
+    return '\t' + line;
+  }).join('\n');
+  // 外す段が無かったときに value を代入し直すと、textarea の undo 履歴が消える。
+  if (body === orig) return;
+  ta.value = v.slice(0, from) + body + v.slice(to);
+  ta.selectionStart = Math.max(from, start + headDelta);
+  ta.selectionEnd = Math.max(ta.selectionStart, end + totalDelta);
+}
+
 function _inputModalClose(val) {
   id('input-modal').classList.remove('open');
   if (_inputModalResolve) { _inputModalResolve(val); _inputModalResolve = null; }
@@ -276,12 +335,22 @@ function _inputModalClose(val) {
 document.addEventListener('DOMContentLoaded', () => {
   id('input-modal-ok').onclick = () => _inputModalClose(_inputModalValue());
   id('input-modal-cancel').onclick = () => _inputModalClose(null);
+  // stopPropagation は、背後のフローティング定義などが同じ Escape で
+  // 一緒に閉じないようにするため（モーダルが最前面なので、ここで止めてよい）。
   id('input-modal-input').onkeydown = e => {
     if (e.key === 'Enter') { e.preventDefault(); _inputModalClose(_inputModalValue()); }
-    if (e.key === 'Escape') { e.preventDefault(); _inputModalClose(null); }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); _inputModalClose(null); }
+  };
+  id('input-modal-ta').onkeydown = e => {
+    // Enter は改行なので、確定は Ctrl+Enter に寄せる (挿入ダイアログと同じ)。
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); _inputModalClose(_inputModalValue()); return; }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); _inputModalClose(null); return; }
+    if (e.key === 'Tab') { e.preventDefault(); _taIndent(e.target, e.shiftKey); }
   };
   id('input-modal').addEventListener('click', e => {
-    if (e.target === id('input-modal')) _inputModalClose(null);
+    // 複数行のときは背景クリックで閉じない。書きかけの数行を、外した
+    // クリック1つで失うのは代償が大きすぎる (Esc とキャンセルは残る)。
+    if (e.target === id('input-modal') && !_inputModalMultiline) _inputModalClose(null);
   });
 });
 

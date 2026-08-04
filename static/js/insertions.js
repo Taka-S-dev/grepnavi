@@ -318,9 +318,14 @@ function refreshInsertionDecorations() {
 const _insertionManualChangeIds = new Set();
 
 // PUT/DELETE 共通のステータス別文言。403 は書き込み無効 (-host 指定時など)。
-function _insertionWriteErrorMessage(r, id) {
+// 400 の「行が連続していない」は、囲みか、間に別のデバッグ行が割り込んだ
+// ケース。「失敗しました (400)」だけでは何をすればよいか分からないので分ける。
+function _insertionWriteErrorMessage(r, id, body) {
   if (r && r.status === 409) return '手動変更があるため操作できません (' + id + ')';
   if (r && r.status === 403) return 'この構成ではファイル書き込みが無効です (-host 指定時など)';
+  if (r && r.status === 400 && /not contiguous/.test(body || '')) {
+    return 'この行はまとめて書き換えられません（行が連続していません）';
+  }
   return '操作に失敗しました' + (r ? ` (${r.status})` : ' (通信エラー)');
 }
 
@@ -342,44 +347,100 @@ async function _deleteInsertion(item) {
   st(item._insId + " を撤去しました");
 }
 
-// 一覧の ✎ ボタンとエディタ右クリックの両方から呼ぶ: showInputModal で
-// site テキストを編集 → PUT → graph.insertions の該当エントリを差し替える。
-// siteIdx は一覧からは常に 0 (sites[0] を表示しているため)、右クリックからは
-// カーソル行に一致した site。
+// まとめて（行を増減しつつ）書き換えてよいレコードか。サーバ側の判定と
+// 同じ規則にする — 食い違うと、押せるのに 400 で断られる操作ができてしまう。
+// 囲みは対象コードを挟む構造なので丸ごと置き換えてはいけない。kind が無い
+// 古い記録もあるため、ガード行の形でも見分ける。
+function _canBlockEdit(ins) {
+  const sites = ins?.sites || [];
+  if (!sites.length || ins.kind === 'wrap') return false;
+  const guard = (text, re) => re.test(String(text || '').trim().replace(/^\/\/\s*/, ''));
+  if (sites.length === 2 && (guard(sites[0].text, /^#if 0/) || guard(sites[1].text, /^#endif/))) return false;
+  const lines = sites.map((s) => s.line).sort((a, b) => a - b);
+  return lines.every((l, i) => l === lines[0] + i);
+}
+
+// 一覧の ✎ ボタンとエディタ右クリックの両方から呼ぶ。
+// 連続レコードは全行を textarea で開き、行を増減してよい (PUT の lines)。
+// 囲みのような非連続レコードは、カーソル位置の 1 行だけを書き換える。
+// siteIdx は一覧からは常に 0、右クリックからはカーソル行に一致した site。
 async function _rewriteInsertion(item, siteIdx = 0) {
+  const ins = (graph?.insertions || []).find((i) => i.id === item._insId);
+  const block = _canBlockEdit(ins);
   // code: 等幅・広い枠で開き、行頭の字下げを保つ。trim すると Tab で付けた
   // 段が書き換えのたびに消えてしまう。
-  const newTextRaw = await showInputModal('デバッグ行を書き換え', 'テキスト', item.memo, { code: true });
-  if (newTextRaw == null) return;
-  // 貼り付けで改行が混ざりうる。サーバは複数行を 400 で弾くので事前に単一行化する。
-  const newText = newTextRaw.replace(/[\r\n]+/g, ' ');
-  if (!newText.trim()) { st('挿入する内容を入力してください'); return; }
-  if (await _putInsertionText(item._insId, siteIdx, newText)) {
-    st(item._insId + ' を書き換えました');
+  const raw = await showInputModal(
+    block ? 'デバッグ行を書き換え（行を増減できます）' : 'デバッグ行を書き換え',
+    block ? '1行ずつ挿入されます' : 'テキスト',
+    block ? ins.sites.map((s) => s.text).join('\n') : item.memo,
+    { code: true, multiline: block });
+  if (raw == null) return;
+
+  if (!block) {
+    // 貼り付けで改行が混ざりうる。1 行の置き換えなので事前に単一行化する。
+    const newText = raw.replace(/[\r\n]+/g, ' ');
+    if (!newText.trim()) { st('挿入する内容を入力してください'); return; }
+    if (await _putInsertionText(item._insId, siteIdx, newText)) {
+      st(item._insId + ' を書き換えました');
+    }
+    return;
+  }
+
+  const lines = raw.split('\n').map((l) => l.replace(/\r/g, ''));
+  // 末尾の空行は入力の操作痕跡。途中の空行は意図した空行かもしれないので残す。
+  while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
+  if (!lines.length) { st('挿入する内容を入力してください'); return; }
+  if (await _putInsertionLines(item._insId, lines)) {
+    const n = ins.sites.length;
+    st(item._insId + ' を書き換えました' + (lines.length !== n ? `（${n} 行 → ${lines.length} 行）` : ''));
   }
 }
 
 // PUT の共通部。書き換えモーダルと Tab 字下げの両方から呼ぶ。
 // 成功時は graph.insertions を差し替えてから再描画する。
 async function _putInsertionText(insId, siteIdx, newText) {
+  return _putInsertion(insId, { site: siteIdx, new_text: newText });
+}
+
+// 全行の差し替え。行数が変わるので、サーバが返すシフトを他の記録へ反映する。
+async function _putInsertionLines(insId, lines) {
+  return _putInsertion(insId, { lines });
+}
+
+async function _putInsertion(insId, body) {
   const r = await fetch("/api/insertions/" + encodeURIComponent(insId), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ site: siteIdx, new_text: newText }),
+    body: JSON.stringify(body),
   }).catch(() => null);
   if (!r || !r.ok) {
     if (r && r.status === 409) { _insertionManualChangeIds.add(insId); renderMemoList(); }
-    st(_insertionWriteErrorMessage(r, insId));
+    let errText = '';
+    try { errText = (await r.clone().json())?.error || ''; } catch { /* ignore */ }
+    st(_insertionWriteErrorMessage(r, insId, errText));
+    // 記録の食い違い (クライアント側の行番号が古い) が原因のことがあるので、
+    // 正本を読み直してから諦める。次の操作は最新の状態で判断できる。
+    if (r && r.status === 400) await loadGraph();
     return false;
   }
   const d = await r.json();
-  const idx = (graph.insertions || []).findIndex((i) => i.id === insId);
-  if (idx >= 0) graph.insertions[idx] = d.insertion;
-  else { if (!Array.isArray(graph.insertions)) graph.insertions = []; graph.insertions.push(d.insertion); }
+  // 行数が変わった場合だけ shift が返る。1 行の置き換えでは行が動かない。
+  if (d.shift) {
+    applyShift(d.shift); // localStorage 側のメモ・ブックマークを追従させる
+    // 同じファイルの他のデバッグ行も動いている。graph.insertions はここでは
+    // 追従できない (シフトの対象外) ので、サーバから読み直す。
+    await loadGraph();
+  } else {
+    const idx = (graph.insertions || []).findIndex((i) => i.id === insId);
+    if (idx >= 0) graph.insertions[idx] = d.insertion;
+    else { if (!Array.isArray(graph.insertions)) graph.insertions = []; graph.insertions.push(d.insertion); }
+  }
   _insertionManualChangeIds.delete(insId);
   await pollActiveFile();
   refreshInsertionDecorations();
   renderMemoList();
+  // OFF の記録を書き換えて ON に直った場合に、バッジの OFF 件数も合わせる。
+  updateInsertionBadge();
   return true;
 }
 
@@ -869,24 +930,7 @@ function _initInsertDialog() {
   ta.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { e.stopPropagation(); closeInsertDialog(); }
     else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); _insertDialogSubmit(); }
-    else if (e.key === 'Tab') {
-      // textarea 内では Tab はフォーカス移動ではなく字下げ操作にする。
-      // Shift+Tab はカーソル行の行頭からタブ1つ (無ければスペース最大4つ) を外す。
-      e.preventDefault();
-      const start = ta.selectionStart, end = ta.selectionEnd;
-      if (e.shiftKey) {
-        const lineStart = ta.value.lastIndexOf('\n', start - 1) + 1;
-        const head = ta.value.slice(lineStart);
-        const m = head.match(/^(\t| {1,4})/);
-        if (!m) return;
-        ta.value = ta.value.slice(0, lineStart) + ta.value.slice(lineStart + m[1].length);
-        const pos = Math.max(lineStart, start - m[1].length);
-        ta.selectionStart = ta.selectionEnd = pos;
-      } else {
-        ta.value = ta.value.slice(0, start) + '\t' + ta.value.slice(end);
-        ta.selectionStart = ta.selectionEnd = start + 1;
-      }
-    }
+    else if (e.key === 'Tab') { e.preventDefault(); _taIndent(ta, e.shiftKey); }
   });
 }
 
