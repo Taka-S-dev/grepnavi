@@ -247,7 +247,7 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 	cacheKey := word + "\x00" + dir + "\x00" + glob + "\x00" + orderKey
 	if cached, ok := defCacheGet(cacheKey); ok {
 		slog.Debug("definition cache hit", "word", word, "engine", cached.engine)
-		writeDefinitionResponse(w, word, hroot, cached, q.Get("tag"))
+		h.writeDefinitionResponse(w, word, hroot, cached, q.Get("tag"))
 		return
 	}
 	// 同一キーの並行リクエストは1回の検索で済ませる（in-flight dedup）
@@ -315,13 +315,15 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 		if e != nil {
 			return defResult{}, e
 		}
-		if h == nil {
-			h = []search.DefHit{}
+		// エンジン名を書き込む前に複製する。検索層は結果をキャッシュしていて、
+		// 返ってくるスライスがその実体であることがある（gtags の非プリロード経路）。
+		// 直接書くと、同じ語の並行リクエストが共有データを書き換え合う。
+		hits := make([]search.DefHit, len(h))
+		copy(hits, h)
+		for i := range hits {
+			hits[i].Engine = eng
 		}
-		for i := range h {
-			h[i].Engine = eng
-		}
-		out := defResult{hits: h, engine: eng}
+		out := defResult{hits: hits, engine: eng}
 		// タイムアウト・クライアント中断で途切れた検索は「なし」と確定していないので
 		// キャッシュしない（次のリクエストで再検索させる）
 		if !rgTimedOut && r.Context().Err() == nil {
@@ -333,20 +335,23 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeDefinitionResponse(w, word, hroot, res, q.Get("tag"))
+	h.writeDefinitionResponse(w, word, hroot, res, q.Get("tag"))
 }
 
 // writeDefinitionResponse は X-Engine と（0件時の）X-Definition-Hint を添えて hits を返す。
 // 新規検索・キャッシュヒット・in-flight 待機のどの経路でも同じヘッダが付くよう一本化。
-func writeDefinitionResponse(w http.ResponseWriter, word, hroot string, res defResult, tag string) {
+func (h *Handler) writeDefinitionResponse(w http.ResponseWriter, word, hroot string, res defResult, tag string) {
 	w.Header().Set("X-Engine", res.engine)
 	if len(res.hits) == 0 {
 		if hint := definitionEmptyHint(word, hroot); hint != "" {
 			w.Header().Set("X-Definition-Hint", hint)
 		}
 	}
+	// 着地点の補正はキャッシュより後に置く。キャッシュへ入れる前に直すと、
+	// その後の編集でまたずれた値が固定されてしまう。
+	hits := h.healDefHits(append([]search.DefHit(nil), res.hits...))
 	// tag は呼び出し位置ごとに変わるのでキャッシュには載せず、応答直前に整列する。
-	jsonOK(w, search.RankDefHitsByTag(res.hits, tag))
+	jsonOK(w, search.RankDefHitsByTag(hits, tag))
 }
 
 // definitionEmptyHint は 0 件返却時に「なぜ見つからなかったか」のヒントを返す。

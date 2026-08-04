@@ -24,6 +24,22 @@ import (
 // loopback バインド時にのみ server.go から呼ばれる想定。
 func (h *Handler) EnableFileWrites() { h.fileWrites = true }
 
+// saveFile は書き換えたソースを保存し、書き換えに伴う後始末をする。
+// 挿入系の保存は必ずここを通す（保存経路が増えても後始末を忘れないため）。
+//
+// 定義・ホバーのキャッシュは file:line をそのまま持っているので、行がずれた後も
+// 2 分間は古い位置を返し続ける。索引を作り直したときは捨てているのに、自分で
+// 書き換えたときに捨てないのは筋が通らない。索引由来のヒットは索引自体が古い
+// ままなのでこれだけでは直らないが、ファイルを直接見る rg 経路は正しい位置に戻る。
+func (h *Handler) saveFile(pf *patch.File) error {
+	if err := pf.Save(); err != nil {
+		return err
+	}
+	defCacheClear()
+	hoverCacheClear()
+	return nil
+}
+
 // errRecordedLineModified は「記録行の照合に失敗し、完全一致するの行も
 // ちょうど1行に絞れなかった」ことを表す。0件・複数件のどちらも同じ扱い
 // （もっともらしく間違えるより止まる方を選ぶ）。
@@ -157,7 +173,7 @@ func (h *Handler) handleInsertions(w http.ResponseWriter, r *http.Request) {
 		patchErrStatus(w, err)
 		return
 	}
-	if err := pf.Save(); err != nil {
+	if err := h.saveFile(pf); err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -300,7 +316,7 @@ func (h *Handler) putInsertionByID(w http.ResponseWriter, r *http.Request, id st
 		patchErrStatus(w, err)
 		return
 	}
-	if err := pf.Save(); err != nil {
+	if err := h.saveFile(pf); err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -405,7 +421,7 @@ func (h *Handler) replaceInsertionBlock(w http.ResponseWriter, ins graph.Inserti
 		return
 	}
 	pf.SetFinalNewline(hadFinalNewline)
-	if err := pf.Save(); err != nil {
+	if err := h.saveFile(pf); err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -634,7 +650,7 @@ func (h *Handler) toggleInsertionSites(ins graph.Insertion, desired bool) ([]gra
 			return nil, err
 		}
 	}
-	if err := pf.Save(); err != nil {
+	if err := h.saveFile(pf); err != nil {
 		return nil, err
 	}
 	return sites, nil
@@ -843,7 +859,7 @@ func (h *Handler) handleInsertionsWrap(w http.ResponseWriter, r *http.Request) {
 		patchErrStatus(w, err)
 		return
 	}
-	if err := pf.Save(); err != nil {
+	if err := h.saveFile(pf); err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -906,7 +922,7 @@ func (h *Handler) deleteInsertionSites(ins graph.Insertion) ([]graph.ShiftResult
 		}
 	}
 	pf.SetFinalNewline(hadFinalNewline)
-	if err := pf.Save(); err != nil {
+	if err := h.saveFile(pf); err != nil {
 		return nil, err
 	}
 
