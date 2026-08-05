@@ -279,9 +279,11 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
    水色にして、「これから入る場所」と「既に入っている行」を取り違えないようにする。
    開いた直後だけ数回脈打たせる — 出しっぱなしで点滅させると、書いている間ずっと
    視界の端で動くことになる。 */
-.insert-target-deco{background:rgba(80,200,255,0.10);box-shadow:inset 3px 0 0 #4aa8d8}
+/* 入るのは「その行」ではなく「その行の下の境目」。行を塗ると、その行自体が
+   対象だと読めてしまうので、下端に線を引いて境界そのものを示す。 */
+.insert-target-deco{box-shadow:inset 0 -2px 0 #4aa8d8}
 .insert-target-glyph{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M3 11h10M8 3v6M5.5 6.5L8 9l2.5-2.5' fill='none' stroke='%234aa8d8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/13px no-repeat}
-@keyframes insert-target-pulse{0%,100%{background:rgba(80,200,255,0.10)}50%{background:rgba(80,200,255,0.34)}}
+@keyframes insert-target-pulse{0%,100%{box-shadow:inset 0 -2px 0 #4aa8d8}50%{box-shadow:inset 0 -3px 0 #a5e4ff}}
 /* 交互に使う2つ。同じクラスを貼り直してもアニメーションは再生されないため。 */
 .insert-target-pulse-a,.insert-target-pulse-b{animation:insert-target-pulse .5s ease-in-out 3}
 /* 挿入先への戻り道。色は CSS 側に置く (要素に style 属性があると勝てない)。 */
