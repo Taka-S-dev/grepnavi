@@ -440,6 +440,23 @@ function _inputModalValue() {
   if (!v.trim()) return null;
   return _inputModalCode ? v : v.trim();
 }
+// textarea の一部を、undo 履歴を保ったまま置き換える。
+//
+// value への代入はブラウザの undo 履歴を丸ごと捨てるので、字下げした瞬間に
+// それまで打った内容を Ctrl+Z で戻せなくなる。選択してから execCommand で
+// 差し替えると1回の編集として履歴に積まれる。非推奨 API だが、textarea の
+// 履歴を保てる実用的な手段が他に無い。使えない環境では代入に落とす。
+function _taReplace(ta, from, to, text, selStart, selEnd) {
+  ta.setSelectionRange(from, to);
+  let ok = false;
+  try { ok = document.execCommand('insertText', false, text); } catch { ok = false; }
+  if (!ok) {
+    const v = ta.value;
+    ta.value = v.slice(0, from) + text + v.slice(to);
+  }
+  ta.setSelectionRange(selStart, selEnd);
+}
+
 // textarea 内の Tab をフォーカス移動ではなく字下げ操作にする。
 // 複数行を選択しているときは行ごとに字下げ・字上げする。選択を潰して
 // タブ1文字に置き換えてしまうと、編集中の内容が消える。
@@ -452,8 +469,7 @@ function _taIndent(ta, outdent) {
   // 選択を1つのタブで置き換えてよいのは、その選択が1行に収まっているときだけ。
   // 行頭で終わる選択 (selEnd !== end) は行単位の操作として扱う。
   if (!spansLines && !outdent && selEnd === end) { // 単純な字下げ挿入
-    ta.value = v.slice(0, start) + '\t' + v.slice(end);
-    ta.selectionStart = ta.selectionEnd = start + 1;
+    _taReplace(ta, start, end, '\t', start + 1, start + 1);
     return;
   }
   const from = v.lastIndexOf('\n', start - 1) + 1;  // 先頭行の行頭
@@ -473,11 +489,9 @@ function _taIndent(ta, outdent) {
     totalDelta += 1;
     return '\t' + line;
   }).join('\n');
-  // 外す段が無かったときに value を代入し直すと、textarea の undo 履歴が消える。
-  if (body === orig) return;
-  ta.value = v.slice(0, from) + body + v.slice(to);
-  ta.selectionStart = Math.max(from, start + headDelta);
-  ta.selectionEnd = Math.max(ta.selectionStart, end + totalDelta);
+  if (body === orig) return; // 外す段が無い: 履歴も選択も動かさない
+  const ns = Math.max(from, start + headDelta);
+  _taReplace(ta, from, to, body, ns, Math.max(ns, end + totalDelta));
 }
 
 function _inputModalClose(val) {

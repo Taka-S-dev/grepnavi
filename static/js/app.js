@@ -227,6 +227,10 @@ addEventListener('DOMContentLoaded', async () => {
     if((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
       // Monaco がフォーカスを持っているときはエディタ側のアンドゥに任せる
       if(monacoEditor && monacoEditor.hasTextFocus()) return;
+      // 入力欄でも同じ。ここで奪うと、書いている文字が戻らないうえに
+      // グラフ側の操作が黙って1つ取り消される (memo-list.js の Ctrl+Z と同じ規約)。
+      const tag = document.activeElement?.tagName;
+      if(tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
       e.preventDefault();
       const r = await fetch('/api/graph/undo', {method: 'POST'});
       const d = await r.json();

@@ -47,7 +47,14 @@ function _insertTemplates() {
 // インデントを再計算しない (カーソル行のインデントを「そのまま前置」する仕様)。
 let _insertDialogState = null; // {file, line, indent}
 
-function _insertDialogRebuildTextarea() {
+// 最後にテンプレートから組み立てた内容。利用者が手を入れたかどうかの判定に使う。
+let _insertDialogGenerated = null;
+
+// force=false のときは、利用者が textarea に手を入れていたら組み直さない。
+// 条件式は1文字打つたびにここへ来るので、無条件に組み直すと書きかけが
+// キーストロークごとに消える（しかも value 代入なので Ctrl+Z でも戻らない）。
+// テンプレートを選び直したときは「その内容が欲しい」という意思表示なので組み直す。
+function _insertDialogRebuildTextarea(force = false) {
   const sel = document.getElementById('insert-dialog-template');
   const condInput = document.getElementById('insert-dialog-cond');
   const ta = document.getElementById('insert-dialog-ta');
@@ -55,13 +62,16 @@ function _insertDialogRebuildTextarea() {
   const templates = _insertTemplates();
   const tpl = templates.find(t => t.id === sel.value) || templates[0];
   condInput.style.display = tpl.needsCond ? '' : 'none';
+  const delBtn = document.getElementById('insert-dialog-del-preset');
+  if (delBtn) delBtn.style.display = /^preset\d+$/.test(sel.value) ? '' : 'none';
+  if (!force && _insertDialogGenerated !== null && ta.value !== _insertDialogGenerated) return;
+
   const cond = condInput.value.trim() || 'cond';
   const body = tpl.needsCond ? tpl.template.replace('{cond}', cond) : tpl.template;
   const indent = _insertDialogState?.indent || '';
   // 複数行テンプレは全行にインデントを前置する（1行目だけだと段がずれる）。
   ta.value = body ? body.split('\n').map(l => indent + l).join('\n') : indent;
-  const delBtn = document.getElementById('insert-dialog-del-preset');
-  if (delBtn) delBtn.style.display = /^preset\d+$/.test(sel.value) ? '' : 'none';
+  _insertDialogGenerated = ta.value;
 }
 
 // テンプレ select の再構築。selectId を渡すとそれを選択状態にする
@@ -97,7 +107,7 @@ async function _saveInsertPreset() {
   presets.push({ label: name, template, needsCond: template.includes('{cond}') });
   localStorage.setItem(LS_INSERT_PRESETS, JSON.stringify(presets));
   _rebuildTemplateSelect('preset' + (presets.length - 1));
-  _insertDialogRebuildTextarea();
+  _insertDialogRebuildTextarea(true);
   st(`プリセット「${name}」を保存しました`);
 }
 
@@ -114,7 +124,7 @@ async function _deleteInsertPreset() {
   presets.splice(+m[1], 1);
   localStorage.setItem(LS_INSERT_PRESETS, JSON.stringify(presets));
   _rebuildTemplateSelect('printf');
-  _insertDialogRebuildTextarea();
+  _insertDialogRebuildTextarea(true);
   st(`プリセット「${name}」を削除しました`);
 }
 
@@ -157,7 +167,8 @@ function openInsertDialog() {
     }
     groupInput.value = localStorage.getItem(LS_INSERT_LAST_GROUP) || '';
   }
-  _insertDialogRebuildTextarea();
+  _insertDialogGenerated = null; // 開き直しは前回の内容を引き継がない
+  _insertDialogRebuildTextarea(true);
 
   const modal = document.getElementById('insert-dialog-modal');
   modal?.classList.add('open');
@@ -958,8 +969,10 @@ function _initInsertDialog() {
   const btnCancel = document.getElementById('insert-dialog-cancel');
   if (!modal || !sel || !condInput || !ta || !btnOk || !btnCancel) return;
 
-  sel.addEventListener('change', _insertDialogRebuildTextarea);
-  condInput.addEventListener('input', _insertDialogRebuildTextarea);
+  // テンプレートの選び直しは明示的な指定なので上書きする。条件式の入力は
+  // 追随にとどめ、手を入れた内容は消さない。
+  sel.addEventListener('change', () => _insertDialogRebuildTextarea(true));
+  condInput.addEventListener('input', () => _insertDialogRebuildTextarea(false));
   btnOk.onclick = _insertDialogSubmit;
   btnCancel.onclick = closeInsertDialog;
   const btnSavePreset = document.getElementById('insert-dialog-save-preset');
