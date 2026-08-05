@@ -127,6 +127,21 @@ addEventListener('DOMContentLoaded', async () => {
     // 開いたままジャンプして回る使い方を想定。どのアドオンともキーは衝突しない）
     if(e.altKey && e.key === 'ArrowLeft')  { e.preventDefault(); navBack(); return; }
     if(e.altKey && e.key === 'ArrowRight') { e.preventDefault(); navForward(); return; }
+    // 挿入ダイアログは背面を触れるので、Escape を押す時点でフォーカスが
+    // エディタやピークにあることが多い。閉じる順は「ピーク → ダイアログ」で、
+    // 直前に開いた参照窓から畳む。
+    // 他のオーバーレイが開いているときは手を出さない。あちらの Escape 処理は
+    // 伝播を止めないものがあり、ここで一緒に閉じると書きかけを巻き添えにする。
+    if(e.key === 'Escape' && !document.querySelector(
+        '#fzf-overlay.open, #gn-dialog.open, #input-modal.open, #help-overlay.open, #fb-overlay.open, #project-modal.open, ' +
+        '#node-label-modal.open, #node-memo-modal.open, #node-line-modal.open, #settings-modal.open')) {
+      if(window.closeTopFloatingDef?.()) return;
+      const insDlg = document.getElementById('insert-dialog-modal');
+      if(insDlg?.classList.contains('open') && typeof closeInsertDialog === 'function') {
+        closeInsertDialog();
+        return;
+      }
+    }
     // オーバーレイ/サイドバー表示中は F3 等の誤発火を防ぐため以降を無効化
     if(document.querySelector('#include-overlay.open, #ct-sidebar.open')) return;
     if(e.key === 'F3' && !e.altKey && !e.ctrlKey && !e.metaKey) {
@@ -149,7 +164,9 @@ addEventListener('DOMContentLoaded', async () => {
       const tag = document.activeElement?.tagName;
       if(tag !== 'INPUT' && tag !== 'TEXTAREA') { e.preventDefault(); toggleHelp(); }
     }
-    if(e.key === 'Escape') { if(window.closeTopFloatingDef?.()) return; closeHelp(); if(typeof _incCancelExpand === 'function') _incCancelExpand(); }
+    if(e.key === 'Escape') {
+      closeHelp(); if(typeof _incCancelExpand === 'function') _incCancelExpand();
+    }
   });
 
   id('fzf-input').addEventListener('input', e => fzfRender(e.target.value));

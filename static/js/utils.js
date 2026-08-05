@@ -242,6 +242,134 @@ function cycleSearchEncFromBadge() {
   setSearchEnc(next);
 }
 
+// ===== ダイアログをパネルとして扱う (移動・リサイズ・位置の記憶) =====
+//
+// コードを書くダイアログは、中央に固定されていると使い物にならない。
+// 構造体のメンバー名を調べてから printf に書く、といった作業では、背面の
+// エディタやピークウィンドウと場所を取り合うため。掴んで動かせて、幅を
+// 広げられて、次に開いたとき同じ場所に出る必要がある。
+//
+// 位置を覚えるのは、毎回中央に戻るとピークとの位置取りをやり直すことになるため。
+
+const _panelKey = (key) => 'grepnavi-panel-' + key;
+
+function _panelGeom(box) {
+  const r = box.getBoundingClientRect();
+  return { x: Math.round(r.left), y: Math.round(r.top), w: box.offsetWidth, h: box.offsetHeight };
+}
+
+// インラインで付けた位置・大きさを外し、CSS 既定の中央配置へ戻す。
+function _resetPanelStyles(box) {
+  for (const p of ['position', 'margin', 'left', 'top', 'width', 'height']) box.style[p] = '';
+}
+
+// パネル扱いを解除する。1つの箱を使い回している汎用モーダルが、次の用途で
+// 動かせたり位置を覚えたりしないようにする。
+function clearPanelGeom(box) {
+  if (!box) return;
+  box._panelKey = null;
+  _resetPanelStyles(box);
+  // 重なり順はここでは触らない。閉じるときに _lowerModal が戻す。
+  // ここで消すと、直前に前へ出したモーダル自身を引きずり下ろしてしまう。
+  const handle = box.querySelector('.node-modal-title, #input-modal-title');
+  if (handle) { handle.style.cursor = ''; handle.removeAttribute('title'); }
+}
+
+// 覚えた位置・大きさを戻す。ダイアログを開いた直後に呼ぶ
+// (display:none のままでは寸法が測れないため)。
+function restorePanel(box, key) {
+  if (!box) return;
+  // 先に必ず素へ戻す。同じ箱を用途ごとに使い回しているので、記憶が無い用途を
+  // 開いたときに前の用途の位置・大きさが残っていると、そこに居座ってしまう。
+  _resetPanelStyles(box);
+  let g = null;
+  try { g = JSON.parse(localStorage.getItem(_panelKey(key)) || 'null'); } catch { /* ignore */ }
+  if (!g) return;
+  // flex による中央寄せから絶対座標へ切り替える (left/top を効かせるため)。
+  box.style.position = 'fixed';
+  box.style.margin = '0';
+  if (g.w) box.style.width = g.w + 'px';
+  if (g.h) box.style.height = g.h + 'px';
+  // 画面の解像度が変わっていても、全体が画面内に収まるようにする。
+  // 下端をはみ出させると OK/キャンセルの行が画面外に出て押せなくなる。
+  const w = box.offsetWidth || 420, h = box.offsetHeight || 260;
+  box.style.left = Math.max(4, Math.min(g.x, window.innerWidth - Math.min(w, window.innerWidth - 8))) + 'px';
+  box.style.top = Math.max(4, Math.min(g.y, Math.max(4, window.innerHeight - h - 4))) + 'px';
+}
+
+// handle を掴んで box を動かせるようにする。CSS の resize による大きさ変更も
+// 一緒に記憶する。handle のダブルクリックで既定の位置・大きさへ戻す。
+//
+// 汎用入力モーダルは1つの箱を使い回すので、パネルとして振る舞ってよいのは
+// コード編集のときだけ。リスナは一度しか張らない代わりに、box._panelKey が
+// 入っている間だけ動く（外れている間は素の中央モーダルのまま）。
+function makePanelDraggable(box, handle, key) {
+  if (!box || !handle) return;
+  box._panelKey = key;
+  handle.style.cursor = 'move';
+  handle.title = 'ドラッグで移動 / ダブルクリックで元の位置へ';
+  if (box._panelBound) return;
+  box._panelBound = true;
+
+  const save = () => {
+    if (!box._panelKey) return;
+    try { localStorage.setItem(_panelKey(box._panelKey), JSON.stringify(_panelGeom(box))); } catch { /* ignore */ }
+  };
+
+  handle.addEventListener('mousedown', (e) => {
+    if (e.button !== 0 || !box._panelKey) return;
+    e.preventDefault(); // ヘッダ文字列の選択を始めない
+    const r = box.getBoundingClientRect();
+    box.style.position = 'fixed';
+    box.style.margin = '0';
+    box.style.left = r.left + 'px';
+    box.style.top = r.top + 'px';
+    const dx = e.clientX - r.left, dy = e.clientY - r.top;
+    let moved = false;
+    const onMove = (mv) => {
+      moved = true;
+      // 端まで持って行っても掴み直せるよう、ヘッダが画面内に残る範囲で止める。
+      box.style.left = Math.max(60 - box.offsetWidth, Math.min(mv.clientX - dx, window.innerWidth - 60)) + 'px';
+      box.style.top = Math.max(0, Math.min(mv.clientY - dy, window.innerHeight - 30)) + 'px';
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      // 動かしていないなら覚えない (タイトルを一度クリックしただけで位置が
+      // 固定されないように)。ここで位置を素へ戻してはいけない —— 復元した
+      // 位置ごと消えてしまう。記憶しなければ次に開いたときは既定へ戻る。
+      if (moved) save();
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+
+  // リサイズハンドルは CSS 側 (resize:both) なので、終わりを mouseup で拾う。
+  // ResizeObserver だと開いた瞬間の 0→既定サイズでも発火し、触っていない
+  // 大きさを覚えてしまう。
+  let lastW = 0, lastH = 0;
+  box.addEventListener('mousedown', () => {
+    lastW = box.offsetWidth; lastH = box.offsetHeight;
+    // 触った窓を前へ。ピークは開くたびに重なり順を上げていくので、
+    // これが無いとダイアログが下敷きのままになる。
+    // 重なり順はオーバーレイ側に付ける — 箱は既にその重なり文脈の中にいて、
+    // 箱の z-index を上げても外の窓は追い越せない。
+    if (box._panelKey) window.raiseAbovePeeks?.(box.parentElement);
+  });
+  document.addEventListener('mouseup', () => {
+    if (!box._panelKey || !box.offsetWidth) return; // 閉じている / パネル扱いでない
+    if (box.offsetWidth !== lastW || box.offsetHeight !== lastH) { lastW = box.offsetWidth; lastH = box.offsetHeight; save(); }
+  });
+
+  handle.addEventListener('dblclick', () => {
+    if (!box._panelKey) return;
+    _resetPanelStyles(box); // パネル扱いは続けたいので、位置と大きさだけ戻す
+    // 既定へ戻った寸法を「変更された」と誤検出して保存し直さないよう控えを更新する。
+    lastW = box.offsetWidth; lastH = box.offsetHeight;
+    try { localStorage.removeItem(_panelKey(box._panelKey)); } catch { /* ignore */ }
+  });
+}
+
 // ===== 汎用テキスト入力モーダル =====
 // showInputModal(title, placeholder, defaultVal, opts) → Promise<string|null>
 // opts.code:      ソース行を編集する用途。等幅で枠を広げ、行頭の字下げも編集対象
@@ -258,6 +386,15 @@ function _inputModalField() {
 
 function showInputModal(title, placeholder, defaultVal = '', opts = {}) {
   return new Promise(resolve => {
+    // 既に開いているときは奪わない。背面を触れるようにした結果、開いたまま
+    // 別の書き換えを始められるようになり、そのたびに書きかけが黙って
+    // 消えていた（前の Promise も宙に浮いたままになる）。
+    if (_inputModalResolve) {
+      if (typeof st === 'function') st('入力中のダイアログがあります。先に確定するかキャンセルしてください');
+      _inputModalField()?.focus();
+      resolve(null);
+      return;
+    }
     _inputModalResolve = resolve;
     _inputModalCode = !!opts.code;
     _inputModalMultiline = !!opts.multiline;
@@ -267,10 +404,25 @@ function showInputModal(title, placeholder, defaultVal = '', opts = {}) {
     box.classList.toggle('input-modal-multiline', _inputModalMultiline);
     // 1行入力の等幅化は textarea 側には要らない (元から等幅)。
     id('input-modal-input').classList.toggle('input-modal-input-code', _inputModalCode && !_inputModalMultiline);
+    // コードを書く用途のときだけ背面を素通しにする。グループ名などの短い入力は
+    // その場で完結するので、従来どおり前面で受け止める。
+    id('input-modal').classList.toggle('input-modal-passthrough', _inputModalCode);
     const el = _inputModalField();
     el.placeholder = placeholder || '';
     el.value = defaultVal;
     id('input-modal').classList.add('open');
+    // パネル化したダイアログ (ピークより前) から呼ばれても隠れないよう前へ出す。
+    _raiseModal(id('input-modal'));
+    if (_inputModalCode) {
+      // 1行編集と複数行編集では欲しい大きさが違うので、記憶も分ける。
+      const panelKey = 'input-modal-code' + (_inputModalMultiline ? '-block' : '');
+      restorePanel(box, panelKey);
+      makePanelDraggable(box, id('input-modal-title'), panelKey);
+    } else {
+      // コード用途で動かした位置・大きさが、グループ名入力などに残らないようにする
+      // (同じ箱を使い回しているため、インライン指定を消さないと引き継がれる)。
+      clearPanelGeom(box);
+    }
     setTimeout(() => {
       el.focus();
       // 1行入力は「丸ごと打ち直す」のが普通なので全選択する。複数行は既存の
@@ -330,6 +482,7 @@ function _taIndent(ta, outdent) {
 
 function _inputModalClose(val) {
   id('input-modal').classList.remove('open');
+  _lowerModal(id('input-modal'));
   if (_inputModalResolve) { _inputModalResolve(val); _inputModalResolve = null; }
 }
 document.addEventListener('DOMContentLoaded', () => {
@@ -361,8 +514,19 @@ document.addEventListener('DOMContentLoaded', () => {
 // native confirm()/alert() 置換用。dark theme で UI 一貫性を保つ。
 // Esc / 背景クリック = キャンセル相当、Enter = OK 相当。
 let _gnDialogResolve = null;
+// パネル化したダイアログはピークより前へ出る (z-index を大きく取る) ので、
+// 答えを求めるモーダルはさらにその前へ出す必要がある。前に出さないと、
+// パネルから開いた確認・入力が背後に隠れて操作できなくなる。
+function _raiseModal(overlay) {
+  if (overlay) window.raiseAbovePeeks?.(overlay);
+}
+function _lowerModal(overlay) {
+  if (overlay) overlay.style.zIndex = '';
+}
+
 function _gnDialogClose(value) {
   id('gn-dialog').classList.remove('open');
+  _lowerModal(id('gn-dialog'));
   if (_gnDialogResolve) { _gnDialogResolve(value); _gnDialogResolve = null; }
 }
 function showConfirm(message, opts = {}) {
@@ -377,6 +541,7 @@ function showConfirm(message, opts = {}) {
     cancel.textContent = cancelText;
     cancel.style.display = '';
     id('gn-dialog').classList.add('open');
+    _raiseModal(id('gn-dialog'));
     setTimeout(() => ok.focus(), 30);
   });
 }
@@ -391,6 +556,7 @@ function showAlert(message, opts = {}) {
     ok.classList.remove('danger');
     id('gn-dialog-cancel').style.display = 'none';
     id('gn-dialog').classList.add('open');
+    _raiseModal(id('gn-dialog'));
     setTimeout(() => ok.focus(), 30);
   });
 }

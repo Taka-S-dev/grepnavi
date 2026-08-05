@@ -262,6 +262,13 @@ function initFloatingPeek(getHoverCtx) {
     _floatMgr.render();
   }
 
+  // ピーク以外のパネル（挿入ダイアログなど）も同じ重なり順に混ぜる。
+  // ピークは常に 9000 以上へ上がっていくので、この窓口が無いと
+  // ダイアログがピークの下に埋もれたまま前に出せない。
+  window.raiseAbovePeeks = function(el) {
+    if (el) el.style.zIndex = ++_floatZBase;
+  };
+
   window.closeTopFloatingDef = function() {
     if(!_floatingWins.size) return false;
     let topWin = null, topZ = -1;

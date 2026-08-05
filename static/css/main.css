@@ -645,7 +645,14 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 #node-label-modal-box{min-width:min(480px,calc(100vw - 24px));max-width:min(720px,calc(100vw - 24px))}
 #node-memo-modal-box {min-width:min(420px,calc(100vw - 24px));max-width:min(560px,calc(100vw - 24px))}
 #node-line-modal-box {min-width:min(300px,calc(100vw - 24px));max-width:min(480px,calc(100vw - 24px))}
-#insert-dialog-modal-box {min-width:min(420px,calc(100vw - 24px));max-width:min(560px,calc(100vw - 24px))}
+#insert-dialog-modal-box {min-width:min(420px,calc(100vw - 24px));max-width:calc(100vw - 24px)}
+/* 挿入ダイアログは背面を塞がない。構造体をピークしてメンバー名をコピーする、
+   といった作業が開いたままできる必要がある (エディタは読み取り専用なので、
+   触れるようにしても書き換わらない)。黒幕を消し、クリックは箱だけが受ける。 */
+#insert-dialog-modal.open{pointer-events:none;background:none}
+#insert-dialog-modal-box{pointer-events:auto;resize:both;overflow:auto;box-shadow:0 8px 32px rgba(0,0,0,.7);max-height:calc(100vh - 24px);min-height:260px}
+/* 枠を広げた分は入力欄が受け取る (枠だけ大きくなっても意味がない)。 */
+#insert-dialog-modal-box .node-modal-textarea{flex:1;resize:none}
 
 /* プロジェクトモーダル */
 #project-modal{
@@ -682,8 +689,14 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 #input-modal-input:focus{border-color:#007acc}
 /* ソース行の編集用。既定の幅ではデバッグ行 1 本が枠に収まらず、
    プロポーショナル字体だとエディタ上の見え方とも一致しない。 */
-#input-modal-box.input-modal-code{min-width:min(600px,calc(100vw - 24px));max-width:min(820px,calc(100vw - 24px))}
+#input-modal-box.input-modal-code{min-width:min(600px,calc(100vw - 24px))}
 #input-modal-input.input-modal-input-code{font:12px/1.5 Consolas,'Courier New',monospace;padding:7px 8px}
+/* コード編集モードは挿入ダイアログと同じ扱い: 背面を塞がず、動かせて広げられる。 */
+#input-modal.input-modal-passthrough{pointer-events:none;background:none}
+/* max-width も緩める。既定の 820px 上限のままでは横に広げられない。 */
+#input-modal.input-modal-passthrough #input-modal-box{pointer-events:auto;resize:both;overflow:auto;box-shadow:0 8px 32px rgba(0,0,0,.7);max-width:calc(100vw - 24px);max-height:calc(100vh - 24px)}
+/* 枠を広げた分は入力欄が受け取る。textarea 自身の掴み手は枠のものと競合するので外す。 */
+#input-modal.input-modal-passthrough #input-modal-ta{flex:1;resize:none}
 /* 複数行モード: 1行入力と入れ替える (同時には出さない)。 */
 #input-modal-ta,#input-modal-hint{display:none}
 #input-modal-box.input-modal-multiline #input-modal-input{display:none}

@@ -122,13 +122,22 @@ function openInsertDialog() {
   const ed = monacoEditor;
   const tab = tabs[activeTabIdx];
   if (!ed || !tab?.file) { st('挿入対象のファイルがありません'); return; }
+  // 開いたままエディタを触れるようになったので、Alt+P を二度押しできてしまう。
+  // 開き直すと入力欄がテンプレートで上書きされ、書きかけが消える。
+  if (document.getElementById('insert-dialog-modal')?.classList.contains('open')) {
+    document.getElementById('insert-dialog-ta')?.focus();
+    st('挿入ダイアログは開いています');
+    return;
+  }
   const pos = ed.getPosition();
   const line = pos?.lineNumber;
   if (!line) return;
   const model = ed.getModel();
   const lineContent = model ? model.getLineContent(line) : '';
   const indent = (lineContent.match(/^[ \t]*/) || [''])[0];
-  _insertDialogState = { file: tab.file, line, indent };
+  // 開いたまま別の操作 (囲み・一括 ON/OFF など) で行がずれても、狙った場所へ
+  // 入れられるよう、行の中身も控える。送信時に照合して位置を取り直す。
+  _insertDialogState = { file: tab.file, line, indent, lineText: lineContent };
 
   _rebuildTemplateSelect();
   const fileLabel = document.getElementById('insert-dialog-file');
@@ -150,18 +159,45 @@ function openInsertDialog() {
   }
   _insertDialogRebuildTextarea();
 
-  document.getElementById('insert-dialog-modal')?.classList.add('open');
+  const modal = document.getElementById('insert-dialog-modal');
+  modal?.classList.add('open');
+  // ピークが中央に居座っていると開いた瞬間から下敷きになるので、前へ出す。
+  window.raiseAbovePeeks?.(modal);
+  // 開いてから位置を戻す (display:none のままでは寸法が測れない)。
+  restorePanel(document.getElementById('insert-dialog-modal-box'), 'insert-dialog');
   setTimeout(() => document.getElementById('insert-dialog-ta')?.focus(), 0);
 }
 
 function closeInsertDialog() {
-  document.getElementById('insert-dialog-modal')?.classList.remove('open');
+  const modal = document.getElementById('insert-dialog-modal');
+  modal?.classList.remove('open');
+  // 前面化で付けた重なり順は残さない (次に開いたときは CSS の既定から始める)。
+  if (modal) modal.style.zIndex = '';
   _insertDialogState = null;
+}
+
+// 開いた時点の行が、今どこにあるか。ダイアログは開いたままエディタを操作できる
+// ので、その間に囲みや一括 ON/OFF で行がずれうる。控えておいた行の中身と
+// 照合し、一意に見つかったときだけ位置を取り直す (ピン追従と同じ規約:
+// 曖昧なら動かさず、元の行番号のまま送る)。
+function _resolveInsertLine(state) {
+  const model = tabs[activeTabIdx]?.model;
+  if (!model || !_samePath(tabs[activeTabIdx]?.file, state.file)) return state.line;
+  const at = state.line <= model.getLineCount() ? model.getLineContent(state.line) : null;
+  if (at !== null && at === state.lineText) return state.line;
+  let found = 0, hit = 0;
+  for (let i = 1; i <= model.getLineCount(); i++) {
+    if (model.getLineContent(i) !== state.lineText) continue;
+    if (++found > 1) return state.line;
+    hit = i;
+  }
+  return found === 1 ? hit : state.line;
 }
 
 async function _insertDialogSubmit() {
   if (!_insertDialogState) { closeInsertDialog(); return; }
-  const { file, line } = _insertDialogState;
+  const { file } = _insertDialogState;
+  const line = _resolveInsertLine(_insertDialogState);
   const ta = document.getElementById('insert-dialog-ta');
   // textarea の内容は改行区切りが仕様なので、送信直前に \n で分割し \r を落とす。
   // サーバは要素内の改行混入を 400 で弾く (記録行数と実際の行数がずれると
@@ -174,6 +210,10 @@ async function _insertDialogSubmit() {
   if (!textLines.length) { st('挿入する内容を入力してください'); return; }
   const group = (document.getElementById('insert-dialog-group')?.value || '').trim();
   localStorage.setItem(LS_INSERT_LAST_GROUP, group);
+  // 開いている間に行がずれていたら、どこへ入れたのかを黙って変えない。
+  if (line !== _insertDialogState.line) {
+    st(`開いている間に行が動いたため L${_insertDialogState.line} → L${line} へ挿入します`);
+  }
   closeInsertDialog();
   await submitInsert(file, line, textLines, group);
 }
@@ -926,7 +966,13 @@ function _initInsertDialog() {
   const btnDelPreset = document.getElementById('insert-dialog-del-preset');
   if (btnSavePreset) btnSavePreset.onclick = _saveInsertPreset;
   if (btnDelPreset) btnDelPreset.onclick = _deleteInsertPreset;
-  modal.addEventListener('click', (e) => { if (e.target === modal) closeInsertDialog(); });
+  // タイトル行を掴んで動かせるようにする。背面を触れるようにした結果、
+  // ピークウィンドウと場所を取り合うため、どかせないと使い物にならない。
+  const box = document.getElementById('insert-dialog-modal-box');
+  makePanelDraggable(box, box?.querySelector('.node-modal-title'), 'insert-dialog');
+  // 背景クリックで閉じる仕掛けは置かない。オーバーレイは pointer-events:none で
+  // 素通しになっており、そこへのクリックは背面のエディタが受ける
+  // (書きかけの内容を、外したクリック1つで失わない)。
   ta.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { e.stopPropagation(); closeInsertDialog(); }
     else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); _insertDialogSubmit(); }
