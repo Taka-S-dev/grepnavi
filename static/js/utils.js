@@ -244,12 +244,9 @@ function cycleSearchEncFromBadge() {
 
 // ===== ダイアログをパネルとして扱う (移動・リサイズ・位置の記憶) =====
 //
-// コードを書くダイアログは、中央に固定されていると使い物にならない。
-// 構造体のメンバー名を調べてから printf に書く、といった作業では、背面の
-// エディタやピークウィンドウと場所を取り合うため。掴んで動かせて、幅を
-// 広げられて、次に開いたとき同じ場所に出る必要がある。
-//
-// 位置を覚えるのは、毎回中央に戻るとピークとの位置取りをやり直すことになるため。
+// コードを書くダイアログは中央固定だと使えない。構造体のメンバー名を調べてから
+// printf に書く、といった作業で背面のエディタやピークと場所を取り合うため。
+// 位置を覚えるのは、毎回中央に戻ると位置取りをやり直すことになるから。
 
 const _panelKey = (key) => 'grepnavi-panel-' + key;
 
@@ -265,12 +262,12 @@ function _resetPanelStyles(box) {
 
 // パネル扱いを解除する。1つの箱を使い回している汎用モーダルが、次の用途で
 // 動かせたり位置を覚えたりしないようにする。
+// 重なり順はここでは戻さない — 直前に前へ出したモーダル自身を引きずり下ろす。
+// 戻すのは閉じるときの _lowerModal。
 function clearPanelGeom(box) {
   if (!box) return;
   box._panelKey = null;
   _resetPanelStyles(box);
-  // 重なり順はここでは触らない。閉じるときに _lowerModal が戻す。
-  // ここで消すと、直前に前へ出したモーダル自身を引きずり下ろしてしまう。
   const handle = box.querySelector('.node-modal-title, #input-modal-title');
   if (handle) { handle.style.cursor = ''; handle.removeAttribute('title'); }
 }

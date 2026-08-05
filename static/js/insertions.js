@@ -199,9 +199,7 @@ function openInsertDialog() {
   modal?.classList.add('open');
   // ピークが中央に居座っていると開いた瞬間から下敷きになるので、前へ出す。
   window.raiseAbovePeeks?.(modal);
-  // 開いてから位置を戻す (display:none のままでは寸法が測れない)。
   restorePanel(document.getElementById('insert-dialog-modal-box'), 'insert-dialog');
-  // 挿入先を光らせる。画面外なら見える位置まで送る。
   refreshInsertTargetDecoration(true);
   monacoEditor.revealLineInCenterIfOutsideViewport(line);
   setTimeout(() => document.getElementById('insert-dialog-ta')?.focus(), 0);
@@ -395,9 +393,8 @@ function refreshInsertionDecorations() {
 }
 
 // ===== 挿入先の目印 (ダイアログを開いている間だけ) =====
-// ダイアログは開いたままエディタを触れるので、書いている最中に挿入先が
-// 画面外へ行きやすい。どこへ入るのかを常に見えるようにする。
-// 行がずれても _resolveInsertLine で追い直すので、指すのは常に「今の」挿入先。
+// ダイアログを開いたままエディタを触れるので、挿入先を見失いやすい。
+// 行がずれても _resolveInsertLine で追い直し、常に「今の」挿入先を指す。
 let _insertTargetDecoIds = [];
 let _insertTargetModel = null;
 let _insertPulseTimer = null;
@@ -452,8 +449,7 @@ function refreshInsertTargetDecoration(pulse = false) {
   }
 }
 
-// ダイアログのファイル名ラベルから挿入先へ戻る。フォーカスは動かさない
-// (書きかけの入力欄から抜けない)。
+// 挿入先へスクロールして戻る。フォーカスは動かさない (書きかけの入力欄から抜けない)。
 function revealInsertTarget() {
   if (!monacoEditor || !_insertDialogState) return;
   const file = tabs[activeTabIdx]?.file;
@@ -1072,7 +1068,6 @@ function _initInsertDialog() {
   // 追随にとどめ、手を入れた内容は消さない。
   sel.addEventListener('change', () => { _rememberTemplate(sel); _insertDialogRebuildTextarea(true); });
   condInput.addEventListener('input', () => _insertDialogRebuildTextarea(false));
-  // ファイル名ラベルは挿入先への戻り道。開いたままスクロールして見失いやすい。
   const fileLabel = document.getElementById('insert-dialog-file');
   if (fileLabel) {
     fileLabel.title = 'クリックで挿入先へスクロール';
@@ -1084,8 +1079,6 @@ function _initInsertDialog() {
   const btnDelPreset = document.getElementById('insert-dialog-del-preset');
   if (btnSavePreset) btnSavePreset.onclick = _saveInsertPreset;
   if (btnDelPreset) btnDelPreset.onclick = _deleteInsertPreset;
-  // タイトル行を掴んで動かせるようにする。背面を触れるようにした結果、
-  // ピークウィンドウと場所を取り合うため、どかせないと使い物にならない。
   const box = document.getElementById('insert-dialog-modal-box');
   makePanelDraggable(box, box?.querySelector('.node-modal-title'), 'insert-dialog');
   // 背景クリックで閉じる仕掛けは置かない。オーバーレイは pointer-events:none で
