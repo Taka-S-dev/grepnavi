@@ -176,6 +176,9 @@ function openInsertDialog() {
   window.raiseAbovePeeks?.(modal);
   // 開いてから位置を戻す (display:none のままでは寸法が測れない)。
   restorePanel(document.getElementById('insert-dialog-modal-box'), 'insert-dialog');
+  // 挿入先を光らせる。画面外なら見える位置まで送る。
+  refreshInsertTargetDecoration(true);
+  monacoEditor.revealLineInCenterIfOutsideViewport(line);
   setTimeout(() => document.getElementById('insert-dialog-ta')?.focus(), 0);
 }
 
@@ -185,6 +188,8 @@ function closeInsertDialog() {
   // 前面化で付けた重なり順は残さない (次に開いたときは CSS の既定から始める)。
   if (modal) modal.style.zIndex = '';
   _insertDialogState = null;
+  clearTimeout(_insertPulseTimer);
+  refreshInsertTargetDecoration(); // 目印を消す (状態を null にした後に呼ぶ)
 }
 
 // 開いた時点の行が、今どこにあるか。ダイアログは開いたままエディタを操作できる
@@ -360,6 +365,75 @@ function refreshInsertionDecorations() {
   }
   insertionDecoIds = monacoEditor.deltaDecorations(insertionDecoIds, decos);
   _updateInsertionCtxKey();
+  // 挿入先の目印も同じ変化点で貼り直す (setValue で装飾が飛ぶため)。
+  refreshInsertTargetDecoration();
+}
+
+// ===== 挿入先の目印 (ダイアログを開いている間だけ) =====
+// ダイアログは開いたままエディタを触れるので、書いている最中に挿入先が
+// 画面外へ行きやすい。どこへ入るのかを常に見えるようにする。
+// 行がずれても _resolveInsertLine で追い直すので、指すのは常に「今の」挿入先。
+let _insertTargetDecoIds = [];
+let _insertTargetModel = null;
+let _insertPulseTimer = null;
+let _insertPulseFlip = false;
+
+// 付けたモデルへ直接返して消す。タブごとにモデルが違い、エディタ経由の
+// deltaDecorations は「今表示しているモデル」しか対象にしないので、タブを
+// 切り替えてから消そうとすると前のタブに装飾が残ったまま消せなくなる。
+function _clearInsertTargetDeco() {
+  if (_insertTargetDecoIds.length && _insertTargetModel && !_insertTargetModel.isDisposed?.()) {
+    _insertTargetModel.deltaDecorations(_insertTargetDecoIds, []);
+  }
+  _insertTargetDecoIds = [];
+  _insertTargetModel = null;
+}
+
+function refreshInsertTargetDecoration(pulse = false) {
+  if (!monacoEditor) return;
+  const state = _insertDialogState;
+  const open = document.getElementById('insert-dialog-modal')?.classList.contains('open');
+  const file = tabs[activeTabIdx]?.file;
+  const model = monacoEditor.getModel();
+  if (!open || !state || !file || !model || !_samePath(file, state.file)) {
+    _clearInsertTargetDeco();
+    return;
+  }
+  const line = _resolveInsertLine(state);
+  // 表示も今の行に合わせる。開いた時点の番号のままだと、実際の挿入先と食い違う。
+  const label = document.getElementById('insert-dialog-file');
+  if (label) label.textContent = state.file.replace(/\\/g, '/') + ' : L' + line + ' の次に挿入';
+  // 脈打たせるクラスは2種類を交互に使う。同じクラス名を貼り直しても CSS の
+  // アニメーションは再生され直さず、続けて押したときに反応が無いように見える。
+  if (pulse) _insertPulseFlip = !_insertPulseFlip;
+  const pulseCls = pulse ? (_insertPulseFlip ? ' insert-target-pulse-a' : ' insert-target-pulse-b') : '';
+  _clearInsertTargetDeco();
+  _insertTargetModel = model;
+  _insertTargetDecoIds = model.deltaDecorations([], [{
+    range: new monaco.Range(line, 1, line, 1),
+    options: {
+      isWholeLine: true,
+      className: 'insert-target-deco' + pulseCls,
+      glyphMarginClassName: 'insert-target-glyph',
+      glyphMarginHoverMessage: { value: 'この行の次にデバッグ行が入ります' },
+      overviewRuler: { color: 'rgba(80,200,255,0.9)', position: monaco.editor.OverviewRulerLane.Right },
+    },
+  }]);
+  if (pulse) {
+    // 数回だけ脈打たせて静かなハイライトへ落とす。点滅し続けると、書いている間
+    // ずっと視界の端で動くことになる。
+    clearTimeout(_insertPulseTimer);
+    _insertPulseTimer = setTimeout(() => refreshInsertTargetDecoration(false), 1500);
+  }
+}
+
+// ダイアログのファイル名ラベルから挿入先へ戻る。フォーカスは動かさない
+// (書きかけの入力欄から抜けない)。
+function revealInsertTarget() {
+  if (!monacoEditor || !_insertDialogState) return;
+  const file = tabs[activeTabIdx]?.file;
+  if (!file || !_samePath(file, _insertDialogState.file)) return;
+  monacoEditor.revealLineInCenter(_resolveInsertLine(_insertDialogState));
 }
 
 // ===== デバッグ行の一覧・書き換え・撤去 (memo-list.js の行から呼ばれる) =====
@@ -973,6 +1047,12 @@ function _initInsertDialog() {
   // 追随にとどめ、手を入れた内容は消さない。
   sel.addEventListener('change', () => _insertDialogRebuildTextarea(true));
   condInput.addEventListener('input', () => _insertDialogRebuildTextarea(false));
+  // ファイル名ラベルは挿入先への戻り道。開いたままスクロールして見失いやすい。
+  const fileLabel = document.getElementById('insert-dialog-file');
+  if (fileLabel) {
+    fileLabel.title = 'クリックで挿入先へスクロール';
+    fileLabel.addEventListener('click', () => { revealInsertTarget(); refreshInsertTargetDecoration(true); });
+  }
   btnOk.onclick = _insertDialogSubmit;
   btnCancel.onclick = closeInsertDialog;
   const btnSavePreset = document.getElementById('insert-dialog-save-preset');

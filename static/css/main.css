@@ -275,6 +275,18 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 /* デバッグ仕込み行 (insertions.js) — line memo/bookmark と混同しないよう紫系で統一 */
 .insertion-line-deco{background:rgba(160,100,220,0.10)}
 .insertion-glyph{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M5 3l7 5-7 5z' fill='%23a064dc' stroke='none'/%3E%3C/svg%3E") center/12px no-repeat}
+/* 挿入先の目印。ダイアログを開いている間だけ出す。デバッグ行の紫とは別系統の
+   水色にして、「これから入る場所」と「既に入っている行」を取り違えないようにする。
+   開いた直後だけ数回脈打たせる — 出しっぱなしで点滅させると、書いている間ずっと
+   視界の端で動くことになる。 */
+.insert-target-deco{background:rgba(80,200,255,0.10);box-shadow:inset 3px 0 0 #4aa8d8}
+.insert-target-glyph{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M3 11h10M8 3v6M5.5 6.5L8 9l2.5-2.5' fill='none' stroke='%234aa8d8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/13px no-repeat}
+@keyframes insert-target-pulse{0%,100%{background:rgba(80,200,255,0.10)}50%{background:rgba(80,200,255,0.34)}}
+/* 交互に使う2つ。同じクラスを貼り直してもアニメーションは再生されないため。 */
+.insert-target-pulse-a,.insert-target-pulse-b{animation:insert-target-pulse .5s ease-in-out 3}
+/* 挿入先への戻り道。色は CSS 側に置く (要素に style 属性があると勝てない)。 */
+#insert-dialog-file{font-size:11px;color:#888;font-family:Consolas,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+#insert-dialog-file:hover{color:#9cdcfe;text-decoration:underline}
 /* OFF (コメントアウト中) のデバッグ行: 紫→グレー、ガターは再生→一時停止。 */
 .insertion-line-deco-off{background:rgba(128,128,128,0.07)}
 .insertion-glyph-off{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M5 3h2.2v10H5zM8.8 3H11v10H8.8z' fill='%23777' stroke='none'/%3E%3C/svg%3E") center/12px no-repeat}
