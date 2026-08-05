@@ -6,6 +6,26 @@
 
 const LS_INSERT_PRESETS = 'grepnavi-insert-presets';
 const LS_INSERT_LAST_GROUP = 'grepnavi-insert-last-group';
+const LS_INSERT_LAST_TPL = 'grepnavi-insert-last-template';
+
+// 前回選んだテンプレート。id とラベルの両方を覚えるのは、プリセットの id が
+// 並び順 (preset0, preset1...) だからで、間に1つ消えると別のプリセットを
+// 指してしまう。ラベル一致を優先し、無ければ id、どちらも無ければ既定へ落とす。
+function _rememberTemplate(sel) {
+  const opt = sel?.selectedOptions?.[0];
+  if (!opt) return;
+  try { localStorage.setItem(LS_INSERT_LAST_TPL, JSON.stringify({ id: opt.value, label: opt.textContent })); } catch { /* ignore */ }
+}
+
+function _lastTemplateId() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(LS_INSERT_LAST_TPL) || 'null'); } catch { /* ignore */ }
+  if (!saved) return '';
+  const templates = _insertTemplates();
+  const byLabel = templates.find(t => t.label === saved.label);
+  if (byLabel) return byLabel.id;
+  return templates.some(t => t.id === saved.id) ? saved.id : '';
+}
 
 // 既存のデバッグ行からグループ名一覧を作る（datalist と撤去メニューの共通ソース）。
 function _insertionGroups() {
@@ -107,6 +127,7 @@ async function _saveInsertPreset() {
   presets.push({ label: name, template, needsCond: template.includes('{cond}') });
   localStorage.setItem(LS_INSERT_PRESETS, JSON.stringify(presets));
   _rebuildTemplateSelect('preset' + (presets.length - 1));
+  _rememberTemplate(document.getElementById('insert-dialog-template'));
   _insertDialogRebuildTextarea(true);
   st(`プリセット「${name}」を保存しました`);
 }
@@ -124,6 +145,8 @@ async function _deleteInsertPreset() {
   presets.splice(+m[1], 1);
   localStorage.setItem(LS_INSERT_PRESETS, JSON.stringify(presets));
   _rebuildTemplateSelect('printf');
+  // 消したプリセットを次回も選ぼうとしないよう、記憶も今の選択に合わせる。
+  _rememberTemplate(document.getElementById('insert-dialog-template'));
   _insertDialogRebuildTextarea(true);
   st(`プリセット「${name}」を削除しました`);
 }
@@ -149,7 +172,9 @@ function openInsertDialog() {
   // 入れられるよう、行の中身も控える。送信時に照合して位置を取り直す。
   _insertDialogState = { file: tab.file, line, indent, lineText: lineContent };
 
-  _rebuildTemplateSelect();
+  // テンプレートも前回の選択から始める（グループと同じく、同じ調査では
+  // 同じ形を続けて撒くのが典型のため）。
+  _rebuildTemplateSelect(_lastTemplateId());
   const fileLabel = document.getElementById('insert-dialog-file');
   if (fileLabel) fileLabel.textContent = tab.file.replace(/\\/g, '/') + ' : L' + line + ' の次に挿入';
   document.getElementById('insert-dialog-cond').value = '';
@@ -1045,7 +1070,7 @@ function _initInsertDialog() {
 
   // テンプレートの選び直しは明示的な指定なので上書きする。条件式の入力は
   // 追随にとどめ、手を入れた内容は消さない。
-  sel.addEventListener('change', () => _insertDialogRebuildTextarea(true));
+  sel.addEventListener('change', () => { _rememberTemplate(sel); _insertDialogRebuildTextarea(true); });
   condInput.addEventListener('input', () => _insertDialogRebuildTextarea(false));
   // ファイル名ラベルは挿入先への戻り道。開いたままスクロールして見失いやすい。
   const fileLabel = document.getElementById('insert-dialog-file');
