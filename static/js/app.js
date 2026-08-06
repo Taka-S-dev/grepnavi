@@ -377,7 +377,13 @@ addEventListener('DOMContentLoaded', async () => {
   if(saved.enc)   updateEncBtn(saved.enc);
 
   // 起動時のグラフ復元:
-  // savedPath がある場合はまず開く。失敗時は /api/grepnavi にフォールバック。
+  // savedPath がある場合はまず開く。失敗時はサーバーが持っているグラフを使い、
+  // それも無いときだけ .grepnavi の記録に頼る。
+  //
+  // サーバーのグラフを優先するのは、-graph で明示指定された場合と、新しい
+  // ウィンドウ (port ごとの別グラフ + -reset-graph で空から始める) を壊さない
+  // ため。localStorage は port ごとに別物なので、新しいウィンドウでは savedPath
+  // が空になり、ここで .grepnavi を開くと「常に空で始まる」約束が崩れる。
   try {
     const savedPath = getProjectPath();
     let restored = false;
@@ -386,10 +392,12 @@ addEventListener('DOMContentLoaded', async () => {
     }
     if (!restored) {
       if (savedPath) setProjectPath('');
-      const gnRes = await fetch('/api/grepnavi');
-      const gn = await gnRes.json();
-      if (gn.graph) await openProject(gn.graph);
-      else await loadGraph();
+      await loadGraph();
+      if (!window._serverGraphFile) {
+        const gn = await (await fetch('/api/grepnavi')).json();
+        const last = lastGraphOf(gn);
+        if (last) await openProject(last);
+      }
     }
   } catch(_) {
     await loadGraph();

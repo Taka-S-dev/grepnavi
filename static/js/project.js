@@ -113,17 +113,48 @@ function highlightMatch(text, query) {
 }
 
 // ===== ルート設定 =====
+// .grepnavi が覚えているグラフのうち、最後に使ったものを返す。
+// /api/grepnavi の応答は {root, graphs:[...]} で、graph という単数の
+// フィールドは無い。そこを読んでいた箇所は常に undefined で、ルート
+// ごとのグラフを開き直す経路が一度も動いていなかった。
+function lastGraphOf(cfg) {
+  const list = Array.isArray(cfg?.graphs) ? cfg.graphs : [];
+  return list.length ? list[list.length - 1] : '';
+}
+
+// 開いたグラフを一覧の末尾へ寄せる。記録は「初めて登録した順」で、開いても
+// 並びが変わらないため、寄せておかないと lastGraphOf が「最後に使ったもの」
+// ではなく「最初に登録したうちの最後」を指してしまう。
+// 失敗しても実害は無い (次に開いたときの候補が古いままになるだけ)。
+async function bumpGrepnaviGraph(path) {
+  if(!path) return;
+  try {
+    const cfg = await (await fetch('/api/grepnavi')).json();
+    const list = Array.isArray(cfg?.graphs) ? cfg.graphs : [];
+    const norm = (p) => p.replace(/\\/g, '/').toLowerCase();
+    const rest = list.filter(g => norm(g) !== norm(path));
+    if(rest.length === list.length - 1 && list.length && norm(list[list.length - 1]) === norm(path)) return; // 既に末尾
+    await fetch('/api/grepnavi/graphs', {
+      method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ grepnaviFile: cfg.root + '/.grepnavi', graphs: [...rest, path] }),
+    });
+  } catch(_) { /* ignore */ }
+}
+
+// ルートを切り替えると、グラフもそのルートのものへ入れ替わる
+// （.grepnavi に記録があればそれを開き、無ければ空から始める）。
+// 調査対象が変わったのに前のツリーのノードが残っていても使い道が無いため。
+//
+// 入れ替えで本当に失われるのは、保存先がまだ決まっていないグラフだけ。
+// 名前を付けたものも作業ファイルもディスクに残るので、開き直せる。
 async function setRoot(newRoot) {
-  // ルートを変えてもグラフは残る。これが linux の調査に openssl のノードが
-  // 混ざる経路なので、混ざる直前に一度だけ知らせる。
-  // （.grepnavi がある場合は下でプロジェクトごと切り替わるため、この時点では判定できない）
-  const willBeForeign = countForeignNodes(newRoot);
-  if(willBeForeign > 0) {
-    const keep = await showConfirm(
-      `現在のグラフの ${willBeForeign} 件のノードが、新しいルートの外になります。\n` +
-      `そのまま残しますか？（ルート外のノードには印が付きます）\n\n` +
-      `キャンセルするとルートを変更しません。`);
-    if(!keep) return false;
+  const nodeCount = Object.keys(graph?.nodes || {}).length;
+  if(nodeCount > 0 && projectSaveState().kind === 'unsaved') {
+    const ok = await showConfirm(
+      `保存先が決まっていないグラフ（${nodeCount} ノード）は、ルートを切り替えると失われます。\n\n` +
+      `続けますか？（キャンセルして Ctrl+S で保存してからでも切り替えられます）`,
+      { danger: true });
+    if(!ok) return false;
   }
   const r = await fetch('/api/root', {
     method: 'POST',
@@ -154,12 +185,16 @@ async function setRoot(newRoot) {
   renderTabs();
   id('results').innerHTML = '';
 
+  // どのルートへ移ったかを先に出す。この後 openProject が「読み込みました」や
+  // ルート不一致の警告を出すので、順番を逆にするとその警告を消してしまう。
+  st('ルート変更: ' + data.root);
+
   // .grepnavi からプロジェクトファイルを自動ロード
   try {
     const gnRes = await fetch('/api/grepnavi');
     const gn = await gnRes.json();
-    if(gn.graph) {
-      await openProject(gn.graph);
+    const last = lastGraphOf(gn);
+    if(last && await openProject(last)) {
       // openProject が projectRoot を書き換えるので data.root に戻す
       projectRoot = data.root;
       const _parts = data.root.replace(/\\/g,'/').split('/');
@@ -168,6 +203,7 @@ async function setRoot(newRoot) {
       updateRootChip();
       // サーバー側の root も戻す
       await fetch('/api/root', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({root: data.root})}).catch(()=>{});
+      updateProjectUI();
       return true;
     }
   } catch(_) {}
@@ -178,7 +214,7 @@ async function setRoot(newRoot) {
   if(cleared) applyGraphResponse(cleared);
   else applyGraphResponse({ nodes: {}, edges: [], root_dir: data.root });
   updateProjectUI();
-  st('ルート変更: ' + data.root);
+  st('ルート変更: ' + data.root + '（新しいグラフ。Ctrl+S で保存すると次回も開けます）');
   return true;
 }
 
@@ -726,6 +762,7 @@ async function openProject(path) {
   }
   setProjectPath(path);
   addSaveDirHistory(path.replace(/\\/g, '/').split('/').slice(0, -1).join('/'));
+  bumpGrepnaviGraph(path); // 次に同じルートを開いたときの既定にする
   st('読み込みました: ' + path);
   // ルートとノードのズレを検知したら気づけるように知らせる（黙って壊れないように）。
   if (d.root_warning) {
