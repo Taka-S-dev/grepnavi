@@ -194,8 +194,19 @@ func GtagsResetStale() {
 // シンボル単位で連打したり、ホバー→Ctrl+click と続けても 2 回目以降は即返る。
 var (
 	_gtagsDefCache  sync.Map // value: []DefHit
-	_gtagsRefsCache sync.Map // value: []CallSite
+	_gtagsRefsCache sync.Map // value: gtagsRefsEntry
 )
+
+// 参照の結果は現在のファイルの中身から位置を取り直した後の姿で入っている。
+// grepnavi 自身の書き換えでは捨てているが、外部エディタでの編集や git の
+// 切り替えは知りようがないので、API 層の定義・ホバーのキャッシュと同じだけの
+// 寿命を持たせて、古い位置を無期限に返し続けないようにする。
+const _gtagsRefsCacheTTL = 2 * time.Minute
+
+type gtagsRefsEntry struct {
+	sites    []CallSite
+	storedAt time.Time
+}
 
 func gtagsCacheKey(dir, word string) string { return dir + "\x00" + word }
 
@@ -203,6 +214,11 @@ func gtagsClearResultCaches() {
 	_gtagsDefCache.Range(func(k, _ any) bool { _gtagsDefCache.Delete(k); return true })
 	_gtagsRefsCache.Range(func(k, _ any) bool { _gtagsRefsCache.Delete(k); return true })
 }
+
+// ClearResultCaches はファイルを書き換えた側から呼ぶ。
+// 参照の結果は現在のファイル内容に合わせて位置を取り直した後の姿で入っている
+// ため、キャッシュを残すと「取り直した当時の位置」がそのまま古くなる。
+func ClearResultCaches() { gtagsClearResultCaches() }
 
 // GtagsBuildIndex は dir で gtags を実行してインデックスを生成する。
 // -v フラグで処理中のファイル名をサーバーコンソールにリアルタイム出力する。
@@ -941,7 +957,15 @@ func gtagsParseOutput(out []byte, kind, dir string) []DefHit {
 	for scanner.Scan() {
 		line := scanner.Text()
 		fields := strings.Fields(line)
-		if len(fields) < 4 {
+		if len(fields) < 3 {
+			continue
+		}
+		// global -x の行テキストは索引ではなく現在のファイルから読み直される。
+		// 索引が古くてずれた先が空行だと4列目ごと消えるので、そこで捨てると
+		// 参照が1件まるごと失われる。参照はこの後ファイルを走査して位置を
+		// 取り直すため行テキストは要らない。定義は行テキストを着地点の手掛かりに
+		// 使うので、無い場合は捨てて ripgrep に任せる方が正しい位置に着く。
+		if len(fields) < 4 && kind != "ref" {
 			continue
 		}
 		lineNum, err := strconv.Atoi(fields[1])
@@ -952,7 +976,10 @@ func gtagsParseOutput(out []byte, kind, dir string) []DefHit {
 		if !filepath.IsAbs(file) {
 			file = filepath.Join(dir, file)
 		}
-		text := strings.Join(fields[3:], " ")
+		text := ""
+		if len(fields) > 3 {
+			text = strings.Join(fields[3:], " ")
+		}
 		results = append(results, DefHit{
 			File: file,
 			Line: lineNum,
@@ -1430,22 +1457,34 @@ func GtagsFindHoverHits(ctx context.Context, word, dir string) ([]DefHit, error)
 	copy(out, hits)
 	for i, h := range out {
 		lines, lerr := CachedLines(h.File)
-		if lerr != nil || h.Line <= 0 || h.Line > len(lines) {
+		if lerr != nil {
 			continue
 		}
-		out[i].Kind = classifyLineKind(lines[h.Line-1])
-		out[i].Text = strings.TrimSpace(lines[h.Line-1])
+		// 索引が古いと行がずれている。この直後に kind と text を現在の行から
+		// 取り直すので、索引が覚えている行テキストと突き合わせられるのはここが
+		// 最後。ずれたまま進むと、別の関数の本体をホバーに出す。
+		line := HealLineIn(lines, h.Line, AnchorKey(h.Text))
+		if line <= 0 || line > len(lines) {
+			continue
+		}
+		out[i].Healed = line != h.Line
+		out[i].Line = line
+		out[i].Kind = classifyLineKind(lines[line-1])
+		out[i].Text = strings.TrimSpace(lines[line-1])
 	}
 	return out, nil
 }
 
 // GtagsFindRefs は GNU Global で word の参照箇所を検索する（callers 用）。
 // 各参照行を囲む関数名・定義行を findContainingFunc で解決して返す。
-// 結果は (dir,word) でキャッシュされ、インデックス更新まで保持される。
+// 結果は (dir,word) でキャッシュされ、インデックス更新か寿命切れまで保持される。
 func GtagsFindRefs(ctx context.Context, word, dir string) ([]CallSite, error) {
 	cacheKey := gtagsCacheKey(dir, word)
 	if v, ok := _gtagsRefsCache.Load(cacheKey); ok {
-		return v.([]CallSite), nil
+		if e := v.(gtagsRefsEntry); time.Since(e.storedAt) < _gtagsRefsCacheTTL {
+			return e.sites, nil
+		}
+		_gtagsRefsCache.Delete(cacheKey)
 	}
 	globalBin := resolveGlobalBin()
 	var out []byte
@@ -1464,7 +1503,7 @@ func GtagsFindRefs(ctx context.Context, word, dir string) ([]CallSite, error) {
 		if err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
 				slog.Debug("gtags-find-refs no results", "word", word)
-				_gtagsRefsCache.Store(cacheKey, []CallSite(nil))
+				_gtagsRefsCache.Store(cacheKey, gtagsRefsEntry{storedAt: time.Now()})
 				return nil, nil
 			}
 			slog.Warn("gtags-find-refs error", "word", word, "err", err, "stderr", stderr.String())
@@ -1482,6 +1521,10 @@ func GtagsFindRefs(ctx context.Context, word, dir string) ([]CallSite, error) {
 	var results []CallSite
 	seen := map[string]bool{}
 	code := codeOnlyCache{}
+	// 索引が古いと行がずれている。下の絞り込みは「その行にシンボルが無ければ
+	// 捨てる」ので、先に取り直しておかないと、ずれたヒットはコメント扱いで消え、
+	// 参照一覧が黙って不完全になる。
+	hits = regatherDriftedRefs(hits, word, dir, code)
 	skippedNoFunc, skippedSelf, skippedDup, skippedComment := 0, 0, 0, 0
 	for _, h := range hits {
 		lines, lerr := CachedLines(h.File)
@@ -1521,6 +1564,6 @@ func GtagsFindRefs(ctx context.Context, word, dir string) ([]CallSite, error) {
 	slog.Debug("gtags-find-refs result", "word", word, "results", len(results),
 		"skipped_no_func", skippedNoFunc, "skipped_self", skippedSelf, "skipped_dup", skippedDup,
 		"skipped_comment", skippedComment)
-	_gtagsRefsCache.Store(cacheKey, results)
+	_gtagsRefsCache.Store(cacheKey, gtagsRefsEntry{sites: results, storedAt: time.Now()})
 	return results, nil
 }

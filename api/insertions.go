@@ -27,16 +27,17 @@ func (h *Handler) EnableFileWrites() { h.fileWrites = true }
 // saveFile は書き換えたソースを保存し、書き換えに伴う後始末をする。
 // 挿入系の保存は必ずここを通す（保存経路が増えても後始末を忘れないため）。
 //
-// 定義・ホバーのキャッシュは file:line をそのまま持っているので、行がずれた後も
-// 2 分間は古い位置を返し続ける。索引を作り直したときは捨てているのに、自分で
-// 書き換えたときに捨てないのは筋が通らない。索引由来のヒットは索引自体が古い
-// ままなのでこれだけでは直らないが、ファイルを直接見る rg 経路は正しい位置に戻る。
+// 定義・ホバー・参照のキャッシュは file:line をそのまま持っているので、行が
+// ずれた後も古い位置を返し続ける。索引を作り直したときは捨てているのに、自分で
+// 書き換えたときに捨てないのは筋が通らない。捨てれば次の問い合わせで現在の
+// ファイルに合わせて位置を取り直せる。
 func (h *Handler) saveFile(pf *patch.File) error {
 	if err := pf.Save(); err != nil {
 		return err
 	}
 	defCacheClear()
 	hoverCacheClear()
+	search.ClearResultCaches()
 	return nil
 }
 

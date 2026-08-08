@@ -18,6 +18,9 @@ type HoverHit struct {
 	Body  string `json:"body"`            // 抽出したブロック全体
 	Decl  bool   `json:"decl"`            // true = 宣言のみ（本体なし）
 	Value string `json:"value,omitempty"` // enum_member の計算値。Body はファイル原文のまま保ち、注釈はUI側でヘッダに出す
+	// Healed は索引の行番号がずれていて着地点を動かしたこと。定義ジャンプと
+	// 同じく、黙って動かすと外したときに気づく手掛かりが無くなるので見せる。
+	Healed bool `json:"healed,omitempty"`
 }
 
 // FindHover は word の定義を検索し、ブロック本体付きで返す。
@@ -25,6 +28,7 @@ type HoverHit struct {
 // 検索戦略（ripgrep 時）:
 //  1. ヘッダ（*.h,*.hpp）のみ検索 → struct/enum/define/typedef はここで完結
 //  2. func の宣言しか見つからなかった場合、ソースファイルも追加検索して定義本体を取得
+//
 // 戻り値の第2要素は使用したエンジン名（"gtags" / "ctags" / "rg"）。
 func FindHover(ctx context.Context, word, dir, glob, root string, includeChain ...map[string]bool) ([]HoverHit, string, error) {
 	chain := map[string]bool{}
@@ -101,6 +105,16 @@ func FindHover(ctx context.Context, word, dir, glob, root string, includeChain .
 		}
 	}
 
+	// 索引 (ctags) 由来のヒットは行がずれていることがある。以降はこの行を起点に
+	// 本体やコメントを切り出すため、先に現在のファイルへ合わせる。gtags と rg の
+	// 経路は行テキストが現在の内容で埋まっているので、ここは素通りする。
+	// hits はどの経路でも呼び出しごとに作られたスライスなので直接書き換えてよい。
+	for i := range hits {
+		to := HealLine(hits[i].File, hits[i].Line, hits[i].Text)
+		hits[i].Healed = hits[i].Healed || to != hits[i].Line
+		hits[i].Line = to
+	}
+
 	var result []HoverHit
 	seen := map[string]bool{}
 	for _, h := range hits {
@@ -113,7 +127,7 @@ func FindHover(ctx context.Context, word, dir, glob, root string, includeChain .
 		lines, err := CachedLines(h.File)
 		if err != nil {
 			// ファイルを読めなければテキスト行だけ返す
-			result = append(result, HoverHit{File: h.File, Line: h.Line, Kind: h.Kind, Body: h.Text})
+			result = append(result, HoverHit{File: h.File, Line: h.Line, Kind: h.Kind, Body: h.Text, Healed: h.Healed})
 			continue
 		}
 
@@ -172,7 +186,7 @@ func FindHover(ctx context.Context, word, dir, glob, root string, includeChain .
 		if comment := extractLeadingComment(lines, commentLine); comment != "" {
 			body = comment + "\n" + body
 		}
-		result = append(result, HoverHit{File: h.File, Line: h.Line, Kind: h.Kind, Body: body, Decl: isDecl, Value: value})
+		result = append(result, HoverHit{File: h.File, Line: h.Line, Kind: h.Kind, Body: body, Decl: isDecl, Value: value, Healed: h.Healed})
 	}
 
 	// func 結果を実装（decl:false）優先・上限2件でフィルタ
