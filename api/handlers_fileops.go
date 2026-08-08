@@ -659,8 +659,31 @@ func openInEditor(file, line, editorTmpl string) error {
 			parts[0] = exe
 		}
 	}
+	// 名前だけのコマンドは開くたびに PATH 全体を歩く。ネットワークドライブが
+	// PATH に混ざる環境では走査自体が秒単位になるので、解決結果を覚えておく。
+	parts[0] = resolveEditorBin(parts[0])
 	proc.Command(parts[0], parts[1:]...).Start()
 	return nil
+}
+
+// resolveEditorBin はエディタコマンド名を絶対パスへ1回だけ解決して記憶する。
+// 見つからない名前はそのまま返し、起動時のエラーに任せる（PATH が後から
+// 直る環境よりも、毎回の走査を確実に消すことを優先する）。
+var _editorBin sync.Map // name → 絶対パス
+
+func resolveEditorBin(name string) string {
+	if filepath.IsAbs(name) {
+		return name
+	}
+	if v, ok := _editorBin.Load(name); ok {
+		return v.(string)
+	}
+	resolved := name
+	if p, err := exec.LookPath(name); err == nil {
+		resolved = p
+	}
+	_editorBin.Store(name, resolved)
+	return resolved
 }
 
 var _vscodeExe struct {
