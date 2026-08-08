@@ -1282,7 +1282,9 @@ async function ensureEditor() {
               const engLabel = (i === 0 && hoverEngine) ? ` \`[${hoverEngine}]\`` : '';
               // enum 値はヘッダに出す（body に注釈を混ぜるとソース原文のコメントと区別が付かない）
               const valLabel = h.value ? ` = ${h.value}` : '';
-              const header = `**${hoverKindLabel[h.kind]||h.kind} \`${word.word}\`${valLabel}${counter}**${engLabel} — *${fileLink}*`;
+              // 索引の位置から動かしたことは伝える（定義ジャンプと同じ扱い）
+              const healedLabel = h.healed ? ' — *索引の位置からずれていたため調整*' : '';
+              const header = `**${hoverKindLabel[h.kind]||h.kind} \`${word.word}\`${valLabel}${counter}**${engLabel} — *${fileLink}*${healedLabel}`;
               const body = h.body.length > 2000 ? h.body.slice(0, 2000) + '\n// ...' : h.body;
               const prefix = i === 0 ? declNote : '';
               if(i === 0) _lastHoverHit = { file: h.file, line: h.line, body: h.body };
@@ -1770,13 +1772,26 @@ function fzfRenderSymbols(query) {
 
 // fzfActivate は Enter / クリック相当の決定操作。モード (と `#` プレフィックス) に応じて
 // 開く対象を切り替える。
-function fzfActivate(idx) {
+async function fzfActivate(idx) {
   if(_fzfSymbolQuery(id('fzf-input').value) !== null) {
     const s = fzfSymResults[idx];
-    if(s) { closeFzf(); openPeek(s.file, s.line); }
+    if(s) { closeFzf(); openPeek(s.file, await healedSymbolLine(s)); }
     return;
   }
   if(fzfFiltered[idx]) fzfOpen(fzfFiltered[idx]);
+}
+
+// healedSymbolLine は索引の行番号を現在のファイルに合わせて取り直す。
+// 一覧の全件を直すと打鍵のたびに最大100件ぶんのファイルを読み直すことになるので、
+// 実際に飛ぶ1件だけを決定時に直す。直せなければ索引の値のまま飛ぶ。
+async function healedSymbolLine(s) {
+  if(!s.text) return s.line;
+  try {
+    const r = await fetch('/api/heal-line?' + new URLSearchParams({file: s.file, line: String(s.line), text: s.text}));
+    if(!r.ok) return s.line;
+    const d = await r.json();
+    return d.line || s.line;
+  } catch { return s.line; }
 }
 
 function fzfMoveSel(delta) {

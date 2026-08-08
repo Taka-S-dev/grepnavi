@@ -274,7 +274,8 @@ function renderGear() {
     label.style.color = '#999';
   }
   const chainNames = { gtags: 'GNU Global', ctags: 'ctags', rg: 'ripgrep' };
-  label.title = '定義ジャンプエンジン設定\n試行順: ' + engines.map(e => chainNames[e]).join(' → ');
+  label.title = '定義ジャンプエンジン設定\n試行順: ' + engines.map(e => chainNames[e]).join(' → ')
+    + (_stale && eng === 'gtags' && _installed && _indexed ? '\n\n⚠ 索引がソースより古いです。行の内容が一致する場所へ着地点を調整していますが、絞り込めない箇所は索引の位置のままです。クリックして「更新」を実行してください。' : '');
 }
 
 function renderPopover() {
@@ -333,6 +334,11 @@ function renderPopover() {
   if (showGtagsSection) {
     html += `<div class="gtags-pop-divider"></div>`;
     html += `<div class="gtags-pop-section">GNU Global インデックス</div>`;
+    // 索引が古いことは歯車の ⚠ だけでは伝わらない。着地点の調整では拾い切れない
+    // ずれが残るので、何が起きているかと直し方をここに出す。
+    if (_stale && _indexed && !_opRunning) {
+      html += `<div class="gtags-pop-stale">⚠ 索引がソースより古いです。着地点はできる範囲で調整していますが、更新すると確実になります。</div>`;
+    }
     if (_opRunning) {
       html += `<div style="display:flex;gap:4px;align-items:center">`;
       html += `<button class="gtags-pop-btn" id="gtags-op-btn" disabled style="flex:1"><span class="gtags-spinner"></span>${_opLabel} ${_opSecs}s</button>`;

@@ -925,6 +925,7 @@ body.calltree-mode #pane-left{display:none!important}
 .engine-row.dragging{opacity:.85;background:#2a2d2e;border-radius:2px;position:relative;z-index:1}
 .engine-row.dragging .engine-grip{cursor:grabbing}
 .gtags-pop-status{color:#666;font-size:10px;padding:3px 2px 0}
+.gtags-pop-stale{color:#c8a84b;font-size:10px;line-height:1.4;padding:2px 2px 5px}
 .gtags-pop-hint{color:#666;font-size:10px;margin-left:4px}
 .gtags-op-msg{color:#888;font-size:10px;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;font-family:monospace}
 .gtags-pop-divider{border-top:1px solid #333;margin:6px 0}

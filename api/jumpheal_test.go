@@ -1,6 +1,10 @@
 package api
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -141,5 +145,39 @@ func TestHealDefHitsMarksMovedHits(t *testing.T) {
 	}
 	if hits[1].Line != 4 || hits[1].Healed {
 		t.Errorf("動かしていないヒットに印を付けてはいけない: got line=%d healed=%v", hits[1].Line, hits[1].Healed)
+	}
+}
+
+// シンボル名検索は決定時に1件だけ直す。ハンドラは root の外を触らない。
+func TestHandleHealLine(t *testing.T) {
+	h, dir := newJumpHealHandler(t)
+	src := writeSrc(t, dir, "t.c", "pad\npad\nvoid target(void)\n")
+
+	q := url.Values{"file": {src}, "line": {"1"}, "text": {"void target(void)"}}
+	rec := httptest.NewRecorder()
+	h.handleHealLine(rec, httptest.NewRequest("GET", "/api/heal-line?"+q.Encode(), nil))
+	var got struct {
+		Line   int  `json:"line"`
+		Healed bool `json:"healed"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Line != 3 || !got.Healed {
+		t.Errorf("heal-line = %+v, want line=3 healed=true", got)
+	}
+
+	outside := url.Values{"file": {filepath.Join(dir, "..", "elsewhere.c")}, "line": {"1"}, "text": {"void target(void)"}}
+	rec = httptest.NewRecorder()
+	h.handleHealLine(rec, httptest.NewRequest("GET", "/api/heal-line?"+outside.Encode(), nil))
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("root の外は拒否するはず: got %d", rec.Code)
+	}
+
+	bad := url.Values{"file": {src}, "line": {"0"}}
+	rec = httptest.NewRecorder()
+	h.handleHealLine(rec, httptest.NewRequest("GET", "/api/heal-line?"+bad.Encode(), nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("行番号が不正なら 400 のはず: got %d", rec.Code)
 	}
 }

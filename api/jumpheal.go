@@ -1,8 +1,8 @@
 package api
 
 import (
-	"strings"
-	"unicode"
+	"net/http"
+	"strconv"
 
 	"grepnavi/search"
 )
@@ -11,78 +11,41 @@ import (
 // ——デバッグ行の挿入・外部エディタでの編集・git の切り替え——では更新されない。
 // 索引が持つ行番号をそのまま返すと、目的の行から静かにずれた場所へ着地する。
 //
-// 行数を足し引きして補正する方法は採らない。索引が挿入の前に作られたのか後
-// なのかを知る必要があり、索引を作り直した後に二重補正になる。何より grepnavi
-// 以外の編集には効かない。
-//
-// 代わりに着地点の中身を照合する。索引は行テキストも持っているので、その行が
-// 今も同じ内容かを見て、違えば一致する行を探す。ちょうど1行に絞れたときだけ
-// 動かし、0件でも複数件でも索引の値のまま返す（もっともらしく間違えるより、
-// 動かさない方を選ぶ）。ピンの自動追従と同じ規約。
-//
-// 対象は定義ジャンプだけ。参照・呼び出し元にも同じ問題があるが、そちらは
-// 索引のヒットを現在のファイルで絞り込む段階（コメント内の出現を除く処理）が
-// 先に走り、ずれたヒットはそこで捨てられてしまう。API 層で直しても手遅れで、
-// 直すなら search 側の絞り込みより前に置く必要がある。
-
-// anchorKey は行を「索引が覚えている形」に正規化する。
-//
-// 索引の行テキストは元の行そのものではなく、空白の連続が1つに畳まれている
-// (gtags は strings.Fields で分解して " " で連結、ctags も同様に畳む)。
-// 生の行と単純比較すると、タブ揃えされた行——C では珍しくない——が常に
-// 不一致になり、追従が働かないどころか、書式だけが違う双子の行に一意一致して
-// 正しい着地点を壊しうる。両側を同じ形にしてから比べる。
-func anchorKey(s string) string { return strings.Join(strings.Fields(s), " ") }
-
-// usableAnchor は「その行を言い当てられるだけの手掛かりがあるか」。
-//
-// ctags は行番号形式のアドレスだとパターンを持たないため、DefHit.Text が
-// シンボル名そのものになる (search/ctags.go の text = word)。それを手掛かりに
-// 行を探すと、初期化子の中の識別子1個だけの行などに一意一致してしまい、
-// 正しい定義行から引き剥がす。識別子の文字しか無いテキストは手掛かりにしない。
-func usableAnchor(key string) bool {
-	if key == "" {
-		return false
-	}
-	return strings.IndexFunc(key, func(r rune) bool {
-		return !(r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r))
-	}) >= 0
-}
+// 照合の規約そのものは search/anchorheal.go にある。定義ジャンプだけは検索層に
+// 寄せずここで直す。定義の結果は検索層でキャッシュされるため、そこで直すと
+// 「直した当時の位置」が残り、その後の編集でまた古くなるが、応答のたびに
+// 直せば現在のファイルに必ず追従する。参照・呼び出し元は絞り込みより前に
+// 直す必要があるので検索層側で行う。
 
 // healedLine は file の line 行が text と食い違っているとき、text と一致する
-// 行が1つだけ見つかればその行番号を返す。動かす必要が無い・動かせない場合は
-// line をそのまま返す。
-//
-// ファイルを読むが、定義の経路はコメント内の出現を除くために同じファイルを
-// CachedLines で先に読んでいることが多く、その場合はキャッシュに当たる。
-// ずれていなければ1行の比較で終わり、全体走査は実際にずれていたときだけ走る。
+// 行が1つだけ見つかればその行番号を返す。file は絶対・ルート相対のどちらでもよい。
 func (h *Handler) healedLine(file string, line int, text string) int {
-	key := anchorKey(text)
-	if file == "" || line < 1 || !usableAnchor(key) {
+	if file == "" {
 		return line
 	}
-	lines, err := search.CachedLines(h.absFromRoot(file))
-	if err != nil {
-		return line // ファイルが読めないなら判断材料が無い
+	return search.HealLine(h.absFromRoot(file), line, text)
+}
+
+// handleHealLine は「索引が覚えている file:line とその行テキスト」を受け取り、
+// 現在のファイルでの行番号を返す。
+//
+// シンボル名検索 (Ctrl+T) の一覧はそのまま file:line へ飛ぶが、一覧の全件を
+// サーバー側で直すのは高すぎる。キーを打つたびに最大100件ぶんのファイルを
+// 読み直すことになるためで、実際に飛ぶ1件だけを選択時に直す。
+func (h *Handler) handleHealLine(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	line, err := strconv.Atoi(q.Get("line"))
+	if err != nil || line < 1 {
+		jsonErr(w, "line must be a positive integer", http.StatusBadRequest)
+		return
 	}
-	if line <= len(lines) && anchorKey(lines[line-1]) == key {
-		return line // ずれていない (ファイルを直接見る rg 由来のヒットは常にここ)
+	abs, ok := h.resolveWithinRoot(q.Get("file"))
+	if !ok {
+		jsonErr(w, "file outside root", http.StatusForbidden)
+		return
 	}
-	to, found := 0, 0
-	for i, l := range lines {
-		if anchorKey(l) != key {
-			continue
-		}
-		found++
-		if found > 1 {
-			return line // 行き先を1つに絞れないので動かさない
-		}
-		to = i + 1
-	}
-	if found == 1 {
-		return to
-	}
-	return line
+	to := search.HealLine(abs, line, q.Get("text"))
+	jsonOK(w, map[string]any{"line": to, "healed": to != line})
 }
 
 // healDefHits は定義ヒットの着地点を現在のファイルに合わせる。
