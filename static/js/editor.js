@@ -1166,6 +1166,14 @@ async function ensureEditor() {
     'void','int','char','short','long','float','double','unsigned','signed','size_t',
     'bool','true','false','NULL','nullptr','auto','register','sizeof','typeof',
   ]);
+  // enum / #define 定数の計算値ラベル。フラグ定数はビット構成が読みたいので
+  // 10 以上は16進を併記する（1桁は dec と hex が同じ見た目で情報が増えない）
+  function hoverValLabel(h) {
+    if(!h.value) return '';
+    const n = Number(h.value);
+    const hex = Number.isSafeInteger(n) && n >= 10 ? ` (0x${n.toString(16)})` : '';
+    return ` = ${h.value}${hex}`;
+  }
   // ホバー結果キャッシュ（同じ単語は再検索しない）
   const _hoverCache = new Map(); // "word:dir:glob" -> {result, time}
   const HOVER_CACHE_TTL = 60_000; // 1分
@@ -1292,8 +1300,8 @@ async function ensureEditor() {
               const fileLink = `[${shortPath(h.file)}:${h.line}](command:grepnavi.openFile?${args})`;
               const counter = multi ? ` — **${i+1} / ${hits.length}**` : '';
               const engLabel = (i === 0 && hoverEngine) ? ` \`[${hoverEngine}]\`` : '';
-              // enum 値はヘッダに出す（body に注釈を混ぜるとソース原文のコメントと区別が付かない）
-              const valLabel = h.value ? ` = ${h.value}` : '';
+              // enum / #define 定数の値はヘッダに出す（body に注釈を混ぜるとソース原文のコメントと区別が付かない）
+              const valLabel = hoverValLabel(h);
               // 索引の位置から動かしたことは伝える（定義ジャンプと同じ扱い）
               const healedLabel = h.healed ? ' — *索引の位置からずれていたため調整*' : '';
               const header = `**${hoverKindLabel[h.kind]||h.kind} \`${word.word}\`${valLabel}${counter}**${engLabel} — *${fileLink}*${healedLabel}`;
@@ -1309,7 +1317,7 @@ async function ensureEditor() {
             for(const h of chained) {
               const args = encodeURIComponent(JSON.stringify([h.file, h.line]));
               const fileLink = `[${shortPath(h.file)}:${h.line}](command:grepnavi.openFile?${args})`;
-              const header = `↳ *展開:* **${hoverKindLabel[h.kind]||h.kind} \`${h.name || ''}\`** — *${fileLink}*`;
+              const header = `↳ *展開:* **${hoverKindLabel[h.kind]||h.kind} \`${h.name || ''}\`${hoverValLabel(h)}** — *${fileLink}*`;
               const body = h.body.length > 2000 ? h.body.slice(0, 2000) + '\n// ...' : h.body;
               apiContents.push({value: '---\n\n' + header + '\n```c\n' + body + '\n```', isTrusted: true});
             }

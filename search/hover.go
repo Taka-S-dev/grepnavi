@@ -256,6 +256,9 @@ func FindHover(ctx context.Context, word, dir, glob, root string, includeChain .
 	// 式 (A + B) まで追うと候補が発散するし、単純な別名こそが追う価値のある形。
 	result = append(result, chaseDefineAliases(ctx, result, word, dir, glob)...)
 
+	// 置換部が定数式の #define は計算値も出す（enum メンバの計算値と同じ表示経路）
+	annotateDefineValues(ctx, result, word, dir, glob)
+
 	// インクルードチェーン内のファイルを先頭に並べる
 	if len(chain) > 0 {
 		sort.SliceStable(result, func(i, j int) bool {
