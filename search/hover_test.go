@@ -390,3 +390,58 @@ func TestEnumMemberValue(t *testing.T) {
 		t.Errorf("body must stay verbatim, got:\n%s", got)
 	}
 }
+
+// #define の別名連鎖: FOO のホバーで BAR → 実体までを補助カードとして返す。
+// 循環は既出名で打ち切り、式（単一識別子でない置換）は追わない。
+func TestChaseDefineAliases(t *testing.T) {
+	requireRg(t)
+	dir := t.TempDir()
+	write(t, dir+"/defs.h",
+		"#define FOO BAR\n"+
+			"#define BAR BAZ\n"+
+			"#define BAZ 42\n"+
+			"#define LOOP_A LOOP_B\n"+
+			"#define LOOP_B LOOP_A\n"+
+			"#define EXPR (BAR + 1)\n")
+
+	hover := func(word string) []HoverHit {
+		t.Helper()
+		hits, _, err := FindHover(t.Context(), word, dir, "", dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return hits
+	}
+
+	got := hover("FOO")
+	var bodies []string
+	for _, h := range got {
+		bodies = append(bodies, h.Body)
+	}
+	joined := strings.Join(bodies, "\n---\n")
+	if !strings.Contains(joined, "#define BAR BAZ") || !strings.Contains(joined, "#define BAZ 42") {
+		t.Errorf("FOO の連鎖に BAR と BAZ のカードが無い:\n%s", joined)
+	}
+	// 連鎖カードには印と自分の名前が付く（UI が定義の複数ヒットと区別するため）
+	for _, h := range got {
+		isChase := strings.Contains(h.Body, "BAR BAZ") || strings.Contains(h.Body, "BAZ 42")
+		if isChase && (!h.Chained || h.Name == "") {
+			t.Errorf("連鎖カードに Chained/Name が無い: %+v", h)
+		}
+		if !isChase && h.Chained {
+			t.Errorf("本人のカードに Chained が付いている: %+v", h)
+		}
+	}
+
+	// 循環しても止まる（枚数が有限で、同じ名前のカードが繰り返されない）
+	got = hover("LOOP_A")
+	if len(got) > 3 {
+		t.Errorf("循環で発散した: %d 枚", len(got))
+	}
+
+	// 式は追わない（EXPR のカードは1枚のまま）
+	got = hover("EXPR")
+	if len(got) != 1 {
+		t.Errorf("式の置換を追ってしまった: %d 枚", len(got))
+	}
+}

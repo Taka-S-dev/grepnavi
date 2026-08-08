@@ -1128,3 +1128,12 @@ body.search-mode #root-chip{min-width:0}
 .memo-group-hdr.memo-group-dragover{background:#094771;border:1px dashed #007acc}
 .memo-list-item.dnd-before{border-top:2px solid #007acc}
 .memo-list-item.dnd-after{border-bottom:2px solid #007acc}
+
+/* ホバー内の罫線（#define 連鎖カードの境界）。Monaco の既定 hr は色を持たず
+   透明の1pxで、カードが地続きに見える。背景色で確実に線を出す */
+.monaco-hover hr {
+  border: none !important;
+  height: 1px !important;
+  background-color: #505050 !important;
+  margin: 8px -8px 6px !important;
+}

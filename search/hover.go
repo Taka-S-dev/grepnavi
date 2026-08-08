@@ -21,6 +21,11 @@ type HoverHit struct {
 	// Healed は索引の行番号がずれていて着地点を動かしたこと。定義ジャンプと
 	// 同じく、黙って動かすと外したときに気づく手掛かりが無くなるので見せる。
 	Healed bool `json:"healed,omitempty"`
+	// Chained は #define 別名をたどって足した補助カード。Name はそのカードが
+	// 定義している識別子（ホバーした語ではない）。UI はこの2つで
+	// 「同名の定義が複数ヒットした」表示と区別する。
+	Chained bool   `json:"chained,omitempty"`
+	Name    string `json:"name,omitempty"`
 }
 
 // FindHover は word の定義を検索し、ブロック本体付きで返す。
@@ -244,6 +249,12 @@ func FindHover(ctx context.Context, word, dir, glob, root string, includeChain .
 		}
 	}
 	result = append(extra, result...)
+
+	// #define の別名（#define FOO BAR）は、たどった先の定義を補助カードで足す。
+	// FOO のホバーだけで BAR → 実体まで読めるように。連鎖は途中の各段も出す
+	// （どこで値が決まるかが分かる）。置換部が単一の識別子のときだけ追う ——
+	// 式 (A + B) まで追うと候補が発散するし、単純な別名こそが追う価値のある形。
+	result = append(result, chaseDefineAliases(ctx, result, word, dir, glob)...)
 
 	// インクルードチェーン内のファイルを先頭に並べる
 	if len(chain) > 0 {
@@ -841,4 +852,64 @@ func funcMin(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// #define の別名連鎖を追う。置換部が単一識別子（括弧1重は許す）の define だけを
+// 対象に、参照先の define を最大4段たどって1段1枚のカードにする。
+// 循環（#define A B / #define B A）は既出名で打ち切る。深さ上限は「それ以上
+// 深い別名はホバーで読む話ではない」という割り切り。
+var reDefineAlias = regexp.MustCompile(`^\s*#\s*define\s+\w+\s+\(?([A-Za-z_]\w*)\)?\s*(?:/[/*].*)?$`)
+
+// defineAliasTarget は define カードの本文から別名の参照先識別子を返す。
+// 本文の先頭には直前コメントが付いていることがあるので、行単位で探す。
+func defineAliasTarget(body string) string {
+	for _, line := range strings.Split(body, "\n") {
+		if m := reDefineAlias.FindStringSubmatch(line); m != nil {
+			return m[1]
+		}
+	}
+	return ""
+}
+
+func chaseDefineAliases(ctx context.Context, result []HoverHit, word, dir, glob string) []HoverHit {
+	seen := map[string]bool{word: true}
+	cur := ""
+	for _, h := range result {
+		if h.Kind == "define" {
+			cur = defineAliasTarget(h.Body)
+			break
+		}
+	}
+	var out []HoverHit
+	for depth := 0; cur != "" && !seen[cur] && depth < 4; depth++ {
+		seen[cur] = true
+		// 各段の解決は本体と同じ優先順位で。rg は全域走査で1段ごとに高くつくため、
+		// 索引があるなら使う（大きなツリーでのホバー遅延に直結する）。
+		var hits []DefHit
+		if GtagsAvailable(dir) {
+			hits, _ = GtagsFindDefinitions(ctx, cur, dir)
+		}
+		if len(hits) == 0 {
+			hits, _ = FindDefinitionsN(ctx, cur, dir, glob, 5)
+		}
+		next := ""
+		for _, rh := range hits {
+			if rh.Kind != "define" {
+				continue
+			}
+			lines, err := CachedLines(rh.File)
+			if err != nil {
+				continue
+			}
+			body := extractDefineBlock(lines, rh.Line)
+			if body == "" {
+				body = rh.Text
+			}
+			out = append(out, HoverHit{File: rh.File, Line: rh.Line, Kind: "define", Body: body, Chained: true, Name: cur})
+			next = defineAliasTarget(body)
+			break // 1段につきカード1枚（同名定義が複数あっても先頭のみ）
+		}
+		cur = next
+	}
+	return out
 }

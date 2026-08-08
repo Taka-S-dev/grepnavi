@@ -1271,8 +1271,12 @@ async function ensureEditor() {
           const apiContents = [];
           if(Array.isArray(hoverHits) && hoverHits.length) {
             const hoverKindLabel = {define:'#define', struct:'struct', enum:'enum', union:'union', typedef:'typedef', func:'function', enum_member:'enum'};
-            const defs  = hoverHits.filter(h => !h.decl).slice(0, 3);
-            const decls = hoverHits.filter(h =>  h.decl);
+            // #define 別名の連鎖カードは「同名の定義が複数ヒットした」のとは別物。
+            // カウンタ（1 / N）から外し、後段で従属カードとして描く。
+            const chained = hoverHits.filter(h => h.chained);
+            const mainHits = hoverHits.filter(h => !h.chained);
+            const defs  = mainHits.filter(h => !h.decl).slice(0, 3);
+            const decls = mainHits.filter(h =>  h.decl);
             const hits  = defs.length ? defs : decls.slice(0, 3);
             const multi = hits.length > 1;
             // 宣言ファイル一覧（定義がある場合のみ先頭に付記）
@@ -1297,6 +1301,17 @@ async function ensureEditor() {
               const prefix = i === 0 ? declNote : '';
               if(i === 0) _lastHoverHit = { file: h.file, line: h.line, body: h.body };
               apiContents.push({value: prefix + header + '\n```c\n' + body + '\n```', isTrusted: true});
+            }
+            // 連鎖カード: ↳ とそのカード自身の名前で「たどった先」だと分かる形にする
+            // （ホバー語の名前を使うと、中身と食い違う嘘のヘッダになる）。
+            // Monaco はカード間の余白がほぼ無く本人のカードと地続きに見えるため、
+            // 各カードの頭に罫線を入れて切り離す。
+            for(const h of chained) {
+              const args = encodeURIComponent(JSON.stringify([h.file, h.line]));
+              const fileLink = `[${shortPath(h.file)}:${h.line}](command:grepnavi.openFile?${args})`;
+              const header = `↳ *展開:* **${hoverKindLabel[h.kind]||h.kind} \`${h.name || ''}\`** — *${fileLink}*`;
+              const body = h.body.length > 2000 ? h.body.slice(0, 2000) + '\n// ...' : h.body;
+              apiContents.push({value: '---\n\n' + header + '\n```c\n' + body + '\n```', isTrusted: true});
             }
           }
 
