@@ -554,9 +554,6 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .chip{background:#0d3040;color:#4ec9b0;border-radius:8px;padding:1px 6px;font-size:10px}
 textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px;border-radius:2px;font:inherit;resize:vertical;min-height:40px}
 .row{display:flex;gap:4px;flex-wrap:wrap}
-#expand-q{flex:1;min-width:80px;background:#3c3c3c;border:1px solid #555;color:#ccc;padding:3px 5px;border-radius:2px;font:inherit}
-#expand-lbl{width:60px;background:#3c3c3c;border:1px solid #555;color:#ccc;padding:3px 5px;border-radius:2px;font:inherit}
-#expand-glob{width:70px;background:#3c3c3c;border:1px solid #555;color:#ccc;padding:3px 5px;border-radius:2px;font:inherit}
 #no-sel{color:#555;text-align:center;margin-top:30px;font-size:12px}
 
 /* フローティングコードプレビュー */

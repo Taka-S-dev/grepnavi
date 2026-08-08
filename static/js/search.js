@@ -652,8 +652,6 @@ function previewMatch(m) {
   // Re-render to update .sel on visible rows
   renderVirtual();
   showDetail({id:'__preview__', match:m, memo:'', label:labelFrom(m), children:[], expanded:true});
-  const bd = id('btn-del');
-  if(bd) bd.style.display='none';
   if(m.file) openPeek(m.file, m.line);
 }
 

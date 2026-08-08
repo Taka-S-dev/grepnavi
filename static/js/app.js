@@ -134,7 +134,8 @@ addEventListener('DOMContentLoaded', async () => {
     // 伝播を止めないものがあり、ここで一緒に閉じると書きかけを巻き添えにする。
     if(e.key === 'Escape' && !document.querySelector(
         '#fzf-overlay.open, #gn-dialog.open, #input-modal.open, #help-overlay.open, #fb-overlay.open, #project-modal.open, ' +
-        '#node-label-modal.open, #node-memo-modal.open, #node-line-modal.open, #settings-modal.open')) {
+        '#node-label-modal.open, #node-memo-modal.open, #node-line-modal.open, ' +
+        '#node-badge-modal.open, #node-sync-modal.open, #node-expand-modal.open, #settings-modal.open')) {
       if(window.closeTopFloatingDef?.()) return;
       const insDlg = document.getElementById('insert-dialog-modal');
       if(insDlg?.classList.contains('open') && typeof closeInsertDialog === 'function') {

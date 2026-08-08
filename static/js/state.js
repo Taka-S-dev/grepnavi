@@ -125,7 +125,7 @@ const LS_SEARCH_STACK = 'grepnavi-search-stack';
 let _stackDragIdx = null;
 
 // Detail panel accordion open/close state
-const accState = {loc:true, ifdef:false, snippet:false, memo:false, expand:false};
+const accState = {loc:true, ifdef:false, snippet:false};
 
 // File browser
 let _fbMode = 'save'; // 'save' | 'open' | 'dir'

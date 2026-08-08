@@ -866,6 +866,16 @@ async function renderGraph() {
       }
       refreshGraphSel();
     })
+    .on("contextmenu", (e, d) => {
+      e.preventDefault();
+      e.stopPropagation();
+      graphSel.clear();
+      graphSel.add(d.id);
+      selectNode(d.id, { skipOpen: true });
+      refreshGraphSel();
+      const node = graph.nodes[d.id];
+      if (node) showNodeLabelCtxMenu(null, node, node.match || {}, e.clientX, e.clientY);
+    })
     .on("mouseenter", (e, d) => {
       if (d.memo) showMemoTip(e, d);
     })
@@ -1297,7 +1307,7 @@ function createNodeFieldModal({
     if (prevDef !== undefined) graph.nodes[id_]._def = prevDef;
     close();
     renderCurrent();
-    if (selNode === id_) showDetail(id_);
+    if (selNode === id_) showDetail(graph.nodes[id_]);
     if (typeof refreshGraphDecorations === 'function') refreshGraphDecorations();
     st(successToast($input(), n));
   }
@@ -1382,6 +1392,42 @@ const nodeLineEditor = createNodeFieldModal({
   successToast: (inp) => '行番号を ' + parseInt(inp.value.trim(), 10) + ' に変更しました',
 });
 
+const BADGE_COLORS = [
+  { color: "", label: "なし" },
+  { color: "#e05252", label: "赤" },
+  { color: "#e09a30", label: "橙" },
+  { color: "#c8c825", label: "黄" },
+  { color: "#4caf50", label: "緑" },
+  { color: "#4a9edd", label: "青" },
+  { color: "#9c6fe4", label: "紫" },
+  { color: "#888", label: "灰" },
+];
+
+// ノードバッジ編集（右クリック「バッジ」から）
+const nodeBadgeEditor = createNodeFieldModal({
+  modalId: 'node-badge-modal',
+  inputId: 'node-badge-modal-input',
+  okId:    'node-badge-modal-ok',
+  cancelId:'node-badge-modal-cancel',
+  enterSubmits: true,
+  initInput: (node, inp) => {
+    inp.value = node.badge_text || '';
+    const wrap = document.getElementById('node-badge-swatches');
+    wrap.innerHTML = BADGE_COLORS.map(
+      (b) =>
+        `<span class="badge-swatch${(node.badge_color || '') === b.color ? ' sel' : ''}" data-color="${esc(b.color)}" title="${b.label}"
+        style="background:${b.color || 'transparent'};${!b.color ? 'border:1px dashed #555;' : ''}">${!b.color ? '✕' : ''}</span>`,
+    ).join('');
+  },
+  buildBody: (inp, node) => {
+    const sel = document.querySelector('#node-badge-swatches .badge-swatch.sel');
+    // パレットに無い色 (API 経由で設定可能) はどのスウォッチも選択されない。
+    // その状態の保存でテキストだけ直したいときに色まで消さないよう、元の値へ倒す。
+    return { badge_color: sel ? sel.dataset.color : (node.badge_color || ''), badge_text: inp.value.trim() };
+  },
+  successToast: () => 'バッジ保存',
+});
+
 // F2 / 右クリック「名前を変更」のエントリポイント。lbl/m は API 互換のため残置。
 function startNodeLabelEdit(lbl, node, m) {
   nodeLabelEditor.open(node);
@@ -1436,6 +1482,24 @@ function initNodeCtxMenu() {
     hideNodeCtxMenu();
     moveNodeToCursorLine(node);
   };
+  document.getElementById("node-ctx-badge").onclick = () => {
+    if (!_nodeCtxTarget) return;
+    const { node } = _nodeCtxTarget;
+    hideNodeCtxMenu();
+    nodeBadgeEditor.open(node);
+  };
+  document.getElementById("node-ctx-expand").onclick = () => {
+    if (!_nodeCtxTarget) return;
+    const { node } = _nodeCtxTarget;
+    hideNodeCtxMenu();
+    openExpandModal(node);
+  };
+  document.getElementById("node-ctx-sync").onclick = () => {
+    if (!_nodeCtxTarget) return;
+    const { node } = _nodeCtxTarget;
+    hideNodeCtxMenu();
+    openSyncModal(node);
+  };
   document.getElementById("node-ctx-duplicate").onclick = async () => {
     if (!_nodeCtxTarget) return;
     const { node } = _nodeCtxTarget;
@@ -1450,6 +1514,67 @@ function initNodeCtxMenu() {
   nodeLabelEditor.init();
   nodeMemoEditor.init();
   nodeLineEditor.init();
+  nodeBadgeEditor.init();
+
+  // バッジ: スウォッチは開くたびに作り直すので、選択は親要素で委譲する。
+  // mousedown を止めるのは、クリックで input からフォーカスが抜けると
+  // ファクトリの Escape / Enter (input にぶら下がっている) が効かなくなるため。
+  document.getElementById("node-badge-swatches").addEventListener("mousedown", (e) => {
+    if (e.target.closest(".badge-swatch")) e.preventDefault();
+  });
+  document.getElementById("node-badge-swatches").addEventListener("click", (e) => {
+    const sw = e.target.closest(".badge-swatch");
+    if (!sw) return;
+    document.querySelectorAll("#node-badge-swatches .badge-swatch").forEach((s) => s.classList.remove("sel"));
+    sw.classList.add("sel");
+  });
+
+  // Sync 上書きモーダル
+  document.getElementById("node-sync-pick").onclick = () => {
+    const file = tabs?.[activeTabIdx]?.file;
+    const line = monacoEditor?.getPosition()?.lineNumber;
+    if (!file || !line) {
+      st("エディタにカーソル位置が無い");
+      return;
+    }
+    id("node-sync-file").value = file;
+    id("node-sync-line").value = String(line);
+  };
+  document.getElementById("node-sync-ok").onclick = () => {
+    if (!_syncModalNodeId || !graph.nodes[_syncModalNodeId]) { closeSyncModal(); return; }
+    const file = id("node-sync-file").value.trim();
+    const line = parseInt(id("node-sync-line").value, 10);
+    if (!file || !Number.isInteger(line) || line < 1) {
+      st("ファイルと 1 以上の行番号を入力してください");
+      return;
+    }
+    _saveDefOverride(_syncModalNodeId, { def_override: { file, line } }, "Sync 上書き保存");
+    closeSyncModal();
+  };
+  document.getElementById("node-sync-clear").onclick = () => {
+    if (!_syncModalNodeId || !graph.nodes[_syncModalNodeId]) { closeSyncModal(); return; }
+    _saveDefOverride(_syncModalNodeId, { clear_def_override: true }, "Sync 上書き解除");
+    closeSyncModal();
+  };
+  document.getElementById("node-sync-cancel").onclick = closeSyncModal;
+  document.getElementById("node-sync-modal").addEventListener("click", (e) => {
+    if (e.target === document.getElementById("node-sync-modal")) closeSyncModal();
+  });
+  document.getElementById("node-sync-modal").addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.preventDefault(); closeSyncModal(); }
+    if (e.key === "Enter" && e.target.tagName === "INPUT") { e.preventDefault(); document.getElementById("node-sync-ok").click(); }
+  });
+
+  // 展開モーダル
+  document.getElementById("node-expand-run").onclick = doExpand;
+  document.getElementById("node-expand-cancel").onclick = closeExpandModal;
+  document.getElementById("node-expand-modal").addEventListener("click", (e) => {
+    if (e.target === document.getElementById("node-expand-modal")) closeExpandModal();
+  });
+  document.getElementById("node-expand-modal").addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.preventDefault(); closeExpandModal(); }
+    if (e.key === "Enter" && e.target.tagName === "INPUT") { e.preventDefault(); doExpand(); }
+  });
 }
 
 async function duplicateNode(nodeId) {
@@ -2004,6 +2129,11 @@ function makeAccSection(key, title, bodyHTML, defaultOpen) {
   return sec;
 }
 
+// 詳細パネルは選択中の場所の読み取り専用ビュー。編集 UI はツリー側
+// （F2 / 右クリックメニュー）に一本化してある。以前はここにラベル・メモ・
+// バッジ等の編集を置いていたが、保存先が selNode 固定のため、検索結果の
+// プレビュー（__preview__）表示中に編集すると直前に選択していた別ノードへ
+// 書き込まれる事故があった。表示専用にすることでこの経路を塞いでいる。
 function showDetail(n) {
   const el = id("detail");
   if (!n) {
@@ -2023,41 +2153,23 @@ function showDetail(n) {
 
   el.innerHTML = "";
 
-  const BADGE_COLORS = [
-    { color: "", label: "なし" },
-    { color: "#e05252", label: "赤" },
-    { color: "#e09a30", label: "橙" },
-    { color: "#c8c825", label: "黄" },
-    { color: "#4caf50", label: "緑" },
-    { color: "#4a9edd", label: "青" },
-    { color: "#9c6fe4", label: "紫" },
-    { color: "#888", label: "灰" },
-  ];
-  const badgeSwatches = BADGE_COLORS.map(
-    (b) =>
-      `<span class="badge-swatch${(n.badge_color || "") === b.color ? " sel" : ""}" data-color="${esc(b.color)}" title="${b.label}"
-      style="background:${b.color || "transparent"};${!b.color ? "border:1px dashed #555;" : ""}">${!b.color ? "✕" : ""}</span>`,
-  ).join("");
-  const labelSec = makeAccSection(
+  const original = (m.text || "").trim() || labelFrom(m);
+  const custom = (n.label || "").trim();
+  const labelLine =
+    custom && custom !== original
+      ? `<div style="color:#e0e0e0;font-size:12px;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(custom)}">${esc(custom)}</div>`
+      : "";
+  const locSec = makeAccSection(
     "loc",
-    "ラベル",
+    "場所",
     `
-    <div style="display:flex;gap:4px;align-items:center">
-      <input id="label-inp" type="text" value="${esc(n.label || "")}" placeholder="${esc((m.text || "").trim() || labelFrom(m))}"
-        style="flex:1;background:#1a1a1a;border:1px solid #444;color:#e0e0e0;font:12px Consolas,monospace;padding:2px 5px;border-radius:2px">
-    </div>
-    <div style="color:#555;font-size:11px;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
-         title="${esc((m.text || "").trim())}">元: ${esc((m.text || "").trim() || labelFrom(m))}</div>
-    <div class="dv" id="d-filelink" title="Ctrl+クリックでエディタで開く" style="cursor:pointer;color:#569cd6;text-decoration:underline;font-size:11px;margin-top:2px">${esc(m.file || "")}:${m.line || ""}</div>
-    <div style="margin-top:6px">
-      <div style="font-size:11px;color:#888;margin-bottom:3px">バッジ</div>
-      <div id="badge-swatches" style="display:flex;gap:4px;margin-bottom:4px">${badgeSwatches}</div>
-      <input id="badge-text-inp" type="text" value="${esc(n.badge_text || "")}" placeholder="テキスト（省略可）"
-        style="width:100%;box-sizing:border-box;background:#1a1a1a;border:1px solid #444;color:#e0e0e0;font:11px Consolas,monospace;padding:2px 4px;border-radius:2px">
-    </div>`,
+    ${labelLine}
+    <div style="color:#888;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
+         title="${esc(original)}">${esc(original)}</div>
+    <div class="dv" id="d-filelink" title="Ctrl+クリックでエディタで開く" style="cursor:pointer;color:#569cd6;text-decoration:underline;font-size:11px;margin-top:2px">${esc(m.file || "")}:${m.line || ""}</div>`,
     true,
   );
-  el.appendChild(labelSec);
+  el.appendChild(locSec);
 
   if (stack.length) {
     const ifdefSec = makeAccSection(
@@ -2077,176 +2189,61 @@ function showDetail(n) {
   );
   el.appendChild(snipSec);
 
-  const memoSec = makeAccSection(
-    "memo",
-    "メモ",
-    `
-    <textarea id="memo-ta">${esc(n.memo || "")}</textarea>`,
-    true,
-  );
-  el.appendChild(memoSec);
-
-  // Sync 上書き: 関数名からの自動解決 (call ↔ def sync) が誤ヒットしたときの
-  // 救済用に file:line を直接指定できる UI。空のまま「適用」で override 解除。
-  const ov = n.def_override || {};
-  const syncSec = makeAccSection(
-    "sync",
-    "Sync 上書き",
-    `
-    <div style="font-size:11px;color:#666;margin-bottom:4px">
-      自動解決が誤った場所を指すときの手動上書き。空で「適用」すると自動解決に戻る。
-    </div>
-    <div style="display:flex;gap:4px;align-items:center;margin-bottom:4px">
-      <input id="def-ovr-file" type="text" value="${esc(ov.file || "")}" placeholder="ファイルパス"
-        style="flex:1;background:#1a1a1a;border:1px solid #444;color:#e0e0e0;font:11px Consolas,monospace;padding:2px 5px;border-radius:2px">
-      <input id="def-ovr-line" type="number" min="1" value="${ov.line || ""}" placeholder="行"
-        style="width:60px;background:#1a1a1a;border:1px solid #444;color:#e0e0e0;font:11px Consolas,monospace;padding:2px 5px;border-radius:2px">
-    </div>
-    <div style="display:flex;gap:4px">
-      <button id="def-ovr-pick" title="現在エディタで見ているファイル + カーソル行を取り込む" style="font-size:11px">📍 カーソル位置取込</button>
-      <button id="def-ovr-apply" style="font-size:11px;margin-left:auto">適用</button>
-      <button id="def-ovr-clear" style="font-size:11px" class="sec">クリア</button>
-    </div>`,
-    !!n.def_override,
-  );
-  el.appendChild(syncSec);
-
-  const expSec = makeAccSection(
-    "expand",
-    "展開",
-    `
-    <div class="row">
-      <input id="expand-q" placeholder="パターン" value="${esc(extractSym(m.text || ""))}">
-      <input id="expand-lbl" placeholder="ラベル" value="ref">
-      <input id="expand-glob" placeholder="glob">
-    </div>
-    <div style="margin-top:4px"><button id="btn-expand">展開</button></div>`,
-    false,
-  );
-  el.appendChild(expSec);
-
-  id("btn-expand").onclick = doExpand;
   id("d-filelink").onclick = (e) => {
     if (e.ctrlKey || e.metaKey) openFile(m.file, m.line);
   };
-  id("label-inp").onkeydown = (e) => {
-    if (e.key === "Enter") saveLabel();
-  };
-  id("label-inp").onblur = saveLabel;
-  id("memo-ta").onblur = saveMemo;
-  // Sync 上書き UI のボタン配線
-  id("def-ovr-pick").onclick   = pickCurrentPositionForDefOverride;
-  id("def-ovr-apply").onclick  = applyDefOverride;
-  id("def-ovr-clear").onclick  = clearDefOverride;
-  // バッジ: スウォッチクリックで色を選択→即保存
-  id("badge-swatches")
-    .querySelectorAll(".badge-swatch")
-    .forEach((sw) => {
-      sw.onclick = () => {
-        id("badge-swatches")
-          .querySelectorAll(".badge-swatch")
-          .forEach((s) => s.classList.remove("sel"));
-        sw.classList.add("sel");
-        saveBadge(sw.dataset.color, id("badge-text-inp").value.trim());
-      };
-    });
-  id("badge-text-inp").onblur = () => {
-    const sel = id("badge-swatches").querySelector(".badge-swatch.sel");
-    saveBadge(
-      sel ? sel.dataset.color : n.badge_color || "",
-      id("badge-text-inp").value.trim(),
-    );
-  };
-  id("badge-text-inp").onkeydown = (e) => {
-    if (e.key === "Enter") e.target.blur();
-  };
-}
-
-async function saveLabel() {
-  if (!selNode) return;
-  const label = id("label-inp").value.trim();
-  const r = await fetch("/api/graph/node/" + selNode, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ label }),
-  });
-  const n = await r.json();
-  graph.nodes[selNode] = n;
-  renderCurrent();
-  showDetail(graph.nodes[selNode]);
-  st("ラベル保存");
-}
-
-async function saveBadge(color, text) {
-  if (!selNode) return;
-  const r = await fetch("/api/graph/node/" + selNode, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ badge_color: color, badge_text: text }),
-  });
-  const n = await r.json();
-  graph.nodes[selNode] = n;
-  renderCurrent();
-}
-
-async function saveMemo() {
-  if (!selNode) return;
-  const memo = id("memo-ta").value;
-  const r = await fetch("/api/graph/node/" + selNode, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ memo }),
-  });
-  const n = await r.json();
-  graph.nodes[selNode] = n;
-  renderCurrent();
-  st("メモ保存");
 }
 
 // Sync 上書きの保存・解除。保存後は _def キャッシュを捨てて装飾を再描画する。
-async function _saveDefOverride(payload, statusMsg) {
-  if (!selNode) return;
-  const r = await fetch("/api/graph/node/" + selNode, {
+async function _saveDefOverride(nodeId, payload, statusMsg) {
+  if (!nodeId) return;
+  const r = await fetch("/api/graph/node/" + nodeId, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   const n = await r.json();
+  if (n.error) {
+    st("エラー: " + n.error);
+    return;
+  }
   // _def は resolveNodeDef 用の transient キャッシュ。next refresh で再評価させる。
   delete n._def;
-  graph.nodes[selNode] = n;
+  graph.nodes[nodeId] = n;
   renderCurrent();
   if (typeof refreshGraphDecorations === "function") refreshGraphDecorations();
-  showDetail(graph.nodes[selNode]);
+  if (selNode === nodeId) showDetail(graph.nodes[nodeId]);
   st(statusMsg);
 }
 
-function applyDefOverride() {
-  const file = id("def-ovr-file").value.trim();
-  const line = parseInt(id("def-ovr-line").value, 10);
-  if (!file || !line || line < 1) {
-    // 両方空 = 解除扱い、その他不正は無視
-    if (!file && !id("def-ovr-line").value.trim()) {
-      _saveDefOverride({ clear_def_override: true }, "Sync 上書き解除");
-    }
-    return;
-  }
-  _saveDefOverride({ def_override: { file, line } }, "Sync 上書き保存");
+let _syncModalNodeId = null;
+function openSyncModal(node) {
+  if (!node) return;
+  _syncModalNodeId = node.id;
+  const ov = node.def_override || {};
+  id("node-sync-file").value = ov.file || "";
+  id("node-sync-line").value = ov.line || "";
+  id("node-sync-modal").classList.add("open");
+  setTimeout(() => id("node-sync-file").focus(), 0);
+}
+function closeSyncModal() {
+  id("node-sync-modal")?.classList.remove("open");
+  _syncModalNodeId = null;
 }
 
-function clearDefOverride() {
-  _saveDefOverride({ clear_def_override: true }, "Sync 上書き解除");
+let _expandModalNodeId = null;
+function openExpandModal(node) {
+  if (!node) return;
+  _expandModalNodeId = node.id;
+  id("expand-q").value = extractSym((node.match || {}).text || "");
+  id("expand-lbl").value = "ref";
+  id("expand-glob").value = "";
+  id("node-expand-modal").classList.add("open");
+  setTimeout(() => id("expand-q").focus(), 0);
 }
-
-function pickCurrentPositionForDefOverride() {
-  const file = tabs?.[activeTabIdx]?.file;
-  const line = monacoEditor?.getPosition()?.lineNumber;
-  if (!file || !line) {
-    st("エディタにカーソル位置が無い");
-    return;
-  }
-  id("def-ovr-file").value = file;
-  id("def-ovr-line").value = String(line);
+function closeExpandModal() {
+  id("node-expand-modal")?.classList.remove("open");
+  _expandModalNodeId = null;
 }
 
 async function removeNode(nid) {
@@ -2335,8 +2332,9 @@ async function clearGraph() {
 
 // ===== EXPAND =====
 async function doExpand() {
-  if (!selNode) {
-    st("エラー: グラフのノードを選択してから展開してください");
+  const nodeId = _expandModalNodeId;
+  if (!nodeId || !graph.nodes[nodeId]) {
+    closeExpandModal();
     return;
   }
   const q = id("expand-q").value.trim();
@@ -2350,7 +2348,7 @@ async function doExpand() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        node_id: selNode,
+        node_id: nodeId,
         query: q,
         dir,
         edge_label: lbl,
@@ -2368,13 +2366,14 @@ async function doExpand() {
     (d.new_edges || []).forEach((e) => {
       graph.edges.push(e);
     });
-    if (graph.nodes[selNode]) {
-      graph.nodes[selNode].children = graph.nodes[selNode].children || [];
+    if (graph.nodes[nodeId]) {
+      graph.nodes[nodeId].children = graph.nodes[nodeId].children || [];
       (d.new_nodes || []).forEach((n) => {
-        if (!graph.nodes[selNode].children.includes(n.id))
-          graph.nodes[selNode].children.push(n.id);
+        if (!graph.nodes[nodeId].children.includes(n.id))
+          graph.nodes[nodeId].children.push(n.id);
       });
     }
+    closeExpandModal();
     renderCurrent();
     stGraph();
     st(`展開: ${(d.new_nodes || []).length}件追加`);
