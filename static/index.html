@@ -75,18 +75,26 @@
     <div id="symbols-panel">
       <div id="symbols-header">シンボル検索</div>
       <div id="symbols-input-wrap">
-        <input id="symbols-input" type="text" placeholder="名前で絞り込み（スペース区切りで AND）" autocomplete="off" spellcheck="false">
+        <input id="symbols-input" type="text" placeholder="シンボル名（スペース区切りで AND）" autocomplete="off" spellcheck="false">
         <button id="symbols-group-btn" title="ファイル単位で表示（一致順 ⇄ ファイル別）">☰</button>
       </div>
+      <div id="symbols-fields">
+        <div class="bar-field">
+          <div class="bar-field-label">含めるファイル <span class="sym-label-hint">glob例: *.c,*.h</span></div>
+          <div class="sym-input-row">
+            <input id="symbols-glob" type="text" placeholder="*.c  /  *.c,*.h  /  空=全ファイル" autocomplete="off" spellcheck="false">
+            <button id="symbols-glob-clear" title="クリア" style="display:none">✕</button>
+          </div>
+        </div>
+        <div class="bar-field">
+          <div class="bar-field-label">パスで絞り込み <span class="sym-label-hint">dir/  -test で除外</span></div>
+          <div class="sym-input-row">
+            <input id="symbols-filter" type="text" placeholder="空=全体" autocomplete="off" spellcheck="false">
+            <button id="symbols-filter-clear" title="クリア" style="display:none">✕</button>
+          </div>
+        </div>
+      </div>
       <div id="symbols-kinds"></div>
-      <div id="symbols-filter-wrap">
-        <input id="symbols-filter" type="text" placeholder="場所: dir/  -test" autocomplete="off" spellcheck="false">
-        <button id="symbols-filter-clear" title="クリア" style="display:none">✕</button>
-      </div>
-      <div id="symbols-glob-wrap">
-        <input id="symbols-glob" type="text" placeholder="含めるファイル: *.c,*.h" autocomplete="off" spellcheck="false">
-        <button id="symbols-glob-clear" title="クリア" style="display:none">✕</button>
-      </div>
       <div id="symbols-list" tabindex="-1"></div>
       <div id="symbols-status"></div>
     </div>
