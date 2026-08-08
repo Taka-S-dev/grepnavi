@@ -430,23 +430,28 @@ func ctagsFindBinarySearch(word, tagsPath, dir string) ([]DefHit, error) {
 	}
 
 	var hits []DefHit
+	wordB := []byte(word)
 	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "!") {
+		// この走査は二分探索が絞った窓の全行に対して走る。ほぼ全行が不一致
+		// なので、確保の要らない Bytes で最初のタブまでを比べ、行の文字列化と
+		// 分割は一致した行だけに絞る（Bytes の中身は次の Scan で無効になるが、
+		// 一致時に即 string へ写すので問題ない）。
+		b := scanner.Bytes()
+		if len(b) > 0 && b[0] == '!' {
 			continue
 		}
-		fields := strings.Split(line, "\t")
-		if len(fields) < 3 {
+		tab := bytes.IndexByte(b, '\t')
+		if tab < 0 {
 			continue
 		}
-		sym := fields[0]
-		if sym > word {
+		cmp := bytes.Compare(b[:tab], wordB)
+		if cmp > 0 {
 			break
 		}
-		if sym != word {
+		if cmp != 0 {
 			continue
 		}
-		h := ctagsParseLine(line, word, dir)
+		h := ctagsParseLine(string(b), word, dir)
 		if h != nil {
 			hits = append(hits, *h)
 		}
