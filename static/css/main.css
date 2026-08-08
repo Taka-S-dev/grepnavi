@@ -854,30 +854,16 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 .stab.pinned .stab-dot::before{background:#4ec9b0}
 .stab-sep{border-top:1px solid #2a2a2a;margin:3px 0}
 
-/* ===== panel mode (?mode=panel) ===== */
-#panel-tabs{display:none;flex-shrink:0;border-bottom:1px solid #333;background:#252526}
-.panel-tab{background:none;border:none;border-bottom:2px solid transparent;color:#888;cursor:pointer;padding:7px 18px;font:inherit;font-size:12px}
-.panel-tab:hover{color:#ccc}
-.panel-tab.active{color:#ccc;border-bottom-color:#007acc}
-/* ===== モード別レイアウト（重複は :is() で集約、固有指令だけ個別セレクタ） ===== */
+/* ===== モード別レイアウト ===== */
 
-/* 3モード共通 */
-body:is(.panel-mode, .search-mode, .calltree-mode) #col-resizer{display:none!important}
+body.search-mode #col-resizer{display:none!important}
 
-/* panel + search 共通: 右ペインを隠して左ペインを全幅化 */
-body:is(.panel-mode, .search-mode) #pane-right  {display:none!important}
-body:is(.panel-mode, .search-mode) #pane-left   {width:100%!important;flex:1}
-body:is(.panel-mode, .search-mode) #pane-detail {display:none!important}
-body:is(.panel-mode, .search-mode) #left-resizer{display:none!important}
+/* search モード: 右ペインを隠して左ペインを全幅化 */
+body.search-mode #pane-right  {display:none!important}
+body.search-mode #pane-left   {width:100%!important;flex:1}
+body.search-mode #pane-detail {display:none!important}
+body.search-mode #left-resizer{display:none!important}
 
-/* panel モード固有 */
-body.panel-mode #panel-tabs{display:flex}
-body.panel-mode #pane-left{display:flex;flex-direction:column}
-body.panel-mode .ri-add{display:none!important}
-body.panel-mode #ct-sidebar{position:relative!important;transform:none!important;width:100%!important;flex:1;min-height:0;border:none!important;box-shadow:none!important;display:none;flex-direction:column;top:auto!important;right:auto!important}
-body.panel-mode #ct-sidebar.open{display:flex!important}
-
-/* search モード固有 */
 body.search-mode #pane-search{flex:1!important;height:auto!important}
 
 /* search モードのナロー幅対応: 主要ボタンの min-width を解除して縮められるように */
@@ -885,8 +871,6 @@ body.search-mode #btn-s,
 body.search-mode #btn-toggle-sub{min-width:auto;padding-left:6px;padding-right:6px}
 body.search-mode #root-chip{min-width:0}
 
-/* calltree モード固有: 左ペインごと隠して右ペインのコールツリーだけ */
-body.calltree-mode #pane-left{display:none!important}
 
 /* statusbar */
 #sb{height:20px;background:#007acc;display:flex;align-items:center;padding:0 8px;font-size:11px;color:#fff;flex-shrink:0}

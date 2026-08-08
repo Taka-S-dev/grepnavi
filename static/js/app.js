@@ -420,34 +420,11 @@ addEventListener('DOMContentLoaded', async () => {
   const rootRes = await fetch('/api/root').then(r=>r.json()).catch(()=>null);
   if(!rootRes || !rootRes.root) showRootDialog();
 
-  // URL モードに応じたレイアウト適用
-  if(pageMode === PAGE_MODES.PANEL) {
-    document.body.classList.add('panel-mode');
-    id('pane-right').style.display = 'none';
-    id('col-resizer').style.display = 'none';
-    id('peek').classList.remove('visible');
-
-    // 検索タブ（組み込み）をタブバーに追加
-    const tabBar = document.createElement('div');
-    tabBar.id = 'panel-tabs';
-    const searchBtn = document.createElement('button');
-    searchBtn.className = 'panel-tab active';
-    searchBtn.dataset.panelTab = 'search';
-    searchBtn.textContent = '検索';
-    searchBtn.onclick = () => switchPanelTab('search');
-    tabBar.appendChild(searchBtn);
-    id('pane-left').insertBefore(tabBar, id('pane-left').firstChild);
-    // 登録済みパネルをタブに反映（app.js より先に registerPanel した分）
-    flushPanelRegistry();
-    // まだ登録されていない分は registerPanel 内で自動追加される
-  } else if(pageMode === PAGE_MODES.SEARCH) {
+  // モードに応じたレイアウト適用
+  if(pageMode === PAGE_MODES.SEARCH) {
     document.body.classList.add('search-mode');
     id('peek').classList.remove('visible');
     setTimeout(() => { id('q')?.focus(); id('q')?.select(); }, 0);
-  } else if(pageMode === PAGE_MODES.CALLTREE) {
-    document.body.classList.add('calltree-mode');
-    id('peek').classList.remove('visible');
-    setTimeout(() => window.openCallTree?.(), 300);
   } else {
     id('peek').classList.add('visible');
   }

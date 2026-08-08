@@ -41,10 +41,9 @@
 }
 .activity-btn-bottom { margin-top: auto; margin-bottom: 4px; }
 
-/* ノードタブは pane-right が隠れるモード（search / panel）でのみ意味がある */
+/* ノードタブは pane-right が隠れる検索のみモードでだけ意味がある */
 #tab-nodes { display: none; }
-body.search-mode #tab-nodes,
-body.panel-mode  #tab-nodes { display: flex; }
+body.search-mode #tab-nodes { display: flex; }
 
 /* ノードタブのカウントバッジ + 追加時のパルス */
 .activity-badge {

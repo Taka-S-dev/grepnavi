@@ -1,10 +1,8 @@
 // ===== GLOBAL STATE =====
 
-// URL mode の定数化: 文字列リテラルの散在を防ぐ。新モード追加時はここに足す。
+// 表示モードの定数化: 文字列リテラルの散在を防ぐ。新モード追加時はここに足す。
 const PAGE_MODES = Object.freeze({
-  SEARCH:   'search',
-  PANEL:    'panel',
-  CALLTREE: 'calltree',
+  SEARCH: 'search',
 });
 // アプリ設定の保存先。ここに置くのは pageMode の決定に要るため（project.js より先に読む）。
 const LS_SETTINGS = 'grepnavi-app-settings';

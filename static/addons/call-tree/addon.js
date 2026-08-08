@@ -142,16 +142,6 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
   });
-
-  // パネルモード登録
-  if(typeof registerPanel === 'function') {
-    registerPanel({
-      id: 'calltree',
-      label: 'コールツリー',
-      containerId: 'ct-sidebar',
-      onOpen: openCallTree,
-    });
-  }
 });
 
 function updateCtEngineLabel(mode) {
