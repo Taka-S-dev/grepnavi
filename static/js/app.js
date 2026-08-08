@@ -72,17 +72,21 @@ addEventListener('DOMContentLoaded', async () => {
     const isExplorer = tab === 'explorer';
     const isProjects = tab === 'projects';
     const isNodes    = tab === 'nodes';
-    const isSearch   = !isExplorer && !isProjects && !isNodes;
+    const isSymbols  = tab === 'symbols';
+    const isSearch   = !isExplorer && !isProjects && !isNodes && !isSymbols;
     id('tab-search').classList.toggle('active', isSearch);
     id('tab-explorer').classList.toggle('active', isExplorer);
     id('tab-projects').classList.toggle('active', isProjects);
     id('tab-nodes')?.classList.toggle('active', isNodes);
+    id('tab-symbols')?.classList.toggle('active', isSymbols);
     id('explorer-panel').classList.toggle('visible', isExplorer);
     id('projects-panel').classList.toggle('visible', isProjects);
     id('nodes-panel')?.classList.toggle('visible', isNodes);
+    id('symbols-panel')?.classList.toggle('visible', isSymbols);
     id('search-panel').style.display  = isSearch ? '' : 'none';
     id('pane-search').style.display   = isSearch ? '' : 'none';
     if(isExplorer) explorerShow();
+    if(isSymbols && typeof symbolsPanelShow === 'function') symbolsPanelShow();
     if(isProjects) _renderProjectsPanel();
     // #pane-tree 自体を DOM 移動させて使う（リスナー・状態が DOM に紐付いてるので付いてくる）。
     const paneTree = id('pane-tree');

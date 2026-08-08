@@ -398,3 +398,94 @@ body.search-mode #tab-nodes { display: flex; }
 @keyframes ex-spin {
   to { transform: rotate(360deg); }
 }
+
+/* ===== シンボル検索パネル ===== */
+#symbols-panel {
+  display: none;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+#symbols-panel.visible { display: flex; }
+#symbols-header {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  color: #999;
+  letter-spacing: 0.05em;
+}
+#symbols-input-wrap { padding: 0 8px 6px; }
+#symbols-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: #1a1a1a;
+  border: 1px solid #444;
+  color: #e0e0e0;
+  font: 12px Consolas, monospace;
+  padding: 4px 6px;
+  border-radius: 3px;
+}
+#symbols-input:focus { outline: none; border-color: #007acc; }
+#symbols-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 8px 6px;
+}
+.sym-kind {
+  background: #2a2a2a;
+  border: 1px solid #444;
+  color: #999;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.sym-kind:hover { color: #ccc; }
+.sym-kind.sel { background: #094771; border-color: #007acc; color: #fff; }
+#symbols-list {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  outline: none;
+}
+.sym-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.sym-row:hover { background: #2a2d2e; }
+.sym-name {
+  font-family: Consolas, monospace;
+  color: #dcdcaa;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
+  max-width: 55%;
+}
+.sym-kind-badge {
+  color: #fff;
+  font-size: 9px;
+  padding: 0 4px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.sym-loc {
+  color: #777;
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-left: auto;
+}
+#symbols-status {
+  padding: 4px 10px;
+  font-size: 10px;
+  color: #666;
+  border-top: 1px solid #2a2a2a;
+  flex-shrink: 0;
+}
