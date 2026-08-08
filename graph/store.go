@@ -226,11 +226,19 @@ func (s *Store) save() error {
 	}
 	// 保存先を呼び出し時の filePath に固定して内容と束ねる。
 	job := saveJob{path: s.filePath, data: data}
-	// 古い pending を捨てて最新を送る（ノンブロッキング）
+	// 古い pending を捨てて最新を送る（ノンブロッキング）。
+	// 捨てる側の受信も非ブロッキングであること。「満杯」を見てから受信するまでの
+	// 隙間に saveLoop が取り出していると、チャネルは空で受信者だけが2人になり、
+	// 送信者の居ないチャネルを互いに待つデッドロックになる（CI で実際に発生）。
 	select {
 	case s.saveCh <- job:
 	default:
-		<-s.saveCh
+		select {
+		case <-s.saveCh:
+		default:
+		}
+		// この時点でバッファは空（取り出したのが自分でも saveLoop でも）。
+		// 送信者は mutex 下の自分だけなので、容量1への送信はブロックしない。
 		s.saveCh <- job
 	}
 	return nil
