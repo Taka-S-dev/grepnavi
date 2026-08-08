@@ -17,6 +17,20 @@ jobs:
           node-version: 22
       - run: npm test
 
+  mcp:
+    name: MCP bridge tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # npm test は tsc を通してから走るので、型が壊れた変更もここで落ちる
+      - run: npm ci
+        working-directory: mcp
+      - run: npm test
+        working-directory: mcp
+
   go:
     name: Go tests
     runs-on: ubuntu-latest
@@ -25,4 +39,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      # ripgrep が無いと検索経路のテストが黙って skip される
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+      - run: go vet ./...
       - run: go test ./...
+      # 未使用コード (U1000) まで見る。バージョンは固定し、更新は明示的に行う
+      - name: Staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@2025.1 ./...
