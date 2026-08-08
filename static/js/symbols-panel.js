@@ -46,20 +46,23 @@ function symbolsPanelShow() {
     // 場所の絞り込みバー（grep 結果の絞り込みと同じ位置づけ）。
     // 見た目はクライアントのフィルタだが、実際はサーバ側で絞る。
     // 取得済み100件から削る方式だと、目当てが上限の外に落ちて見えなくなる。
-    const filt = id('symbols-filter');
-    filt.addEventListener('input', () => {
-      id('symbols-filter-clear').style.display = filt.value ? '' : 'none';
-      clearTimeout(_symTimer);
-      _symTimer = setTimeout(_symbolsRefresh, 150);
-    });
-    filt.addEventListener('keydown', e => {
-      if (e.key === 'Enter') { clearTimeout(_symTimer); _symbolsRefresh(); }
-    });
-    id('symbols-filter-clear').onclick = () => {
-      filt.value = '';
-      id('symbols-filter-clear').style.display = 'none';
-      _symbolsRefresh();
-    };
+    for (const [inputId, clearId] of [['symbols-filter', 'symbols-filter-clear'],
+                                      ['symbols-glob', 'symbols-glob-clear']]) {
+      const inp = id(inputId);
+      inp.addEventListener('input', () => {
+        id(clearId).style.display = inp.value ? '' : 'none';
+        clearTimeout(_symTimer);
+        _symTimer = setTimeout(_symbolsRefresh, 150);
+      });
+      inp.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { clearTimeout(_symTimer); _symbolsRefresh(); }
+      });
+      id(clearId).onclick = () => {
+        inp.value = '';
+        id(clearId).style.display = 'none';
+        _symbolsRefresh();
+      };
+    }
     const gbtn = id('symbols-group-btn');
     gbtn.classList.toggle('on', _symGrouped);
     gbtn.onclick = () => {
@@ -175,11 +178,23 @@ function _symbolsFilterTerms() {
   return out;
 }
 
+// 含めるファイル欄（grep の glob 欄と同じカンマ区切り: *.c,*.h）を
+// 「いずれかに一致」の1条件へまとめる。"*" の無い ".c" / "c" も拡張子として受ける。
+function _symbolsGlobTerm() {
+  const alts = [];
+  for (let tok of (id('symbols-glob')?.value || '').split(/[,\s]+/).filter(Boolean)) {
+    if (!/[*?]/.test(tok) && !tok.startsWith('.')) tok = '.' + tok;
+    alts.push(tok);
+  }
+  return alts.join('|');
+}
+
 async function _symbolsFetch() {
   const q = id('symbols-input').value;
   const parsed = _symbolsParse(q);
   const pattern = parsed.pattern;
-  const path = [parsed.path, ..._symbolsFilterTerms()].filter(Boolean).join(' ');
+  const path = [parsed.path, ..._symbolsFilterTerms(), _symbolsGlobTerm()]
+    .filter(Boolean).join(' ');
   const list = id('symbols-list');
   const status = id('symbols-status');
   // 名前もパス条件も無ければ一覧しない。上限100件のツリーでは

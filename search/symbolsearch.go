@@ -10,6 +10,7 @@ import (
 	"bufio"
 	"context"
 	"grepnavi/proc"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -119,33 +120,62 @@ func sortSymbolNameHits(hits []DefHit, pattern string) {
 }
 
 // buildPathFilter は空白区切りのパス条件を判定関数へまとめる。
-// 一致は部分文字列で行い、比較前に区切りをスラッシュへ・小文字へ正規化する
-// （tags のパスは生成時の形式次第で / と \ が混在しうるため）。
+// 各条件は "|" 区切りの選択肢（いずれか一致で真）で、"-" 始まりは条件全体の除外。
+// 選択肢の解釈は3通り: "*" か "?" を含めば glob（"/" を含まなければファイル名に、
+// 含めば全体に適用）、"." 始まりで "/" を含まなければ拡張子（末尾一致 —— 部分一致だと
+// ".c" が ".cpp" にも当たってしまう）、それ以外は部分一致。
+// 比較前に区切りをスラッシュへ・小文字へ正規化する（tags の記録形式に依存しない）。
 func buildPathFilter(filter string) func(string) bool {
-	terms := strings.Fields(filter)
+	type term struct {
+		alts    []string
+		exclude bool
+	}
+	var terms []term
+	for _, raw := range strings.Fields(filter) {
+		t := term{}
+		if strings.HasPrefix(raw, "-") {
+			t.exclude = true
+			raw = raw[1:]
+		}
+		for _, alt := range strings.Split(raw, "|") {
+			alt = strings.ToLower(strings.ReplaceAll(alt, "\\", "/"))
+			if alt != "" {
+				t.alts = append(t.alts, alt)
+			}
+		}
+		if len(t.alts) > 0 {
+			terms = append(terms, t)
+		}
+	}
 	if len(terms) == 0 {
 		return func(string) bool { return true }
 	}
-	type cond struct {
-		sub     string
-		exclude bool
-	}
-	conds := make([]cond, 0, len(terms))
-	for _, t := range terms {
-		c := cond{sub: t}
-		if strings.HasPrefix(t, "-") {
-			c.exclude = true
-			c.sub = t[1:]
-		}
-		c.sub = strings.ToLower(strings.ReplaceAll(c.sub, "\\", "/"))
-		if c.sub != "" {
-			conds = append(conds, c)
+	matchAlt := func(f, alt string) bool {
+		switch {
+		case strings.ContainsAny(alt, "*?"):
+			target := f
+			if !strings.Contains(alt, "/") {
+				target = path.Base(f)
+			}
+			ok, err := path.Match(alt, target)
+			return err == nil && ok
+		case strings.HasPrefix(alt, ".") && !strings.Contains(alt, "/"):
+			return strings.HasSuffix(f, alt)
+		default:
+			return strings.Contains(f, alt)
 		}
 	}
 	return func(file string) bool {
 		f := strings.ToLower(strings.ReplaceAll(file, "\\", "/"))
-		for _, c := range conds {
-			if strings.Contains(f, c.sub) == c.exclude {
+		for _, t := range terms {
+			hit := false
+			for _, alt := range t.alts {
+				if matchAlt(f, alt) {
+					hit = true
+					break
+				}
+			}
+			if hit == t.exclude {
 				return false
 			}
 		}

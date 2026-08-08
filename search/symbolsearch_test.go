@@ -154,3 +154,31 @@ func TestCtagsSearchSymbolNamesPathFilter(t *testing.T) {
 		t.Errorf("src/ -other = %v, want recipe.c の2件", got)
 	}
 }
+
+// 拡張子は末尾一致（".c" が ".cpp" に当たらない）、"|" は OR、glob も受ける。
+func TestCtagsSearchSymbolNamesExtensionFilter(t *testing.T) {
+	requireRg(t)
+	dir := writeTestTags(t)
+
+	names := func(pathFilter string) int {
+		t.Helper()
+		hits, _, err := CtagsSearchSymbolNames(context.Background(), "recipe", dir, "", false, 50, pathFilter)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(hits)
+	}
+
+	if got := names(".c"); got != 2 {
+		t.Errorf(".c = %d 件, want recipe.c の2件（.h は末尾一致で外れる）", got)
+	}
+	if got := names(".c|.h"); got != 4 {
+		t.Errorf(".c|.h = %d 件, want 全4件", got)
+	}
+	if got := names("*.h"); got != 2 {
+		t.Errorf("*.h = %d 件, want recipe.h の2件", got)
+	}
+	if got := names("-.h"); got != 2 {
+		t.Errorf("-.h = %d 件, want .c 側の2件", got)
+	}
+}

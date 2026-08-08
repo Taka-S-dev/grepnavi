@@ -565,14 +565,16 @@ body.search-mode #tab-nodes { display: flex; }
   padding: 0 6px;
 }
 
-#symbols-filter-wrap {
+#symbols-filter-wrap,
+#symbols-glob-wrap {
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 0 8px 6px;
   flex-shrink: 0;
 }
-#symbols-filter {
+#symbols-filter,
+#symbols-glob {
   flex: 1;
   min-width: 0;
   box-sizing: border-box;
@@ -583,8 +585,10 @@ body.search-mode #tab-nodes { display: flex; }
   padding: 3px 6px;
   border-radius: 3px;
 }
-#symbols-filter:focus { outline: none; border-color: #007acc; }
-#symbols-filter-clear {
+#symbols-filter:focus,
+#symbols-glob:focus { outline: none; border-color: #007acc; }
+#symbols-filter-clear,
+#symbols-glob-clear {
   background: none;
   border: none;
   color: #777;
@@ -593,6 +597,7 @@ body.search-mode #tab-nodes { display: flex; }
   flex-shrink: 0;
   padding: 0 4px;
 }
-#symbols-filter-clear:hover { color: #ccc; }
+#symbols-filter-clear:hover,
+#symbols-glob-clear:hover { color: #ccc; }
 
 .sym-hint-sub { color: #555; font-size: 11px; }

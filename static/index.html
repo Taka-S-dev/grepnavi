@@ -80,8 +80,12 @@
       </div>
       <div id="symbols-kinds"></div>
       <div id="symbols-filter-wrap">
-        <input id="symbols-filter" type="text" placeholder="絞り込み: dir/  -test  （場所の部分一致）" autocomplete="off" spellcheck="false">
+        <input id="symbols-filter" type="text" placeholder="場所: dir/  -test" autocomplete="off" spellcheck="false">
         <button id="symbols-filter-clear" title="クリア" style="display:none">✕</button>
+      </div>
+      <div id="symbols-glob-wrap">
+        <input id="symbols-glob" type="text" placeholder="含めるファイル: *.c,*.h" autocomplete="off" spellcheck="false">
+        <button id="symbols-glob-clear" title="クリア" style="display:none">✕</button>
       </div>
       <div id="symbols-list" tabindex="-1"></div>
       <div id="symbols-status"></div>
