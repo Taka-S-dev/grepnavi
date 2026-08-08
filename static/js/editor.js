@@ -1078,6 +1078,14 @@ async function ensureEditor() {
   if (document.fonts && document.fonts.ready) {
     document.fonts.ready.then(() => { try { monacoEditor.layout(); } catch (_) {} });
   }
+  // 窓が背面・最小化のあいだはブラウザが ResizeObserver / rAF を止めるため、
+  // その間のサイズ変化を automaticLayout が取りこぼす。前面に戻った瞬間に
+  // 一度取り直せば、「上に数行だけ」「下が黒帯」のまま固定される状態から復帰する。
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && monacoEditor) {
+      try { monacoEditor.layout(); } catch (_) {}
+    }
+  });
   // editor-state sync (MCP bridge 経由で AI が editor 状態を取れるようにする)
   if (typeof startEditorStateSync === 'function') startEditorStateSync();
 
@@ -1867,8 +1875,19 @@ async function openPeek(file, line, {permanent = false} = {}) {
   await ensureEditor();
   const peekWasHidden = !id('peek').classList.contains('visible');
   id('peek').classList.add('visible');
-  // display:none→flex の後、Monaco がサイズを認識するまで待つ
-  if(peekWasHidden) await new Promise(r => setTimeout(r, 80));
+  // display:none→flex の直後はコンテナがまだ 0px のことがあり、そのサイズで
+  // レイアウトされると「上に数行だけ表示」のまま固定される。時間で待つのではなく
+  // 描画フレームを跨いでから明示的に取り直す（背面ウィンドウでは rAF が
+  // 止まるため、タイムアウトでも抜ける。その場合は visibilitychange が拾う）。
+  if(peekWasHidden) {
+    await new Promise(resolve => {
+      let done = false;
+      const fin = () => { if(!done) { done = true; resolve(); } };
+      requestAnimationFrame(() => requestAnimationFrame(fin));
+      setTimeout(fin, 200);
+    });
+    try { monacoEditor.layout(); } catch(_) {}
+  }
   id('peek-placeholder')?.classList.add('hidden');
   id('peek-open').onclick = () => openFile(file, monacoEditor?.getPosition()?.lineNumber ?? line);
 
