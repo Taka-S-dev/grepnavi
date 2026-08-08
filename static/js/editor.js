@@ -1859,8 +1859,6 @@ function promotePreviewTab() {
 async function openPeek(file, line, {permanent = false} = {}) {
   if(!file) return;
   if(typeof updateTitle === 'function') updateTitle(file);
-  // 内蔵エディタを出せない窓では外部エディタへ回す。pageMode ではなくペインの
-  // 表示状態を見るのは、Alt+S でも同じ形になるため（openPeekPermanent と同じ規約）。
   if(!hasInternalEditorPane()) {
     openFile(file, line);
     return;
