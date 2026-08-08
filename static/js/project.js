@@ -180,9 +180,7 @@ async function setRoot(newRoot) {
   // クライアント側をリセット
   localStorage.removeItem(LS_PROJECT_PATH);
   selNode = null;
-  tabs.forEach(t => { try { t.model?.dispose(); } catch(_) {} });
-  tabs = []; activeTabIdx = -1;
-  renderTabs();
+  closeAllTabsForSwitch();
   id('results').innerHTML = '';
 
   // どのルートへ移ったかを先に出す。この後 openProject が「読み込みました」や
@@ -713,6 +711,23 @@ async function saveProject(path) {
   st('保存しました: ' + path);
 }
 
+// ルート・プロジェクト切り替え時のタブ全消し。closeTab を使わず配列を直接
+// クリアすると2つ壊れる: エディタに刺さったまま model を dispose すると
+// Monaco が内容高さゼロの描画（上に数行だけ見える）になり、ピークが
+// 「表示中・中身なし」で残ると、次のファイルオープンが「非表示→表示」用の
+// 再レイアウト経路を素通りする。
+function closeAllTabsForSwitch() {
+  if (typeof monacoEditor !== 'undefined' && monacoEditor) {
+    try { monacoEditor.setModel(null); } catch(_) {}
+  }
+  tabs.forEach(t => { try { t.model?.dispose(); } catch(_) {} });
+  tabs = []; activeTabIdx = -1;
+  renderTabs();
+  if (typeof stopFilePolling === 'function') stopFilePolling();
+  id('peek')?.classList.remove('visible');
+  if (typeof hideFileErrorOverlay === 'function') hideFileErrorOverlay();
+}
+
 async function openProject(path) {
   let d;
   try {
@@ -728,9 +743,7 @@ async function openProject(path) {
   if(!d || d.error) { st('読み込みエラー: ' + (d?.error || '不明なエラー')); return false; }
   if(!d.graph)      { st('読み込みエラー: レスポンスにグラフデータがありません'); return false; }
   selNode = null;
-  tabs.forEach(t => { try { t.model?.dispose(); } catch(_) {} });
-  tabs = []; activeTabIdx = -1;
-  renderTabs();
+  closeAllTabsForSwitch();
   fzfFiles = null;
   projectRoot = '';
   const resultsEl = id('results'); if (resultsEl) resultsEl.innerHTML = '';
