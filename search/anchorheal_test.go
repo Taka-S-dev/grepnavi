@@ -30,7 +30,9 @@ func TestHealLineIn(t *testing.T) {
 	}{
 		{"ずれていなければそのまま", 3, "void target(void)", 3},
 		{"ずれていれば一意な行へ移す", 1, "void target(void)", 3},
+		{"上方向にも移す", 5, "void target(void)", 3},
 		{"索引は空白を畳むので畳んで比べる", 1, "int x = 0;", 5},
+		{"畳み込みの違いだけで動かさない", 5, "int x = 0;", 5},
 		{"行き先が複数なら動かさない", 3, "void twin(void)", 3},
 		{"一致する行が無ければ動かさない", 3, "void gone(void)", 3},
 		{"識別子だけの手掛かりは使わない", 3, "target", 3},
@@ -43,6 +45,21 @@ func TestHealLineIn(t *testing.T) {
 				t.Errorf("HealLineIn(%d, %q) = %d, want %d", c.line, c.text, got, c.want)
 			}
 		})
+	}
+}
+
+// 書式だけが違う双子の行があるとき、畳み込み比較なら両方に一致して
+// 「複数一致」になり動かない。畳み込まないと片方だけに一意一致して、
+// 正しい着地点を壊す。
+func TestHealLineInKeepsLineWhenFormattingTwinExists(t *testing.T) {
+	lines := []string{"#define FOO 1", "#else", "#define FOO\t1", "#endif"}
+	key := AnchorKey("#define FOO 1")
+
+	if got := HealLineIn(lines, 3, key); got != 3 {
+		t.Errorf("タブ揃えの行に一致しているのに動かした: got %d, want 3", got)
+	}
+	if got := HealLineIn(lines, 4, key); got != 4 {
+		t.Errorf("双子の行があるときは動かさないはず: got %d, want 4", got)
 	}
 }
 
@@ -215,7 +232,7 @@ func write(t *testing.T, path, content string) {
 func TestUsableAnchor(t *testing.T) {
 	// ctags は行番号形式のアドレスだと text がシンボル名そのものになる。
 	// それを手掛かりにすると初期化子の中の識別子1個の行に一意一致してしまう。
-	for _, s := range []string{"", "target", "MY_MACRO", "x1"} {
+	for _, s := range []string{"", "   ", "target", "MY_MACRO", "x1"} {
 		if UsableAnchor(AnchorKey(s)) {
 			t.Errorf("UsableAnchor(%q) = true, want false", s)
 		}
