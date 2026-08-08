@@ -651,8 +651,48 @@ func openInEditor(file, line, editorTmpl string) error {
 	if len(parts) == 0 {
 		return nil
 	}
+	// Windows の `code` は code.cmd シムで、cmd.exe → node.exe → 本体の3段連鎖に
+	// なる。実測でシム経由 184ms / 本体直接 27ms。EDR のある環境では子プロセス
+	// 起動ごとにスキャンが入るため、この連鎖がそのまま秒単位の体感遅延になる。
+	if strings.EqualFold(parts[0], "code") {
+		if exe := vscodeExePath(); exe != "" {
+			parts[0] = exe
+		}
+	}
 	proc.Command(parts[0], parts[1:]...).Start()
 	return nil
+}
+
+var _vscodeExe struct {
+	once sync.Once
+	path string
+}
+
+// vscodeExePath は code.cmd シムの位置から VS Code 本体 (Code.exe) を割り出す。
+// 見つからなければ空を返し、呼び出し側はシムのまま起動する。
+func vscodeExePath() string {
+	_vscodeExe.once.Do(func() {
+		shim, err := exec.LookPath("code")
+		if err != nil {
+			return
+		}
+		_vscodeExe.path = vscodeExeFromShim(shim)
+	})
+	return _vscodeExe.path
+}
+
+// vscodeExeFromShim はシムのパスが <root>/bin/code.cmd 形式のとき <root>/Code.exe を
+// 返す。シムでない (本体や別物の code コマンド) 場合は空。
+func vscodeExeFromShim(shim string) string {
+	ext := strings.ToLower(filepath.Ext(shim))
+	if ext != ".cmd" && ext != ".bat" {
+		return ""
+	}
+	exe := filepath.Join(filepath.Dir(filepath.Dir(shim)), "Code.exe")
+	if fi, err := os.Stat(exe); err == nil && !fi.IsDir() {
+		return exe
+	}
+	return ""
 }
 
 // splitShellWords はダブルクォートを考慮してコマンド文字列をトークンに分割する。
