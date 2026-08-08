@@ -147,8 +147,6 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 #col-resizer{width:4px;background:#2a2a2a;cursor:ew-resize;flex-shrink:0;border-left:1px solid #333;border-right:1px solid #333}
 #col-resizer:hover,#col-resizer.active{background:#007acc}
 #pane-right{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative}
-#left-resizer{height:4px;background:#2a2a2a;cursor:ns-resize;flex-shrink:0;border-top:1px solid #333;border-bottom:1px solid #333}
-#left-resizer:hover,#left-resizer.active{background:#007acc}
 
 /* Peek パネル */
 #peek{
@@ -534,27 +532,11 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .gnode.multi-sel rect{stroke:#f0c040!important;stroke-width:2}
 
 /* left bottom: detail */
-#pane-detail{flex:1;min-height:80px;display:flex;flex-direction:column;overflow:hidden;border-top:1px solid #444}
-#detail-hdr{padding:4px 8px;background:#2d2d2d;border-bottom:1px solid #444;font-size:11px;color:#999}
-#detail{flex:1;overflow-y:auto}
 .dl{font-size:10px;color:#777;margin-bottom:2px}
-.dv{color:#ddd;word-break:break-all;font-size:12px}
-.snippet{background:#111;border:1px solid #333;padding:4px;border-radius:2px;font-size:11px;overflow-x:auto;white-space:pre}
 .node-move-btns{display:flex;gap:3px;padding:4px 6px;border-bottom:1px solid #2a2a2a}
 .node-move-btns button{flex:1;padding:2px 0;font-size:14px;line-height:1.2}
 .acc-sec{border-bottom:1px solid #2a2a2a}
-.acc-hdr{display:flex;align-items:center;gap:5px;padding:5px 8px;cursor:pointer;user-select:none;background:#1e1e1e;font-size:11px;color:#bbb}
-.acc-hdr:hover{background:#252526}
-.acc-arrow{font-size:9px;color:#666;width:10px;flex-shrink:0}
-.acc-title{flex:1;font-weight:600;letter-spacing:0.03em}
-.acc-body{padding:6px 8px 8px;display:flex;flex-direction:column;gap:6px}
-.acc-body.closed{display:none}
-.snip-hi{background:#1e3a5f;display:block}
-.ifdef-chips{display:flex;flex-wrap:wrap;gap:3px}
-.chip{background:#0d3040;color:#4ec9b0;border-radius:8px;padding:1px 6px;font-size:10px}
 textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px;border-radius:2px;font:inherit;resize:vertical;min-height:40px}
-.row{display:flex;gap:4px;flex-wrap:wrap}
-#no-sel{color:#555;text-align:center;margin-top:30px;font-size:12px}
 
 /* フローティングコードプレビュー */
 #preview-popup{
@@ -858,8 +840,6 @@ body.search-mode #col-resizer{display:none!important}
 /* search モード: 右ペインを隠して左ペインを全幅化 */
 body.search-mode #pane-right  {display:none!important}
 body.search-mode #pane-left   {width:100%!important;flex:1}
-body.search-mode #pane-detail {display:none!important}
-body.search-mode #left-resizer{display:none!important}
 
 body.search-mode #pane-search{flex:1!important;height:auto!important}
 

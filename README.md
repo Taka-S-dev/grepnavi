@@ -528,7 +528,7 @@ grepnavi/
     │   ├── state.js           # グローバル状態変数
     │   ├── utils.js           # 定数・ユーティリティ関数
     │   ├── search.js          # 検索・フィルタ・結果表示
-    │   ├── graph.js           # グラフ/ツリー操作・D3.js・詳細パネル・D&D
+    │   ├── graph.js           # グラフ/ツリー操作・D3.js・D&D
     │   ├── editor.js          # Monaco エディタ・fzf・ナビ履歴・行メモ・#ifdef
     │   ├── memo-list.js       # メモリストパネル（行・範囲メモ一覧・グループ管理）
     │   ├── editor-c.js        # C/C++ 固有拡張（static変数・関数呼び出し・定数のハイライト、ローカル変数ホバー抑制）

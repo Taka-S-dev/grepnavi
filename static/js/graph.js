@@ -234,7 +234,6 @@ async function switchTree(treeId) {
     return;
   }
   selNode = null;
-  showDetail(null);
   applyGraphResponse(d);
 }
 
@@ -250,7 +249,6 @@ async function createTree() {
     return;
   }
   selNode = null;
-  showDetail(null);
   applyGraphResponse(d);
 }
 
@@ -277,7 +275,6 @@ async function deleteTree(treeId) {
     return;
   }
   selNode = null;
-  showDetail(null);
   applyGraphResponse(d);
 }
 
@@ -1307,7 +1304,6 @@ function createNodeFieldModal({
     if (prevDef !== undefined) graph.nodes[id_]._def = prevDef;
     close();
     renderCurrent();
-    if (selNode === id_) showDetail(graph.nodes[id_]);
     if (typeof refreshGraphDecorations === 'function') refreshGraphDecorations();
     st(successToast($input(), n));
   }
@@ -1872,7 +1868,6 @@ function selectNode(id_, opts) {
     }
   }
   const n = graph.nodes[id_];
-  showDetail(n);
   // opts.skipOpen=true の場合はファイルを開かない（右クリック経路でのエディタ誤起動を防止）
   if (!opts?.skipOpen && n && n.match && n.match.file) openPeekPermanent(n.match.file, n.match.line);
 }
@@ -2109,91 +2104,6 @@ async function toggleNode(id_) {
 
 // ===== DETAIL =====
 
-function makeAccSection(key, title, bodyHTML, defaultOpen) {
-  const open = accState[key] !== undefined ? accState[key] : defaultOpen;
-  const sec = document.createElement("div");
-  sec.className = "acc-sec";
-  const hdr = document.createElement("div");
-  hdr.className = "acc-hdr";
-  hdr.innerHTML = `<span class="acc-arrow">${open ? "▼" : "▶"}</span><span class="acc-title">${title}</span>`;
-  const body = document.createElement("div");
-  body.className = "acc-body" + (open ? "" : " closed");
-  body.innerHTML = bodyHTML;
-  hdr.onclick = () => {
-    const isOpen = !body.classList.contains("closed");
-    body.classList.toggle("closed", isOpen);
-    hdr.querySelector(".acc-arrow").textContent = isOpen ? "▶" : "▼";
-    accState[key] = !isOpen;
-  };
-  sec.append(hdr, body);
-  return sec;
-}
-
-// 詳細パネルは選択中の場所の読み取り専用ビュー。編集 UI はツリー側
-// （F2 / 右クリックメニュー）に一本化してある。以前はここにラベル・メモ・
-// バッジ等の編集を置いていたが、保存先が selNode 固定のため、検索結果の
-// プレビュー（__preview__）表示中に編集すると直前に選択していた別ノードへ
-// 書き込まれる事故があった。表示専用にすることでこの経路を塞いでいる。
-function showDetail(n) {
-  const el = id("detail");
-  if (!n) {
-    el.innerHTML =
-      '<div id="no-sel" style="color:#555;text-align:center;margin-top:30px;font-size:12px">ノードを選択</div>';
-    return;
-  }
-  const m = n.match || {};
-  const stack = m.ifdef_stack || [];
-  const snippet =
-    (m.snippet || [])
-      .map(
-        (s) =>
-          `<span class="${s.is_match ? "snip-hi" : ""}">${pad(s.line)} ${esc(s.text)}</span>`,
-      )
-      .join("\n") || esc(m.text || "");
-
-  el.innerHTML = "";
-
-  const original = (m.text || "").trim() || labelFrom(m);
-  const custom = (n.label || "").trim();
-  const labelLine =
-    custom && custom !== original
-      ? `<div style="color:#e0e0e0;font-size:12px;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(custom)}">${esc(custom)}</div>`
-      : "";
-  const locSec = makeAccSection(
-    "loc",
-    "場所",
-    `
-    ${labelLine}
-    <div style="color:#888;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
-         title="${esc(original)}">${esc(original)}</div>
-    <div class="dv" id="d-filelink" title="Ctrl+クリックでエディタで開く" style="cursor:pointer;color:#569cd6;text-decoration:underline;font-size:11px;margin-top:2px">${esc(m.file || "")}:${m.line || ""}</div>`,
-    true,
-  );
-  el.appendChild(locSec);
-
-  if (stack.length) {
-    const ifdefSec = makeAccSection(
-      "ifdef",
-      "#ifdef スタック",
-      `<div class="ifdef-chips">${stack.map((f) => `<span class="chip" title="line ${f.line}">#${f.directive} ${esc(f.condition)}</span>`).join("")}</div>`,
-      false,
-    );
-    el.appendChild(ifdefSec);
-  }
-
-  const snipSec = makeAccSection(
-    "snippet",
-    "スニペット",
-    `<div class="snippet">${snippet}</div>`,
-    false,
-  );
-  el.appendChild(snipSec);
-
-  id("d-filelink").onclick = (e) => {
-    if (e.ctrlKey || e.metaKey) openFile(m.file, m.line);
-  };
-}
-
 // Sync 上書きの保存・解除。保存後は _def キャッシュを捨てて装飾を再描画する。
 async function _saveDefOverride(nodeId, payload, statusMsg) {
   if (!nodeId) return;
@@ -2212,7 +2122,6 @@ async function _saveDefOverride(nodeId, payload, statusMsg) {
   graph.nodes[nodeId] = n;
   renderCurrent();
   if (typeof refreshGraphDecorations === "function") refreshGraphDecorations();
-  if (selNode === nodeId) showDetail(graph.nodes[nodeId]);
   st(statusMsg);
 }
 
@@ -2256,7 +2165,6 @@ async function removeNode(nid) {
     n.children = (n.children || []).filter((c) => c !== nid);
   if (selNode === nid) {
     selNode = null;
-    showDetail(null);
   }
   renderCurrent();
   stGraph();
@@ -2326,7 +2234,6 @@ async function clearGraph() {
     return;
   }
   selNode = null;
-  showDetail(null);
   applyGraphResponse(d);
 }
 

@@ -31,7 +31,6 @@ const kindColor = k => KIND_COLOR[k] || '#555';
 const id = s => document.getElementById(s);
 const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const trunc = (s,n) => s&&s.length>n ? s.slice(0,n)+'…' : s||'';
-const pad = n => String(n).padStart(4,' ');
 
 // ===== TEXT =====
 function wrapText(text, maxChars, maxLines = 3) {

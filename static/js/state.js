@@ -95,7 +95,6 @@ let _filePollTimer = null;
 
 // Resize
 let peekResizing = false, peekStartY = 0, peekStartH = 0;
-let leftResizing = false, leftStartY = 0, leftStartH = 0;
 
 // File Quick-Open (fzf)
 let fzfFiles = null;
@@ -124,8 +123,6 @@ const LS_SEARCH_STACK = 'grepnavi-search-stack';
 // Search stack drag
 let _stackDragIdx = null;
 
-// Detail panel accordion open/close state
-const accState = {loc:true, ifdef:false, snippet:false};
 
 // File browser
 let _fbMode = 'save'; // 'save' | 'open' | 'dir'

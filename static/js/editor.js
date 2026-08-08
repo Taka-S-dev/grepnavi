@@ -2529,15 +2529,6 @@ addEventListener('DOMContentLoaded', () => {
     e.preventDefault();
   });
 
-  id('left-resizer').addEventListener('mousedown', e => {
-    leftResizing = true;
-    leftStartY = e.clientY;
-    leftStartH = id('pane-search').offsetHeight;
-    id('left-resizer').classList.add('active');
-    document.body.style.cursor = 'ns-resize';
-    e.preventDefault();
-  });
-
   addEventListener('mousemove', e => {
     if(peekResizing) {
       const delta = peekStartY - e.clientY;
@@ -2548,11 +2539,6 @@ addEventListener('DOMContentLoaded', () => {
       // いないためコンテナサイズを古い値で読んでしまい、最下部までスクロールできなく
       // なる症状が出る。次フレーム（reflow 後）に呼ぶことで実際のサイズを認識させる。
       if(monacoEditor) requestAnimationFrame(() => monacoEditor.layout());
-    }
-    if(leftResizing) {
-      const newH = Math.max(80, leftStartH + (e.clientY - leftStartY));
-      id('pane-search').style.flex = 'none';
-      id('pane-search').style.height = newH + 'px';
     }
   });
 
@@ -2565,24 +2551,12 @@ addEventListener('DOMContentLoaded', () => {
       // drag 終了時にも最終 layout を保証（mousemove の最後の layout が stale な状態で固定されるのを防ぐ）
       if(monacoEditor) requestAnimationFrame(() => monacoEditor.layout());
     }
-    if(leftResizing) {
-      leftResizing = false;
-      document.body.style.cursor = '';
-      id('left-resizer').classList.remove('active');
-      const h = id('pane-search').offsetHeight;
-      if(h) localStorage.setItem('grepnavi-left-search-h', h);
-    }
   });
 
   const savedPeekH = localStorage.getItem('grepnavi-peek-h');
   if(savedPeekH) {
     id('peek').style.height = savedPeekH + 'px';
     id('peek').style.maxHeight = 'none';
-  }
-  const savedLeftH = localStorage.getItem('grepnavi-left-search-h');
-  if(savedLeftH) {
-    id('pane-search').style.flex = 'none';
-    id('pane-search').style.height = savedLeftH + 'px';
   }
 });
 

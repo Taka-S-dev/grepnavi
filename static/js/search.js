@@ -651,7 +651,6 @@ function previewMatch(m) {
   _selectedKey = m.file + ':' + m.line;
   // Re-render to update .sel on visible rows
   renderVirtual();
-  showDetail({id:'__preview__', match:m, memo:'', label:labelFrom(m), children:[], expanded:true});
   if(m.file) openPeek(m.file, m.line);
 }
 

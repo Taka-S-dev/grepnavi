@@ -179,7 +179,7 @@ async function setRoot(newRoot) {
 
   // クライアント側をリセット
   localStorage.removeItem(LS_PROJECT_PATH);
-  selNode = null; showDetail(null);
+  selNode = null;
   tabs.forEach(t => { try { t.model?.dispose(); } catch(_) {} });
   tabs = []; activeTabIdx = -1;
   renderTabs();
@@ -574,7 +574,7 @@ async function restorePreviousWork() {
   const r = await fetch('/api/graph/recover', {method: 'POST'}).catch(() => null);
   const d = r && r.ok ? await r.json() : null;
   if(!d || d.error) { st('復元できませんでした'); return; }
-  selNode = null; showDetail(null);
+  selNode = null;
   applyGraphResponse(d);
   updateProjectUI();
   await refreshRecoverItem();
@@ -727,7 +727,7 @@ async function openProject(path) {
   }
   if(!d || d.error) { st('読み込みエラー: ' + (d?.error || '不明なエラー')); return false; }
   if(!d.graph)      { st('読み込みエラー: レスポンスにグラフデータがありません'); return false; }
-  selNode = null; showDetail(null);
+  selNode = null;
   tabs.forEach(t => { try { t.model?.dispose(); } catch(_) {} });
   tabs = []; activeTabIdx = -1;
   renderTabs();

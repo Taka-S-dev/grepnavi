@@ -82,8 +82,6 @@ addEventListener('DOMContentLoaded', async () => {
     id('nodes-panel')?.classList.toggle('visible', isNodes);
     id('search-panel').style.display  = isSearch ? '' : 'none';
     id('pane-search').style.display   = isSearch ? '' : 'none';
-    id('left-resizer').style.display  = isSearch ? '' : 'none';
-    id('pane-detail').style.display   = isSearch ? '' : 'none';
     if(isExplorer) explorerShow();
     if(isProjects) _renderProjectsPanel();
     // #pane-tree 自体を DOM 移動させて使う（リスナー・状態が DOM に紐付いてるので付いてくる）。
@@ -212,7 +210,7 @@ addEventListener('DOMContentLoaded', async () => {
     // DELETE /api/graph は ClearActiveTree が現在のファイルに空を上書き保存してしまうため使わない。
     const r = await fetch('/api/graph/clear', { method: 'POST' });
     const d = await r.json();
-    if(!d.error) { selNode = null; showDetail(null); applyGraphResponse(d); }
+    if(!d.error) { selNode = null; applyGraphResponse(d); }
     if(typeof setProjectPath === 'function') setProjectPath('');
     localStorage.removeItem('grepnavi_project_root');
     updateProjectUI();
