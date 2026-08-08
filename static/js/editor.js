@@ -1965,7 +1965,24 @@ async function openPeek(file, line, {permanent = false} = {}) {
   monacoEditor.layout();
 }
 
+// hasInternalEditorPane は内蔵エディタをこの窓に出せるかを返す。
+//
+// pageMode ではなくペインの表示状態を見る。レイアウトの出し分けは CSS が持って
+// いるので、判断材料をそちらに一本化しておけばモードが増えても勝手に正しくなる。
+function hasInternalEditorPane() {
+  const pane = id('pane-right');
+  return !!pane && getComputedStyle(pane).display !== 'none';
+}
+
+// 内蔵エディタのペインが無い窓（?mode=search / panel / calltree）で内蔵タブを
+// 開いても、display:none の裏に積まれるだけで「ダブルクリックしても何も起きない」
+// ように見える。その窓では外部エディタへ回す。grep だけを grepnavi に任せて編集は
+// 普段のエディタで、という使い方はこの1点で成立する。
 async function openPeekPermanent(file, line) {
+  if(!hasInternalEditorPane()) {
+    openFile(file, line);
+    return;
+  }
   return openPeek(file, line, {permanent: true});
 }
 
@@ -2551,4 +2568,4 @@ addEventListener('DOMContentLoaded', () => {
   }
 });
 
-if (typeof module !== 'undefined') module.exports = { fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored };
+if (typeof module !== 'undefined') module.exports = { fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane };

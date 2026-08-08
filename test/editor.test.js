@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 // setup.js (--require) で browser globals をスタブ済み
 global.id = () => null;
 
-const { fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored } = require('../static/js/editor.js');
+const { fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane } = require('../static/js/editor.js');
 
 test('fzfMatchToken - exact match', () => {
   const r = fzfMatchToken('foobar', 'foo');
@@ -153,4 +153,26 @@ test('_isDefAnchored - path separators and case are normalized', () => {
     match: { file: 'C:/src/Recipe.c',   line: 42 },
     _def:  { file: 'c:\\src\\recipe.c', line: 42 },
   }), true);
+});
+
+// 内蔵エディタのペインが無い窓（?mode=search 等）では、内蔵タブを開いても
+// display:none の裏に積まれるだけになる。開き先の判断はこの1関数に寄せてある。
+test('hasInternalEditorPane - 表示されているペインがあれば内蔵で開く', () => {
+  const pane = {};
+  global.id = sel => (sel === 'pane-right' ? pane : null);
+  global.getComputedStyle = el => (el === pane ? {display: 'flex'} : {display: 'none'});
+  assert.equal(hasInternalEditorPane(), true);
+});
+
+test('hasInternalEditorPane - display:none のペインは無いものとして扱う', () => {
+  const pane = {};
+  global.id = sel => (sel === 'pane-right' ? pane : null);
+  global.getComputedStyle = () => ({display: 'none'});
+  assert.equal(hasInternalEditorPane(), false);
+});
+
+test('hasInternalEditorPane - ペイン自体が無い窓でも落ちない', () => {
+  global.id = () => null;
+  global.getComputedStyle = () => { throw new Error('呼んではいけない'); };
+  assert.equal(hasInternalEditorPane(), false);
 });
