@@ -601,3 +601,10 @@ body.search-mode #tab-nodes { display: flex; }
 #symbols-glob-clear:hover { color: #ccc; }
 
 .sym-hint-sub { color: #555; font-size: 11px; }
+
+/* 名前内の一致箇所。地の色 #dcdcaa と識別できる明度差を付ける */
+.sym-hl { color: #ffe08a; font-weight: bold; }
+
+/* パス内の一致箇所。dir の地色 #666 に対して読める明度、太字は付けない
+   （10px の RTL 圏で太字にすると幅が揺れる） */
+.sym-hl-loc { color: #d8b84e; }

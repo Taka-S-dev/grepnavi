@@ -164,7 +164,71 @@ function _symbolsParse(query) {
   return {
     pattern: nameTokens.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*'),
     path: pathTerms.join(' '),
+    tokens: nameTokens,
   };
+}
+
+// 検索と同じ規則（大文字小文字不問・トークンは順序付き）で一致範囲を求め、
+// 名前の該当部分だけを <span> で強調する。DOM 組み立てなので escape 不要。
+let _symTokens = [];
+function _symHighlightName(el, name) {
+  const lower = name.toLowerCase();
+  let cur = 0;
+  const ranges = [];
+  for (const t of _symTokens) {
+    const i = lower.indexOf(t.toLowerCase(), cur);
+    if (i < 0) { ranges.length = 0; break; }
+    ranges.push([i, i + t.length]);
+    cur = i + t.length;
+  }
+  if (!ranges.length) { el.textContent = name; return; }
+  let pos = 0;
+  for (const [a, b] of ranges) {
+    if (a > pos) el.appendChild(document.createTextNode(name.slice(pos, a)));
+    const hl = document.createElement('span');
+    hl.className = 'sym-hl';
+    hl.textContent = name.slice(a, b);
+    el.appendChild(hl);
+    pos = b;
+  }
+  if (pos < name.length) el.appendChild(document.createTextNode(name.slice(pos)));
+}
+
+// パス表示の中で、場所・ファイル条件が実際に当たった箇所を強調する。
+// 対象は肯定条件のみ（除外は「無い」ことが条件なので光らせる場所が無い）。
+// 拡張子条件（"." 始まり）は末尾一致なので末尾だけ、他は全出現を光らせる。
+let _symLocTerms = [];
+function _symHighlightLoc(el, text) {
+  const lower = text.toLowerCase();
+  const marks = new Array(text.length).fill(false);
+  for (const t of _symLocTerms) {
+    const needle = t.toLowerCase();
+    if (needle.startsWith('.') && !needle.includes('/')) {
+      if (lower.endsWith(needle)) marks.fill(true, text.length - needle.length);
+      continue;
+    }
+    let i = 0;
+    while ((i = lower.indexOf(needle, i)) >= 0) {
+      marks.fill(true, i, i + needle.length);
+      i += needle.length;
+    }
+  }
+  el.textContent = '';
+  let pos = 0;
+  while (pos < text.length) {
+    let end = pos;
+    while (end < text.length && marks[end] === marks[pos]) end++;
+    const seg = text.slice(pos, end);
+    if (marks[pos]) {
+      const hl = document.createElement('span');
+      hl.className = 'sym-hl-loc';
+      hl.textContent = seg;
+      el.appendChild(hl);
+    } else {
+      el.appendChild(document.createTextNode(seg));
+    }
+    pos = end;
+  }
 }
 
 // 絞り込みバーの中身をパス条件へ。素のトークンは「含む」、"-" 始まりは「除外」。
@@ -193,6 +257,12 @@ async function _symbolsFetch() {
   const q = id('symbols-input').value;
   const parsed = _symbolsParse(q);
   const pattern = parsed.pattern;
+  _symTokens = parsed.tokens;
+  _symLocTerms = [
+    ...parsed.path.split(' '),
+    ..._symbolsFilterTerms(),
+    ..._symbolsGlobTerm().split('|'),
+  ].filter(t => t && !t.startsWith('-')).map(t => t.replace(/\\/g, '/'));
   const path = [parsed.path, ..._symbolsFilterTerms(), _symbolsGlobTerm()]
     .filter(Boolean).join(' ');
   const list = id('symbols-list');
@@ -256,7 +326,7 @@ function _symMakeRow(s, withLoc) {
   row.className = 'sym-row';
   const name = document.createElement('span');
   name.className = 'sym-name';
-  name.textContent = s.name || s.text;
+  _symHighlightName(name, s.name || s.text || '');
   row.append(name);
   // 種別チップで絞っている間は全行同じバッジになる。同じ情報の反復は
   // ノイズでしかないので、「すべて」表示のときだけ種別を行に出す
@@ -273,10 +343,11 @@ function _symMakeRow(s, withLoc) {
     const { dir, base } = _symSplitPath(s.file);
     const d = document.createElement('span');
     d.className = 'sym-dir';
-    d.textContent = dir ? dir + '/' : '';
+    _symHighlightLoc(d, dir ? dir + '/' : '');
     const f = document.createElement('span');
     f.className = 'sym-file';
-    f.textContent = base + ':' + s.line;
+    _symHighlightLoc(f, base);
+    f.appendChild(document.createTextNode(':' + s.line));
     loc.append(d, f);
   } else {
     const f = document.createElement('span');
@@ -313,10 +384,10 @@ function _symbolsRender(symbols, truncated) {
       const { dir, base } = _symSplitPath(file);
       const d = document.createElement('span');
       d.className = 'sym-dir';
-      d.textContent = dir ? dir + '/' : '';
+      _symHighlightLoc(d, dir ? dir + '/' : '');
       const f = document.createElement('span');
       f.className = 'sym-file';
-      f.textContent = base;
+      _symHighlightLoc(f, base);
       const n = document.createElement('span');
       n.className = 'sym-group-count';
       n.textContent = String(items.length);
