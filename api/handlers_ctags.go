@@ -18,7 +18,8 @@ import (
 
 // findCtagsBin は Universal Ctags を優先して ctags バイナリのパスを返す。
 // Universal Ctags が見つからない場合は PATH 上の ctags を返す。
-func findCtagsBin() (string, bool) {
+// 第2戻り値は選ばれたのが Universal Ctags かどうか（対応オプションが違う）。
+func findCtagsBin() (string, bool, bool) {
 	// 候補パスを順に試す（Universal Ctags を優先）
 	candidates := []string{}
 
@@ -45,15 +46,15 @@ func findCtagsBin() (string, bool) {
 			continue
 		}
 		if strings.Contains(string(out), "Universal Ctags") {
-			return p, true
+			return p, true, true
 		}
 	}
 
 	// Universal Ctags が見つからなければ PATH 上の ctags を使う
 	if p, err := exec.LookPath("ctags"); err == nil {
-		return p, true
+		return p, false, true
 	}
-	return "", false
+	return "", false, false
 }
 
 // handleCtagsMacros はファイルに出現するマクロ名をctagsキャッシュとの積集合で返す。
@@ -125,7 +126,7 @@ func (h *Handler) handleCtagsStatus(w http.ResponseWriter, r *http.Request) {
 	h.mu.RLock()
 	root := h.root
 	h.mu.RUnlock()
-	_, installed := findCtagsBin()
+	_, _, installed := findCtagsBin()
 	indexed := search.CtagsIndexed(root)
 	jsonOK(w, map[string]interface{}{
 		"installed": installed,
@@ -159,7 +160,7 @@ func (h *Handler) handleCtagsIndex(w http.ResponseWriter, r *http.Request) {
 	slog.Info("ctags-index start", "root", root)
 	sendLine("--- ctags インデックス生成開始: " + root + " ---")
 
-	ctagsBin, ok := findCtagsBin()
+	ctagsBin, isUniversal, ok := findCtagsBin()
 	if !ok {
 		sendEvent("ctags-error", "ctags が見つかりません")
 		return
@@ -168,7 +169,19 @@ func (h *Handler) handleCtagsIndex(w http.ResponseWriter, r *http.Request) {
 
 	var stderrBuf bytes.Buffer
 	tagsPath := filepath.Join(root, "tags")
-	cmd := proc.CommandContext(context.Background(), ctagsBin, "-R", "--fields=+n", "-f", tagsPath, root)
+	// root をカレントにして "." を渡し、相対パスで記録させる（tags の場所基準で
+	// 解決するのが各エディタ共通の規約で、ツリーを移動しても壊れない）。
+	// Universal Ctags の既定 (u-ctags) は Windows でもパス区切りが / になり、
+	// エディタによってはタグジャンプを解決できないため、Vim の :h tags-file-format
+	// が定義する e-ctags 形式を明示する。Exuberant はこのオプションを知らないが、
+	// 既定の出力が元々 e-ctags 形式なので付けない。
+	args := []string{"-R", "--fields=+n"}
+	if isUniversal {
+		args = append(args, "--output-format=e-ctags")
+	}
+	args = append(args, "-f", tagsPath, ".")
+	cmd := proc.CommandContext(context.Background(), ctagsBin, args...)
+	cmd.Dir = root
 	cmd.Stderr = &stderrBuf
 
 	if err := cmd.Start(); err != nil {

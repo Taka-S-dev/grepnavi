@@ -402,7 +402,7 @@ func (h *Handler) handleSymbolSearch(w http.ResponseWriter, r *http.Request) {
 		jsonOK(w, map[string]interface{}{
 			"symbols": []search.DefHit{},
 			"count":   0,
-			"hint":    "no ctags index (tags file) for this root; symbol name search requires it. Generate with: ctags -R --fields=+n",
+			"hint":    "no ctags index (tags file) for this root; symbol name search requires it. Generate with: ctags -R --output-format=e-ctags --fields=+n . (run at the root)",
 		})
 		return
 	}
