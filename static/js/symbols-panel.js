@@ -17,6 +17,10 @@ let _symKind = '';
 let _symSeq = 0;        // 古い応答が新しい入力の結果を上書きしないための連番
 let _symTimer = null;   // 打鍵デバウンス
 let _symShown = false;  // 初回表示でチップを組み立てたか
+let _symLast = null;    // 直近の結果。表示形式の切り替えで再フェッチしないため
+// 表示形式: フラット（一致の良い順）⇄ ファイル単位。既定はフラット。
+// シンボル検索の主キーは関連度なので、束ねるのは明示的に選んだときだけ。
+let _symGrouped = localStorage.getItem('grepnavi-sym-group') === '1';
 
 function symbolsPanelShow() {
   if (!_symShown) {
@@ -39,6 +43,14 @@ function symbolsPanelShow() {
     id('symbols-input').addEventListener('keydown', e => {
       if (e.key === 'Enter') { clearTimeout(_symTimer); _symbolsRefresh(); }
     });
+    const gbtn = id('symbols-group-btn');
+    gbtn.classList.toggle('on', _symGrouped);
+    gbtn.onclick = () => {
+      _symGrouped = !_symGrouped;
+      localStorage.setItem('grepnavi-sym-group', _symGrouped ? '1' : '0');
+      gbtn.classList.toggle('on', _symGrouped);
+      if (_symLast) _symbolsRender(_symLast.symbols, _symLast.truncated);
+    };
   }
   setTimeout(() => { id('symbols-input')?.focus(); id('symbols-input')?.select(); }, 0);
   _symbolsRefresh();
@@ -147,34 +159,90 @@ async function _symbolsFetch() {
   }
   if (seq !== _symSeq) return; // 打鍵が先に進んでいる
   if (d.hint) {
-    list.innerHTML = '';
     _symbolsRenderNoIndex();
     return;
   }
-  const symbols = d.symbols || [];
+  _symLast = { symbols: d.symbols || [], truncated: !!d.truncated };
+  _symbolsRender(_symLast.symbols, _symLast.truncated);
+}
+
+function _symSplitPath(file) {
+  const p = (file || '').replace(/\\/g, '/');
+  const i = p.lastIndexOf('/');
+  return { dir: shortPath(i >= 0 ? p.slice(0, i) : ''), base: i >= 0 ? p.slice(i + 1) : p };
+}
+
+function _symMakeRow(s, withLoc) {
+  const row = document.createElement('div');
+  row.className = 'sym-row';
+  const name = document.createElement('span');
+  name.className = 'sym-name';
+  name.textContent = s.name || s.text;
+  const kind = document.createElement('span');
+  kind.className = 'sym-kind-badge';
+  kind.style.background = kindColor(s.kind);
+  kind.textContent = kindLabel(s.kind);
+  row.append(name, kind);
+  const loc = document.createElement('span');
+  loc.className = 'sym-loc';
+  if (withLoc) {
+    const { dir, base } = _symSplitPath(s.file);
+    const d = document.createElement('span');
+    d.className = 'sym-dir';
+    d.textContent = dir ? dir + '/' : '';
+    const f = document.createElement('span');
+    f.className = 'sym-file';
+    f.textContent = base + ':' + s.line;
+    loc.append(d, f);
+  } else {
+    const f = document.createElement('span');
+    f.className = 'sym-file';
+    f.textContent = ':' + s.line;
+    loc.appendChild(f);
+  }
+  row.appendChild(loc);
+  row.title = s.file + ':' + s.line + '\n' + (s.text || '');
+  row.onclick = async () => {
+    // 索引の行番号は編集でずれるので、飛ぶ1件だけ決定時に補正する（Alt+T と同じ規約）
+    openPeek(s.file, await healedSymbolLine(s));
+  };
+  return row;
+}
+
+function _symbolsRender(symbols, truncated) {
+  const list = id('symbols-list');
+  const status = id('symbols-status');
   list.innerHTML = '';
-  for (const s of symbols) {
-    const row = document.createElement('div');
-    row.className = 'sym-row';
-    const name = document.createElement('span');
-    name.className = 'sym-name';
-    name.textContent = s.name || s.text;
-    const kind = document.createElement('span');
-    kind.className = 'sym-kind-badge';
-    kind.style.background = kindColor(s.kind);
-    kind.textContent = kindLabel(s.kind);
-    const loc = document.createElement('span');
-    loc.className = 'sym-loc';
-    loc.textContent = shortPath(s.file) + ':' + s.line;
-    row.append(name, kind, loc);
-    row.title = s.file + ':' + s.line + '\n' + (s.text || '');
-    row.onclick = async () => {
-      // 索引の行番号は編集でずれるので、飛ぶ1件だけ決定時に補正する（Alt+T と同じ規約）
-      openPeek(s.file, await healedSymbolLine(s));
-    };
-    list.appendChild(row);
+  if (!_symGrouped) {
+    for (const s of symbols) list.appendChild(_symMakeRow(s, true));
+  } else {
+    // ファイル単位。グループの並びは出現順（= 良い一致を含むファイルが先）に保ち、
+    // フラット表示のランキングを壊さずに束ねる。
+    const groups = new Map();
+    for (const s of symbols) {
+      if (!groups.has(s.file)) groups.set(s.file, []);
+      groups.get(s.file).push(s);
+    }
+    for (const [file, items] of groups) {
+      const hdr = document.createElement('div');
+      hdr.className = 'sym-group-hdr';
+      const { dir, base } = _symSplitPath(file);
+      const d = document.createElement('span');
+      d.className = 'sym-dir';
+      d.textContent = dir ? dir + '/' : '';
+      const f = document.createElement('span');
+      f.className = 'sym-file';
+      f.textContent = base;
+      const n = document.createElement('span');
+      n.className = 'sym-group-count';
+      n.textContent = String(items.length);
+      hdr.append(d, f, n);
+      hdr.title = file;
+      list.appendChild(hdr);
+      for (const s of items) list.appendChild(_symMakeRow(s, false));
+    }
   }
   status.textContent = symbols.length
-    ? `${symbols.length} 件${d.truncated ? '（上限で打ち切り）' : ''}`
+    ? `${symbols.length} 件${truncated ? '（上限で打ち切り）' : ''}`
     : '一致するシンボルがありません';
 }
