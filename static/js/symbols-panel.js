@@ -127,13 +127,16 @@ async function _symbolsFetch() {
   const pattern = _symbolsPattern(q);
   const list = id('symbols-list');
   const status = id('symbols-status');
-  if (!pattern && !_symKind) {
+  // 入力が空なら種別が選ばれていても一覧しない。上限100件のツリーでは
+  // アルファベット順の先頭が同名マクロで埋まるだけで、閲覧として機能しない。
+  if (!pattern) {
+    _symSeq++; // 直前の打鍵で飛んだ応答が、消した後に着地して一覧を復活させないように
     list.innerHTML = '';
     status.textContent = '名前の一部を入力（例: recipe save → recipe_save）';
     return;
   }
   const seq = ++_symSeq;
-  const params = new URLSearchParams({ pattern: pattern || '.', limit: '100' });
+  const params = new URLSearchParams({ pattern, limit: '100' });
   if (_symKind) params.set('kind', _symKind);
   let d;
   try {
