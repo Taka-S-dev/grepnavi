@@ -30,18 +30,88 @@ function symbolsPanelShow() {
       if (!btn) return;
       _symKind = btn.dataset.kind;
       wrap.querySelectorAll('.sym-kind').forEach(b => b.classList.toggle('sel', b === btn));
-      _symbolsFetch();
+      _symbolsRefresh();
     });
     id('symbols-input').addEventListener('input', () => {
       clearTimeout(_symTimer);
-      _symTimer = setTimeout(_symbolsFetch, 150);
+      _symTimer = setTimeout(_symbolsRefresh, 150);
     });
     id('symbols-input').addEventListener('keydown', e => {
-      if (e.key === 'Enter') { clearTimeout(_symTimer); _symbolsFetch(); }
+      if (e.key === 'Enter') { clearTimeout(_symTimer); _symbolsRefresh(); }
     });
   }
   setTimeout(() => { id('symbols-input')?.focus(); id('symbols-input')?.select(); }, 0);
+  _symbolsRefresh();
+}
+
+// 索引の有無を先に見る。無いのに入力を促すと「打ってから怒られる」体験になる。
+// 生成はパネル内のボタンで完結させる（別の場所の歯車を探させない）。
+function _symbolsRefresh() {
+  if (typeof window._ctagsIndexed === 'function' && !window._ctagsIndexed()) {
+    _symbolsRenderNoIndex();
+    return;
+  }
   _symbolsFetch();
+}
+
+let _symWaitTimer = null;
+function _symbolsRenderNoIndex() {
+  const list = id('symbols-list');
+  const status = id('symbols-status');
+  list.innerHTML = '';
+  status.textContent = '';
+  const box = document.createElement('div');
+  box.className = 'sym-noindex';
+  const msg = document.createElement('div');
+  const installed = typeof window._ctagsInstalled !== 'function' || window._ctagsInstalled();
+  msg.textContent = installed
+    ? 'シンボル検索には ctags 索引が必要です。'
+    : 'ctags が見つかりません。Universal Ctags のインストールが必要です（入手方法は README の「必要なもの」参照）。';
+  box.appendChild(msg);
+  if (!installed) {
+    // インストールは grepnavi の外で行われる。サーバは status のたびに PATH を
+    // 引き直すので、リロードしなくてもここから復帰できる
+    const recheck = document.createElement('button');
+    recheck.id = 'symbols-recheck-btn';
+    recheck.textContent = 'インストールしたら再確認';
+    recheck.onclick = async () => {
+      try {
+        const d = await (await fetch('/api/ctags/status')).json();
+        window._ctagsSetStatus?.(d);
+      } catch (_) {}
+      _symbolsRefresh();
+      if (typeof window._ctagsInstalled === 'function' && !window._ctagsInstalled()) {
+        st('ctags がまだ見つかりません（インストール直後は grepnavi の再起動が要る場合があります）');
+      }
+    };
+    box.appendChild(recheck);
+  }
+  if (installed) {
+    const btn = document.createElement('button');
+    btn.id = 'symbols-build-btn';
+    btn.textContent = '索引を生成';
+    btn.onclick = () => {
+      window._ctagsRunIndex?.();
+      btn.disabled = true;
+      btn.textContent = '生成中…';
+      // 生成の進捗表示は ctags.js のコンソールに任せ、完了したら自動で一覧に切り替える
+      clearInterval(_symWaitTimer);
+      let waited = 0;
+      _symWaitTimer = setInterval(() => {
+        waited += 1000;
+        if (window._ctagsIndexed?.()) {
+          clearInterval(_symWaitTimer);
+          _symbolsRefresh();
+        } else if (waited > 300000) {
+          clearInterval(_symWaitTimer);
+          btn.disabled = false;
+          btn.textContent = '索引を生成';
+        }
+      }, 1000);
+    };
+    box.appendChild(btn);
+  }
+  list.appendChild(box);
 }
 
 // fzf と同じ規約: スペース区切りトークンを順序付き AND（.* 連結）にする。
@@ -75,7 +145,7 @@ async function _symbolsFetch() {
   if (seq !== _symSeq) return; // 打鍵が先に進んでいる
   if (d.hint) {
     list.innerHTML = '';
-    status.textContent = 'ctags 索引がありません（右下の歯車 → ctags 生成）';
+    _symbolsRenderNoIndex();
     return;
   }
   const symbols = d.symbols || [];

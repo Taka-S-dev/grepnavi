@@ -1769,7 +1769,8 @@ function fzfRenderSymbols(query) {
         div.innerHTML = `<span class="fzf-kind fzf-kind-${esc(s.kind || 'other')}">${esc((s.kind || '?')[0])}</span>`
                       + `<span class="fzf-name">${fzfHighlight(s.name || s.text || '', query)}</span>`
                       + `<span class="fzf-dir">${esc(rel)}:${s.line}</span>`;
-        div.onclick = () => { closeFzf(); openPeek(s.file, s.line); };
+        // Enter (fzfActivate) と同じく、飛ぶ1件だけ索引のずれを補正してから開く
+        div.onclick = async () => { closeFzf(); openPeek(s.file, await healedSymbolLine(s)); };
         list.appendChild(div);
       });
     } catch {
