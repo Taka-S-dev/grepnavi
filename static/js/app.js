@@ -369,6 +369,13 @@ addEventListener('DOMContentLoaded', async () => {
   const saved = JSON.parse(localStorage.getItem('grepnavi-settings') || '{}');
   if(saved.dir)  { id('dir').value  = saved.dir;  const dc = id('dir-clear');  if(dc) dc.style.display = ''; }
   if(saved.glob) { id('glob').value = saved.glob; const gc = id('glob-clear'); if(gc) gc.style.display = ''; }
+  // 復元した dir / glob が非空なら、フィルタ欄を開いた状態で起動する。
+  // 畳んだまま効かせると、glob はどこにも表示されず「理由の見えない絞り込み」になる
+  // （dir はルートチップに出るが、glob の手掛かりはこの欄しか無い）。
+  if(saved.dir || saved.glob) {
+    id('bar-sub').classList.add('open');
+    id('btn-toggle-sub').classList.add('open');
+  }
   updateRootChip();
   if(saved.regex) id('btn-re').classList.toggle('on', !!saved.regex);
   if(saved.cs)    id('btn-cs').classList.toggle('on', !!saved.cs);
