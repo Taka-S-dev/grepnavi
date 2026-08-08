@@ -159,6 +159,7 @@ test('_isDefAnchored - path separators and case are normalized', () => {
 // display:none の裏に積まれるだけになる。開き先の判断はこの1関数に寄せてある。
 test('hasInternalEditorPane - 表示されているペインがあれば内蔵で開く', () => {
   const pane = {};
+  global.pageMode = '';
   global.id = sel => (sel === 'pane-right' ? pane : null);
   global.getComputedStyle = el => (el === pane ? {display: 'flex'} : {display: 'none'});
   assert.equal(hasInternalEditorPane(), true);
@@ -166,12 +167,22 @@ test('hasInternalEditorPane - 表示されているペインがあれば内蔵�
 
 test('hasInternalEditorPane - display:none のペインは無いものとして扱う', () => {
   const pane = {};
+  global.pageMode = '';
   global.id = sel => (sel === 'pane-right' ? pane : null);
   global.getComputedStyle = () => ({display: 'none'});
   assert.equal(hasInternalEditorPane(), false);
 });
 
+// コールツリーは右ペインを使うので、ペインの有無だけでは用途を区別できない。
+test('hasInternalEditorPane - 用途が決まっている窓では開かない', () => {
+  global.pageMode = 'calltree';
+  global.id = () => ({});
+  global.getComputedStyle = () => ({display: 'flex'});
+  assert.equal(hasInternalEditorPane(), false);
+});
+
 test('hasInternalEditorPane - ペイン自体が無い窓でも落ちない', () => {
+  global.pageMode = '';
   global.id = () => null;
   global.getComputedStyle = () => { throw new Error('呼んではいけない'); };
   assert.equal(hasInternalEditorPane(), false);

@@ -6,8 +6,32 @@ const PAGE_MODES = Object.freeze({
   PANEL:    'panel',
   CALLTREE: 'calltree',
 });
-// 現在のページモード (PAGE_MODES のいずれか、または '' = 通常モード)
-const pageMode = new URLSearchParams(location.search).get('mode') || '';
+// アプリ設定の保存先。ここに置くのは pageMode の決定に要るため（project.js より先に読む）。
+const LS_SETTINGS = 'grepnavi-app-settings';
+
+// 設定画面で選んだ表示モード。デスクトップ版の窓にはアドレスバーが無く URL を
+// 書き換えられないので、設定からも選べないとモードは起動時の決め打ちになる。
+function savedPageMode() {
+  try {
+    const v = JSON.parse(localStorage.getItem(LS_SETTINGS) || '{}').pageMode;
+    return Object.values(PAGE_MODES).includes(v) ? v : '';
+  } catch(_) {
+    return '';
+  }
+}
+
+// URL で指定されたモード。知らない値・空文字は「指定なし」として扱う。
+// そのまま通すと、どのレイアウトも適用されないのにモード扱いになる窓ができる
+// （エディタペインは出ているのに、開こうとすると外部エディタが起動する）。
+function urlPageMode() {
+  const v = new URLSearchParams(location.search).get('mode');
+  return Object.values(PAGE_MODES).includes(v) ? v : null;
+}
+
+// 現在のページモード (PAGE_MODES のいずれか、または '' = 通常モード)。
+// URL の指定が優先。VSCode の Simple Browser など、窓ごとに用途を決めて開く
+// 使い方では URL がその窓の宣言になり、設定より強い。
+const pageMode = urlPageMode() ?? savedPageMode();
 
 // Graph
 let graph = { nodes:{}, edges:[] };

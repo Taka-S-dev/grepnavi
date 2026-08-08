@@ -1859,7 +1859,9 @@ function promotePreviewTab() {
 async function openPeek(file, line, {permanent = false} = {}) {
   if(!file) return;
   if(typeof updateTitle === 'function') updateTitle(file);
-  if(pageMode) {
+  // 内蔵エディタを出せない窓では外部エディタへ回す。pageMode ではなくペインの
+  // 表示状態を見るのは、Alt+S でも同じ形になるため（openPeekPermanent と同じ規約）。
+  if(!hasInternalEditorPane()) {
     openFile(file, line);
     return;
   }
@@ -1967,22 +1969,21 @@ async function openPeek(file, line, {permanent = false} = {}) {
 
 // hasInternalEditorPane は内蔵エディタをこの窓に出せるかを返す。
 //
-// pageMode ではなくペインの表示状態を見る。レイアウトの出し分けは CSS が持って
-// いるので、判断材料をそちらに一本化しておけばモードが増えても勝手に正しくなる。
+// 内蔵エディタのペインが無い窓（検索のみ・パネル・コールツリー）で内蔵タブを
+// 開いても、display:none の裏に積まれるだけで「クリックしても何も起きない」ように
+// 見える。そういう窓では外部エディタへ回す。grep だけを grepnavi に任せて編集は
+// 普段のエディタで、という使い方はこの1点で成立する。
+//
+// モードだけでなくペインの表示状態も見る。モードは「この窓は何のためのものか」の
+// 宣言で、たとえばコールツリーは右ペインを使うためペインの有無では区別できない。
+// 逆にペインを畳む変更が入っても、こちらを見ていれば自動的に追従する。
 function hasInternalEditorPane() {
+  if(pageMode) return false;
   const pane = id('pane-right');
   return !!pane && getComputedStyle(pane).display !== 'none';
 }
 
-// 内蔵エディタのペインが無い窓（?mode=search / panel / calltree）で内蔵タブを
-// 開いても、display:none の裏に積まれるだけで「ダブルクリックしても何も起きない」
-// ように見える。その窓では外部エディタへ回す。grep だけを grepnavi に任せて編集は
-// 普段のエディタで、という使い方はこの1点で成立する。
 async function openPeekPermanent(file, line) {
-  if(!hasInternalEditorPane()) {
-    openFile(file, line);
-    return;
-  }
   return openPeek(file, line, {permanent: true});
 }
 

@@ -368,6 +368,20 @@
   <div id="settings-modal-box">
     <div style="font-weight:bold;margin-bottom:14px">設定</div>
 
+    <div style="font-size:12px;color:#aaa;margin-bottom:6px">表示モード</div>
+
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+      <span style="font-size:12px;color:#ccc;white-space:nowrap">レイアウト</span>
+      <select id="settings-page-mode" title="表示モード" style="flex:1">
+        <option value="">通常（検索 + ツリー + エディタ）</option>
+        <option value="search">検索のみ</option>
+        <!-- VSCode に埋める前提の形。歯車ごと隠れる・レイアウトが崩れるため URL からのみ -->
+        <option value="panel" disabled>パネル（URL 専用: ?mode=panel）</option>
+        <option value="calltree" disabled>コールツリーのみ（URL 専用: ?mode=calltree）</option>
+      </select>
+    </div>
+    <div style="font-size:11px;color:#666;margin-bottom:14px">通常以外ではエディタを開かず、検索結果は外部エディタで開きます。変更すると再読み込みするため、開いているタブと検索結果は失われます（調査グラフは保存済みなので残ります）。URL に <code>?mode=</code> を付けて開いた窓ではそちらが優先されます。</div>
+
     <div style="font-size:12px;color:#aaa;margin-bottom:6px">外部エディタ</div>
 
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">

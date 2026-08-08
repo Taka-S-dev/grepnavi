@@ -789,8 +789,8 @@ function saveAsProjectFilePicker() { showFileBrowser('save'); }
 
 // ===== 設定モーダル =====
 
-const LS_SETTINGS = 'grepnavi-app-settings';
-const VSCODE_CMD  = 'code --goto {file}:{line}';
+// LS_SETTINGS は state.js（pageMode の決定に必要なため先に読む側）で定義している。
+const VSCODE_CMD = 'code --goto {file}:{line}';
 
 function getSettings() {
   try { return JSON.parse(localStorage.getItem(LS_SETTINGS) || '{}'); } catch(_) { return {}; }
@@ -844,6 +844,18 @@ function _saveCurrentFieldsToBuffer(prevValue) {
 
 function showSettingsModal() {
   const s = getSettings();
+  const modeSel = id('settings-page-mode');
+  // URL で指定された窓では設定より URL が優先される。選ばせても効かないので、
+  // 今どの形で開いているかだけを見せて触らせない。
+  // 判定は state.js と同じ関数を使う。別々に URL を読むと、知らない値や
+  // 空の ?mode= で「選べるのに効かない」ずれが出る。
+  const urlMode = urlPageMode();
+  if(modeSel) {
+    // URL 専用のモードも選択肢には並べてある（disabled）。今どの形で開いて
+    // いるかは、選べるかどうかとは別に見せる必要がある。
+    modeSel.value = urlMode ?? savedPageMode();
+    modeSel.disabled = urlMode !== null;
+  }
   _editingCustoms = [0,1,2].map(i => ({ ...(s.customEditors?.[i] || {name:'',cmd:''}) }));
   const sel = id('settings-active-editor');
   sel.value = s.activeEditor || 'vscode';
@@ -879,8 +891,16 @@ function hideSettingsModal() {
 
     id('settings-modal-ok').onclick = () => {
       _saveCurrentFieldsToBuffer(sel.value);
-      saveSettings({ activeEditor: sel.value, customEditors: _editingCustoms });
+      const modeSel = id('settings-page-mode');
+      const savedMode = savedPageMode();
+      const newMode = (!modeSel || modeSel.disabled) ? savedMode : modeSel.value;
+      const modeChanged = newMode !== savedMode;
+      saveSettings({ activeEditor: sel.value, customEditors: _editingCustoms, pageMode: newMode });
       hideSettingsModal();
+      // レイアウトは起動時に組み立てられる（パネルのタブバー等）ので、
+      // 途中で作り直すより読み込み直す方が確実。調査グラフはサーバ側にあり
+      // 失われないが、開いているタブと検索結果はその窓限りなので消える。
+      if(modeChanged) location.reload();
     };
     id('settings-modal-cancel').onclick = hideSettingsModal;
     id('settings-modal').addEventListener('mousedown', e => {
