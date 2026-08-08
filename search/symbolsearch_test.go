@@ -35,7 +35,7 @@ func TestCtagsSearchSymbolNames(t *testing.T) {
 	requireRg(t)
 	dir := writeTestTags(t)
 
-	hits, truncated, err := CtagsSearchSymbolNames(context.Background(), "recipe", dir, "", false, 50)
+	hits, truncated, err := CtagsSearchSymbolNames(context.Background(), "recipe", dir, "", false, 50, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestCtagsSearchSymbolNamesExactFirst(t *testing.T) {
 	dir := writeTestTags(t)
 
 	// 完全一致 (case-insensitive) は kind ランクより優先される
-	hits, _, err := CtagsSearchSymbolNames(context.Background(), "recipe_t", dir, "", false, 50)
+	hits, _, err := CtagsSearchSymbolNames(context.Background(), "recipe_t", dir, "", false, 50, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestCtagsSearchSymbolNamesKindFilter(t *testing.T) {
 	requireRg(t)
 	dir := writeTestTags(t)
 
-	hits, _, err := CtagsSearchSymbolNames(context.Background(), "recipe", dir, "func", false, 50)
+	hits, _, err := CtagsSearchSymbolNames(context.Background(), "recipe", dir, "func", false, 50, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestCtagsSearchSymbolNamesLimit(t *testing.T) {
 	requireRg(t)
 	dir := writeTestTags(t)
 
-	hits, truncated, err := CtagsSearchSymbolNames(context.Background(), "recipe", dir, "", false, 2)
+	hits, truncated, err := CtagsSearchSymbolNames(context.Background(), "recipe", dir, "", false, 2, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,44 @@ func TestCtagsSearchSymbolNamesLimit(t *testing.T) {
 
 func TestCtagsSearchSymbolNamesBadRegex(t *testing.T) {
 	dir := writeTestTags(t)
-	if _, _, err := CtagsSearchSymbolNames(context.Background(), "recipe[", dir, "", false, 50); err == nil {
+	if _, _, err := CtagsSearchSymbolNames(context.Background(), "recipe[", dir, "", false, 50, ""); err == nil {
 		t.Error("expected error for invalid regex")
+	}
+}
+
+// パス絞り込み: 空白区切りの部分一致、"-" 始まりは除外。区切り文字の向きと
+// 大文字小文字は正規化して比べる（tags の記録形式に依存しないように）。
+func TestCtagsSearchSymbolNamesPathFilter(t *testing.T) {
+	requireRg(t)
+	dir := writeTestTags(t)
+
+	names := func(pathFilter string) []string {
+		t.Helper()
+		hits, _, err := CtagsSearchSymbolNames(context.Background(), "recipe", dir, "", false, 50, pathFilter)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := make([]string, len(hits))
+		for i, h := range hits {
+			out[i] = h.Name
+		}
+		return out
+	}
+
+	got := names("include/")
+	if len(got) != 2 {
+		t.Errorf("include/ の絞り込み = %v, want RECIPE_MAX と recipe_t", got)
+	}
+	got = names("-include/")
+	if len(got) != 2 {
+		t.Errorf("-include/ の除外 = %v, want src の2件", got)
+	}
+	// Windows 由来の \ 区切り指定でも同じ結果になる
+	got = names(`INCLUDE\`)
+	if len(got) != 2 {
+		t.Errorf(`INCLUDE\ (大文字・逆区切り) = %v, want 2件`, got)
+	}
+	if got := names("src/ -other"); len(got) != 2 {
+		t.Errorf("src/ -other = %v, want recipe.c の2件", got)
 	}
 }

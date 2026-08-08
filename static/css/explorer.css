@@ -564,3 +564,33 @@ body.search-mode #tab-nodes { display: flex; }
   border-radius: 8px;
   padding: 0 6px;
 }
+
+#symbols-filter-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px 6px;
+  flex-shrink: 0;
+}
+#symbols-filter {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  color: #ccc;
+  font: 11px Consolas, monospace;
+  padding: 3px 6px;
+  border-radius: 3px;
+}
+#symbols-filter:focus { outline: none; border-color: #007acc; }
+#symbols-filter-clear {
+  background: none;
+  border: none;
+  color: #777;
+  cursor: pointer;
+  font-size: 11px;
+  flex-shrink: 0;
+  padding: 0 4px;
+}
+#symbols-filter-clear:hover { color: #ccc; }

@@ -418,7 +418,7 @@ func (h *Handler) handleSymbolSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	hits, truncated, err := search.CtagsSearchSymbolNames(
-		r.Context(), pattern, hroot, q.Get("kind"), q.Get("case") == "1", limit)
+		r.Context(), pattern, hroot, q.Get("kind"), q.Get("case") == "1", limit, q.Get("path"))
 	if err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return

@@ -43,6 +43,23 @@ function symbolsPanelShow() {
     id('symbols-input').addEventListener('keydown', e => {
       if (e.key === 'Enter') { clearTimeout(_symTimer); _symbolsRefresh(); }
     });
+    // 場所の絞り込みバー（grep 結果の絞り込みと同じ位置づけ）。
+    // 見た目はクライアントのフィルタだが、実際はサーバ側で絞る。
+    // 取得済み100件から削る方式だと、目当てが上限の外に落ちて見えなくなる。
+    const filt = id('symbols-filter');
+    filt.addEventListener('input', () => {
+      id('symbols-filter-clear').style.display = filt.value ? '' : 'none';
+      clearTimeout(_symTimer);
+      _symTimer = setTimeout(_symbolsRefresh, 150);
+    });
+    filt.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { clearTimeout(_symTimer); _symbolsRefresh(); }
+    });
+    id('symbols-filter-clear').onclick = () => {
+      filt.value = '';
+      id('symbols-filter-clear').style.display = 'none';
+      _symbolsRefresh();
+    };
     const gbtn = id('symbols-group-btn');
     gbtn.classList.toggle('on', _symGrouped);
     gbtn.onclick = () => {
@@ -126,29 +143,58 @@ function _symbolsRenderNoIndex() {
   list.appendChild(box);
 }
 
-// fzf と同じ規約: スペース区切りトークンを順序付き AND（.* 連結）にする。
+// 入力を「名前のトークン」と「パス条件」に分ける。パス条件は grep 検索の
+// 絞り込みバーと同じ語彙 (path:xxx / file:xxx / -path:xxx / -file:xxx)。
+// 名前側は fzf と同じ規約: スペース区切りを順序付き AND（.* 連結）にする。
 // "recipe save" → recipe.*save で recipe_save に当たる。
-function _symbolsPattern(query) {
-  const tokens = query.trim().split(/\s+/).filter(Boolean);
-  if (!tokens.length) return '';
-  return tokens.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*');
+function _symbolsParse(query) {
+  const nameTokens = [];
+  const pathTerms = [];
+  for (const tok of query.trim().split(/\s+/).filter(Boolean)) {
+    const m = tok.match(/^(-?)(?:path|file):(.*)$/i);
+    if (m) {
+      if (m[2]) pathTerms.push(m[1] + m[2]);
+      continue;
+    }
+    nameTokens.push(tok);
+  }
+  return {
+    pattern: nameTokens.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*'),
+    path: pathTerms.join(' '),
+  };
+}
+
+// 絞り込みバーの中身をパス条件へ。素のトークンは「含む」、"-" 始まりは「除外」。
+// path: / file: の接頭辞も受ける（メイン入力と語彙を揃えるため。無くてもよい）。
+function _symbolsFilterTerms() {
+  const out = [];
+  for (const tok of (id('symbols-filter')?.value || '').trim().split(/\s+/).filter(Boolean)) {
+    const m = tok.match(/^(-?)(?:path:|file:)?(.*)$/i);
+    if (m && m[2]) out.push(m[1] + m[2]);
+  }
+  return out;
 }
 
 async function _symbolsFetch() {
   const q = id('symbols-input').value;
-  const pattern = _symbolsPattern(q);
+  const parsed = _symbolsParse(q);
+  const pattern = parsed.pattern;
+  const path = [parsed.path, ..._symbolsFilterTerms()].filter(Boolean).join(' ');
   const list = id('symbols-list');
   const status = id('symbols-status');
-  // 入力が空なら種別が選ばれていても一覧しない。上限100件のツリーでは
+  // 名前もパス条件も無ければ一覧しない。上限100件のツリーでは
   // アルファベット順の先頭が同名マクロで埋まるだけで、閲覧として機能しない。
-  if (!pattern) {
+  // パス条件だけは許す（例: path:drivers/led + 種別チップ）——場所で範囲が
+  // 絞られていれば、その中の一覧は閲覧として意味を持つ。
+  if (!pattern && !path) {
     _symSeq++; // 直前の打鍵で飛んだ応答が、消した後に着地して一覧を復活させないように
     list.innerHTML = '';
-    status.textContent = '名前の一部を入力（例: recipe save → recipe_save）';
+    status.textContent = '名前の一部を入力（path:dir で場所の絞り込み）';
     return;
   }
   const seq = ++_symSeq;
-  const params = new URLSearchParams({ pattern, limit: '100' });
+  const params = new URLSearchParams({ pattern: pattern || '.', limit: '100' });
+  if (path) params.set('path', path);
   if (_symKind) params.set('kind', _symKind);
   let d;
   try {

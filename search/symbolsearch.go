@@ -18,11 +18,13 @@ import (
 
 // CtagsSearchSymbolNames は tags ファイルからシンボル名が pattern（正規表現）に
 // マッチする定義を返す。kind が非空ならその kind（"func" 等、ctagsKindToKind 後の値）に限定する。
-// limit 件を超えた場合は打ち切り、truncated=true を返す。
+// pathFilter は空白区切りの部分一致（大文字小文字・区切り文字の向きは不問）で、
+// "-" 始まりは除外条件。limit 件を超えた場合は打ち切り、truncated=true を返す。
 //
 // rg はパス等にマッチした行も拾うため行レベルの粗いフィルタとして使い、
 // 名前フィールドだけを Go 側の正規表現で検証する2段構え。
-func CtagsSearchSymbolNames(ctx context.Context, pattern, dir, kind string, caseSensitive bool, limit int) (hits []DefHit, truncated bool, err error) {
+func CtagsSearchSymbolNames(ctx context.Context, pattern, dir, kind string, caseSensitive bool, limit int, pathFilter string) (hits []DefHit, truncated bool, err error) {
+	matchPath := buildPathFilter(pathFilter)
 	tagsPath := filepath.Join(dir, "tags")
 	rePattern := pattern
 	if !caseSensitive {
@@ -64,6 +66,9 @@ func CtagsSearchSymbolNames(ctx context.Context, pattern, dir, kind string, case
 		}
 		h := ctagsParseLine(line, fields[0], dir)
 		if h == nil || (kind != "" && h.Kind != kind) {
+			continue
+		}
+		if !matchPath(h.File) {
 			continue
 		}
 		hits = append(hits, *h)
@@ -111,4 +116,39 @@ func sortSymbolNameHits(hits []DefHit, pattern string) {
 		}
 		return hits[i].Name < hits[j].Name
 	})
+}
+
+// buildPathFilter は空白区切りのパス条件を判定関数へまとめる。
+// 一致は部分文字列で行い、比較前に区切りをスラッシュへ・小文字へ正規化する
+// （tags のパスは生成時の形式次第で / と \ が混在しうるため）。
+func buildPathFilter(filter string) func(string) bool {
+	terms := strings.Fields(filter)
+	if len(terms) == 0 {
+		return func(string) bool { return true }
+	}
+	type cond struct {
+		sub     string
+		exclude bool
+	}
+	conds := make([]cond, 0, len(terms))
+	for _, t := range terms {
+		c := cond{sub: t}
+		if strings.HasPrefix(t, "-") {
+			c.exclude = true
+			c.sub = t[1:]
+		}
+		c.sub = strings.ToLower(strings.ReplaceAll(c.sub, "\\", "/"))
+		if c.sub != "" {
+			conds = append(conds, c)
+		}
+	}
+	return func(file string) bool {
+		f := strings.ToLower(strings.ReplaceAll(file, "\\", "/"))
+		for _, c := range conds {
+			if strings.Contains(f, c.sub) == c.exclude {
+				return false
+			}
+		}
+		return true
+	}
 }
