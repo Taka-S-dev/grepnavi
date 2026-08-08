@@ -188,8 +188,8 @@ async function _symbolsFetch() {
   // 絞られていれば、その中の一覧は閲覧として意味を持つ。
   if (!pattern && !path) {
     _symSeq++; // 直前の打鍵で飛んだ応答が、消した後に着地して一覧を復活させないように
-    list.innerHTML = '';
-    status.textContent = '名前の一部を入力（path:dir で場所の絞り込み）';
+    _symbolsRenderHint('名前の一部を入力', 'スペース区切りで AND（recipe save → recipe_save）');
+    status.textContent = '';
     return;
   }
   const seq = ++_symSeq;
@@ -218,17 +218,40 @@ function _symSplitPath(file) {
   return { dir: shortPath(i >= 0 ? p.slice(0, i) : ''), base: i >= 0 ? p.slice(i + 1) : p };
 }
 
+// 案内をリスト領域の中央に出す（最下段のステータス行は読まれない場所なので使わない）
+function _symbolsRenderHint(main, sub) {
+  const list = id('symbols-list');
+  list.innerHTML = '';
+  const box = document.createElement('div');
+  box.className = 'sym-noindex';
+  const m = document.createElement('div');
+  m.textContent = main;
+  box.appendChild(m);
+  if (sub) {
+    const d = document.createElement('div');
+    d.className = 'sym-hint-sub';
+    d.textContent = sub;
+    box.appendChild(d);
+  }
+  list.appendChild(box);
+}
+
 function _symMakeRow(s, withLoc) {
   const row = document.createElement('div');
   row.className = 'sym-row';
   const name = document.createElement('span');
   name.className = 'sym-name';
   name.textContent = s.name || s.text;
-  const kind = document.createElement('span');
-  kind.className = 'sym-kind-badge';
-  kind.style.background = kindColor(s.kind);
-  kind.textContent = kindLabel(s.kind);
-  row.append(name, kind);
+  row.append(name);
+  // 種別チップで絞っている間は全行同じバッジになる。同じ情報の反復は
+  // ノイズでしかないので、「すべて」表示のときだけ種別を行に出す
+  if (!_symKind) {
+    const kind = document.createElement('span');
+    kind.className = 'sym-kind-badge';
+    kind.style.background = kindColor(s.kind);
+    kind.textContent = kindLabel(s.kind);
+    row.append(kind);
+  }
   const loc = document.createElement('span');
   loc.className = 'sym-loc';
   if (withLoc) {
@@ -288,7 +311,12 @@ function _symbolsRender(symbols, truncated) {
       for (const s of items) list.appendChild(_symMakeRow(s, false));
     }
   }
-  status.textContent = symbols.length
-    ? `${symbols.length} 件${truncated ? '（上限で打ち切り）' : ''}`
-    : '一致するシンボルがありません';
+  if (!symbols.length) {
+    _symbolsRenderHint('一致するシンボルがありません');
+    status.textContent = '0 件';
+    return;
+  }
+  // 打ち切りは行き止まりにしない。絞り込み手段（場所・種別）まで案内する
+  status.textContent = `${symbols.length} 件` +
+    (truncated ? '（上限で打ち切り — 場所や種別で絞ると残りが見えます）' : '');
 }
