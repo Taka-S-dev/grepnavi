@@ -156,7 +156,10 @@ addEventListener('DOMContentLoaded', async () => {
     if(e.altKey && !e.ctrlKey && !e.metaKey && e.key === 't') { e.preventDefault(); openFzf('symbol'); }
     if((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'O') { e.preventDefault(); showFileBrowser('open-file'); }
     if((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
-      if(id('explorer-panel')?.classList.contains('visible')) {
+      // 検索タブ以外（エクスプローラ・シンボル・プロジェクト・ノード）を開いて
+      // いるときは grep 検索へ戻す。個別パネル名で判定すると、パネルが増える
+      // たびにここが漏れる（シンボルパネル追加で実際に漏れた）。
+      if(id('search-panel').style.display === 'none') {
         e.preventDefault();
         id('tab-search').click();
         id('q')?.focus();
