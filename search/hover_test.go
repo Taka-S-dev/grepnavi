@@ -439,9 +439,56 @@ func TestChaseDefineAliases(t *testing.T) {
 		t.Errorf("循環で発散した: %d 枚", len(got))
 	}
 
-	// 式は追わない（EXPR のカードは1枚のまま）
+	// 式中のマクロも展開する: (BAR + 1) から BAR、その先の BAZ まで
 	got = hover("EXPR")
-	if len(got) != 1 {
-		t.Errorf("式の置換を追ってしまった: %d 枚", len(got))
+	bodies = nil
+	for _, h := range got {
+		if h.Chained {
+			bodies = append(bodies, h.Body)
+		}
+	}
+	joined = strings.Join(bodies, "\n---\n")
+	if !strings.Contains(joined, "BAR BAZ") || !strings.Contains(joined, "BAZ 42") {
+		t.Errorf("式の参照先が展開されない:\n%s", joined)
+	}
+}
+
+// 複数マクロを参照する式は各マクロを1枚ずつ、上限4枚で展開する
+func TestChaseDefineExprRefs(t *testing.T) {
+	requireRg(t)
+	dir := t.TempDir()
+	write(t, dir+"/defs.h",
+		"#define ERR_R_FATAL 64\n"+
+			"#define OTHER 2\n"+
+			"#define BOTH (OTHER|ERR_R_FATAL)\n"+
+			"#define MANY (A1|A2|A3|A4|A5)\n"+
+			"#define A1 1\n#define A2 2\n#define A3 3\n#define A4 4\n#define A5 5\n")
+
+	hits, _, err := FindHover(t.Context(), "BOTH", dir, "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, h := range hits {
+		if h.Chained {
+			names = append(names, h.Name)
+		}
+	}
+	if len(names) != 2 || names[0] != "OTHER" || names[1] != "ERR_R_FATAL" {
+		t.Errorf("式の参照カード = %v, want [OTHER ERR_R_FATAL]", names)
+	}
+
+	hits, _, err = FindHover(t.Context(), "MANY", dir, "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chained := 0
+	for _, h := range hits {
+		if h.Chained {
+			chained++
+		}
+	}
+	if chained > 4 {
+		t.Errorf("展開カードが上限を超えた: %d 枚", chained)
 	}
 }

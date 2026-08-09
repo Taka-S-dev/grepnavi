@@ -250,10 +250,9 @@ func FindHover(ctx context.Context, word, dir, glob, root string, includeChain .
 	}
 	result = append(extra, result...)
 
-	// #define の別名（#define FOO BAR）は、たどった先の定義を補助カードで足す。
-	// FOO のホバーだけで BAR → 実体まで読めるように。連鎖は途中の各段も出す
-	// （どこで値が決まるかが分かる）。置換部が単一の識別子のときだけ追う ——
-	// 式 (A + B) まで追うと候補が発散するし、単純な別名こそが追う価値のある形。
+	// #define が参照する先を補助カードで足す。別名（#define FOO BAR）は連鎖を、
+	// 式（#define X (2|ERR_R_FATAL)）は式中の各マクロを1枚ずつ展開する。
+	// ポップアップ内は再ホバーできないので、ここで見せない参照先は遠くなる。
 	result = append(result, chaseDefineAliases(ctx, result, word, dir, glob)...)
 
 	// 置換部が定数式の #define は計算値も出す（enum メンバの計算値と同じ表示経路）
@@ -858,9 +857,7 @@ func funcMin(a, b int) int {
 }
 
 // #define の別名連鎖を追う。置換部が単一識別子（括弧1重は許す）の define だけを
-// 対象に、参照先の define を最大4段たどって1段1枚のカードにする。
-// 循環（#define A B / #define B A）は既出名で打ち切る。深さ上限は「それ以上
-// 深い別名はホバーで読む話ではない」という割り切り。
+// 対象に拾う予備規則（置換部が定数式として字句解析できないときのフォールバック）。
 var reDefineAlias = regexp.MustCompile(`^\s*#\s*define\s+\w+\s+\(?([A-Za-z_]\w*)\)?\s*(?:/[/*].*)?$`)
 
 // defineAliasTarget は define カードの本文から別名の参照先識別子を返す。
@@ -874,18 +871,50 @@ func defineAliasTarget(body string) string {
 	return ""
 }
 
+// defineRefIdents は define 本文の置換部が参照する未出のマクロ名を出現順で
+// 返す。定数式として読めない置換部（関数形式の使用等）は従来どおり
+// 単一別名の形だけを拾う。
+func defineRefIdents(body, name string, seen map[string]bool) []string {
+	var out []string
+	push := func(n string) {
+		if !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
+	if expr, ok := defineReplacement(body, name); ok {
+		if toks, ok2 := lexConstExpr(expr); ok2 {
+			for _, t := range toks {
+				if t.kind == 'i' {
+					push(t.name)
+				}
+			}
+			return out
+		}
+	}
+	if t := defineAliasTarget(body); t != "" {
+		push(t)
+	}
+	return out
+}
+
+// chaseDefineAliases は #define の参照先を補助カードにする。別名は連鎖を、
+// 式は式中の各マクロを幅優先で展開する。発散対策は3つ: 既出名は出さない・
+// 名前ごとに先頭ヒット1枚・合計4枚で打ち切り（それ以上はホバーで読む話では
+// ないという割り切り）。
 func chaseDefineAliases(ctx context.Context, result []HoverHit, word, dir, glob string) []HoverHit {
 	seen := map[string]bool{word: true}
-	cur := ""
+	var queue []string
 	for _, h := range result {
 		if h.Kind == "define" {
-			cur = defineAliasTarget(h.Body)
+			queue = defineRefIdents(h.Body, word, seen)
 			break
 		}
 	}
 	var out []HoverHit
-	for depth := 0; cur != "" && !seen[cur] && depth < 4; depth++ {
-		seen[cur] = true
+	for len(queue) > 0 && len(out) < 4 {
+		cur := queue[0]
+		queue = queue[1:]
 		// 各段の解決は本体と同じ優先順位で。rg は全域走査で1段ごとに高くつくため、
 		// 索引があるなら使う（大きなツリーでのホバー遅延に直結する）。
 		var hits []DefHit
@@ -895,24 +924,31 @@ func chaseDefineAliases(ctx context.Context, result []HoverHit, word, dir, glob 
 		if len(hits) == 0 {
 			hits, _ = FindDefinitionsN(ctx, cur, dir, glob, 5)
 		}
-		next := ""
 		for _, rh := range hits {
-			if rh.Kind != "define" {
+			if rh.Kind != "define" && rh.Kind != "enum_member" {
 				continue
 			}
 			lines, err := CachedLines(rh.File)
 			if err != nil {
 				continue
 			}
-			body := extractDefineBlock(lines, rh.Line)
-			if body == "" {
-				body = rh.Text
+			var body string
+			if rh.Kind == "define" {
+				body = extractDefineBlock(lines, rh.Line)
+				if body == "" {
+					body = rh.Text
+				}
+				queue = append(queue, defineRefIdents(body, cur, seen)...)
+			} else {
+				// enum メンバの参照はメンバ行を先頭にした enum ブロックで見せる
+				body = extractEnumMemberContext(lines, rh.Line)
+				if body == "" {
+					body = rh.Text
+				}
 			}
-			out = append(out, HoverHit{File: rh.File, Line: rh.Line, Kind: "define", Body: body, Chained: true, Name: cur})
-			next = defineAliasTarget(body)
-			break // 1段につきカード1枚（同名定義が複数あっても先頭のみ）
+			out = append(out, HoverHit{File: rh.File, Line: rh.Line, Kind: rh.Kind, Body: body, Chained: true, Name: cur})
+			break // 1名につきカード1枚（同名定義が複数あっても先頭のみ）
 		}
-		cur = next
 	}
 	return out
 }
