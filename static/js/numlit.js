@@ -68,23 +68,22 @@ function _formatCharLiteral(text) {
   return _rowsToMarkdown([['dec', code], ['hex', '0x' + code.toString(16)]]);
 }
 
-// リテラル1個を基数変換の markdown へ。対象外（不正な8進・C の整数幅超え・
-// 非 ASCII 文字リテラル）は null。
-function formatNumLiteral(text) {
-  if (text[0] === "'") return _formatCharLiteral(text);
+// リテラル文字列を {value(BigInt), base} へ。不正（089 等）・C に無い字面は null
+function _parseIntLiteral(text) {
   const suffix = text.match(/[uUlL]*$/)[0];
   const numStr = suffix ? text.slice(0, -suffix.length) : text;
-  let value, base;
   try {
-    if (/^0[xX][0-9a-fA-F]+$/.test(numStr)) { value = BigInt(numStr); base = 16; }
-    else if (/^0[bB][01]+$/.test(numStr)) { value = BigInt(numStr); base = 2; }
-    else if (/^0[0-7]+$/.test(numStr)) { value = BigInt('0o' + numStr.slice(1)); base = 8; }
-    else if (/^0[0-9]+$/.test(numStr)) return null; // 089: C では不正な8進
-    else if (/^[0-9]+$/.test(numStr)) { value = BigInt(numStr); base = 10; }
-    else return null;
-  } catch { return null; }
-  if (value >= 1n << 64n) return null;
+    if (/^0[xX][0-9a-fA-F]+$/.test(numStr)) return { value: BigInt(numStr), base: 16 };
+    if (/^0[bB][01]+$/.test(numStr)) return { value: BigInt(numStr), base: 2 };
+    if (/^0[0-7]+$/.test(numStr)) return { value: BigInt('0o' + numStr.slice(1)), base: 8 };
+    if (/^0[0-9]+$/.test(numStr)) return null; // 089: C では不正な8進
+    if (/^[0-9]+$/.test(numStr)) return { value: BigInt(numStr), base: 10 };
+  } catch { /* BigInt が投げる形は全て対象外 */ }
+  return null;
+}
 
+// 値1個を dec/hex/bin/bit の行に展開する（0 <= v < 2^64 前提）
+function _rowsForValue(value) {
   const rows = [
     ['dec', _groupDigits(value.toString(10), 3, ',')],
     ['hex', '0x' + value.toString(16)],
@@ -99,8 +98,17 @@ function formatNumLiteral(text) {
     bits.reverse();
     rows.push(['bit', bits.length <= 12 ? bits.join(', ') : bits.length + '個']);
   }
+  return rows;
+}
+
+// リテラル1個を基数変換の markdown へ。対象外（不正な8進・C の整数幅超え・
+// 非 ASCII 文字リテラル）は null。
+function formatNumLiteral(text) {
+  if (text[0] === "'") return _formatCharLiteral(text);
+  const lit = _parseIntLiteral(text);
+  if (!lit || lit.value >= 1n << 64n) return null;
   // 素の 010 が 8 に見えない事故は C の定番なので、8進だけ注記を付ける
-  return _rowsToMarkdown(rows, base === 8 ? `**\`${text}\`** は8進表記` : '');
+  return _rowsToMarkdown(_rowsForValue(lit.value), lit.base === 8 ? `**\`${text}\`** は8進表記` : '');
 }
 
 // ホバーカードの計算値（10進文字列）用の 2進+ビット位置の一行。ヘッダの
@@ -120,4 +128,118 @@ function formatValueBits(decStr) {
   return `${bin} · bit ${bits.length <= 12 ? bits.join(', ') : bits.length + '個'}`;
 }
 
-if (typeof module !== 'undefined') module.exports = { findNumLiteralAt, formatNumLiteral, formatValueBits };
+// ===== 式の評価（基数変換電卓用）=====
+// リテラルと演算子だけの整数式を BigInt で評価する。識別子（マクロ名）は
+// 扱わない — 値の解決はサーバ側の索引が要る話で、ホバーが担当している。
+// / と % は BigInt がゼロ方向切り捨てで C と一致する。
+
+const _CALC_PREC = { '|': 1, '^': 2, '&': 3, '<<': 4, '>>': 4, '+': 5, '-': 5, '*': 6, '/': 6, '%': 6 };
+
+function _lexNumExpr(src) {
+  const toks = [];
+  const re = /\s+|(?:0[xX][0-9a-fA-F]+|0[bB][01]+|[0-9]+)[uUlL]*|<<|>>|[|&^+\-*/%~()]/y;
+  let i = 0;
+  while (i < src.length) {
+    re.lastIndex = i;
+    const m = re.exec(src);
+    if (!m) return null; // 語彙の外（識別子・比較・小数点など）
+    i = re.lastIndex;
+    const s = m[0];
+    if (/^\s/.test(s)) continue;
+    if (/^[0-9]/.test(s)) {
+      const lit = _parseIntLiteral(s);
+      if (!lit) return null;
+      toks.push({ num: lit.value });
+    } else {
+      toks.push({ op: s });
+    }
+  }
+  return toks;
+}
+
+function _calcBinary(st, minPrec) {
+  let left = _calcUnary(st);
+  if (left === null) return null;
+  while (st.pos < st.toks.length) {
+    const t = st.toks[st.pos];
+    const prec = t.op !== undefined ? _CALC_PREC[t.op] : undefined;
+    if (prec === undefined || prec < minPrec) break;
+    st.pos++;
+    const right = _calcBinary(st, prec + 1); // 左結合
+    if (right === null) return null;
+    switch (t.op) {
+      case '|': left |= right; break;
+      case '^': left ^= right; break;
+      case '&': left &= right; break;
+      case '<<': case '>>':
+        if (right < 0n || right > 63n) return null;
+        left = t.op === '<<' ? left << right : left >> right;
+        break;
+      case '+': left += right; break;
+      case '-': left -= right; break;
+      case '*': left *= right; break;
+      case '/': case '%':
+        if (right === 0n) return null;
+        left = t.op === '/' ? left / right : left % right;
+        break;
+    }
+  }
+  return left;
+}
+
+function _calcUnary(st) {
+  const t = st.toks[st.pos];
+  if (t && (t.op === '~' || t.op === '-' || t.op === '+')) {
+    st.pos++;
+    const v = _calcUnary(st);
+    if (v === null) return null;
+    return t.op === '~' ? ~v : t.op === '-' ? -v : v;
+  }
+  return _calcPrimary(st);
+}
+
+function _calcPrimary(st) {
+  const t = st.toks[st.pos];
+  if (!t) return null;
+  if (t.num !== undefined) { st.pos++; return t.num; }
+  if (t.op === '(') {
+    st.pos++;
+    const v = _calcBinary(st, 1);
+    if (v === null || st.toks[st.pos]?.op !== ')') return null;
+    st.pos++;
+    return v;
+  }
+  return null;
+}
+
+// 式を評価して BigInt を返す。解釈できなければ null（|| や比較は
+// 2トークンに割れて構文で落ちる）。
+function evalNumExpr(src) {
+  if (!src || !src.trim()) return null;
+  const toks = _lexNumExpr(src);
+  if (!toks || !toks.length) return null;
+  const st = { toks, pos: 0 };
+  const v = _calcBinary(st, 1);
+  return (v !== null && st.pos === toks.length) ? v : null;
+}
+
+// 電卓の出力（<pre> 用プレーンテキスト）。負値は 10進のみ（16進表現は幅の
+// 解釈が要る）、64bit 超は 10進と16進のみ（2進は長すぎて読めない）。
+function formatCalcResult(src) {
+  const v = evalNumExpr(src);
+  if (v === null) return null;
+  let rows;
+  if (v < 0n) {
+    rows = [['dec', '-' + _groupDigits((-v).toString(10), 3, ',')]];
+  } else if (v >= 1n << 64n) {
+    rows = [
+      ['dec', _groupDigits(v.toString(10), 3, ',')],
+      ['hex', '0x' + v.toString(16)],
+    ];
+  } else {
+    rows = _rowsForValue(v);
+  }
+  return rows.map(([k, val]) => `${k}  ${val}`).join('\n');
+}
+
+if (typeof module !== 'undefined') module.exports = { findNumLiteralAt, formatNumLiteral, formatValueBits, evalNumExpr, formatCalcResult };

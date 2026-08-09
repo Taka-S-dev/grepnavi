@@ -1324,7 +1324,8 @@ async function ensureEditor() {
               if(i === 0) _lastHoverHit = { file: h.file, line: h.line, body: h.body };
               // 計算値には 2進とビット位置も添える（ポップアップ内は再ホバー不可のため焼き込み）
               const bits = h.value ? formatValueBits(h.value) : '';
-              const bitsLine = bits ? `\n\n\`${bits}\`` : '';
+              // ラベルを付けてソースの続きに見えないようにする（コードブロックの直下に置くため）
+              const bitsLine = bits ? `\n\n*ビット構成:* \`${bits}\`` : '';
               apiContents.push({value: prefix + header + '\n```c\n' + body + '\n```' + bitsLine, isTrusted: true});
             }
             // 連鎖カード: ↳ とそのカード自身の名前で「たどった先」だと分かる形にする
@@ -1337,7 +1338,8 @@ async function ensureEditor() {
               const header = `↳ *展開:* **${hoverKindLabel[h.kind]||h.kind} \`${h.name || ''}\`${hoverValLabel(h)}** — *${fileLink}*`;
               const body = h.body.length > 2000 ? h.body.slice(0, 2000) + '\n// ...' : h.body;
               const bits = h.value ? formatValueBits(h.value) : '';
-              const bitsLine = bits ? `\n\n\`${bits}\`` : '';
+              // ラベルを付けてソースの続きに見えないようにする（コードブロックの直下に置くため）
+              const bitsLine = bits ? `\n\n*ビット構成:* \`${bits}\`` : '';
               apiContents.push({value: '---\n\n' + header + '\n```c\n' + body + '\n```' + bitsLine, isTrusted: true});
             }
           }
@@ -1462,6 +1464,25 @@ async function ensureEditor() {
       } else {
         if (line) showLineMemoInput(file, line);
       }
+    }
+  });
+
+  // 右クリック → 基数変換電卓（選択中の式、無ければカーソル位置の数値を初期値に）
+  monacoEditor.addAction({
+    id: 'grepnavi-radix-calc', label: '基数変換電卓',
+    contextMenuGroupId: 'grepnavi-nav',
+    contextMenuOrder: 3,
+    run: ed => {
+      const sel = ed.getSelection();
+      let init = '';
+      if (sel && !sel.isEmpty()) {
+        init = ed.getModel().getValueInRange(sel).trim();
+      } else {
+        const pos = ed.getPosition();
+        const lit = findNumLiteralAt(ed.getModel().getLineContent(pos.lineNumber), pos.column);
+        if (lit) init = lit.text;
+      }
+      showRadixCalc(init);
     }
   });
 

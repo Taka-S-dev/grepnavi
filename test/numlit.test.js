@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { findNumLiteralAt, formatNumLiteral, formatValueBits } = require('../static/js/numlit.js');
+const { findNumLiteralAt, formatNumLiteral, formatValueBits, evalNumExpr, formatCalcResult } = require('../static/js/numlit.js');
 
 // ===== findNumLiteralAt =====
 
@@ -123,4 +123,42 @@ test('0・負値・数値でない文字列は空', () => {
   assert.equal(formatValueBits('-1'), '');
   assert.equal(formatValueBits('abc'), '');
   assert.equal(formatValueBits(''), '');
+});
+
+// ===== evalNumExpr / formatCalcResult（基数変換電卓）=====
+
+test('式の評価: 優先順位は C 準拠', () => {
+  assert.equal(evalNumExpr('1<<6 | 2'), 66n);
+  assert.equal(evalNumExpr('1|2<<3'), 17n);   // << が | より強い
+  assert.equal(evalNumExpr('2+3*4'), 14n);
+  assert.equal(evalNumExpr('(2+3)*4'), 20n);
+  assert.equal(evalNumExpr('1<<2+3'), 32n);   // シフトは加算より弱い
+  assert.equal(evalNumExpr('100/7%5'), 4n);   // 左結合
+  assert.equal(evalNumExpr('~0'), -1n);
+  assert.equal(evalNumExpr('- -1'), 1n);
+  assert.equal(evalNumExpr('0xff & 0x0f'), 15n);
+  assert.equal(evalNumExpr('0x42UL'), 66n);   // 接尾辞は無視
+});
+
+test('式の評価: 対象外は null', () => {
+  assert.equal(evalNumExpr('FOO|1'), null);   // 識別子は扱わない
+  assert.equal(evalNumExpr('1||1'), null);    // 論理演算（| 2つに割れて構文で落ちる）
+  assert.equal(evalNumExpr('1<2'), null);     // 比較
+  assert.equal(evalNumExpr('1/0'), null);
+  assert.equal(evalNumExpr('1<<64'), null);   // シフト範囲外
+  assert.equal(evalNumExpr('089'), null);     // 不正な8進
+  assert.equal(evalNumExpr('1.5'), null);
+  assert.equal(evalNumExpr('(1'), null);
+  assert.equal(evalNumExpr(''), null);
+});
+
+test('電卓出力: 通常値は縦積みブロック', () => {
+  assert.equal(formatCalcResult('1<<6|2'),
+    'dec  66\nhex  0x42\nbin  0b0100_0010\nbit  6, 1');
+});
+
+test('電卓出力: 負値は 10進のみ、64bit 超は 10進と16進のみ', () => {
+  assert.equal(formatCalcResult('1-2'), 'dec  -1');
+  assert.equal(formatCalcResult('(1<<63)*4'),
+    'dec  36,893,488,147,419,103,232\nhex  0x20000000000000000');
 });
