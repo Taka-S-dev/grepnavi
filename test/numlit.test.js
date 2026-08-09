@@ -140,10 +140,29 @@ test('式の評価: 優先順位は C 準拠', () => {
   assert.equal(evalNumExpr('0x42UL'), 66n);   // 接尾辞は無視
 });
 
+test('比較演算子: C の優先順位に忠実', () => {
+  assert.equal(evalNumExpr('(1<<4)==16'), 1n);
+  assert.equal(evalNumExpr('(1<<4)!=16'), 0n);
+  assert.equal(evalNumExpr('1<2'), 1n);
+  assert.equal(evalNumExpr('16>=16'), 1n);
+  // C の定番の罠: 比較は & より強いので 1 & (2==2) と解釈される
+  assert.equal(evalNumExpr('1&2==2'), 1n);
+  assert.equal(evalNumExpr('(1&2)==2'), 0n); // 1&2=0 なので false
+  // シフトは比較より強い: (1<<4) == 16 と同じ
+  assert.equal(evalNumExpr('1<<4==16'), 1n);
+});
+
+test('電卓出力: 比較は true / false で答える', () => {
+  assert.equal(formatCalcResult('(1<<4)==16'), 'true');
+  assert.equal(formatCalcResult('(1<<4)==17'), 'false');
+  assert.equal(formatCalcResult('(1==1)+5'), 'dec  6\nhex  0x6\nbin  0b0000_0110\nbit  2, 1 が立っている (0=最下位)');
+});
+
 test('式の評価: 対象外は null', () => {
   assert.equal(evalNumExpr('FOO|1'), null);   // 識別子は扱わない
   assert.equal(evalNumExpr('1||1'), null);    // 論理演算（| 2つに割れて構文で落ちる）
-  assert.equal(evalNumExpr('1<2'), null);     // 比較
+  assert.equal(evalNumExpr('1=2'), null);     // 代入
+  assert.equal(evalNumExpr('!1'), null);      // 論理否定
   assert.equal(evalNumExpr('1/0'), null);
   assert.equal(evalNumExpr('1<<64'), null);   // シフト範囲外
   assert.equal(evalNumExpr('089'), null);     // 不正な8進

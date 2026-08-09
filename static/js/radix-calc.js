@@ -11,7 +11,7 @@ function showRadixCalc(initial) {
     panel.innerHTML =
       '<div id="radix-calc-head"><span>基数変換</span>' +
       '<button id="radix-calc-close" title="閉じる (Esc)">✕</button></div>' +
-      '<input id="radix-calc-in" spellcheck="false" placeholder="0x42 | 1<<6 など">' +
+      '<input id="radix-calc-in" spellcheck="false" placeholder="0x42 | 1<<6 や (1<<4)==16 など">' +
       '<pre id="radix-calc-out"></pre>';
     document.body.appendChild(panel);
     const input = panel.querySelector('#radix-calc-in');
@@ -21,7 +21,7 @@ function showRadixCalc(initial) {
       const res = src ? formatCalcResult(src) : '';
       const err = src !== '' && res === null;
       out.textContent = err
-        ? '解釈できません（リテラルと | & ^ ~ << >> + - * / % のみ）'
+        ? '解釈できません（リテラルと | & ^ ~ << >> + - * / % と比較 == != < > のみ）'
         : res;
       out.classList.toggle('radix-err', err);
     };

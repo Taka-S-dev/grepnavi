@@ -135,11 +135,21 @@ function formatValueBits(decStr) {
 // 扱わない — 値の解決はサーバ側の索引が要る話で、ホバーが担当している。
 // / と % は BigInt がゼロ方向切り捨てで C と一致する。
 
-const _CALC_PREC = { '|': 1, '^': 2, '&': 3, '<<': 4, '>>': 4, '+': 5, '-': 5, '*': 6, '/': 6, '%': 6 };
+// C の優先順位（低い方から | ^ & 等値 比較 シフト 加減 乗除）。
+// 比較が & ^ | より強いのは C の定番の罠 (1 & 2 == 2 は 1 & (2==2)) だが、
+// C を読むための電卓なので C の解釈に忠実であることを優先する
+const _CALC_PREC = {
+  '|': 1, '^': 2, '&': 3,
+  '==': 4, '!=': 4,
+  '<': 5, '<=': 5, '>': 5, '>=': 5,
+  '<<': 6, '>>': 6,
+  '+': 7, '-': 7,
+  '*': 8, '/': 8, '%': 8,
+};
 
 function _lexNumExpr(src) {
   const toks = [];
-  const re = /\s+|(?:0[xX][0-9a-fA-F]+|0[bB][01]+|[0-9]+)[uUlL]*|<<|>>|[|&^+\-*/%~()]/y;
+  const re = /\s+|(?:0[xX][0-9a-fA-F]+|0[bB][01]+|[0-9]+)[uUlL]*|<<|>>|[<>=!]=|[<>]|[|&^+\-*/%~()]/y;
   let i = 0;
   while (i < src.length) {
     re.lastIndex = i;
@@ -173,6 +183,12 @@ function _calcBinary(st, minPrec) {
       case '|': left |= right; break;
       case '^': left ^= right; break;
       case '&': left &= right; break;
+      case '==': left = left === right ? 1n : 0n; break;
+      case '!=': left = left !== right ? 1n : 0n; break;
+      case '<': left = left < right ? 1n : 0n; break;
+      case '<=': left = left <= right ? 1n : 0n; break;
+      case '>': left = left > right ? 1n : 0n; break;
+      case '>=': left = left >= right ? 1n : 0n; break;
       case '<<': case '>>':
         if (right < 0n || right > 63n) return null;
         left = t.op === '<<' ? left << right : left >> right;
@@ -230,6 +246,12 @@ function evalNumExpr(src) {
 function formatCalcResult(src) {
   const v = evalNumExpr(src);
   if (v === null) return null;
+  // 比較を含む式の 0/1 は真偽の答えとして表示する（(1<<4) == 16 の検算用途。
+  // dec 1 のブロックを出しても「で、合ってるの？」に答えていない）
+  const toks = _lexNumExpr(src);
+  const hasCmp = toks && toks.some(t =>
+    t.op === '==' || t.op === '!=' || t.op === '<' || t.op === '<=' || t.op === '>' || t.op === '>=');
+  if (hasCmp && (v === 0n || v === 1n)) return v === 1n ? 'true' : 'false';
   let rows;
   if (v < 0n) {
     rows = [['dec', '-' + _groupDigits((-v).toString(10), 3, ',')]];
