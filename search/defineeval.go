@@ -389,24 +389,24 @@ func (st *evalState) resolveIdent(name string) (evalVal, bool) {
 	return v, true
 }
 
-// annotateDefineValues は define カードの置換部を評価し、決まった値を Value に
-// 入れる。word はホバーした語（連鎖カードは自分の Name を持つ）。
-// 識別子の解決は別名連鎖と同じ優先順位（gtags → rg）。同名 #define が複数あり
+// newDefineResolver は識別子 → 一意な #define 置換部の解決関数を作る
+// （ホバーの値注釈と電卓の /api/macro-values で共有）。
+// 解決は別名連鎖と同じ優先順位（gtags → rg）。同名 #define が複数あり
 // 置換部が食い違う場合（ifdef 分岐など）はどれが生きているか分からないので
 // 解決しない。読めなかった定義も「食い違っているかもしれない定義」なので
 // 黙って飛ばさず失敗にする。
-func annotateDefineValues(ctx context.Context, hits []HoverHit, word, dir, glob string) {
+func newDefineResolver(ctx context.Context, dir, glob string, maxLookups int) func(string) (string, bool) {
 	lookups := 0
 	type defEntry struct {
 		expr string
 		ok   bool
 	}
 	defCache := map[string]defEntry{}
-	resolve := func(name string) (string, bool) {
+	return func(name string) (string, bool) {
 		if c, hit := defCache[name]; hit {
 			return c.expr, c.ok
 		}
-		if lookups >= evalMaxLookups || ctx.Err() != nil {
+		if lookups >= maxLookups || ctx.Err() != nil {
 			return "", false
 		}
 		lookups++
@@ -452,7 +452,12 @@ func annotateDefineValues(ctx context.Context, hits []HoverHit, word, dir, glob 
 		defCache[name] = defEntry{expr: expr, ok: true}
 		return expr, true
 	}
+}
 
+// annotateDefineValues は define カードの置換部を評価し、決まった値を Value に
+// 入れる。word はホバーした語（連鎖カードは自分の Name を持つ）。
+func annotateDefineValues(ctx context.Context, hits []HoverHit, word, dir, glob string) {
+	resolve := newDefineResolver(ctx, dir, glob, evalMaxLookups)
 	for i := range hits {
 		h := &hits[i]
 		if h.Kind != "define" || h.Value != "" {
@@ -470,4 +475,19 @@ func annotateDefineValues(ctx context.Context, hits []HoverHit, word, dir, glob 
 			h.Value = strconv.FormatInt(v, 10)
 		}
 	}
+}
+
+// EvalMacroValues は names の各マクロを整数値まで評価して返す。電卓が
+// ERR_R_FATAL のような識別子入りの式を計算するための解決口。値が決まらない
+// 名前（未定義・多重定義の食い違い・関数形式・非定数）は結果に含めない。
+// 検索回数の上限は名前数に比例させる（1個の解決に別名連鎖が数段入りうる）。
+func EvalMacroValues(ctx context.Context, names []string, dir, glob string) map[string]string {
+	out := map[string]string{}
+	resolve := newDefineResolver(ctx, dir, glob, 4*len(names)+evalMaxLookups)
+	for _, n := range names {
+		if v, ok := evalDefineExpr(n, resolve); ok {
+			out[n] = strconv.FormatInt(v, 10)
+		}
+	}
+	return out
 }

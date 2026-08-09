@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { findNumLiteralAt, formatNumLiteral, formatValueBits, evalNumExpr, formatCalcResult } = require('../static/js/numlit.js');
+const { findNumLiteralAt, formatNumLiteral, formatValueBits, evalNumExpr, formatCalcResult, calcIdentifiers, substituteCalcIdents } = require('../static/js/numlit.js');
 
 // ===== findNumLiteralAt =====
 
@@ -174,6 +174,25 @@ test('式の評価: 対象外は null', () => {
 test('電卓出力: 通常値は縦積みブロック', () => {
   assert.equal(formatCalcResult('1<<6|2'),
     'dec  66\nhex  0x42\nbin  0b0100_0010\nbit  6, 1 が立っている (0=最下位)');
+});
+
+// ===== 識別子の抽出と置換（マクロ解決電卓）=====
+
+test('識別子の列挙: リテラルの接尾辞は識別子ではない', () => {
+  assert.deepEqual(calcIdentifiers('ERR_R_FATAL | 0xffUL'), ['ERR_R_FATAL']);
+  assert.deepEqual(calcIdentifiers('A|A|B'), ['A', 'B']); // 重複は1回
+  assert.deepEqual(calcIdentifiers('1<<6'), []);
+});
+
+test('識別子の置換: 括弧で包んで優先順位を守る', () => {
+  assert.equal(substituteCalcIdents('A|B<<2', { A: '64', B: '3' }), '(64)|(3)<<2');
+  assert.equal(substituteCalcIdents('A|0xffUL', { A: '64' }), '(64)|0xffUL'); // 接尾辞は無傷
+  assert.equal(substituteCalcIdents('A|B', { A: '64' }), '(64)|B'); // 未解決は残す
+});
+
+test('置換後の式は既存の評価器で計算できる', () => {
+  const src = substituteCalcIdents('MALLOC == 65', { MALLOC: '65' });
+  assert.equal(formatCalcResult(src), 'true');
 });
 
 test('電卓出力: 負値は 10進のみ、64bit 超は 10進と16進のみ', () => {

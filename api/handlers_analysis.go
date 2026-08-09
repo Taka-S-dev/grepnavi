@@ -713,3 +713,41 @@ func (h *Handler) handleIfdef(w http.ResponseWriter, r *http.Request) {
 	}
 	jsonOK(w, lines)
 }
+
+// --- /api/macro-values ---
+
+// 電卓の識別子解決。names= のマクロ名（カンマ区切り）を整数値まで評価して
+// {"NAME": "64"} で返す。決まらない名前はキーごと出さない — 間違った値を
+// 見せるくらいなら出さない方針はホバーの値注釈と同じ。
+func (h *Handler) handleMacroValues(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	var names []string
+	for _, n := range strings.Split(q.Get("names"), ",") {
+		n = strings.TrimSpace(n)
+		if n != "" && reIdentifier.MatchString(n) {
+			names = append(names, n)
+		}
+	}
+	if len(names) == 0 {
+		jsonErr(w, "names required", http.StatusBadRequest)
+		return
+	}
+	// 名前数の上限は式として現実的な数まで。解決1件ごとに索引検索が走る
+	if len(names) > 16 {
+		names = names[:16]
+	}
+	h.mu.RLock()
+	hroot := h.root
+	h.mu.RUnlock()
+	dir := q.Get("dir")
+	if dir == "" {
+		dir = hroot
+	} else if !filepath.IsAbs(dir) {
+		dir = filepath.Join(hroot, dir)
+	}
+	glob := q.Get("glob")
+	if glob == "" {
+		glob = "*.c,*.h,*.cpp,*.hpp,*.cc"
+	}
+	jsonOK(w, search.EvalMacroValues(r.Context(), names, dir, glob))
+}

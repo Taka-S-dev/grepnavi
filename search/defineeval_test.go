@@ -134,6 +134,29 @@ func TestIsBareIntLiteral(t *testing.T) {
 	}
 }
 
+// 電卓の識別子解決: 別名連鎖ごしに値が決まり、決まらない名前は結果に出ない
+func TestEvalMacroValues(t *testing.T) {
+	requireRg(t)
+	dir := t.TempDir()
+	write(t, dir+"/defs.h",
+		"#define FATAL 64\n"+
+			"#define MALLOC (1|FATAL)\n"+
+			"#define FN(x) ((x)|1)\n"+
+			"#define DUP 1\n")
+	write(t, dir+"/other.h",
+		"#define DUP 2\n")
+
+	got := EvalMacroValues(t.Context(), []string{"FATAL", "MALLOC", "FN", "DUP", "NOPE"}, dir, "")
+	if got["FATAL"] != "64" || got["MALLOC"] != "65" {
+		t.Errorf("解決値が違う: %v", got)
+	}
+	for _, bad := range []string{"FN", "DUP", "NOPE"} {
+		if _, ok := got[bad]; ok {
+			t.Errorf("%s は決められないはずなのに値が出た: %v", bad, got)
+		}
+	}
+}
+
 // ホバー統合: openssl の ERR_R_* と同じ形の定義で値が付くこと、
 // 付けてはいけないケース（素のリテラル・多重定義の食い違い・関数形式）で
 // 付かないことを確認する。

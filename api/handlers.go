@@ -87,6 +87,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/symbol-search", h.handleSymbolSearch)
 	mux.HandleFunc("/api/heal-line", h.handleHealLine)
 	mux.HandleFunc("/api/hover", h.handleHover)
+	mux.HandleFunc("/api/macro-values", h.handleMacroValues)
 	mux.HandleFunc("/api/new-window", h.handleNewWindow)
 	mux.HandleFunc("/api/browse", h.handleBrowse)
 	mux.HandleFunc("/api/dirs", h.handleDirs)

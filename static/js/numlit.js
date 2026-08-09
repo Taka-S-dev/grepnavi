@@ -266,4 +266,26 @@ function formatCalcResult(src) {
   return rows.map(([k, val]) => `${k}  ${val}`).join('\n');
 }
 
-if (typeof module !== 'undefined') module.exports = { findNumLiteralAt, formatNumLiteral, formatValueBits, evalNumExpr, formatCalcResult };
+// 式中の識別子（マクロ名）を列挙する。数値リテラルの一部（0xffUL の xffUL）を
+// 識別子と誤認しないよう、直前が英数字のものは除く。重複は1回。
+function calcIdentifiers(src) {
+  const out = [];
+  const re = /[A-Za-z_]\w*/g;
+  let m;
+  while ((m = re.exec(src)) !== null) {
+    if (m.index > 0 && /[0-9A-Za-z_]/.test(src[m.index - 1])) continue;
+    if (!out.includes(m[0])) out.push(m[0]);
+  }
+  return out;
+}
+
+// 識別子を解決済みの値へ置換する。括弧で包むのは、負値や式が演算子の
+// 優先順位を壊さないため（#define と同じ理由の括弧）。
+function substituteCalcIdents(src, values) {
+  return src.replace(/[A-Za-z_]\w*/g, (name, idx) => {
+    if (idx > 0 && /[0-9A-Za-z_]/.test(src[idx - 1])) return name;
+    return values[name] !== undefined ? '(' + values[name] + ')' : name;
+  });
+}
+
+if (typeof module !== 'undefined') module.exports = { findNumLiteralAt, formatNumLiteral, formatValueBits, evalNumExpr, formatCalcResult, calcIdentifiers, substituteCalcIdents };

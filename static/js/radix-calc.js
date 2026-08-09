@@ -16,14 +16,47 @@ function showRadixCalc(initial) {
     document.body.appendChild(panel);
     const input = panel.querySelector('#radix-calc-in');
     const out = panel.querySelector('#radix-calc-out');
+    const show = (text, isErr) => {
+      out.textContent = text;
+      out.classList.toggle('radix-err', !!isErr);
+    };
+    let seq = 0;      // 打鍵より遅れて返った解決結果を捨てる
+    let timer = null;
     const update = () => {
+      clearTimeout(timer);
+      const mySeq = ++seq;
       const src = input.value.trim();
-      const res = src ? formatCalcResult(src) : '';
-      const err = src !== '' && res === null;
-      out.textContent = err
-        ? '解釈できません（リテラルと | & ^ ~ << >> + - * / % と比較 == != < > のみ）'
-        : res;
-      out.classList.toggle('radix-err', err);
+      if (!src) { show(''); return; }
+      const direct = formatCalcResult(src);
+      if (direct !== null) { show(direct); return; }
+      // 数値だけで解釈できない → マクロ名を含むなら索引で解決してから再評価。
+      // 電卓が ERR_R_FATAL|0x100 のような式を計算できるのは grepnavi の中だから
+      const idents = calcIdentifiers(src);
+      if (!idents.length) {
+        show('解釈できません（リテラル・マクロ名と | & ^ ~ << >> + - * / % と比較 == != < > のみ）', true);
+        return;
+      }
+      show(idents.join(', ') + ' を解決中...');
+      timer = setTimeout(async () => {
+        try {
+          const r = await fetch('/api/macro-values?names=' + encodeURIComponent(idents.join(',')));
+          if (mySeq !== seq) return;
+          if (!r.ok) { show('マクロを解決できません', true); return; }
+          const values = await r.json();
+          if (mySeq !== seq) return;
+          const missing = idents.filter(n => values[n] === undefined);
+          if (missing.length) {
+            show(missing.join(', ') + ' の値を決められません（未定義か、ifdef で複数定義か、定数でない）', true);
+            return;
+          }
+          const res = formatCalcResult(substituteCalcIdents(src, values));
+          if (res === null) { show('解釈できません', true); return; }
+          // 何をいくつとして計算したかを添える（黙って代入すると検証できない）
+          show(res + '\n\n' + idents.map(n => n + ' = ' + values[n]).join('\n'));
+        } catch (_) {
+          if (mySeq === seq) show('マクロを解決できません', true);
+        }
+      }, 250);
     };
     input.addEventListener('input', update);
     input.addEventListener('keydown', e => {
