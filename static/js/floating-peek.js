@@ -644,6 +644,11 @@ function initFloatingPeek(getHoverCtx) {
     // ナビゲーション
     addItem('codicon-search',      'grep',             () => grepSearchWord(word));
     addItem('codicon-go-to-file',  '定義へジャンプ',   () => jumpToDefinition(word));
+    // ホバー内は再ホバーできないので、展開カードに見えている定数を調べる
+    // 導線はこのメニューに置く（マクロ名は電卓側で索引解決される）
+    if (typeof showRadixCalc === 'function') {
+      addItem('codicon-symbol-numeric', '基数変換電卓', () => showRadixCalc(word));
+    }
 
     // Peek
     addSep();
