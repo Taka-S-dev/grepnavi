@@ -500,13 +500,21 @@ func annotateDefineValues(ctx context.Context, hits []HoverHit, word, dir, glob 
 // ERR_R_FATAL のような識別子入りの式を計算するための解決口。値が決まらない
 // 名前（未定義・多重定義の食い違い・関数形式・非定数）は結果に含めない。
 // 検索回数の上限は名前数に比例させる（1個の解決に別名連鎖が数段入りうる）。
+// 途中で解決した中間の名前（(2|ERR_R_FATAL) の ERR_R_FATAL 等）も返す —
+// 結論の値だけでは導出過程を検証できない。
 func EvalMacroValues(ctx context.Context, names []string, dir, glob string) map[string]string {
 	out := map[string]string{}
-	resolve := newDefineResolver(ctx, dir, glob, 4*len(names)+evalMaxLookups)
+	st := &evalState{
+		resolve: newDefineResolver(ctx, dir, glob, 4*len(names)+evalMaxLookups),
+		cache:   map[string]evalVal{},
+		seen:    map[string]bool{},
+	}
 	for _, n := range names {
-		if v, ok := evalDefineExpr(n, resolve); ok {
-			out[n] = strconv.FormatInt(v, 10)
-		}
+		st.eval(n)
+	}
+	// 要求された名前も中間の名前も、成功したものは全て cache に載っている
+	for name, v := range st.cache {
+		out[name] = strconv.FormatInt(v.n, 10)
 	}
 	return out
 }

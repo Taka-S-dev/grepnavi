@@ -54,8 +54,13 @@ function showRadixCalc(initial) {
           }
           const res = formatCalcResult(substituteCalcIdents(src, values));
           if (res === null) { show('解釈できません', true); return; }
-          // 何をいくつとして計算したかを添える（黙って代入すると検証できない）
-          show(res + '\n\n' + idents.map(n => n + ' = ' + values[n]).join('\n'));
+          // 何をいくつとして計算したかを添える（黙って代入すると検証できない）。
+          // サーバは途中で解決した中間の名前も返すので ↳ 付きで導出過程を見せる
+          const derived = Object.keys(values).filter(n => !idents.includes(n)).sort();
+          const note = idents.map(n => n + ' = ' + values[n])
+            .concat(derived.map(n => '↳ ' + n + ' = ' + values[n]))
+            .join('\n');
+          show(res + '\n\n' + note);
         } catch (_) {
           if (mySeq === seq) show('マクロを解決できません', true);
         }

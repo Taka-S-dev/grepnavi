@@ -139,6 +139,12 @@ func TestEvalMacroValues(t *testing.T) {
 			t.Errorf("%s は決められないはずなのに値が出た: %v", bad, got)
 		}
 	}
+
+	// 途中で解決した中間の名前も返る（MALLOC の導出に使った FATAL）
+	got = EvalMacroValues(t.Context(), []string{"MALLOC"}, dir, "")
+	if got["MALLOC"] != "65" || got["FATAL"] != "64" {
+		t.Errorf("中間の名前が返らない: %v", got)
+	}
 }
 
 // enum メンバも識別子として解決できる（暗黙の連番と = 指定の両方）
