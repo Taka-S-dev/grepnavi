@@ -36,6 +36,41 @@ function showRadixCalc(initial) {
       panel.style.display = 'none';
     });
     panel._update = update;
+
+    // ヘッダをつかんで移動できるようにする。固定位置だと読みたいコードに
+    // 被ったとき詰む。位置は覚えて次回も同じ場所に出す
+    const head = panel.querySelector('#radix-calc-head');
+    head.addEventListener('pointerdown', e => {
+      if (e.target.id === 'radix-calc-close') return;
+      const r = panel.getBoundingClientRect();
+      const dx = e.clientX - r.left, dy = e.clientY - r.top;
+      const move = ev => {
+        const x = Math.min(Math.max(ev.clientX - dx, 0), window.innerWidth - r.width);
+        const y = Math.min(Math.max(ev.clientY - dy, 0), window.innerHeight - 30);
+        panel.style.left = x + 'px';
+        panel.style.top = y + 'px';
+        panel.style.right = 'auto';
+      };
+      const up = () => {
+        document.removeEventListener('pointermove', move);
+        document.removeEventListener('pointerup', up);
+        try {
+          localStorage.setItem('grepnavi-radix-pos', JSON.stringify({ left: panel.style.left, top: panel.style.top }));
+        } catch (_) {}
+      };
+      document.addEventListener('pointermove', move);
+      document.addEventListener('pointerup', up);
+      e.preventDefault();
+    });
+    try {
+      const pos = JSON.parse(localStorage.getItem('grepnavi-radix-pos') || 'null');
+      // 前回の位置が今の画面の外なら既定位置のまま（マルチモニタ / リサイズ後）
+      if (pos && parseInt(pos.left) < window.innerWidth - 40 && parseInt(pos.top) < window.innerHeight - 40) {
+        panel.style.left = pos.left;
+        panel.style.top = pos.top;
+        panel.style.right = 'auto';
+      }
+    } catch (_) {}
   }
   panel.style.display = 'block';
   const input = panel.querySelector('#radix-calc-in');

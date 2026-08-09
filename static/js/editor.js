@@ -1324,8 +1324,9 @@ async function ensureEditor() {
               if(i === 0) _lastHoverHit = { file: h.file, line: h.line, body: h.body };
               // 計算値には 2進とビット位置も添える（ポップアップ内は再ホバー不可のため焼き込み）
               const bits = h.value ? formatValueBits(h.value) : '';
-              // ラベルを付けてソースの続きに見えないようにする（コードブロックの直下に置くため）
-              const bitsLine = bits ? `\n\n*ビット構成:* \`${bits}\`` : '';
+              // blockquote で注釈化（左バー+色は main.css の .monaco-hover blockquote）。
+              // コードブロック直下の素の行はソースの続きに見える
+              const bitsLine = bits ? `\n\n> ${bits}` : '';
               apiContents.push({value: prefix + header + '\n```c\n' + body + '\n```' + bitsLine, isTrusted: true});
             }
             // 連鎖カード: ↳ とそのカード自身の名前で「たどった先」だと分かる形にする
@@ -1338,8 +1339,9 @@ async function ensureEditor() {
               const header = `↳ *展開:* **${hoverKindLabel[h.kind]||h.kind} \`${h.name || ''}\`${hoverValLabel(h)}** — *${fileLink}*`;
               const body = h.body.length > 2000 ? h.body.slice(0, 2000) + '\n// ...' : h.body;
               const bits = h.value ? formatValueBits(h.value) : '';
-              // ラベルを付けてソースの続きに見えないようにする（コードブロックの直下に置くため）
-              const bitsLine = bits ? `\n\n*ビット構成:* \`${bits}\`` : '';
+              // blockquote で注釈化（左バー+色は main.css の .monaco-hover blockquote）。
+              // コードブロック直下の素の行はソースの続きに見える
+              const bitsLine = bits ? `\n\n> ${bits}` : '';
               apiContents.push({value: '---\n\n' + header + '\n```c\n' + body + '\n```' + bitsLine, isTrusted: true});
             }
           }

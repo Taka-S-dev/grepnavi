@@ -110,12 +110,12 @@ test('非 ASCII の文字リテラルは出さない（バイト値が文字コ�
 // ===== formatValueBits（ホバーカードの計算値への焼き込み）=====
 
 test('計算値の 2進とビット位置の一行', () => {
-  assert.equal(formatValueBits('66'), '0b0100_0010 · bit 6, 1');
+  assert.equal(formatValueBits('66'), '`0b0100_0010` — bit 6, 1 が立っている (0=最下位)');
 });
 
 test('64bit 値も正確、13ビット以上は個数', () => {
   assert.equal(formatValueBits('18446744073709551615'),
-    '0b' + '1111_'.repeat(15) + '1111' + ' · bit 64個');
+    '`0b' + '1111_'.repeat(15) + '1111' + '` — bit 64個が立っている');
 });
 
 test('0・負値・数値でない文字列は空', () => {
@@ -154,7 +154,7 @@ test('式の評価: 対象外は null', () => {
 
 test('電卓出力: 通常値は縦積みブロック', () => {
   assert.equal(formatCalcResult('1<<6|2'),
-    'dec  66\nhex  0x42\nbin  0b0100_0010\nbit  6, 1');
+    'dec  66\nhex  0x42\nbin  0b0100_0010\nbit  6, 1 が立っている (0=最下位)');
 });
 
 test('電卓出力: 負値は 10進のみ、64bit 超は 10進と16進のみ', () => {

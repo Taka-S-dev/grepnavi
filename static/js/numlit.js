@@ -90,15 +90,21 @@ function _rowsForValue(value) {
     ['bin', '0b' + _groupDigits(_padBinary(value), 4, '_')],
   ];
   if (value > 0n) {
-    const bits = [];
-    for (let i = 0n, v = value; v > 0n; v >>= 1n, i++) {
-      if (v & 1n) bits.push(i.toString());
-    }
-    // 2進は左(MSB)から読むので、ビット位置も降順で揃える（bit0 = 最下位）
-    bits.reverse();
-    rows.push(['bit', bits.length <= 12 ? bits.join(', ') : bits.length + '個']);
+    // 位置の羅列だけでは「立っているビット」だと伝わらないので文で言い切る
+    rows.push(['bit', _setBitsPhrase(value)]);
   }
   return rows;
+}
+
+// 「6, 1 が立っている (0=最下位)」の形。2進は左(MSB)から読むので降順で揃える
+function _setBitsPhrase(value) {
+  const bits = [];
+  for (let i = 0n, v = value; v > 0n; v >>= 1n, i++) {
+    if (v & 1n) bits.push(i.toString());
+  }
+  bits.reverse();
+  if (bits.length > 12) return bits.length + '個が立っている';
+  return bits.join(', ') + ' が立っている (0=最下位)';
 }
 
 // リテラル1個を基数変換の markdown へ。対象外（不正な8進・C の整数幅超え・
@@ -119,13 +125,9 @@ function formatValueBits(decStr) {
   let v;
   try { v = BigInt(decStr); } catch { return ''; }
   if (v <= 0n || v >= 1n << 64n) return '';
-  const bits = [];
-  for (let i = 0n, w = v; w > 0n; w >>= 1n, i++) {
-    if (w & 1n) bits.push(i.toString());
-  }
-  bits.reverse();
   const bin = '0b' + _groupDigits(_padBinary(v), 4, '_');
-  return `${bin} · bit ${bits.length <= 12 ? bits.join(', ') : bits.length + '個'}`;
+  // 2進だけ code span（等幅でないと桁が読めない）、説明文は地の文のまま
+  return `\`${bin}\` — bit ${_setBitsPhrase(v)}`;
 }
 
 // ===== 式の評価（基数変換電卓用）=====
