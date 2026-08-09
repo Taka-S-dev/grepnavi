@@ -156,3 +156,26 @@ test('resolveLocalVar - 関数定義は static 変数と誤検知しない', () 
   const result = resolveLocalVar(makeModel(lines), 'add_reloc', pos(2));
   assert.equal(result, false);
 });
+
+test('resolveLocalVar - 上流の return 文はローカル変数宣言ではない', () => {
+  // return SSL_READ_EARLY_DATA_ERROR; が reLocal に誤マッチして型が取れず、
+  // それより下の同じ定数のホバーだけ抑制されていた回帰
+  const lines = [
+    'int f(void) {',
+    '    return SSL_READ_EARLY_DATA_ERROR;',
+    '    use(SSL_READ_EARLY_DATA_ERROR);',  // hover here
+    '}',
+  ];
+  const result = resolveLocalVar(makeModel(lines), 'SSL_READ_EARLY_DATA_ERROR', pos(3));
+  assert.equal(result, false); // 通常の定義ルックアップに進む
+});
+
+test('resolveLocalVar - goto ラベルも宣言扱いしない', () => {
+  const lines = [
+    'int f(void) {',
+    '    goto err;',
+    '    use(err);',
+    '}',
+  ];
+  assert.equal(resolveLocalVar(makeModel(lines), 'err', pos(3)), false);
+});

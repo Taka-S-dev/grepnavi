@@ -327,10 +327,16 @@ function initEditorC(editor, monaco) {
       return typeWords.length ? typeWords[typeWords.length - 1] : null;
     }
 
+    // 文キーワードで始まる行は宣言ではない。return FOO; が reLocal に誤マッチ
+    // すると extractType が null（return はキーワード）→ ホバー抑制になり、
+    // 上流に return 同じ定数; がある位置でだけホバーが消える
+    const reStmt = /^\s*(?:return|goto|else|case|break|continue)\b/;
+
     // Pass 1: 直近 200 行をスキャン（引数・インデントありローカル変数）
     // ファイルスコープ宣言はここでは拾わず Pass 2 に委ねる（#ifdef 複数行対応）
     for (let ln = position.lineNumber; ln >= scanStart; ln--) {
       const line = model.getLineContent(ln);
+      if (reStmt.test(line)) continue;
       if (ln === position.lineNumber) {
         if (reParam.test(line)) return null;
         if (reLocalNoIndent.test(line)) {
