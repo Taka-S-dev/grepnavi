@@ -118,19 +118,6 @@ function formatNumLiteral(text) {
   return _rowsToMarkdown(_rowsForValue(lit.value), lit.base === 8 ? `**\`${text}\`** は8進表記` : '');
 }
 
-// ホバーカードの計算値（10進文字列）用の 2進+ビット位置の一行。ヘッダの
-// = 66 (0x42) で dec/hex は出ているので、足りない情報だけを補完する。
-// ホバー内のテキストには再ホバーできない（Monaco の構造上、ポップアップは
-// ただの描画結果）ため、変換はカード生成時に焼き込むしかない。
-function formatValueBits(decStr) {
-  let v;
-  try { v = BigInt(decStr); } catch { return ''; }
-  if (v <= 0n || v >= 1n << 64n) return '';
-  const bin = '0b' + _groupDigits(_padBinary(v), 4, '_');
-  // 2進だけ code span（等幅でないと桁が読めない）、説明文は地の文のまま
-  return `\`${bin}\` — bit ${_setBitsPhrase(v)}`;
-}
-
 // ===== 式の評価（基数変換電卓用）=====
 // リテラルと演算子だけの整数式を BigInt で評価する。識別子（マクロ名）は
 // 扱わない — 値の解決はサーバ側の索引が要る話で、ホバーが担当している。
@@ -289,4 +276,4 @@ function substituteCalcIdents(src, values) {
   });
 }
 
-if (typeof module !== 'undefined') module.exports = { findNumLiteralAt, formatNumLiteral, formatValueBits, evalNumExpr, formatCalcResult, calcIdentifiers, substituteCalcIdents };
+if (typeof module !== 'undefined') module.exports = { findNumLiteralAt, formatNumLiteral, evalNumExpr, formatCalcResult, calcIdentifiers, substituteCalcIdents };

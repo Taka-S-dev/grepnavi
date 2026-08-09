@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { findNumLiteralAt, formatNumLiteral, formatValueBits, evalNumExpr, formatCalcResult, calcIdentifiers, substituteCalcIdents } = require('../static/js/numlit.js');
+const { findNumLiteralAt, formatNumLiteral, evalNumExpr, formatCalcResult, calcIdentifiers, substituteCalcIdents } = require('../static/js/numlit.js');
 
 // ===== findNumLiteralAt =====
 
@@ -105,24 +105,6 @@ test('文字リテラルは文字コードを出す', () => {
 
 test('非 ASCII の文字リテラルは出さない（バイト値が文字コード依存）', () => {
   assert.equal(formatNumLiteral("'あ'"), null);
-});
-
-// ===== formatValueBits（ホバーカードの計算値への焼き込み）=====
-
-test('計算値の 2進とビット位置の一行', () => {
-  assert.equal(formatValueBits('66'), '`0b0100_0010` — bit 6, 1 set (0=LSB)');
-});
-
-test('64bit 値も正確、13ビット以上は個数', () => {
-  assert.equal(formatValueBits('18446744073709551615'),
-    '`0b' + '1111_'.repeat(15) + '1111' + '` — bit 64 bits set');
-});
-
-test('0・負値・数値でない文字列は空', () => {
-  assert.equal(formatValueBits('0'), '');
-  assert.equal(formatValueBits('-1'), '');
-  assert.equal(formatValueBits('abc'), '');
-  assert.equal(formatValueBits(''), '');
 });
 
 // ===== evalNumExpr / formatCalcResult（基数変換電卓）=====

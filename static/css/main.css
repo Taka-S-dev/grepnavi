@@ -1151,13 +1151,3 @@ body.search-mode #root-chip{min-width:0}
 #radix-calc-in:focus{outline:none;border-color:#007acc}
 #radix-calc-out{margin:6px 0 0;font-family:monospace;font-size:12px;color:#9cdcfe;white-space:pre-wrap;word-break:break-all;min-height:1em}
 #radix-calc-out.radix-err{color:#d7a35c;font-size:11px;font-family:inherit}
-
-/* ホバーカード内の注釈行（ビット構成など）。Monaco の blockquote は素だと
-   地の文と区別が付かないので、左バー + 補足色で「注釈」だと分かる形にする */
-.monaco-hover blockquote {
-  margin: 6px 0 2px !important;
-  padding: 2px 0 2px 8px !important;
-  border-left: 3px solid #007acc !important;
-  color: #9cdcfe !important;
-}
-.monaco-hover blockquote code { color: #9cdcfe !important; }

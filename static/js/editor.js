@@ -1322,12 +1322,9 @@ async function ensureEditor() {
               const body = h.body.length > 2000 ? h.body.slice(0, 2000) + '\n// ...' : h.body;
               const prefix = i === 0 ? declNote : '';
               if(i === 0) _lastHoverHit = { file: h.file, line: h.line, body: h.body };
-              // 計算値には 2進とビット位置も添える（ポップアップ内は再ホバー不可のため焼き込み）
-              const bits = h.value ? formatValueBits(h.value) : '';
-              // blockquote で注釈化（左バー+色は main.css の .monaco-hover blockquote）。
-              // コードブロック直下の素の行はソースの続きに見える
-              const bitsLine = bits ? `\n\n> ${bits}` : '';
-              apiContents.push({value: prefix + header + '\n```c\n' + body + '\n```' + bitsLine, isTrusted: true});
+              // ビット構成はここには出さない。ホバーは一瞥用で、ヘッダの
+              // = 66 (0x42) で足りる。ビット分析は右クリックの電卓の仕事
+              apiContents.push({value: prefix + header + '\n```c\n' + body + '\n```', isTrusted: true});
             }
             // 連鎖カード: ↳ とそのカード自身の名前で「たどった先」だと分かる形にする
             // （ホバー語の名前を使うと、中身と食い違う嘘のヘッダになる）。
@@ -1338,11 +1335,7 @@ async function ensureEditor() {
               const fileLink = `[${shortPath(h.file)}:${h.line}](command:grepnavi.openFile?${args})`;
               const header = `↳ *展開:* **${hoverKindLabel[h.kind]||h.kind} \`${h.name || ''}\`${hoverValLabel(h)}** — *${fileLink}*`;
               const body = h.body.length > 2000 ? h.body.slice(0, 2000) + '\n// ...' : h.body;
-              const bits = h.value ? formatValueBits(h.value) : '';
-              // blockquote で注釈化（左バー+色は main.css の .monaco-hover blockquote）。
-              // コードブロック直下の素の行はソースの続きに見える
-              const bitsLine = bits ? `\n\n> ${bits}` : '';
-              apiContents.push({value: '---\n\n' + header + '\n```c\n' + body + '\n```' + bitsLine, isTrusted: true});
+              apiContents.push({value: '---\n\n' + header + '\n```c\n' + body + '\n```', isTrusted: true});
             }
           }
 
@@ -1482,7 +1475,14 @@ async function ensureEditor() {
       } else {
         const pos = ed.getPosition();
         const lit = findNumLiteralAt(ed.getModel().getLineContent(pos.lineNumber), pos.column);
-        if (lit) init = lit.text;
+        if (lit) {
+          init = lit.text;
+        } else {
+          // マクロ名の上で右クリック → 名前ごと電卓へ。解決されて値と
+          // ビット構成が出るので、ホバー → ビット分析の導線が1手になる
+          const w = ed.getModel().getWordAtPosition(pos);
+          if (w) init = w.word;
+        }
       }
       showRadixCalc(init);
     }
