@@ -118,22 +118,6 @@ func TestDefineReplacement(t *testing.T) {
 	}
 }
 
-func TestIsBareIntLiteral(t *testing.T) {
-	for expr, want := range map[string]bool{
-		"64":       true,
-		"(64)":     true,
-		"((0x40))": true,
-		"-1":       true,
-		"(1|64)":   false,
-		"FATAL":    false,
-		"~0":       false,
-	} {
-		if got := isBareIntLiteral(expr); got != want {
-			t.Errorf("isBareIntLiteral(%q) = %v, want %v", expr, got, want)
-		}
-	}
-}
-
 // 電卓の識別子解決: 別名連鎖ごしに値が決まり、決まらない名前は結果に出ない
 func TestEvalMacroValues(t *testing.T) {
 	requireRg(t)
@@ -226,8 +210,10 @@ func TestHoverDefineValues(t *testing.T) {
 	if v := hoverValue("ERR_R_MALLOC_FAILURE"); v != "65" {
 		t.Errorf("(1|ERR_R_FATAL) の値 = %q, want 65", v)
 	}
-	if v := hoverValue("ERR_R_PLAIN"); v != "" {
-		t.Errorf("素のリテラルに値が付いた: %q", v)
+	// 素のリテラルにも付ける（hex と bit 行が新情報。式のときだけ出る
+	// 見えない線引きより一貫性を取る）
+	if v := hoverValue("ERR_R_PLAIN"); v != "64" {
+		t.Errorf("素のリテラルの値 = %q, want 64", v)
 	}
 	if v := hoverValue("ERR_ALIAS"); v != "64" {
 		t.Errorf("別名の値 = %q, want 64", v)

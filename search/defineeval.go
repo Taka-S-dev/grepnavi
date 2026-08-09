@@ -180,23 +180,6 @@ func lexConstExpr(s string) ([]evalTok, bool) {
 	return toks, true
 }
 
-// isBareIntLiteral は式が（括弧・単項マイナスを除けば）リテラル1個かを返す。
-// 素の 64 に「= 64」を添えても情報が増えないので注釈を省く判定に使う。
-func isBareIntLiteral(expr string) bool {
-	toks, ok := lexConstExpr(expr)
-	if !ok {
-		return false
-	}
-	i, j := 0, len(toks)
-	for i < j && toks[i].kind == '(' && toks[j-1].kind == ')' {
-		i, j = i+1, j-1
-	}
-	if i < j && toks[i].kind == 'o' && toks[i].op == "-" {
-		i++
-	}
-	return j-i == 1 && toks[i].kind == 'n'
-}
-
 // evalVal は評価中の値。unsigned は u/U 接尾辞由来の値が混ざった印で、
 // C の符号なし演算と int64 の結果が食い違いうる演算（~ / 単項 - / 負に
 // なる演算結果）をこの印を見て拒否する。正の値の | & ^ << + * は符号の
@@ -501,9 +484,12 @@ func annotateDefineValues(ctx context.Context, hits []HoverHit, word, dir, glob 
 			name = h.Name
 		}
 		expr, ok := defineReplacement(h.Body, name)
-		if !ok || isBareIntLiteral(expr) {
+		if !ok {
 			continue
 		}
+		// 素のリテラル（#define A 64）にも付ける。dec は本文と重複するが、
+		// ヘッダの hex と bit 行は新情報で、「式のときだけ出る」という
+		// 見えない線引きよりも常に出る一貫性を取る
 		if v, ok := evalDefineExpr(expr, resolve); ok {
 			h.Value = strconv.FormatInt(v, 10)
 		}

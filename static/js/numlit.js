@@ -96,15 +96,16 @@ function _rowsForValue(value) {
   return rows;
 }
 
-// 「6, 1 が立っている (0=最下位)」の形。2進は左(MSB)から読むので降順で揃える
+// 「6, 1 set (0=LSB)」の形。2進は左(MSB)から読むので降順で揃える。
+// set / LSB はレジスタ・データシートの定番語彙なので英語のまま通す
 function _setBitsPhrase(value) {
   const bits = [];
   for (let i = 0n, v = value; v > 0n; v >>= 1n, i++) {
     if (v & 1n) bits.push(i.toString());
   }
   bits.reverse();
-  if (bits.length > 12) return bits.length + '個が立っている';
-  return bits.join(', ') + ' が立っている (0=最下位)';
+  if (bits.length > 12) return bits.length + ' bits set';
+  return bits.join(', ') + ' set (0=LSB)';
 }
 
 // リテラル1個を基数変換の markdown へ。対象外（不正な8進・C の整数幅超え・

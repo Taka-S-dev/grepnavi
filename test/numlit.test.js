@@ -81,7 +81,7 @@ test('2進の桁数は値の幅に合わせる（16bit 値は16桁）', () => {
 test('64bit マスクも正確（Number の安全整数超え）', () => {
   const md = formatNumLiteral('0xffffffffffffffff');
   assert.match(md, /dec {2}18,446,744,073,709,551,615/);
-  assert.match(md, /bit {2}64個/); // ビット列挙は12個超で個数表示
+  assert.match(md, /bit {2}64 bits set/); // ビット列挙は12個超で個数表示
 });
 
 test('C の整数幅を超える値は出さない', () => {
@@ -110,12 +110,12 @@ test('非 ASCII の文字リテラルは出さない（バイト値が文字コ�
 // ===== formatValueBits（ホバーカードの計算値への焼き込み）=====
 
 test('計算値の 2進とビット位置の一行', () => {
-  assert.equal(formatValueBits('66'), '`0b0100_0010` — bit 6, 1 が立っている (0=最下位)');
+  assert.equal(formatValueBits('66'), '`0b0100_0010` — bit 6, 1 set (0=LSB)');
 });
 
 test('64bit 値も正確、13ビット以上は個数', () => {
   assert.equal(formatValueBits('18446744073709551615'),
-    '`0b' + '1111_'.repeat(15) + '1111' + '` — bit 64個が立っている');
+    '`0b' + '1111_'.repeat(15) + '1111' + '` — bit 64 bits set');
 });
 
 test('0・負値・数値でない文字列は空', () => {
@@ -155,7 +155,7 @@ test('比較演算子: C の優先順位に忠実', () => {
 test('電卓出力: 比較は true / false で答える', () => {
   assert.equal(formatCalcResult('(1<<4)==16'), 'true');
   assert.equal(formatCalcResult('(1<<4)==17'), 'false');
-  assert.equal(formatCalcResult('(1==1)+5'), 'dec  6\nhex  0x6\nbin  0b0000_0110\nbit  2, 1 が立っている (0=最下位)');
+  assert.equal(formatCalcResult('(1==1)+5'), 'dec  6\nhex  0x6\nbin  0b0000_0110\nbit  2, 1 set (0=LSB)');
 });
 
 test('式の評価: 対象外は null', () => {
@@ -173,7 +173,7 @@ test('式の評価: 対象外は null', () => {
 
 test('電卓出力: 通常値は縦積みブロック', () => {
   assert.equal(formatCalcResult('1<<6|2'),
-    'dec  66\nhex  0x42\nbin  0b0100_0010\nbit  6, 1 が立っている (0=最下位)');
+    'dec  66\nhex  0x42\nbin  0b0100_0010\nbit  6, 1 set (0=LSB)');
 });
 
 // ===== 識別子の抽出と置換（マクロ解決電卓）=====
