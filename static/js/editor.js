@@ -1191,6 +1191,20 @@ async function ensureEditor() {
       provideHover: async (model, position, token) => {
         let word = model.getWordAtPosition(position);
         _lastHoverWord = word?.word || '';
+
+        // 数値・文字リテラルは基数変換をその場で返す（サーバ照会なし）。
+        // 単語ベースの検索より先: "66" は3文字未満スキップに掛かるし、
+        // 'A' はクォートまで含めた範囲で拾う必要がある
+        const numLit = findNumLiteralAt(model.getLineContent(position.lineNumber), position.column);
+        if (numLit) {
+          const md = formatNumLiteral(numLit.text);
+          if (md) return {
+            range: new monaco.Range(position.lineNumber, numLit.startColumn, position.lineNumber, numLit.endColumn),
+            contents: [{ value: md }]
+          };
+          return null; // リテラルだが対象外（不正な8進等）。定義検索しても無意味
+        }
+
         // B: 3文字未満・キーワードはスキップ
         if(!word || word.word.length < 3) return null;
         if(HOVER_SKIP.has(word.word)) return null;
