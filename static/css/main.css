@@ -1142,12 +1142,12 @@ body.search-mode #root-chip{min-width:0}
 #radix-calc{
   position:fixed;top:44px;right:20px;z-index:var(--z-floating);display:none;
   background:#2d2d2d;border:1px solid #555;border-radius:4px;
-  box-shadow:0 4px 14px rgba(0,0,0,0.6);padding:8px;width:270px;
+  box-shadow:0 4px 14px rgba(0,0,0,0.6);padding:8px;width:340px;
 }
 #radix-calc-head{cursor:move;user-select:none;display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:11px;color:#999}
 #radix-calc-close{background:transparent;border:none;color:#999;cursor:pointer;font-size:12px;padding:0 2px}
 #radix-calc-close:hover{color:#fff}
-#radix-calc-in{width:100%;box-sizing:border-box;background:#1e1e1e;border:1px solid #4a4a4a;color:#ddd;font-family:monospace;font-size:12px;padding:4px 6px;border-radius:3px}
+#radix-calc-in{width:100%;box-sizing:border-box;background:#1e1e1e;border:1px solid #4a4a4a;color:#ddd;font-family:monospace;font-size:12px;padding:4px 6px;border-radius:3px;resize:none;overflow:hidden;line-height:1.5;display:block}
 #radix-calc-in:focus{outline:none;border-color:#007acc}
 #radix-calc-out{margin:6px 0 0;font-family:monospace;font-size:12px;color:#9cdcfe;white-space:pre-wrap;word-break:break-all;min-height:1em}
 #radix-calc-out.radix-err{color:#d7a35c;font-size:11px;font-family:inherit}

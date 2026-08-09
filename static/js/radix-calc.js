@@ -11,7 +11,7 @@ function showRadixCalc(initial) {
     panel.innerHTML =
       '<div id="radix-calc-head"><span>基数変換</span>' +
       '<button id="radix-calc-close" title="閉じる (Esc)">✕</button></div>' +
-      '<input id="radix-calc-in" spellcheck="false" placeholder="0x42 | 1<<6 や (1<<4)==16 など">' +
+      '<textarea id="radix-calc-in" rows="1" spellcheck="false" placeholder="0x42 | 1<<6 や (1<<4)==16 など"></textarea>' +
       '<pre id="radix-calc-out"></pre>';
     document.body.appendChild(panel);
     const input = panel.querySelector('#radix-calc-in');
@@ -23,6 +23,9 @@ function showRadixCalc(initial) {
     let seq = 0;      // 打鍵より遅れて返った解決結果を捨てる
     let timer = null;
     const update = () => {
+      // 長いマクロ名の式でも全体が見えるよう、入力欄は内容に合わせて伸ばす
+      input.style.height = 'auto';
+      input.style.height = input.scrollHeight + 'px';
       clearTimeout(timer);
       const mySeq = ++seq;
       const src = input.value.trim();
