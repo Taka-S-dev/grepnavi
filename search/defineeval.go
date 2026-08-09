@@ -421,7 +421,9 @@ func newDefineResolver(ctx context.Context, dir, glob string, maxLookups int) fu
 		found := true
 		var expr string
 		for _, h := range dh {
-			if h.Kind != "define" {
+			// define と enum メンバだけが候補。他の kind（同名の変数等）は
+			// 値の根拠にならないが、候補を妨げもしないので飛ばす
+			if h.Kind != "define" && h.Kind != "enum_member" {
 				continue
 			}
 			lines, err := CachedLines(h.File)
@@ -429,14 +431,24 @@ func newDefineResolver(ctx context.Context, dir, glob string, maxLookups int) fu
 				found = false
 				break
 			}
-			body := extractDefineBlock(lines, h.Line)
-			if body == "" {
-				body = h.Text
-			}
-			e, ok := defineReplacement(body, name)
-			if !ok {
-				found = false
-				break
+			var e string
+			if h.Kind == "define" {
+				body := extractDefineBlock(lines, h.Line)
+				if body == "" {
+					body = h.Text
+				}
+				var ok bool
+				e, ok = defineReplacement(body, name)
+				if !ok {
+					found = false
+					break
+				}
+			} else {
+				e = resolveEnumMember(lines, h, name)
+				if e == "" {
+					found = false
+					break
+				}
 			}
 			norm := strings.Join(strings.Fields(e), " ")
 			if uniq != "" && norm != uniq {
@@ -452,6 +464,27 @@ func newDefineResolver(ctx context.Context, dir, glob string, maxLookups int) fu
 		defCache[name] = defEntry{expr: expr, ok: true}
 		return expr, true
 	}
+}
+
+// resolveEnumMember は enum メンバの hit から値の10進文字列を返す（"" = 失敗）。
+// 索引の行ずれは HealLine で追従し、行が本当にそのメンバか名前で確認する —
+// ずれたまま数えると別のメンバの値になる。値の計算はホバーと同じ
+// enumMemberValue（解釈できない enum は諦める側に倒れる）。
+func resolveEnumMember(lines []string, h DefHit, name string) string {
+	to := HealLine(h.File, h.Line, h.Text)
+	if to < 1 || to > len(lines) {
+		return ""
+	}
+	t := strings.TrimSpace(stripLineComment(lines[to-1]))
+	m := reEnumValueLine.FindStringSubmatch(t)
+	if m == nil || m[1] != name {
+		return ""
+	}
+	v, ok := enumMemberValue(lines, to)
+	if !ok {
+		return ""
+	}
+	return strconv.FormatInt(v, 10)
 }
 
 // annotateDefineValues は define カードの置換部を評価し、決まった値を Value に

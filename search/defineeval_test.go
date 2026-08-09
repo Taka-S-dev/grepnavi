@@ -157,6 +157,40 @@ func TestEvalMacroValues(t *testing.T) {
 	}
 }
 
+// enum メンバも識別子として解決できる（暗黙の連番と = 指定の両方）
+func TestEvalMacroValuesEnum(t *testing.T) {
+	requireRg(t)
+	dir := t.TempDir()
+	write(t, dir+"/color.h",
+		"enum color {\n"+
+			"    RED,\n"+
+			"    GREEN = 5,\n"+
+			"    BLUE,\n"+
+			"};\n"+
+			"#define AFTER_BLUE (BLUE|8)\n")
+	write(t, dir+"/dup.h",
+		"enum other {\n"+
+			"    DUP_E = 1,\n"+
+			"};\n")
+	write(t, dir+"/dup2.h",
+		"enum other2 {\n"+
+			"    DUP_E = 2,\n"+
+			"};\n")
+
+	got := EvalMacroValues(t.Context(), []string{"RED", "GREEN", "BLUE", "AFTER_BLUE", "DUP_E"}, dir, "")
+	if got["RED"] != "0" || got["GREEN"] != "5" || got["BLUE"] != "6" {
+		t.Errorf("enum の解決値が違う: %v", got)
+	}
+	// #define の置換部から enum メンバを参照しても解決できる
+	if got["AFTER_BLUE"] != "14" {
+		t.Errorf("AFTER_BLUE = %q, want 14 (6|8)", got["AFTER_BLUE"])
+	}
+	// 同名 enum が別の値で複数定義されているときは決めない
+	if _, ok := got["DUP_E"]; ok {
+		t.Errorf("値が食い違う enum を解決してしまった: %v", got)
+	}
+}
+
 // ホバー統合: openssl の ERR_R_* と同じ形の定義で値が付くこと、
 // 付けてはいけないケース（素のリテラル・多重定義の食い違い・関数形式）で
 // 付かないことを確認する。
