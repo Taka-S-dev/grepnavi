@@ -1151,3 +1151,6 @@ body.search-mode #root-chip{min-width:0}
 #radix-calc-in:focus{outline:none;border-color:#007acc}
 #radix-calc-out{margin:6px 0 0;font-family:monospace;font-size:12px;color:#9cdcfe;white-space:pre-wrap;word-break:break-all;min-height:1em}
 #radix-calc-out.radix-err{color:#d7a35c;font-size:11px;font-family:inherit}
+#radix-calc-help-btn{background:transparent;border:none;color:#999;cursor:pointer;font-size:12px;padding:0 6px}
+#radix-calc-help-btn:hover{color:#fff}
+#radix-calc-help{display:none;margin:6px 0 0;font-size:11px;line-height:1.7;color:#999;white-space:pre-wrap;word-break:break-word;border-top:1px solid #444;padding-top:6px}

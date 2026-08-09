@@ -9,9 +9,17 @@ function showRadixCalc(initial) {
     panel = document.createElement('div');
     panel.id = 'radix-calc';
     panel.innerHTML =
-      '<div id="radix-calc-head"><span>基数変換</span>' +
-      '<button id="radix-calc-close" title="閉じる (Esc)">✕</button></div>' +
+      '<div id="radix-calc-head"><span>基数変換</span><span>' +
+      '<button id="radix-calc-help-btn" title="使い方">?</button>' +
+      '<button id="radix-calc-close" title="閉じる (Esc)">✕</button></span></div>' +
       '<textarea id="radix-calc-in" rows="1" spellcheck="false" placeholder="0x42 | 1<<6 や (1<<4)==16 など"></textarea>' +
+      '<pre id="radix-calc-help">' +
+      '0x42 / 192 / 010(8進) / 0b1010 … リテラル\n' +
+      '| & ^ ~ << >> + - * / % … C の優先順位で計算\n' +
+      '(1<<4) == 16 … 検算 (true / false で回答)\n' +
+      'ERR_R_FATAL | 2 … マクロ・enum は索引で解決\n' +
+      'Enter 不要 (打鍵ごとに計算) / ヘッダをドラッグで移動' +
+      '</pre>' +
       '<pre id="radix-calc-out"></pre>';
     document.body.appendChild(panel);
     const input = panel.querySelector('#radix-calc-in');
@@ -76,13 +84,17 @@ function showRadixCalc(initial) {
     panel.querySelector('#radix-calc-close').addEventListener('click', () => {
       panel.style.display = 'none';
     });
+    const help = panel.querySelector('#radix-calc-help');
+    panel.querySelector('#radix-calc-help-btn').addEventListener('click', () => {
+      help.style.display = help.style.display === 'block' ? 'none' : 'block';
+    });
     panel._update = update;
 
     // ヘッダをつかんで移動できるようにする。固定位置だと読みたいコードに
     // 被ったとき詰む。位置は覚えて次回も同じ場所に出す
     const head = panel.querySelector('#radix-calc-head');
     head.addEventListener('pointerdown', e => {
-      if (e.target.id === 'radix-calc-close') return;
+      if (e.target.closest('button')) return;
       const r = panel.getBoundingClientRect();
       const dx = e.clientX - r.left, dy = e.clientY - r.top;
       const move = ev => {
