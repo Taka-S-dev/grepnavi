@@ -103,4 +103,21 @@ function formatNumLiteral(text) {
   return _rowsToMarkdown(rows, base === 8 ? `**\`${text}\`** は8進表記` : '');
 }
 
-if (typeof module !== 'undefined') module.exports = { findNumLiteralAt, formatNumLiteral };
+// ホバーカードの計算値（10進文字列）用の 2進+ビット位置の一行。ヘッダの
+// = 66 (0x42) で dec/hex は出ているので、足りない情報だけを補完する。
+// ホバー内のテキストには再ホバーできない（Monaco の構造上、ポップアップは
+// ただの描画結果）ため、変換はカード生成時に焼き込むしかない。
+function formatValueBits(decStr) {
+  let v;
+  try { v = BigInt(decStr); } catch { return ''; }
+  if (v <= 0n || v >= 1n << 64n) return '';
+  const bits = [];
+  for (let i = 0n, w = v; w > 0n; w >>= 1n, i++) {
+    if (w & 1n) bits.push(i.toString());
+  }
+  bits.reverse();
+  const bin = '0b' + _groupDigits(_padBinary(v), 4, '_');
+  return `${bin} · bit ${bits.length <= 12 ? bits.join(', ') : bits.length + '個'}`;
+}
+
+if (typeof module !== 'undefined') module.exports = { findNumLiteralAt, formatNumLiteral, formatValueBits };

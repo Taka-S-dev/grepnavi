@@ -1322,7 +1322,10 @@ async function ensureEditor() {
               const body = h.body.length > 2000 ? h.body.slice(0, 2000) + '\n// ...' : h.body;
               const prefix = i === 0 ? declNote : '';
               if(i === 0) _lastHoverHit = { file: h.file, line: h.line, body: h.body };
-              apiContents.push({value: prefix + header + '\n```c\n' + body + '\n```', isTrusted: true});
+              // 計算値には 2進とビット位置も添える（ポップアップ内は再ホバー不可のため焼き込み）
+              const bits = h.value ? formatValueBits(h.value) : '';
+              const bitsLine = bits ? `\n\n\`${bits}\`` : '';
+              apiContents.push({value: prefix + header + '\n```c\n' + body + '\n```' + bitsLine, isTrusted: true});
             }
             // 連鎖カード: ↳ とそのカード自身の名前で「たどった先」だと分かる形にする
             // （ホバー語の名前を使うと、中身と食い違う嘘のヘッダになる）。
@@ -1333,7 +1336,9 @@ async function ensureEditor() {
               const fileLink = `[${shortPath(h.file)}:${h.line}](command:grepnavi.openFile?${args})`;
               const header = `↳ *展開:* **${hoverKindLabel[h.kind]||h.kind} \`${h.name || ''}\`${hoverValLabel(h)}** — *${fileLink}*`;
               const body = h.body.length > 2000 ? h.body.slice(0, 2000) + '\n// ...' : h.body;
-              apiContents.push({value: '---\n\n' + header + '\n```c\n' + body + '\n```', isTrusted: true});
+              const bits = h.value ? formatValueBits(h.value) : '';
+              const bitsLine = bits ? `\n\n\`${bits}\`` : '';
+              apiContents.push({value: '---\n\n' + header + '\n```c\n' + body + '\n```' + bitsLine, isTrusted: true});
             }
           }
 
