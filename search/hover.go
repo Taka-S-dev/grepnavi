@@ -271,22 +271,44 @@ func FindHover(ctx context.Context, word, dir, glob, root string, includeChain .
 
 // extractBraceBlock は startLine（1-indexed）からブレースブロックを抽出する。
 // maxLookAhead: { が見つかるまで何行先まで探すか（0 = デフォルト20行）
-// 最大 200 行まで。
+// 最大 previewBlockMaxLines 行まで。
 func extractBraceBlock(lines []string, startLine int, maxLookAhead ...int) string {
+	body, _ := extractBraceBlockN(lines, startLine, previewBlockMaxLines, maxLookAhead...)
+	return body
+}
+
+const (
+	// previewBlockMaxLines は表示用（ホバー等）の上限。長い関数を丸ごと出しても
+	// ポップアップでは読めないので、ここで切るのは表示の都合として妥当。
+	previewBlockMaxLines = 200
+	// analysisBlockMaxLines は解析用の上限。実在する関数はまず超えないが、
+	// 壊れた括弧でファイル末尾まで走るのを防ぐための安全弁として置く。
+	analysisBlockMaxLines = 5000
+)
+
+// extractBraceBlockN は maxLines 行を上限にブロックを切り出す。
+// 第2戻り値は「上限に当たって途中で止めたか」。呼び出し先の一覧のように
+// 全件そろっていることに意味がある用途では、これを見て利用者に伝える。
+func extractBraceBlockN(lines []string, startLine, maxLines int, maxLookAhead ...int) (string, bool) {
 	lookAhead := 20
 	if len(maxLookAhead) > 0 && maxLookAhead[0] > 0 {
 		lookAhead = maxLookAhead[0]
 	}
 	idx := startLine - 1
 	if idx < 0 || idx >= len(lines) {
-		return ""
+		return "", false
 	}
 
 	depth := 0
 	started := false
+	truncated := false
 	var buf []string
 
-	for i := idx; i < len(lines) && i < idx+200; i++ {
+	for i := idx; i < len(lines) && i < idx+maxLines; i++ {
+		// 上限の最後の行まで来てもブロックが閉じていなければ打ち切り
+		if i == idx+maxLines-1 && started && depth > 0 {
+			truncated = true
+		}
 		// { が見つからないまま lookAhead 行経過したら打ち切り（関数プロトタイプ等）
 		if !started && i > idx+lookAhead {
 			break
@@ -296,7 +318,7 @@ func extractBraceBlock(lines []string, startLine int, maxLookAhead ...int) strin
 
 		// { より前に ; が来たらプロトタイプ宣言（別の構造体等の { を誤検知しないよう打ち切る）
 		if !started && strings.ContainsRune(line, ';') {
-			return ""
+			return "", false
 		}
 
 		buf = append(buf, line)
@@ -344,9 +366,9 @@ func extractBraceBlock(lines []string, startLine int, maxLookAhead ...int) strin
 	}
 
 	if !started {
-		return ""
+		return "", false
 	}
-	return stripCommonIndent(buf)
+	return stripCommonIndent(buf), truncated
 }
 
 // looksLikeTypeBlock は抽出済みブロックが型定義（typedef / struct / union / enum）かを返す。

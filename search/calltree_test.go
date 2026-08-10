@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -83,7 +84,7 @@ EXPORT_SYMBOL_GPL(__libeth_xdpsq_lock);
 	if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	hits, err := FindCallees(t.Context(), file, 2, "")
+	hits, _, err := FindCallees(t.Context(), file, 2, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +117,7 @@ EXPORT_SYMBOL_GPL(blkg_conf_prep);
 	if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	hits, err := FindCallees(context.Background(), file, 1, "")
+	hits, _, err := FindCallees(context.Background(), file, 1, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +161,7 @@ static STACK_OF(GENERAL_NAME) *gnames_from_sectname(X509V3_CTX *ctx,
 		t.Fatal(err)
 	}
 	// 10 行目（本体の途中）を渡す
-	hits, err := FindCallees(t.Context(), file, 10, "")
+	hits, _, err := FindCallees(t.Context(), file, 10, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,5 +175,41 @@ static STACK_OF(GENERAL_NAME) *gnames_from_sectname(X509V3_CTX *ctx,
 	// シグネチャの STACK_OF や関数自身は呼び先ではない
 	if got["gnames_from_sectname"] {
 		t.Errorf("関数自身が呼び先に混ざった: %v", got)
+	}
+}
+
+// 500行級の関数でも呼び先が途中で切れないこと。
+// 表示用の 200 行上限をそのまま解析に使うと、後半の呼び出しが
+// 「これで全部」の顔で黙って消える（openssl の
+// tls_early_post_process_client_hello が 499 行でこれを踏んでいた）。
+func TestFindCalleesLongFunction(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "long.c")
+	var b strings.Builder
+	b.WriteString("int big(void)\n{\n")
+	b.WriteString("\tearly_call();\n")
+	for i := 0; i < 400; i++ {
+		b.WriteString("\tx += 1;\n")
+	}
+	b.WriteString("\tlate_call();\n")
+	b.WriteString("\treturn 0;\n}\n")
+	if err := os.WriteFile(file, []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hits, truncated, err := FindCallees(t.Context(), file, 1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, h := range hits {
+		got[h.Name] = true
+	}
+	if !got["early_call"] {
+		t.Errorf("前半の呼び出しが無い: %v", got)
+	}
+	if !got["late_call"] {
+		t.Errorf("400行先の呼び出しが落ちている（上限で切られた）: %v", got)
+	}
+	if truncated {
+		t.Errorf("この長さで打ち切り扱いになっている")
 	}
 }

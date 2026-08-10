@@ -93,7 +93,7 @@ func TestFindCalleesSkipsComments(t *testing.T) {
 		t.Fatal(err)
 	}
 	// root は空: ctags 索引による絞り込みを行わず、コメント除去だけを検証する
-	hits, err := FindCallees(t.Context(), file, 1, "")
+	hits, _, err := FindCallees(t.Context(), file, 1, "")
 	if err != nil {
 		t.Fatal(err)
 	}
