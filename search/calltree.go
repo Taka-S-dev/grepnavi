@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -171,6 +172,63 @@ func FindCallers(ctx context.Context, word, dir, glob string) ([]CallSite, bool,
 	collect(directMatches, false)
 	collect(indirectMatches, true)
 	return results, truncated, nil
+}
+
+// FilterCallSites は索引が返した呼び出し元を、検索ディレクトリと glob で絞る。
+// gtags はツリー全体を一度に引くので、UI の絞り込みが効くのはここだけ。
+// これが無いと、検索ディレクトリを狭めても呼び出し元一覧だけ全体が出て、
+// エンジンによって同じ操作の結果が変わる。
+func FilterCallSites(sites []CallSite, dir, glob string) []CallSite {
+	globs := splitGlobs(glob)
+	if dir == "" && len(globs) == 0 {
+		return sites
+	}
+	dirPrefix := ""
+	if dir != "" {
+		dirPrefix = strings.ToLower(filepath.ToSlash(filepath.Clean(dir)))
+		if !strings.HasSuffix(dirPrefix, "/") {
+			dirPrefix += "/"
+		}
+	}
+	out := sites[:0:0]
+	for _, s := range sites {
+		if dirPrefix != "" {
+			f := strings.ToLower(filepath.ToSlash(filepath.Clean(s.File)))
+			if !strings.HasPrefix(f, dirPrefix) {
+				continue
+			}
+		}
+		if len(globs) > 0 && !matchesAnyGlob(filepath.Base(s.File), globs) {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+func matchesAnyGlob(name string, globs []string) bool {
+	for _, g := range globs {
+		// パス付き glob（src/*.c）はベース名だけでは判定できないので、
+		// パターン末尾のファイル名部分で見る
+		if i := strings.LastIndexAny(g, `/\`); i >= 0 {
+			g = g[i+1:]
+		}
+		if ok, _ := filepath.Match(g, name); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// MarkIndirectCalls は呼び出し行の字面を見て、関数ポインタ経由の参照に印を付ける。
+// 索引は「参照」としか言わないので、`foo(` の形で呼んでいるのか
+// `.ops = foo` のように渡しているだけなのかはここで判定する。
+// 区別が付かないと、呼び出し関係を辿っているつもりでテーブル登録を辿ってしまう。
+func MarkIndirectCalls(sites []CallSite, word string) {
+	reCall := regexp.MustCompile(`\b` + regexp.QuoteMeta(word) + `\s*\(`)
+	for i := range sites {
+		sites[i].Indirect = !reCall.MatchString(sites[i].Text)
+	}
 }
 
 // enclosingFuncStart は line（1-indexed）を含む関数の開始行を返す（0 = 不明）。

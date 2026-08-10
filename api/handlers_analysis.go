@@ -525,6 +525,15 @@ func (h *Handler) handleCallers(w http.ResponseWriter, r *http.Request) {
 	truncated := false
 	if useGtags {
 		hits, err = search.GtagsFindRefs(r.Context(), word, hroot)
+		if err == nil {
+			// gtags はツリー全体を引くので、絞り込みはここで効かせる。
+			// でないと検索ディレクトリを狭めても呼び出し元だけ全体が出る。
+			hits = search.FilterCallSites(hits, dir, q.Get("glob"))
+			search.MarkIndirectCalls(hits, word)
+		}
+		// 0件なら rg で確かめる。索引が拾えないファイル種別（gtags が解析
+		// しない拡張子・GTAGSSKIP で外したもの）からの呼び出しがあり得るので、
+		// 「索引が 0 件」＝「呼び出し元が無い」とは言い切れない。
 		if err != nil || len(hits) == 0 {
 			err = nil
 			engine = "rg"

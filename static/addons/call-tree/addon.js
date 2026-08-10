@@ -213,8 +213,9 @@ async function ctSearch() {
   _ctTree = null;
   ctUpdateCount();
 
-  const dir  = (document.getElementById('dir')  || {}).value || '';
-  const glob = (document.getElementById('glob') || {}).value || '';
+  // 定義探しだけ検索ディレクトリを見る（同名定義が複数あるとき、
+  // いま見ている範囲のものを優先したいため）
+  const dir = (document.getElementById('dir') || {}).value || '';
 
   // callers は defEngine に関わらず gtags が使えるなら使う（ripgrep より速い）
   const useGtags = typeof gtagsAvailable === 'function' && gtagsAvailable();
@@ -222,9 +223,9 @@ async function ctSearch() {
 
   try {
     if (_ctMode === 'callers') {
+      // 検索パネルの絞り込みは渡さない。呼び出し元は「これで全部か」を
+      // 見る一覧なので、別のパネルの設定で黙って件数が減るほうが危ない
       const params = new URLSearchParams({ word });
-      if (dir)  params.set('dir', dir);
-      if (glob) params.set('glob', glob);
       if (!useGtags) params.set('gtags', '0');
       const res = await fetch('/api/callers?' + params, { signal });
       if (!res.ok) { body.innerHTML = '<div class="ct-empty">エラー</div>'; return; }
@@ -493,13 +494,11 @@ async function ctToggle(node, el) {
   node.loading = true;
   ctRender();
 
-  const dir  = (document.getElementById('dir')  || {}).value || '';
-  const glob = (document.getElementById('glob') || {}).value || '';
+  // 定義探しだけ検索ディレクトリを見る（呼び出し元の一覧は絞らない）
+  const dir = (document.getElementById('dir') || {}).value || '';
 
   if (_ctMode === 'callers') {
     const params = new URLSearchParams({ word: node.func });
-    if (dir)  params.set('dir', dir);
-    if (glob) params.set('glob', glob);
     if (typeof gtagsAvailable === 'function' && !gtagsAvailable()) params.set('gtags', '0');
     const res = await fetch('/api/callers?' + params).catch(() => null);
     if (res && res.ok) {

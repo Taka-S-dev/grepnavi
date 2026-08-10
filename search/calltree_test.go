@@ -213,3 +213,53 @@ func TestFindCalleesLongFunction(t *testing.T) {
 		t.Errorf("この長さで打ち切り扱いになっている")
 	}
 }
+
+func TestFilterCallSitesByDir(t *testing.T) {
+	root := filepath.FromSlash("/proj")
+	sites := []CallSite{
+		{Func: "a", File: filepath.Join(root, "ssl", "x.c")},
+		{Func: "b", File: filepath.Join(root, "apps", "y.c")},
+		{Func: "c", File: filepath.Join(root, "ssl", "sub", "z.c")},
+	}
+	got := FilterCallSites(sites, filepath.Join(root, "ssl"), "")
+	if len(got) != 2 || got[0].Func != "a" || got[1].Func != "c" {
+		t.Fatalf("検索ディレクトリで絞れていない: %+v", got)
+	}
+	// 名前が前方一致するだけの兄弟ディレクトリを巻き込まない
+	sites = append(sites, CallSite{Func: "d", File: filepath.Join(root, "ssl_extra", "w.c")})
+	if got := FilterCallSites(sites, filepath.Join(root, "ssl"), ""); len(got) != 2 {
+		t.Errorf("ssl_extra まで含めている: %+v", got)
+	}
+}
+
+func TestFilterCallSitesByGlob(t *testing.T) {
+	root := filepath.FromSlash("/proj")
+	sites := []CallSite{
+		{Func: "a", File: filepath.Join(root, "x.c")},
+		{Func: "b", File: filepath.Join(root, "x.h")},
+		{Func: "c", File: filepath.Join(root, "x.cpp")},
+	}
+	got := FilterCallSites(sites, "", "*.c,*.h")
+	if len(got) != 2 || got[0].Func != "a" || got[1].Func != "b" {
+		t.Fatalf("glob で絞れていない: %+v", got)
+	}
+	if got := FilterCallSites(sites, "", ""); len(got) != 3 {
+		t.Errorf("絞り込み指定が無いのに減っている: %+v", got)
+	}
+}
+
+func TestMarkIndirectCalls(t *testing.T) {
+	sites := []CallSite{
+		{Text: "ret = ssl_read(s, buf, n);"},
+		{Text: "\t.read = ssl_read,"},
+		{Text: "ops->read = &ssl_read;"},
+		{Text: "if (ssl_read (s, buf, n) < 0)"}, // 関数名と ( の間に空白
+	}
+	MarkIndirectCalls(sites, "ssl_read")
+	want := []bool{false, true, true, false}
+	for i, w := range want {
+		if sites[i].Indirect != w {
+			t.Errorf("[%d] %q: Indirect=%v, want %v", i, sites[i].Text, sites[i].Indirect, w)
+		}
+	}
+}

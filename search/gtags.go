@@ -1477,9 +1477,22 @@ func GtagsFindHoverHits(ctx context.Context, word, dir string) ([]DefHit, error)
 
 // GtagsFindRefs は GNU Global で word の参照箇所を検索する（callers 用）。
 // 各参照行を囲む関数名・定義行を findContainingFunc で解決して返す。
-// 結果は (dir,word) でキャッシュされ、インデックス更新か寿命切れまで保持される。
+//
+// GRTAGS（-r）が持つのは「プロジェクト内で定義されている」シンボルへの参照だけ。
+// malloc のように定義がツリー外にある関数は GSYMS（-s）側にあり、-r では 0 件になる。
+// 索引にありながら 0 件を返すと呼び出し元が無いように見えるので、続けて -s も引く。
 func GtagsFindRefs(ctx context.Context, word, dir string) ([]CallSite, error) {
-	cacheKey := gtagsCacheKey(dir, word)
+	sites, err := gtagsRefsWithFlag(ctx, word, dir, "-xr")
+	if err != nil || len(sites) > 0 {
+		return sites, err
+	}
+	return gtagsRefsWithFlag(ctx, word, dir, "-xs")
+}
+
+// gtagsRefsWithFlag は global の参照系オプション（-xr / -xs）1つぶんを引く。
+// 結果は (dir,word,flag) でキャッシュされ、インデックス更新か寿命切れまで保持される。
+func gtagsRefsWithFlag(ctx context.Context, word, dir, flag string) ([]CallSite, error) {
+	cacheKey := gtagsCacheKey(dir, word) + "|" + flag
 	if v, ok := _gtagsRefsCache.Load(cacheKey); ok {
 		if e := v.(gtagsRefsEntry); time.Since(e.storedAt) < _gtagsRefsCacheTTL {
 			return e.sites, nil
@@ -1489,11 +1502,11 @@ func GtagsFindRefs(ctx context.Context, word, dir string) ([]CallSite, error) {
 	globalBin := resolveGlobalBin()
 	var out []byte
 	// 成功実績のある経路が記憶されていれば、失敗確定の直接起動を飛ばす
-	if stickyOut, handled := runGlobalSticky(globalBin, dir, word, "-xr"); handled {
+	if stickyOut, handled := runGlobalSticky(globalBin, dir, word, flag); handled {
 		maybePreloadDefsAsync(globalBin, dir)
 		out = stickyOut
 	} else {
-		cmd := proc.CommandContext(context.Background(), globalBin, "-xr", word)
+		cmd := proc.CommandContext(context.Background(), globalBin, flag, word)
 		cmd.Dir = dir
 		cmd.Env = gtagsEnv(dir)
 		var stderr bytes.Buffer
@@ -1511,7 +1524,7 @@ func GtagsFindRefs(ctx context.Context, word, dir string) ([]CallSite, error) {
 		}
 		// Cygwin global.exe が native pipe に書けず stdout が空のことがある（GtagsFindDefinitions と同症状）。
 		if len(bytes.TrimSpace(out)) == 0 {
-			if recovered := recoverEmptyGlobalOutput(globalBin, dir, word, "-xr", "gtags-find-refs"); recovered != nil {
+			if recovered := recoverEmptyGlobalOutput(globalBin, dir, word, flag, "gtags-find-refs"); recovered != nil {
 				out = recovered
 			}
 		}
