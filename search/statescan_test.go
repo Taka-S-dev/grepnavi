@@ -556,3 +556,45 @@ void tcp_set_ca_state(struct sock *sk, const u8 ca_state)
 }`
 	assertTrans(t, src, "icsk_ca_state", "?->expr:ca_state")
 }
+
+// コールバック欄に入るのは `psk_use_session_cb` のような小文字の関数名。
+// 大文字始まりだけを定数と見ると、一覧に仮引数 `cb` しか出ず、
+// 「結局どの関数が入るのか」という肝心の答えが落ちる。
+func TestStateScanFunctionNameAsValue(t *testing.T) {
+	src := `
+void SSL_CTX_set_cb(SSL_CTX *ctx, cb_func cb)
+{
+    ctx->psk_cb = cb;
+}
+void app_init(SSL_CTX *ctx)
+{
+    SSL_CTX_set_cb(ctx, psk_use_session_cb);
+}`
+	lines := strings.Split(src, "\n")
+	helpers := []helperSpec{{name: "SSL_CTX_set_cb", argIndex: 1}}
+
+	// 索引に無い名前は通さない（同名のローカル変数を関数と取り違えない）
+	got := scanStateLinesWith(lines, "psk_cb", helpers, nil)
+	for _, tr := range got {
+		if tr.To == "psk_use_session_cb" {
+			t.Error("索引の裏付けが無いのに関数名を値として採った")
+		}
+	}
+
+	// 索引が関数だと言うなら採る
+	known := func(n string) bool { return n == "psk_use_session_cb" }
+	got = scanStateLinesWith(lines, "psk_cb", helpers, known)
+	found := false
+	for _, tr := range got {
+		if tr.To == "psk_use_session_cb" && tr.Via == "SSL_CTX_set_cb" {
+			found = true
+		}
+	}
+	if !found {
+		var keys []string
+		for _, tr := range got {
+			keys = append(keys, transKey(tr))
+		}
+		t.Errorf("呼び出し側で渡している関数名を復元できていない: %v", keys)
+	}
+}

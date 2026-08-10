@@ -19,13 +19,13 @@ import (
 
 // StateTransition は状態変数への代入1件。
 type StateTransition struct {
-	From     []string           `json:"from,omitempty"`      // 遷移元状態（空 = 不明）
-	FromKind string             `json:"from_kind,omitempty"` // "case" / "if"
-	To       string             `json:"to,omitempty"`        // 遷移先の定数名
-	ToExpr   string             `json:"to_expr,omitempty"`   // 右辺が定数1個でないときの式（To と排他）
-	File     string             `json:"file"`
-	Line     int                `json:"line"`
-	Func     string             `json:"func,omitempty"`
+	From     []string `json:"from,omitempty"`      // 遷移元状態（空 = 不明）
+	FromKind string   `json:"from_kind,omitempty"` // "case" / "if"
+	To       string   `json:"to,omitempty"`        // 遷移先の定数名
+	ToExpr   string   `json:"to_expr,omitempty"`   // 右辺が定数1個でないときの式（To と排他）
+	File     string   `json:"file"`
+	Line     int      `json:"line"`
+	Func     string   `json:"func,omitempty"`
 	// Via はヘルパ関数の呼び出しから復元した遷移の、そのヘルパ名。
 	// 実際の代入はヘルパの中にあり、この行は定数を渡している呼び出し箇所
 	Via string `json:"via,omitempty"`
@@ -62,7 +62,15 @@ func ScanStateTransitions(files []string, varName string) []StateTransition {
 // 無いファイルは行ごとの精密走査に入る前に安価な判定で捨てる。ツリー全体を
 // 対象にすると、この足切りが有無で数倍の差になる。
 func scanStateFiles(files []string, varName string, helpers []helperSpec) []StateTransition {
+	return scanStateFilesWith(files, varName, helpers, nil)
+}
+
+// scanStateFilesWith は「定数と認めてよい名前か」の追加判定を受け取る。
+// 既定は大文字始まりだけだが、コールバック欄に入るのは `psk_use_session_cb` の
+// ような小文字の関数名なので、それを通すために呼び出し側が判定を足せる。
+func scanStateFilesWith(files []string, varName string, helpers []helperSpec, alsoConst func(string) bool) []StateTransition {
 	quick := quickRejectRe(varName, helpers)
+	code := codeOnlyCache{}
 	var out []StateTransition
 	for _, f := range files {
 		lines, err := CachedLines(f)
@@ -72,20 +80,19 @@ func scanStateFiles(files []string, varName string, helpers []helperSpec) []Stat
 		if !anyLineMatches(lines, quick) {
 			continue
 		}
-		trs := scanStateLinesWith(lines, varName, helpers)
+		trs := scanStateLinesWith(lines, varName, helpers, alsoConst)
 		if len(trs) == 0 {
 			continue
 		}
-		syms, _ := ExtractSymbols(f)
 		hasIfdef := anyLineHasPrefix(lines, "#if")
 		for i := range trs {
 			trs[i].File = f
-			for _, s := range syms {
-				if s.StartLine <= trs[i].Line && trs[i].Line <= s.EndLine {
-					trs[i].Func = s.Name
-					break
-				}
-			}
+			// 囲む関数は呼び出し元一覧と同じ範囲表から引く。以前は別の抽出器を
+			// 使っていて、引数リストが `#ifdef` や改行で割れた関数を置けず
+			// （curl の multistate、openssl の SSL_CTX_set_..._callback）、
+			// 関数名が空になっていた。空だとヘルパ検出が動かないので、
+			// 「呼び出し側で何を渡しているか」まで復元できなくなる
+			trs[i].Func, _ = code.containingFunc(f, lines, trs[i].Line)
 			// ifdef スタック抽出はファイル全体を読み直すので、
 			// そもそも条件コンパイルが無いファイルでは呼ばない
 			if !hasIfdef {
@@ -264,14 +271,17 @@ type stateEvent struct {
 }
 
 func scanStateLines(lines []string, varName string) []StateTransition {
-	return scanStateLinesWith(lines, varName, nil)
+	return scanStateLinesWith(lines, varName, nil, nil)
 }
 
 // scanStateLinesWith は通常の代入に加えて、helpers の呼び出しを
 // 「引数渡しの擬似代入」として拾う。呼び出し箇所は代入と同じフレーム機構を
 // 通るので、case/if の遷移元文脈がそのまま付く。定数以外を渡している
 // 呼び出し（変数・関数定義や宣言の仮引数）は遷移にしない。
-func scanStateLinesWith(lines []string, varName string, helpers []helperSpec) []StateTransition {
+func scanStateLinesWith(lines []string, varName string, helpers []helperSpec, alsoConst func(string) bool) []StateTransition {
+	isConst := func(t string) bool {
+		return reStateConst.MatchString(t) || (alsoConst != nil && alsoConst(t))
+	}
 	code := buildCodeView(lines)
 	v := regexp.QuoteMeta(varName)
 
@@ -502,7 +512,7 @@ func scanStateLinesWith(lines []string, varName string, helpers []helperSpec) []
 						// return 等で抜けるブロックの代入は外へ流れない
 						cur = f.entry
 					} else {
-						// 通ったかもしれないし通らなかったかもしれない
+						// ブロックを通った場合と通らなかった場合の両方がありうる
 						cur = flowUnion(f.entry, cur)
 					}
 					if f.isIf {
@@ -599,7 +609,7 @@ func scanStateLinesWith(lines []string, varName string, helpers []helperSpec) []
 				args, li, ci := readCond(i, e.end)
 				// 定数を渡している呼び出しだけが遷移。変数渡し・関数の定義や
 				// 宣言の仮引数（"int state" 等）はここで自然に落ちる
-				if arg := nthArg(args, h.argIndex); reStateConst.MatchString(arg) {
+				if arg := nthArg(args, h.argIndex); isConst(arg) {
 					record(i+1, func(tr *StateTransition) { tr.To = arg; tr.Via = h.name })
 				}
 				if li > i || ci > e.pos {
