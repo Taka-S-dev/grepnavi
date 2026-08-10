@@ -340,7 +340,6 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 	h.writeDefinitionResponse(w, word, hroot, res, q.Get("tag"))
 }
 
-
 // authoritativeGtagsMiss は gtags の空振りを「索引に無い」と確定してよいかを返す。
 // 確定できるなら全域スキャンを省ける。
 //
@@ -356,12 +355,33 @@ func authoritativeGtagsMiss(answered, stale, preloaded, direct bool) bool {
 	return preloaded || direct
 }
 
+// headerSafe は HTTP ヘッダ値に載せられる形に直す。
+// ヘッダ値は latin-1 として読まれるため、UTF-8 のまま入れた非 ASCII 文字は
+// 受け取り側で化ける（em ダッシュ1つで "â€"" になり、文章全体が読めなくなる）。
+// よく使う約物は見た目の近い ASCII に置き換え、それ以外は落とす。
+func headerSafe(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r < 0x80:
+			b.WriteRune(r)
+		case r == '—' || r == '–': // em / en ダッシュ
+			b.WriteString("-")
+		case r == '‘' || r == '’': // 引用符
+			b.WriteString("'")
+		case r == '“' || r == '”':
+			b.WriteString("\"")
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
 // writeDefinitionResponse は X-Engine と（0件時の）X-Definition-Hint を添えて hits を返す。
 // 新規検索・キャッシュヒット・in-flight 待機のどの経路でも同じヘッダが付くよう一本化。
 func (h *Handler) writeDefinitionResponse(w http.ResponseWriter, word, hroot string, res defResult, tag string) {
 	w.Header().Set("X-Engine", res.engine)
 	if len(res.hits) == 0 {
-		if hint := definitionEmptyHint(word, hroot); hint != "" {
+		if hint := headerSafe(definitionEmptyHint(word, hroot)); hint != "" {
 			w.Header().Set("X-Definition-Hint", hint)
 		}
 	}
@@ -385,15 +405,15 @@ func definitionEmptyHint(word, root string) string {
 		// Symbols.Macros は ctagsParseSymbols がソート済みで返す（SymbolsInFile と同じ前提）
 		names := macros.Symbols.Macros
 		if i := sort.SearchStrings(names, word); i < len(names) && names[i] == word {
-			return "'" + word + "' is indexed by ctags as a #define/enum constant, but no definition location could be resolved — the tags file may lack line numbers (regenerate with ctags --fields=+n). A text search for the #define site will find it."
+			return "No definition for '" + word + "' - ctags has it as a #define/enum constant but without a line number. Regenerate the index with ctags --fields=+n, or grep for the #define site."
 		}
 	}
 	if reIdentifier.MatchString(word) && !search.GtagsIsStale() &&
 		(search.GtagsDefsPreloaded(root) || (search.GtagsIndexed(root) && search.GtagsQueriesDirect())) {
-		return "'" + word + "' is not in the gtags index (text scan skipped). If it was added recently, update the index."
+		return "No definition for '" + word + "' - it is not in the gtags index, so the whole-tree text scan was skipped. Update the index if it was added recently."
 	}
 	if !search.CtagsIndexed(root) && !search.GtagsIndexed(root) {
-		return "no ctags/gtags index for this root; only ripgrep heuristics ran. Building an index can surface more results."
+		return "No definition found - this tree has no ctags/gtags index, so only the ripgrep heuristics ran. Building an index can surface more."
 	}
 	return ""
 }

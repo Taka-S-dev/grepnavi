@@ -3179,10 +3179,12 @@ async function jumpToDefinition(word, tagCtx = '') {
 
   clearInterval(stimer);
   if(hits.length === 0) {
-    // サーバーが理由を特定できたとき (X-Definition-Hint) はそれを優先して表示する
+    // サーバーが理由を特定できたとき (X-Definition-Hint) はそれを優先して表示する。
+    // ヒントは語も「無い」ことも英語で言い切っているので、日本語の前置きを足すと
+    // 同じことを2言語で繰り返した1行になる
     if (defHint) {
-      stMine('見つかりません: ' + word + ' — ' + defHint);
-      flashAtCursor(`定義が見つかりません: ${word} — ${defHint}`, 'warn');
+      stMine(defHint);
+      flashAtCursor(defHint, 'warn');
       return;
     }
     const hint = (typeof window.gtagsEnabled === 'function' && window.gtagsEnabled())

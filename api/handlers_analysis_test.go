@@ -96,3 +96,34 @@ func TestJSONOKEmptySliceIsArray(t *testing.T) {
 		})
 	}
 }
+
+// HTTP ヘッダ値は latin-1 として読まれるため、UTF-8 のまま非 ASCII を入れると
+// 受け取り側で化ける。em ダッシュ1つで "â€“" になり、文章全体が読めなくなる。
+func TestHeaderSafe(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"No definition for 'x' — not indexed.", "No definition for 'x' - not indexed."},
+		{"a – b", "a - b"},
+		{"‘q’ and “q”", "'q' and \"q\""},
+		{"定義が見つかりません", ""},
+		{"plain ascii", "plain ascii"},
+	}
+	for _, c := range cases {
+		if got := headerSafe(c.in); got != c.want {
+			t.Errorf("headerSafe(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// ヒント文は必ずヘッダに載るので、書いた時点で ASCII であること
+// （headerSafe が最後の砦だが、そこで落とされると文章が欠ける）。
+func TestDefinitionEmptyHintIsASCII(t *testing.T) {
+	hint := definitionEmptyHint("X509_CRL_free", t.TempDir()) // 索引の無いツリー
+	if hint == "" {
+		t.Fatal("索引が無いときはヒントを返すはず")
+	}
+	for _, r := range hint {
+		if r > 0x7f {
+			t.Errorf("ヒントに非 ASCII (%q): %s", r, hint)
+		}
+	}
+}
