@@ -3149,23 +3149,31 @@ async function jumpToDefinition(word, tagCtx = '') {
     try {
       const r = await fetch('/api/definition?' + p, {signal: mine.signal});
       if (r.ok) {
-        hits = await r.json();
+        // 応答が配列でないとき（サーバーが null を返す・別の形になる）に
+        // そのまま進むと、この先の hits.length で例外になって関数ごと
+        // 抜ける。点滅表示は止まっているので、状態欄が「検索中」の
+        // まま二度と更新されない
+        const body = await r.json();
+        hits = Array.isArray(body) ? body : [];
         totalCount = hits.length;
         const eng = r.headers.get('X-Engine');
         if (eng) window._lastDefEngine = eng;
         defHint = r.headers.get('X-Definition-Hint') || '';
       }
     } catch(e) {
-      if(e?.name === 'AbortError') {
-        clearInterval(stimer);
+      // どの失敗でも点滅表示は必ず終わらせる。黙って抜けると「検索中」の
+      // まま固まり、押した操作が届いたのかどうかも分からなくなる
+      clearInterval(stimer);
+      if(e?.name !== 'AbortError') {
+        stMine('検索に失敗しました: ' + word);
+        flashAtCursor(`定義を検索できません: ${word}`, 'warn');
+      } else if(timedOut) {
         // 新しい検索に譲った中断は何も出さない（その検索が状態欄を持つ）。
         // 天井で切った場合だけ、待たされた理由を残す
-        if(timedOut) {
-          stMine('検索を打ち切りました: ' + word + ' — 応答がありません');
-          flashAtCursor(`定義の検索が終わりません: ${word}`, 'warn');
-        }
-        return;
+        stMine('検索を打ち切りました: ' + word + ' — 応答がありません');
+        flashAtCursor(`定義の検索が終わりません: ${word}`, 'warn');
       }
+      return;
     } finally { clearTimeout(bell); }
   }
 

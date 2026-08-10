@@ -6,7 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"grepnavi/search"
 )
 
 // /api/macro-values: 決まる名前だけが返り、決まらない名前はキーごと出ない
@@ -64,6 +67,31 @@ func TestAuthoritativeGtagsMiss(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := authoritativeGtagsMiss(tt.answered, tt.stale, tt.preloaded, tt.direct); got != tt.want {
 				t.Errorf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// 一覧を返す口が空を null で返すと、受け取る側の hits.length が例外になる。
+// ブラウザは点滅表示を止めた後に関数ごと抜けるため、状態欄が「定義を検索中」
+// のまま二度と更新されなくなる（定義の無い語で必ず起きていた）。
+func TestJSONOKEmptySliceIsArray(t *testing.T) {
+	cases := []struct {
+		name string
+		v    interface{}
+		want string
+	}{
+		{"nil スライス", []search.DefHit(nil), "[]"},
+		{"空スライス", []search.DefHit{}, "[]"},
+		{"nil 文字列スライス", []string(nil), "[]"},
+		{"map は素通し", map[string]string(nil), "null"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			jsonOK(w, c.v)
+			if got := strings.TrimSpace(w.Body.String()); got != c.want {
+				t.Errorf("got %s, want %s", got, c.want)
 			}
 		})
 	}

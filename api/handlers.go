@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"runtime"
 	"sync"
 
@@ -179,7 +180,14 @@ func (h *Handler) serveStatic(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "static"+r.URL.Path)
 }
 
+// jsonOK は v を JSON で返す。空のスライスは null ではなく [] として返す。
+// nil スライスは JSON では null になり、受け取る側の `hits.length` が例外に
+// なる。ブラウザ側は「結果0件」と「壊れた応答」を区別できないまま止まるので、
+// 一覧を返す口が空を表す形を1つに揃える。
 func jsonOK(w http.ResponseWriter, v interface{}) {
+	if rv := reflect.ValueOf(v); rv.Kind() == reflect.Slice && rv.IsNil() {
+		v = reflect.MakeSlice(rv.Type(), 0, 0).Interface()
+	}
 	data, err := json.Marshal(v)
 	if err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
