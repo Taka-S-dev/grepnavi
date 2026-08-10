@@ -15,15 +15,8 @@ import (
 // 来たかを推定すると、条件分岐や fall-through の解釈を誤ったときに黙って
 // 嘘をつく。ここでは「書いている行かどうか」しか答えない。
 func MarkAssignments(sites []CallSite, word string) {
-	q := regexp.QuoteMeta(word)
+	re := assignMatcher(word)
 
-	// 名前が構造体メンバか同名のローカルかは、その行だけでは決まらない。
-	// 「ファイル内にメンバ形が一度でも出たら裸の代入を無視する」という規則を
-	// 置いていたが、`curves[n].nid` が1行あるだけで同じファイルのローカル
-	// `nid = NID_...` が全部消えた（openssl の ecparam.c で30件）。
-	// ファイル全体を見て決めるのは推論であり、外したときに黙って取りこぼす。
-	// どちらの名前への書き込みも出し、区別は行の字面を見た人に任せる。
-	re := assignRe(q, `(?:(?:->|\.)\s*)?`)
 	// 判定はコメント・文字列を落とした行で行う。生の行を見ると
 	// `TEST_info("nid = %s", ...)` の書式文字列が代入に見える
 	code := codeOnlyCache{}
@@ -37,6 +30,20 @@ func MarkAssignments(sites []CallSite, word string) {
 		}
 		sites[i].Assign = re.MatchString(text)
 	}
+}
+
+// assignMatcher は「その語へ書き込む行か」を判定する検査器を1つ組む。
+// 語ごとに1回だけ組めるよう切り出してある（1行ずつ判定する呼び出し側が、
+// 行の数だけ正規表現を組み直さずに済む）。
+//
+// 名前が構造体メンバか同名のローカルかは、その行だけでは決まらない。
+// 「ファイル内にメンバ形が一度でも出たら裸の代入を無視する」という規則を
+// 置いていたが、`curves[n].nid` が1行あるだけで同じファイルのローカル
+// `nid = NID_...` が全部消えた（openssl の ecparam.c で30件）。
+// ファイル全体を見て決めるのは推論であり、外したときに黙って取りこぼす。
+// どちらの名前への書き込みも出し、区別は行の字面を見た人に任せる。
+func assignMatcher(word string) *regexp.Regexp {
+	return assignRe(regexp.QuoteMeta(word), `(?:(?:->|\.)\s*)?`)
 }
 
 // assignRe は「その語へ書き込む」形にマッチする正規表現を組む。

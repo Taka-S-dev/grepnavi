@@ -80,13 +80,8 @@ func FindRefSites(ctx context.Context, q RefQuery) ([]CallSite, string, bool, er
 		sites, truncated, err := FindCallers(ctx, q.Word, q.Scope, q.Glob)
 		return sites, "rg", truncated, err
 	}
-	sites, truncated, err := rgRefSites(ctx, q.Word, q.Scope, q.Glob, q.Limit)
-	if terms := parseRefFilter(q.Filter); len(terms) > 0 {
-		sites = filterResolved(sites, terms)
-	}
-	if q.AssignOnly {
-		sites = keepAssignments(sites)
-	}
+	sites, truncated, err := rgRefSites(ctx, q.Word, q.Scope, q.Glob, q.Limit,
+		parseRefFilter(q.Filter), q.AssignOnly)
 	return sites, "rg", truncated, err
 }
 
@@ -173,26 +168,21 @@ next:
 	return out
 }
 
-// filterResolved は解決済みの結果に同じ条件を掛ける（ripgrep 経路用）。
-// 囲む関数も対象に含められる点だけ生ヒット側と違う。
-func filterResolved(sites []CallSite, terms []refTerm) []CallSite {
-	out := sites[:0:0]
-next:
-	for _, s := range sites {
-		path := strings.ToLower(filepath.ToSlash(filepath.Clean(s.File)))
-		all := path + " " + strings.ToLower(s.Func) + " " + strings.ToLower(s.Text)
-		for _, t := range terms {
-			hay := all
-			if t.pathOnly {
-				hay = path
-			}
-			if strings.Contains(hay, t.text) == t.neg {
-				continue next
-			}
+// matchesTerms は1件が絞り込み条件を満たすかを返す。
+// 上限で切る前に1件ずつ判定するため、一覧まとめてではなく1件単位で持つ。
+func matchesTerms(s CallSite, terms []refTerm) bool {
+	path := strings.ToLower(filepath.ToSlash(filepath.Clean(s.File)))
+	all := path + " " + strings.ToLower(s.Func) + " " + strings.ToLower(s.Text)
+	for _, t := range terms {
+		hay := all
+		if t.pathOnly {
+			hay = path
 		}
-		out = append(out, s)
+		if strings.Contains(hay, t.text) == t.neg {
+			return false
+		}
 	}
-	return out
+	return true
 }
 
 func keepAssignments(sites []CallSite) []CallSite {
@@ -212,21 +202,32 @@ func capSites(sites []CallSite, limit int) ([]CallSite, bool) {
 	return sites[:limit], true
 }
 
-func rgRefSites(ctx context.Context, word, dir, glob string, limit int) ([]CallSite, bool, error) {
+// rgRefSites は索引が使えないときの経路。terms / assignOnly は上限で切る前に
+// 掛ける。切ってから絞ると、絞り込みは「先頭 limit 件」の中しか見られない。
+// gtags 経路は既にこの順序になっている。
+//
+// パスでの絞り込みはこれだけでは足りず、rg 自身にも渡す必要がある（下記）。
+func rgRefSites(ctx context.Context, word, dir, glob string, limit int, terms []refTerm, assignOnly bool) ([]CallSite, bool, error) {
 	matches, err := Search(ctx, Options{
-		Pattern:       `\b` + regexp.QuoteMeta(word) + `\b`,
-		Dir:           dir,
-		FileGlob:      glob,
+		Pattern: `\b` + regexp.QuoteMeta(word) + `\b`,
+		Dir:     dir,
+		// path: 条件は rg 自身に渡す。走査してから捨てると、上限に達するまでに
+		// 対象へ届かない（linux の ret を path:net/ipv4 で引くと、上限を arch/ と
+		// block/ で使い切って net/ に一度も入らず 0 件になった）
+		FileGlob:      joinGlobs(glob, pathGlobs(terms)),
 		Regex:         true,
 		CaseSensitive: true,
 		ContextLines:  -1,
-		MaxResults:    limit * 3, // コメント除外で減るぶんを見込む
-		MaxThreads:    _defRgThreads,
+		// コメント除外と絞り込みで減るぶんを見込む。絞り込みがあるときは
+		// 手前で大きく削られるので、素材を多めに取る
+		MaxResults: rgRefBudget(limit, len(terms) > 0 || assignOnly),
+		MaxThreads: _defRgThreads,
 	})
 	if err != nil {
 		return nil, false, err
 	}
 	code := codeOnlyCache{}
+	assignRe := assignMatcher(word)
 	sites := make([]CallSite, 0, limit)
 	for _, m := range matches {
 		lines, lerr := CachedLines(m.File)
@@ -237,19 +238,72 @@ func rgRefSites(ctx context.Context, word, dir, glob string, limit int) ([]CallS
 		if !code.mentionsInCode(m.File, lines, m.Line, word) {
 			continue
 		}
-		if len(sites) >= limit {
-			return sites, true, nil
-		}
 		fn, defLine := code.containingFunc(m.File, lines, m.Line)
-		sites = append(sites, CallSite{
+		site := CallSite{
 			Func:     fn,
 			File:     m.File,
 			Line:     defLine,
 			CallLine: m.Line,
 			Text:     strings.TrimSpace(callSiteText(lines, m.Line)),
-		})
+		}
+		if len(terms) > 0 && !matchesTerms(site, terms) {
+			continue
+		}
+		// 代入の印はここで付ける。上限に達した経路で後からまとめて付けると、
+		// 早期 return がそれを飛ばして、打ち切られた一覧だけ印が消える
+		site.Assign = assignRe.MatchString(codeLineAt(code, m.File, lines, m.Line, site.Text))
+		if assignOnly && !site.Assign {
+			continue
+		}
+		if len(sites) >= limit {
+			MarkIndirectCalls(sites, word)
+			return sites, true, nil
+		}
+		sites = append(sites, site)
 	}
 	MarkIndirectCalls(sites, word)
-	MarkAssignments(sites, word)
 	return sites, false, nil
+}
+
+// pathGlobs は path: / file: の肯定条件を rg の --glob へ写す。
+// 否定条件は渡さない（除外は行の字面にも掛かるので、パスだけを見る rg 側へ
+// 渡すと意味が変わる）。
+func pathGlobs(terms []refTerm) []string {
+	var out []string
+	for _, t := range terms {
+		if t.pathOnly && !t.neg && t.text != "" {
+			out = append(out, "**/*"+t.text+"*/**", "**/*"+t.text+"*")
+		}
+	}
+	return out
+}
+
+// joinGlobs は既存の glob 指定に条件を足す。区切りは splitGlobs と同じ。
+func joinGlobs(glob string, extra []string) string {
+	if len(extra) == 0 {
+		return glob
+	}
+	return strings.Join(append(splitGlobs(glob), extra...), ",")
+}
+
+// codeLineAt はコメント・文字列を落とした側の行を返す（取れなければ生の行）。
+// 代入判定を生の行で行うと、`printf("x = %d")` の書式文字列が代入に見える。
+func codeLineAt(code codeOnlyCache, file string, lines []string, line int, raw string) string {
+	c := code.get(file, lines)
+	if line >= 1 && line <= len(c) {
+		return c[line-1]
+	}
+	return raw
+}
+
+// rgRefBudget は rg に要求する件数。絞り込みがあると手前で大きく削られるので、
+// 素材を多めに取る。青天井にすると巨大ツリーで走査自体が終わらない。
+func rgRefBudget(limit int, filtered bool) int {
+	if filtered {
+		if n := limit * 60; n < 20000 {
+			return n
+		}
+		return 20000
+	}
+	return limit * 3
 }

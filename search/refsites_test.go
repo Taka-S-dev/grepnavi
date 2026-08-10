@@ -310,3 +310,60 @@ func TestFindRefSitesServerSideFilter(t *testing.T) {
 		t.Errorf("除外と抽出の合計が全体に一致しない: %d + %d != %d", len(rest), len(only), len(all))
 	}
 }
+
+// 索引が使えないときの経路でも、絞り込みと代入判定は上限で切る前に掛ける。
+// 切ってから絞ると、絞り込みは「先頭 limit 件」の中しか見られない
+// （linux の ret を path:net/ipv4 で引いたら 0 件になった）。
+//
+// 1ファイル内なら rg の返す順は行番号順で決まるので、残したい行を後ろに置けば
+// 「先頭しか見ていない」実装は必ず落ちる。ファイルをまたぐ順序は不定なので
+// この形にしてある。
+func TestRgRefSitesNarrowsBeforeCap(t *testing.T) {
+	if _, err := exec.LookPath("rg"); err != nil {
+		t.Skip("rg not installed")
+	}
+	root := t.TempDir()
+	var b strings.Builder
+	b.WriteString("void f(void)\n{\n")
+	for i := 0; i < 60; i++ {
+		b.WriteString("    use(target);\n") // 読み出しだけ。絞り込みでも代入でも残らない
+	}
+	for i := 0; i < 10; i++ {
+		b.WriteString("    target = 1; /* KEEP */\n") // 残したい行は後ろ
+	}
+	b.WriteString("}\n")
+	if err := os.WriteFile(filepath.Join(root, "a.c"), []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("絞り込み", func(t *testing.T) {
+		sites, _, err := rgRefSites(context.Background(), "target", root, "", 5,
+			parseRefFilter("keep"), false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(sites) == 0 {
+			t.Fatal("上限で切ってから絞ったため、後ろの行に届いていない")
+		}
+		for _, s := range sites {
+			if !strings.Contains(s.Text, "KEEP") {
+				t.Errorf("絞り込みの外が混ざった: %s", s.Text)
+			}
+		}
+	})
+
+	t.Run("代入だけ", func(t *testing.T) {
+		sites, _, err := rgRefSites(context.Background(), "target", root, "", 5, nil, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(sites) == 0 {
+			t.Fatal("上限で切ってから代入を選んだため、後ろの行に届いていない")
+		}
+		for _, s := range sites {
+			if !s.Assign {
+				t.Errorf("代入でない行が混ざった: %s", s.Text)
+			}
+		}
+	})
+}
