@@ -6,4 +6,5 @@ const ADDONS = [
   'call-tree',   // コールツリーパネル
   'jump-map',    // 定義ジャンプ経路の可視化
   'ref-map',     // 参照マップ（索引から計算するモジュール間の参照）
+  'state-machine', // 状態変数の遷移図
 ];

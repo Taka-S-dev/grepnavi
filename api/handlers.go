@@ -86,6 +86,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/ifdef", h.handleIfdef)
 	mux.HandleFunc("/api/ifdef-stack", h.handleIfdefStack)
 	mux.HandleFunc("/api/definition", h.handleDefinition)
+	mux.HandleFunc("/api/state-machine", h.handleStateMachine)
 	mux.HandleFunc("/api/symbol-search", h.handleSymbolSearch)
 	mux.HandleFunc("/api/heal-line", h.handleHealLine)
 	mux.HandleFunc("/api/hover", h.handleHover)

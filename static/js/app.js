@@ -195,6 +195,16 @@ addEventListener('DOMContentLoaded', async () => {
     if(e.key === 'ArrowUp')    { e.preventDefault(); fzfMoveSel(-1); }
     if(e.key === 'Enter')      { fzfActivate(fzfSelIdx); }
     if(e.key === 'Escape')     { closeFzf(); }
+    // 代入一覧から一段深い見方へ。同じ問い（どこで書き換えているか）に
+    // 一覧とパネルの2つの答えがあると、どちらを開くか決められない。
+    // 速い方を既定にして、値まで見たいときだけ深い方へ渡す
+    if(e.altKey && (e.key === 's' || e.key === 'S') && fzfMode === 'ref'
+       && typeof window.openStateMachine === 'function' && fzfRefWord) {
+      e.preventDefault();
+      const w = fzfRefWord;
+      closeFzf();
+      window.openStateMachine(w);
+    }
   });
   id('fzf-overlay').addEventListener('click', e => { if(e.target === id('fzf-overlay')) closeFzf(); });
   id('help-overlay').addEventListener('click', e => { if(e.target === id('help-overlay')) closeHelp(); });

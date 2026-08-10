@@ -689,6 +689,9 @@ function initFloatingPeek(getHoverCtx) {
       if(typeof window.openCallTree === 'function') {
         addItem('codicon-list-tree', 'コールツリー',   () => window.openCallTree(word), 't', w);
       }
+      if(typeof window.openStateMachine === 'function') {
+        addItem('codicon-git-merge', 'この語に何が入るか', () => window.openStateMachine(word), 's', w);
+      }
       if(typeof navBack === 'function' && typeof navForward === 'function') {
         addSep();
         const noBack = typeof navIndex === 'number' && navIndex <= 0;
@@ -727,7 +730,7 @@ function initFloatingPeek(getHoverCtx) {
       addItem('codicon-list-tree', 'コールツリー',        () => window.openCallTree(word), 't');
     }
     if(typeof window.openStateMachine === 'function') {
-      addItem('codicon-git-merge', '状態遷移',            () => window.openStateMachine(word), 's');
+      addItem('codicon-git-merge', 'この語に何が入るか',  () => window.openStateMachine(word), 's');
     }
 
     // この語に印を付ける・書き留める

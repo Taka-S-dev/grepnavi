@@ -514,6 +514,75 @@ func (h *Handler) writeRefGroups(w http.ResponseWriter, r *http.Request, word, d
 	})
 }
 
+// --- /api/state-machine ---
+
+// 状態変数の遷移解析。var= の変数名を代入している箇所を集め、遷移元・
+// 状態の全体集合つきで返す。
+//
+// 走査対象は参照検索（gtags → rg）で「その名前が出るファイル」に絞る。
+// 全ファイルを舐めるとカーネル級で待たされ、索引を新設すると鮮度管理を
+// 抱えるので、既存の索引で粗く絞ってから生鮮解析する二段構えにしている。
+func (h *Handler) handleStateMachine(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	varName := q.Get("var")
+	if varName == "" {
+		jsonErr(w, "var required", http.StatusBadRequest)
+		return
+	}
+	if !reIdentifier.MatchString(varName) {
+		jsonErr(w, "var must be an identifier", http.StatusBadRequest)
+		return
+	}
+	h.mu.RLock()
+	hroot := h.root
+	h.mu.RUnlock()
+	dir := q.Get("dir")
+	if dir == "" {
+		dir = hroot
+	} else if !filepath.IsAbs(dir) {
+		dir = filepath.Join(hroot, dir)
+	}
+	glob := q.Get("glob")
+	if glob == "" {
+		glob = "*.c,*.h,*.cpp,*.hpp,*.cc"
+	}
+
+	refs, truncated, engine, err := search.FindReferences(r.Context(), varName, dir, stateMachineRefLimit, false, "")
+	if err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	seen := map[string]bool{}
+	var files []string
+	for _, ref := range refs {
+		if seen[ref.File] || !isCLike(ref.File) {
+			continue
+		}
+		seen[ref.File] = true
+		files = append(files, ref.File)
+		if len(files) >= stateMachineFileLimit {
+			truncated = true
+			break
+		}
+	}
+
+	sm := search.AnalyzeStateMachine(r.Context(), files, varName, dir, glob)
+	jsonOK(w, map[string]interface{}{
+		"var":         sm.Var,
+		"transitions": sm.Transitions,
+		"states":      sm.States,
+		"family":      sm.Family,
+		"files":       len(files),
+		"truncated":   truncated,
+		"engine":      engine,
+	})
+}
+
+const (
+	stateMachineRefLimit  = 2000
+	stateMachineFileLimit = 300
+)
+
 // --- /api/symbol-search ---
 
 // handleSymbolSearch はシンボル名のパターン検索（プロジェクト全体）。
