@@ -1083,11 +1083,15 @@ async function ensureEditor() {
   // 窓が背面・最小化のあいだはブラウザが ResizeObserver / rAF を止めるため、
   // その間のサイズ変化を automaticLayout が取りこぼす。前面に戻った瞬間に
   // 一度取り直せば、「上に数行だけ」「下が黒帯」のまま固定される状態から復帰する。
+  // 同じ理由で、ウィンドウのリサイズと復帰時にも取り直す。visibilitychange は
+  // 最小化のような「隠れた/戻った」でしか起きないので、フォーカスが外れたまま
+  // 枠を引っ張られた場合や、リサイズ中に間引かれた場合はここで拾う。
+  const relayout = () => { if (monacoEditor) { try { monacoEditor.layout(); } catch (_) {} } };
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && monacoEditor) {
-      try { monacoEditor.layout(); } catch (_) {}
-    }
+    if (document.visibilityState === 'visible') relayout();
   });
+  window.addEventListener('resize', relayout);
+  window.addEventListener('focus', relayout);
   // editor-state sync (MCP bridge 経由で AI が editor 状態を取れるようにする)
   if (typeof startEditorStateSync === 'function') startEditorStateSync();
 
@@ -3049,6 +3053,9 @@ addEventListener('DOMContentLoaded', () => {
   if(savedPeekH) {
     id('peek').style.height = savedPeekH + 'px';
     id('peek').style.maxHeight = 'none';
+    // ドラッグ中と同じ理由で次フレームに取り直す。ここだけ layout が無く、
+    // 復元した高さぶんだけ下が描かれないまま固定されることがあった
+    if (monacoEditor) requestAnimationFrame(() => monacoEditor.layout());
   }
 });
 
