@@ -618,7 +618,7 @@ function initFloatingPeek(getHoverCtx) {
 
     // ヘッダー: ワード名を1回だけ表示
     const hdr = document.createElement('div');
-    hdr.textContent = word;
+    hdr.textContent = word || '（語の上ではありません）';
     hdr.style.cssText = 'padding:4px 12px;color:#666;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;border-bottom:1px solid #3a3a3a;margin-bottom:2px';
     menu.appendChild(hdr);
 
@@ -633,13 +633,16 @@ function initFloatingPeek(getHoverCtx) {
     const accel = new Map();
     // 実体は _mountWordCtxMenu で差し替わる（リスナー解除まで面倒を見る版に）
     let closeMenu = () => menu.remove();
-    const addItem = (iconClass, label, fn, key) => {
+    // disabled の項目も消さずに並べる。並び順が毎回同じでないと
+    // 「Z を押せば戻る」のような手の記憶が効かなくなる
+    const addItem = (iconClass, label, fn, key, disabled) => {
       const el = document.createElement('div');
-      el.className = 'wc-item';
-      el.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 12px 5px 8px;color:#ccc;cursor:pointer;white-space:nowrap';
+      el.className = disabled ? 'wc-item wc-disabled' : 'wc-item';
+      el.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 12px 5px 8px;white-space:nowrap;'
+        + (disabled ? 'color:#5a5a5a;cursor:default' : 'color:#ccc;cursor:pointer');
       const icon = document.createElement('i');
       icon.className = 'codicon ' + iconClass;
-      icon.style.cssText = 'flex-shrink:0;font-size:14px;color:#858585;width:16px;text-align:center';
+      icon.style.cssText = 'flex-shrink:0;font-size:14px;width:16px;text-align:center;color:' + (disabled ? '#4a4a4a' : '#858585');
       const text = document.createElement('span');
       text.textContent = label;
       el.appendChild(icon);
@@ -647,33 +650,41 @@ function initFloatingPeek(getHoverCtx) {
       if(key) {
         const hint = document.createElement('span');
         hint.textContent = key.toUpperCase();
-        hint.style.cssText = 'margin-left:auto;padding-left:14px;color:#7a7a7a;font-size:10px;font-family:monospace';
+        hint.style.cssText = 'margin-left:auto;padding-left:14px;font-size:10px;font-family:monospace;color:' + (disabled ? '#4a4a4a' : '#7a7a7a');
         el.appendChild(hint);
-        accel.set(key.toLowerCase(), fn);
+        if(!disabled) accel.set(key.toLowerCase(), fn);
       }
-      el.onmouseenter = () => { el.style.background = '#094771'; icon.style.color = '#ccc'; };
-      el.onmouseleave = () => { el.style.background = ''; icon.style.color = '#858585'; };
-      el.onclick = () => { closeMenu(); fn(); };
+      if(!disabled) {
+        el.onmouseenter = () => { el.style.background = '#094771'; icon.style.color = '#ccc'; };
+        el.onmouseleave = () => { el.style.background = ''; icon.style.color = '#858585'; };
+        el.onclick = () => { closeMenu(); fn(); };
+      }
       menu.appendChild(el);
     };
 
     if(jumpOnly) {
-      addItem('codicon-go-to-file',  '定義へジャンプ', () => jumpToDefinition(word), 'd');
+      // 空行やスペースの上でも開ける。語が要る項目だけ非活性にして並びは保つ
+      // （「戻りたいだけ」のときに語を探して当てる必要をなくす）
+      const noWord = !word;
+      addItem('codicon-go-to-file',  '定義へジャンプ', () => jumpToDefinition(word), 'd', noWord);
       if(typeof openRefPicker === 'function') {
-        addItem('codicon-references', '参照を検索',    () => openRefPicker(word), 'r');
+        addItem('codicon-references', '参照を検索',    () => openRefPicker(word), 'r', noWord);
       }
       if(typeof openCalleePicker === 'function') {
         addItem('codicon-call-outgoing', 'この関数が呼ぶ関数', () => openCalleePicker(), 'c');
       }
-      addItem('codicon-file-code',   'その場で定義を見る', () => _showFloatingDef(word), 'e');
-      addItem('codicon-search',      'grep',           () => grepSearchWord(word), 'g');
+      addItem('codicon-file-code',   'その場で定義を見る', () => _showFloatingDef(word), 'e', noWord);
+      addItem('codicon-search',      'grep',           () => grepSearchWord(word), 'g', noWord);
       if(typeof window.openCallTree === 'function') {
-        addItem('codicon-list-tree', 'コールツリー',   () => window.openCallTree(word), 't');
+        addItem('codicon-list-tree', 'コールツリー',   () => window.openCallTree(word), 't', noWord);
       }
       if(typeof navBack === 'function' && typeof navForward === 'function') {
         addSep();
-        addItem('codicon-arrow-left',  '戻る', () => navBack(), 'z');
-        addItem('codicon-arrow-right', '進む', () => navForward(), 'x');
+        const noBack = typeof navIndex === 'number' && navIndex <= 0;
+        const noFwd  = typeof navIndex === 'number' && Array.isArray(navHistory)
+                       && navIndex >= navHistory.length - 1;
+        addItem('codicon-arrow-left',  '戻る', () => navBack(),    'z', noBack);
+        addItem('codicon-arrow-right', '進む', () => navForward(), 'x', noFwd);
       }
       _mountWordCtxMenu();
       return;
@@ -735,7 +746,7 @@ function initFloatingPeek(getHoverCtx) {
       if(e.key === 'Escape') { e.preventDefault(); closeMenu(); focusEditorSafe(); return; }
       if(e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
-        const items = [...menu.querySelectorAll('.wc-item')];
+        const items = [...menu.querySelectorAll('.wc-item:not(.wc-disabled)')];
         if(!items.length) return;
         const cur = items.findIndex(el => el.dataset.sel === '1');
         const next = (cur + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;

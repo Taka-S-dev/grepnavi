@@ -1419,10 +1419,14 @@ async function ensureEditor() {
     }
 
     const word = monacoEditor.getModel()?.getWordAtPosition(pos);
-    if(!word) return;
-    if(e.event.ctrlKey) { e.event.preventDefault(); jumpToDefinition(word.word, _tagContextAt(monacoEditor.getModel(), pos.lineNumber, word.startColumn)); }
+    if(e.event.ctrlKey) {
+      if(!word) return;
+      e.event.preventDefault();
+      jumpToDefinition(word.word, _tagContextAt(monacoEditor.getModel(), pos.lineNumber, word.startColumn));
+    }
     // Alt+クリック → その場でジャンプランチャー。マウスを持った手だけで
-    // 「語をクリック → 行き先を選ぶ」が終わる（grep もランチャーの中にある）
+    // 「語をクリック → 行き先を選ぶ」が終わる（grep もランチャーの中にある）。
+    // 空行の上でも開く（語が要る項目は非活性で出る）
     else if(e.event.altKey) {
       e.event.preventDefault();
       monacoEditor.setPosition(pos);
@@ -1537,9 +1541,10 @@ async function ensureEditor() {
     const sel = ed.getSelection();
     const model = ed.getModel();
     if(!model) return;
+    // 語が無くても開く。空行から「戻る」を選べないと、読み進めた先で
+    // わざわざ語を探してクリックする羽目になる
     const word = (sel && !sel.isEmpty() ? model.getValueInRange(sel).trim() : null)
-                 || model.getWordAtPosition(ed.getPosition())?.word;
-    if(!word) return;
+                 || model.getWordAtPosition(ed.getPosition())?.word || '';
     let x = 100, y = 100;
     if(at) {
       x = at.x; y = at.y;
