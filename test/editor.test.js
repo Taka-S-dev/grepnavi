@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 // setup.js (--require) で browser globals をスタブ済み
 global.id = () => null;
 
-const { fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane } = require('../static/js/editor.js');
+const { statusGate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane } = require('../static/js/editor.js');
 
 test('fzfMatchToken - exact match', () => {
   const r = fzfMatchToken('foobar', 'foo');
@@ -247,4 +247,20 @@ test('refFilterPredicate - -path: でパスだけ除外', () => {
 test('refFilterPredicate - 空の条件は全部通す', () => {
   const p = refFilterPredicate('   ');
   assert.ok(p(row('a.c', 'f', 'x')));
+});
+
+// 中断された定義検索が、後から始まった検索の結果を上書きしないこと。
+// 点滅表示は 80ms ごとに書き続けるので、これが漏れると状態欄が
+// 「定義を検索中」のまま固まって二度と更新されなくなる
+test('statusGate - 最新の検索だけが状態欄に書ける', () => {
+  let gen = 0, shown = '';
+  const write = m => { shown = m; };
+  const first = statusGate(++gen, () => gen, write);
+  first('検索中: A');
+  assert.equal(shown, '検索中: A');
+
+  const second = statusGate(++gen, () => gen, write);
+  second('定義: b.c:12');
+  first('検索中: A');           // 中断された側の点滅が遅れて届く
+  assert.equal(shown, '定義: b.c:12');
 });

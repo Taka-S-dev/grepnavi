@@ -3095,18 +3095,29 @@ function showDefPeek(hits, word, pixelPos) {
 
 // ===== 定義ジャンプ =====
 let _defAbortCtrl = null;
+let _defGen = 0;
+
+// statusGate は「自分がまだ最新の検索か」を確かめてから状態欄に書く関数を作る。
+// 検索の表示は点滅表示が 80ms ごとに書き換えるので、中断された検索が中断に
+// 気づくまでの隙間に、後から始まった検索が出した行き先を上書きしてしまう。
+// 上書きした直後に点滅も止まるため、状態欄は「検索中」のまま二度と動かない。
+function statusGate(gen, currentGen, write) {
+  return msg => { if(gen === currentGen()) write(msg); };
+}
 async function jumpToDefinition(word, tagCtx = '') {
   if(!word) { flashAtCursor('語の上ではありません', 'warn'); return; }
   if(word.length < 2) { flashAtCursor(`定義を探せません: ${word} は1文字です`, 'warn'); return; }
   if(_defAbortCtrl) _defAbortCtrl.abort();
   _defAbortCtrl = new AbortController();
+  const myGen = ++_defGen;
+  const stMine = statusGate(myGen, () => _defGen, st);
   // ジャンプ前の現在位置を履歴に記録（Alt+← で戻れるように）
   const curFile = tabs[activeTabIdx]?.file;
   const curLine = monacoEditor?.getPosition()?.lineNumber;
   if(curFile && curLine) navPush(curFile, curLine);
   let sf = 0;
-  const stimer = setInterval(() => { sf=(sf+1)%SPINNER_FRAMES.length; st(SPINNER_FRAMES[sf]+' 定義を検索中: '+word); }, 80);
-  st(SPINNER_FRAMES[0]+' 定義を検索中: '+word);
+  const stimer = setInterval(() => { sf=(sf+1)%SPINNER_FRAMES.length; stMine(SPINNER_FRAMES[sf]+' 定義を検索中: '+word); }, 80);
+  stMine(SPINNER_FRAMES[0]+' 定義を検索中: '+word);
   const currentFile = tabs[activeTabIdx]?.file || '';
   const glob = id('glob').value.trim();
 
@@ -3142,14 +3153,14 @@ async function jumpToDefinition(word, tagCtx = '') {
   if(hits.length === 0) {
     // サーバーが理由を特定できたとき (X-Definition-Hint) はそれを優先して表示する
     if (defHint) {
-      st('見つかりません: ' + word + ' — ' + defHint);
+      stMine('見つかりません: ' + word + ' — ' + defHint);
       flashAtCursor(`定義が見つかりません: ${word} — ${defHint}`, 'warn');
       return;
     }
     const hint = (typeof window.gtagsEnabled === 'function' && window.gtagsEnabled())
       ? ' — インデックスが古い場合は再生成を試してください'
       : '';
-    st('見つかりません: ' + word + hint);
+    stMine('見つかりません: ' + word + hint);
     // 定義が無いのか索引に無いだけなのかは判断できないので、次の一手を添える
     flashAtCursor(`定義が見つかりません: ${word}（Alt+G で grep、Alt+R で参照）`, 'warn');
     return;
@@ -3167,14 +3178,14 @@ async function jumpToDefinition(word, tagCtx = '') {
   const _healedNote = ' — 索引の位置からずれていたため調整しました（索引を更新すると出なくなります）';
   // 1件なら直接ジャンプ
   if(hits.length === 1) {
-    st(`定義: ${shortPath(hits[0].file)}:${hits[0].line}${_engLabel}` + (hits[0].healed ? _healedNote : ''));
+    stMine(`定義: ${shortPath(hits[0].file)}:${hits[0].line}${_engLabel}` + (hits[0].healed ? _healedNote : ''));
     if(typeof window.recordJump === 'function') window.recordJump(word, curFile, curLine, hits[0].file, hits[0].line);
     await openPeekPermanent(hits[0].file, hits[0].line);
     return;
   }
 
   // 複数件はピークウィジェットで表示（検索欄を汚染しない）
-  st(`定義 ${hits.length}件${_engLabel}` + (hits.some(x => x.healed) ? _healedNote : ''));
+  stMine(`定義 ${hits.length}件${_engLabel}` + (hits.some(x => x.healed) ? _healedNote : ''));
   const monacoPos = monacoEditor.getPosition() || { lineNumber: 1, column: 1 };
   const pixelPos = monacoEditor.getScrolledVisiblePosition(monacoPos) || { top: 40, left: 40 };
   // 1行分下にずらして表示
@@ -3276,4 +3287,4 @@ addEventListener('DOMContentLoaded', () => {
   }
 });
 
-if (typeof module !== 'undefined') module.exports = { syncedNavLine, refFilterPredicate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane };
+if (typeof module !== 'undefined') module.exports = { statusGate, syncedNavLine, refFilterPredicate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane };
