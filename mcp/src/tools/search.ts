@@ -37,7 +37,9 @@ export const definitions: ToolDef[] = [
     description:
       "Find every place a symbol is USED — not just called. Use this for struct members, global variables, enum constants and macros, which grepnavi_callers cannot see because it only resolves function calls.\n\n" +
       "Typical questions: \"who writes this field?\", \"where is this global read?\", \"which code depends on this macro?\". Each hit carries `text` (the source line) and `func` when the reference sits inside a function, so you can classify read vs write without another fetch.\n\n" +
-      "Comment-only and string-only mentions are filtered out, as are references inside `#if 0`. Returns `{ references, count, engine, truncated }`; `truncated: true` means the cap was reached, so treat the list as a sample and narrow with `dir`.\n\n" +
+      "Comment-only and string-only mentions are filtered out, as are references inside `#if 0`. Returns `{ references, count, engine, truncated }`; `truncated: true` means the cap was reached, so treat the list as a sample and narrow with `dir`, `filter` or `assign`.\n\n" +
+      "**Answer \"who writes this?\" with `assign: true`** instead of reading every hit: it keeps only the lines that write the symbol (`=`, `+=`, `++`, ...), judged on the source line with comments and strings stripped. A field with 200 references usually has a handful of writes.\n\n" +
+      "**Narrow with `filter` before the cap bites.** It is applied on the server, over everything the index returned, so it reaches hits that `limit` would have cut off — filtering the returned list cannot. Space-separated terms are AND, a leading `-` excludes, and `path:` / `file:` match the path only: `filter: \"path:net/ipv4 -test\"`.\n\n" +
       "**Next step**: grepnavi_func_body on an interesting `func` to see the surrounding logic, or grepnavi_callers if the symbol turns out to be a function after all.",
     inputSchema: {
       type: "object",
@@ -45,6 +47,15 @@ export const definitions: ToolDef[] = [
         word: { type: "string", description: "Symbol to look for (field, global, macro, enum constant...)." },
         dir: { type: "string", description: "Optional subdirectory to limit the search." },
         limit: { type: "integer", description: "Max references to return (default 100)." },
+        assign: {
+          type: "boolean",
+          description: "Keep only the lines that write the symbol. Use for \"who sets this?\".",
+        },
+        filter: {
+          type: "string",
+          description:
+            "Narrow on the server, over every hit the index returned. Space = AND, leading `-` excludes, `path:` / `file:` match the path only. Example: \"path:net/ipv4 -test\".",
+        },
       },
       required: ["word"],
     },
@@ -296,19 +307,23 @@ export const handlers: Record<string, ToolHandler> = {
     }));
   },
   grepnavi_references: async (args) => {
-    const a = args as { word: string; dir?: string; limit?: number };
+    const a = args as { word: string; dir?: string; limit?: number; assign?: boolean; filter?: string };
     if (!a.word) throw new Error("`word` is required");
     const r = await client.references(a.word, {
       dir: normalizeInputPath(a.dir),
       limit: a.limit,
+      assign: a.assign,
+      filter: a.filter,
     });
     return ok({
       references: r.refs,
       count: r.refs.length,
       engine: r.engine,
       truncated: r.truncated,
+      assign_only: a.assign || undefined,
+      filter: a.filter || undefined,
       note: r.truncated
-        ? "Capped: this is a sample, not every reference. Narrow with `dir` or raise `limit`."
+        ? "Capped: this is a sample, not every reference. Narrow with `filter`, `assign` or `dir` — they are applied before the cap, so they reach hits this list does not contain."
         : undefined,
     });
   },

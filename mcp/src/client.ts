@@ -118,6 +118,23 @@ export interface GraphResponse {
   bookmarks?: Record<string, string>;
 }
 
+// referenceParams は /api/references のクエリを組む。
+// 絞り込みと代入判定はサーバー側で掛ける。手元で絞ると、上限で切られて
+// 取ってこなかった範囲は最初から候補に入らない（linux の ret は参照が 60 万件
+// あり、返るのは先頭の一部でしかない）。渡し忘れると、その事実に気づけないまま
+// 「これで全部」と読める一覧が返る。
+export function referenceParams(
+  word: string,
+  opts: { dir?: string; limit?: number; assign?: boolean; filter?: string } = {},
+): string {
+  const params = new URLSearchParams({ word });
+  if (opts.dir) params.set("dir", opts.dir);
+  if (opts.limit) params.set("limit", String(opts.limit));
+  if (opts.assign) params.set("assign", "1");
+  if (opts.filter) params.set("filter", opts.filter);
+  return params.toString();
+}
+
 export class GrepnaviError extends Error {
   constructor(message: string, public readonly cause?: unknown) {
     super(message);
@@ -344,16 +361,13 @@ export class GrepnaviClient {
   // /api/references は word が使われている箇所を返す（呼び出しに限らない）。
   async references(
     word: string,
-    opts: { dir?: string; limit?: number } = {},
+    opts: { dir?: string; limit?: number; assign?: boolean; filter?: string } = {},
   ): Promise<{
     refs: Array<{ file: string; line: number; text: string; func?: string }>;
     engine: string;
     truncated: boolean;
   }> {
-    const params = new URLSearchParams({ word });
-    if (opts.dir) params.set("dir", opts.dir);
-    if (opts.limit) params.set("limit", String(opts.limit));
-    const r = await this.req("/api/references?" + params.toString());
+    const r = await this.req("/api/references?" + referenceParams(word, opts));
     return {
       refs: (await r.json()) as Array<{ file: string; line: number; text: string; func?: string }>,
       engine: r.headers.get("X-Engine") || "",

@@ -9,6 +9,7 @@ import {
   inCallerSubtree,
   annotateMemo,
   kindRankScore,
+  referenceParams,
 } from "../dist/client.js";
 
 // ---------- likelyTrivial ----------
@@ -152,4 +153,30 @@ test("kindRankScore - ordering func > define > typedef > others", () => {
 test("kindRankScore - null/undefined → 0", () => {
   assert.equal(kindRankScore(null), 0);
   assert.equal(kindRankScore(undefined), 0);
+});
+
+// ---------- referenceParams ----------
+
+// 絞り込みと代入判定はサーバー側で掛ける。渡し忘れても一覧は返ってくるので、
+// 気づかないまま「上限で切られた先頭だけ」を全件だと読むことになる。
+test("referenceParams - 絞り込みをサーバーへ渡す", () => {
+  const p = new URLSearchParams(
+    referenceParams("stat", { filter: "path:net/ipv4 -test", limit: 200 }),
+  );
+  assert.equal(p.get("word"), "stat");
+  assert.equal(p.get("filter"), "path:net/ipv4 -test");
+  assert.equal(p.get("limit"), "200");
+});
+
+test("referenceParams - 代入だけに絞る", () => {
+  const p = new URLSearchParams(referenceParams("sk_state", { assign: true }));
+  assert.equal(p.get("assign"), "1");
+});
+
+test("referenceParams - 指定しない項目は送らない", () => {
+  const p = new URLSearchParams(referenceParams("stat"));
+  assert.equal(p.get("assign"), null);
+  assert.equal(p.get("filter"), null);
+  assert.equal(p.get("dir"), null);
+  assert.equal(p.get("limit"), null);
 });
