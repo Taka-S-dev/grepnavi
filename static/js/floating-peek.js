@@ -642,6 +642,9 @@ function initFloatingPeek(getHoverCtx) {
     };
 
     // ナビゲーション
+    if(typeof openRefPicker === 'function') {
+      addItem('codicon-references', '参照を検索',      () => openRefPicker(word));
+    }
     addItem('codicon-search',      'grep',             () => grepSearchWord(word));
     addItem('codicon-go-to-file',  '定義へジャンプ',   () => jumpToDefinition(word));
     // ホバー内は再ホバーできないので、展開カードに見えている定数を調べる

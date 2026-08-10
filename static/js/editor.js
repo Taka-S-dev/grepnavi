@@ -1500,6 +1500,24 @@ async function ensureEditor() {
     }
   });
 
+  // Shift+F12 → 参照を検索（索引）。gtags があれば構文解析済みの参照だけが
+  // 出るので、コメント・文字列・#if 0 内の出現は落ちる。grep（下）は逆に
+  // 字面を全部拾うので、精度が要るときと取りこぼしを避けたいときで使い分ける
+  monacoEditor.addAction({
+    id: 'grepnavi-references', label: '参照を検索',
+    contextMenuGroupId: 'grepnavi-nav',
+    contextMenuOrder: 0.5,
+    keybindings: [monaco.KeyMod.Shift | monaco.KeyCode.F12],
+    run: ed => {
+      const sel = ed.getSelection();
+      const model = ed.getModel();
+      if(!model) return;
+      const word = (sel && !sel.isEmpty() ? model.getValueInRange(sel).trim() : null)
+                   || model.getWordAtPosition(ed.getPosition())?.word;
+      if(word) openRefPicker(word);
+    }
+  });
+
   // 右クリック → grep 検索（カーソル単語）
   monacoEditor.addAction({
     id: 'grepnavi-grep-word', label: 'grep 検索',
@@ -1694,6 +1712,7 @@ if(typeof document !== 'undefined') document.addEventListener('DOMContentLoaded'
 // ===== Ctrl+P ファイル / Ctrl+T シンボル クイックオープン =====
 async function openFzf(mode = 'file') {
   fzfMode = mode;
+  fzfRefs = []; fzfRefsFiltered = []; // 参照ピッカーの残りを持ち越さない
   if(mode === 'file' && !fzfFiles) {
     try {
       const r = await fetch('/api/files');
@@ -1711,6 +1730,69 @@ async function openFzf(mode = 'file') {
 
 function closeFzf() {
   id('fzf-overlay').classList.remove('open');
+}
+
+// ===== 参照ピッカー =====
+// 参照は「候補から1つ選んで読みに行く」一時的な操作なので、検索ワークスペース
+// （タブ・フィルタが残る grep パネル）ではなくクイックピッカーで出す。
+// 引くたびにタブが増えず、視線も画面中央から動かず、Esc で何も残さず消える。
+async function openRefPicker(word) {
+  if(!word || word.length < 2) return;
+  fzfMode = 'ref';
+  fzfRefWord = word;
+  fzfRefs = [];
+  fzfRefsFiltered = [];
+  id('fzf-overlay').classList.add('open');
+  id('fzf-input').value = '';
+  id('fzf-input').placeholder = `${word} の参照を絞り込む（関数名・パス）`;
+  id('fzf-count').textContent = '検索中…';
+  id('fzf-list').innerHTML = '<div class="fzf-empty">参照を検索しています…</div>';
+  setTimeout(() => id('fzf-input').focus(), 30);
+  try {
+    const dir = id('dir').value.trim();
+    const params = new URLSearchParams({ word, limit: '2000' });
+    if(dir) params.set('dir', dir);
+    const r = await fetch('/api/references?' + params.toString());
+    if(!r.ok) { id('fzf-list').innerHTML = '<div class="fzf-empty">参照の検索に失敗しました</div>'; return; }
+    const engine = r.headers.get('X-Engine') || '';
+    fzfRefs = (await r.json()) || [];
+    // 索引ベース（gtags）か字面（rg）かで結果の性質が変わるので明示する
+    fzfRefs._engine = engine === 'gtags' ? 'gtags 索引' : 'rg テキスト';
+    if(fzfMode !== 'ref') return; // 待っている間に別のピッカーへ移った
+    fzfRenderRefs(id('fzf-input').value);
+  } catch {
+    id('fzf-list').innerHTML = '<div class="fzf-empty">参照の検索に失敗しました</div>';
+  }
+}
+
+function fzfRenderRefs(query) {
+  const list = id('fzf-list');
+  const q = query.trim().toLowerCase();
+  fzfRefsFiltered = q
+    ? fzfRefs.filter(r => ((r.func || '') + ' ' + r.file + ' ' + (r.text || '')).toLowerCase().includes(q))
+    : fzfRefs.slice();
+  fzfSelIdx = 0;
+  id('fzf-count').textContent =
+    `${fzfRefsFiltered.length} / ${fzfRefs.length} 件 [${fzfRefs._engine || ''}]`;
+  list.innerHTML = '';
+  if(!fzfRefsFiltered.length) {
+    list.innerHTML = `<div class="fzf-empty">${fzfRefs.length ? '絞り込みに一致しません' : '参照が見つかりませんでした'}</div>`;
+    return;
+  }
+  fzfRefsFiltered.slice(0, 300).forEach((ref, i) => {
+    const div = document.createElement('div');
+    div.className = 'fzf-item' + (i === 0 ? ' fzf-sel' : '');
+    const loc = document.createElement('span');
+    loc.className = 'fzf-name';
+    loc.textContent = (ref.func ? ref.func + '  ' : '') + shortPath(ref.file) + ':' + ref.line;
+    const code = document.createElement('span');
+    code.className = 'fzf-dir fzf-ref-code';
+    code.textContent = (ref.text || '').trim().slice(0, 120);
+    div.appendChild(loc);
+    div.appendChild(code);
+    div.onclick = () => { closeFzf(); openPeek(ref.file, ref.line); };
+    list.appendChild(div);
+  });
 }
 
 function fzfMatchToken(path, token) {
@@ -1768,6 +1850,7 @@ function _fzfSymbolQuery(query) {
 }
 
 function fzfRender(query) {
+  if(fzfMode === 'ref') { fzfRenderRefs(query); return; }
   const symQuery = _fzfSymbolQuery(query);
   if(symQuery !== null) { fzfRenderSymbols(symQuery); return; }
   const list = id('fzf-list');
@@ -1847,6 +1930,11 @@ function fzfRenderSymbols(query) {
 // fzfActivate は Enter / クリック相当の決定操作。モード (と `#` プレフィックス) に応じて
 // 開く対象を切り替える。
 async function fzfActivate(idx) {
+  if(fzfMode === 'ref') {
+    const ref = fzfRefsFiltered[idx];
+    if(ref) { closeFzf(); openPeek(ref.file, ref.line); }
+    return;
+  }
   if(_fzfSymbolQuery(id('fzf-input').value) !== null) {
     const s = fzfSymResults[idx];
     if(s) { closeFzf(); openPeek(s.file, await healedSymbolLine(s)); }

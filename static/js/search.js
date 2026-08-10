@@ -182,6 +182,8 @@ function doSearch() {
     id('sh-title').textContent = title;
     id('sh-over').textContent = overText;
     st(`${d.count} 件ヒット  F3: 次へ  Shift+F3: 前へ`);
+    // 一覧をクリックしなくても ↑↓ で選べるようにしておく（参照検索と同じ操作）
+    initResultListKeys();
     // 0件の理由 (glob ミス / regex ボタン押し忘れ) があれば結果パネルに表示。
     // 「存在しない」と「検索条件のミス」をユーザーが区別できるようにする。
     if(d.count === 0 && d.hint) {
@@ -655,15 +657,60 @@ function previewMatch(m) {
 }
 
 // ===== F3 検索結果ナビゲーション =====
+// F3 / Shift+F3: 結果を1つ送ってコードへ戻る。
+// 飛んだ先でそのまま F12（定義へ）や Alt+← が押せるように焦点も移す。
+// Monaco のキー割り当てはエディタにフォーカスが無いと発火しないので、
+// これが無いと送るたびにマウスでコードを触る必要がある
 function jumpResult(delta) {
+  if(stepResult(delta)) focusEditor();
+}
+
+// 一覧の中で選択を1つ動かしてプレビューする（フォーカスは動かさない）。
+// 動かせたら true。
+function stepResult(delta) {
   const rows = _visibleItems.filter(it => it.type === 'row');
-  if(!rows.length) return;
+  if(!rows.length) return false;
   const cur = rows.findIndex(r => _selectedKey === r.match.file + ':' + r.match.line);
   const next = nextResultIndex(cur, delta, rows.length);
-  if(next < 0) return;
+  if(next < 0) return false;
   const nextRow = rows[next];
   previewMatch(nextRow.match);
   scrollToVirtItem(nextRow);
+  return true;
+}
+
+// 候補が複数あるときに一覧そのものをキーボードで選べるようにする。
+// vim の :cs find が候補一覧を出して選ばせるのと同じ位置づけで、
+// F3 の順送りだけでは何百件から目的の1件を選べない。
+function focusResultList() {
+  const el = id('results');
+  if(!el) return;
+  el.setAttribute('tabindex', '-1');
+  el.focus({ preventScroll: true });
+  if(!_selectedKey) stepResult(1); // 未選択なら先頭を選ぶ
+}
+
+function initResultListKeys() {
+  const el = id('results');
+  if(!el || el._keysBound) return;
+  el._keysBound = true;
+  el.addEventListener('keydown', e => {
+    if(e.altKey || e.ctrlKey || e.metaKey) return;
+    if(e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      stepResult(e.key === 'ArrowDown' ? 1 : -1);
+    } else if(e.key === 'Enter' || e.key === 'Escape') {
+      e.preventDefault();
+      focusEditor(); // 選んだ場所で読み進める / 一覧から抜ける
+    }
+  });
+}
+
+// 検索結果からコードへ移ったときに使う。エディタが無い表示モードでは何もしない
+function focusEditor() {
+  if(typeof monacoEditor !== 'undefined' && monacoEditor) {
+    try { monacoEditor.focus(); } catch(_) {}
+  }
 }
 
 // ===== 検索履歴タブ =====
