@@ -1204,6 +1204,11 @@ body.search-mode #root-chip{min-width:0}
 /* 囲む関数が無い参照の種別。関数名と区別が付くよう控えめに出す */
 .fzf-col-scope{color:#6a6a6a;font-style:italic}
 .fzf-item.fzf-sel .fzf-col-scope{color:#b0b0b0}
+/* 送っている一覧の現在地。選択（青）とは別の意味なので色を分ける。
+   履歴パネルの現在地と同じ配色にして、同じ意味だと分かるようにする */
+.fzf-item.fzf-ref-cur{background:#3a3d1e}
+.fzf-item.fzf-ref-cur .fzf-col-name{color:#e0d060;font-weight:600}
+.fzf-item.fzf-ref-cur.fzf-sel{background:#094771}
 .fzf-item.fzf-sel .fzf-col-loc{color:#a8d0a8}
 .fzf-item .fzf-ref-code{font-family:monospace;color:#7c9a7c;overflow:hidden;text-overflow:ellipsis}
 .fzf-item.fzf-sel .fzf-ref-code{color:#b5cea8}

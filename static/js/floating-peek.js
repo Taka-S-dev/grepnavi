@@ -698,7 +698,10 @@ function initFloatingPeek(getHoverCtx) {
         addItem('codicon-arrow-right', '進む', () => navForward(), 'x', {disabled: noFwd});
         // 連続して動かしたいときは一覧側（V）に入る。Z / X は1段だけ
         if(typeof openHistoryPicker === 'function') {
-          addItem('codicon-history', '移動の履歴', () => openHistoryPicker(), 'v',
+          if(typeof openRefStepList === 'function') {
+          addItem('codicon-list-ordered', '確認中の一覧', () => openRefStepList(), 'f');
+        }
+        addItem('codicon-history', '移動の履歴', () => openHistoryPicker(), 'v',
                   {disabled: !Array.isArray(navHistory) || navHistory.length < 2});
         }
       }

@@ -1602,6 +1602,15 @@ async function ensureEditor() {
     }
   });
 
+  // Alt+F → 送っている一覧を開き直す（並び順そのまま・現在地に色）
+  monacoEditor.addAction({
+    id: 'grepnavi-step-list', label: '確認中の一覧',
+    contextMenuGroupId: 'grepnavi-nav',
+    contextMenuOrder: 7.5,
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyF],
+    run: () => openRefStepList()
+  });
+
   // Alt+V → 通ってきた場所の一覧（Z / X の連打で探すより速い）。
   // 移動系の Z X C の隣に置いて、指の位置で覚えられるようにする
   monacoEditor.addAction({
@@ -2036,7 +2045,10 @@ function fzfRenderRefs(query) {
   const sameFile = !!fzfRefs._sameFile;
   fzfRefsFiltered.slice(0, 300).forEach((ref, i) => {
     const div = document.createElement('div');
-    div.className = 'fzf-item fzf-ref-row' + (i === 0 ? ' fzf-sel' : '');
+    // 現在地は選択（青）と別の意味なので色を分ける
+    const isCur = typeof fzfRefs._curIdx === 'number' && ref === fzfRefs[fzfRefs._curIdx];
+    if(isCur) fzfSelIdx = i;
+    div.className = 'fzf-item fzf-ref-row' + (isCur ? ' fzf-ref-cur' : '');
     const name = document.createElement('span');
     name.className = 'fzf-name fzf-col-name';
     // 関数の外にある参照（プロトタイプ宣言・マクロ定義・型定義の中）は
@@ -2070,6 +2082,12 @@ function fzfRenderRefs(query) {
     };
     list.appendChild(div);
   });
+  // 現在地があればそこを選択に、無ければ先頭を選ぶ
+  const selRow = list.children[fzfSelIdx] || list.children[0];
+  if(selRow && selRow.classList.contains('fzf-ref-row')) {
+    selRow.classList.add('fzf-sel');
+    setTimeout(() => selRow.scrollIntoView({ block: 'nearest' }), 0);
+  }
   // 描画は 300 行までにしている。件数だけ多く出して行が足りないと、
   // 絞り込みが効いていないように見える
   if(fzfRefsFiltered.length > 300) {
@@ -2257,11 +2275,37 @@ function setRefStepList(rows, idx) {
 // F3 の送り先が古い参照一覧のままだと、検索したのに別のものが送られる。
 function clearRefStepList() { _refStep = null; }
 
+// openRefStepList は送っている一覧をそのまま開き直す。並び順は変えず、
+// いま何件目にいるかを色で示す。上から順に確かめる作業では、開くたびに
+// 並びが変わったり、どこまで進んだか分からなくなるのが一番困る。
+//
+// 引き直しではなく保存した一覧を出すのは、呼び先の一覧がカーソル位置の
+// 関数から決まるため。送っている途中で別ファイルへ移っていると、
+// 引き直したら別の関数の呼び先になってしまう。
+function openRefStepList() {
+  if(!_refStep) { flashAtCursor('送っている一覧がありません', 'warn'); return; }
+  fzfMode = 'ref';
+  fzfRefWord = ''; // 入力しても引き直さない（並びを保つため手元で絞る）
+  fzfRefs = _refStep.rows;
+  fzfRefs._engine = `${_refStep.idx + 1} / ${_refStep.rows.length} 件目`;
+  fzfRefs._curIdx = _refStep.idx;
+  fzfRefs._truncated = false;
+  fzfRefsFiltered = [];
+  id('fzf-overlay').classList.add('open');
+  id('fzf-input').value = '';
+  id('fzf-input').placeholder = '確認中の一覧（並び順そのまま。色付きが現在地）';
+  anchorFzfBox(takePickerAnchor());
+  fzfRenderRefs('');
+  reanchorFzfBox();
+  setTimeout(() => id('fzf-input').focus(), 30);
+}
+
 // refStepJump は参照一覧を1つ送る。送れたら true（F3 はこれを優先する）。
 function refStepJump(delta) {
   if(!_refStep) return false;
   const n = _refStep.rows.length;
   _refStep.idx = (_refStep.idx + delta + n) % n;
+  if(fzfRefs) fzfRefs._curIdx = _refStep.idx;
   const ref = _refStep.rows[_refStep.idx];
   if(!ref) return false;
   openPeek(ref.file, ref.line).then(() => monacoEditor?.focus());
