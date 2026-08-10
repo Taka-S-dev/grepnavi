@@ -106,6 +106,7 @@ let fzfSymResults = [];   // symbol モードの現在の結果 (DefHit 配列)
 let fzfRefs = [];         // ref モードの参照一覧 (Reference 配列)
 let fzfRefsFiltered = []; // ref モードの絞り込み後（表示中のもの）
 let fzfRefWord = '';      // ref モードで引いた語
+let fzfRefAssign = false; // 参照ピッカーが代入だけを出す状態か
 let fzfSymFetchSeq = 0;   // 古い fetch 結果が新しい入力を上書きしないための連番
 
 // Project

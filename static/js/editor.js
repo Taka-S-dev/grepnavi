@@ -1808,6 +1808,7 @@ if(typeof document !== 'undefined') document.addEventListener('DOMContentLoaded'
 // ===== Ctrl+P ファイル / Ctrl+T シンボル クイックオープン =====
 async function openFzf(mode = 'file') {
   fzfMode = mode;
+  fzfRefWord = '';
   fzfRefs = []; fzfRefsFiltered = []; // 参照ピッカーの残りを持ち越さない
   if(mode === 'file' && !fzfFiles) {
     try {
@@ -1903,21 +1904,36 @@ function reanchorFzfBox() { if(_fzfAnchorPt) anchorFzfBox(_fzfAnchorPt); }
 // 「この変数を誰が書き換えているか」は参照一覧だと読み出しに埋もれる。
 function openAssignPicker(word) { return openRefPicker(word, true); }
 
-async function openRefPicker(word, assignOnly) {
+// 絞り込みは入力のたびにサーバへ送る。手元だけで絞ると、取ってこなかった範囲は
+// 出てこない（linux の ret は参照が60万件あり、上限で切った先頭ぶんしか手元に
+// 無い）。シンボル検索が `#` で使っているのと同じ経路。
+let _refReloadTimer = null;
+function fzfReloadRefs(filter) {
+  clearTimeout(_refReloadTimer);
+  _refReloadTimer = setTimeout(() => {
+    if(fzfMode === 'ref' && fzfRefWord) openRefPicker(fzfRefWord, fzfRefAssign, filter);
+  }, 180);
+}
+
+async function openRefPicker(word, assignOnly, filter) {
   if(!word) { flashAtCursor('語の上ではありません', 'warn'); return; }
   if(word.length < 2) { flashAtCursor(`参照を探せません: ${word} は1文字です`, 'warn'); return; }
   fzfMode = 'ref';
   fzfRefWord = word;
+  fzfRefAssign = !!assignOnly;
   fzfRefs = [];
   fzfRefsFiltered = [];
   id('fzf-overlay').classList.add('open');
-  id('fzf-input').value = '';
+  if(filter === undefined) id('fzf-input').value = '';
   id('fzf-input').placeholder = (assignOnly ? `${word} への代入` : `${word} の参照`)
     + ' を絞り込む（空白で AND / -語 で除外 / path:… でパスだけ）';
   id('fzf-count').textContent = '検索中…';
   id('fzf-list').innerHTML = '<div class="fzf-empty">参照を検索しています…</div>';
-  anchorFzfBox(takePickerAnchor());
-  setTimeout(() => id('fzf-input').focus(), 30);
+  // 絞り込みでの再問い合わせでは、位置と入力欄とフォーカスをそのままにする
+  if(filter === undefined) {
+    anchorFzfBox(takePickerAnchor());
+    setTimeout(() => id('fzf-input').focus(), 30);
+  }
   try {
     // 検索パネルの絞り込みは渡さない。参照は「これで全部か」を見る一覧で、
     // 別のパネルの設定で黙って件数が減るほうが危ない（呼び出し元一覧と同じ）。
@@ -1928,6 +1944,7 @@ async function openRefPicker(word, assignOnly) {
     // 直すべきは順序のほうなので、上限は据え置いて打ち切りを必ず表示する。
     const params = new URLSearchParams({ word, limit: '2000' });
     if(assignOnly) params.set('assign', '1');
+    if(filter) params.set('filter', filter);
     const r = await fetch('/api/references?' + params.toString());
     if(!r.ok) { id('fzf-list').innerHTML = '<div class="fzf-empty">参照の検索に失敗しました</div>'; return; }
     const engine = r.headers.get('X-Engine') || '';
@@ -1953,6 +1970,7 @@ async function openCalleePicker() {
   const line = monacoEditor?.getPosition()?.lineNumber;
   if(!tab || !line) { flashAtCursor('先にファイルを開いてください', 'warn'); return; }
   fzfMode = 'ref';
+  fzfRefWord = ''; // 入力しても参照の再問い合わせに戻らないようにする
   fzfRefs = [];
   fzfRefsFiltered = [];
   id('fzf-overlay').classList.add('open');

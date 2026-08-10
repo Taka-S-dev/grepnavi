@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -254,5 +255,58 @@ func TestFindRefSitesReportsIndexTruncation(t *testing.T) {
 	}
 	if len(cut) > 1 {
 		t.Errorf("上限 1 を超えて返している: %d 件", len(cut))
+	}
+}
+
+func TestParseRefFilter(t *testing.T) {
+	got := parseRefFilter("  crypto -test path:ssl -file:doc  ")
+	want := []refTerm{
+		{text: "crypto"},
+		{neg: true, text: "test"},
+		{pathOnly: true, text: "ssl"},
+		{neg: true, pathOnly: true, text: "doc"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("条件の数 got=%d want=%d (%+v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("[%d] got=%+v want=%+v", i, got[i], want[i])
+		}
+	}
+	if len(parseRefFilter("   ")) != 0 {
+		t.Error("空入力から条件が出ている")
+	}
+}
+
+// 絞り込みは解決の前に掛かる。索引が返した全件が対象になるので、
+// 手元で絞るのと違って「取ってこなかった範囲」が残らない。
+func TestFindRefSitesServerSideFilter(t *testing.T) {
+	dir := writeRefFixture(t)
+	q := RefQuery{Word: "helper", Root: dir, NoIndex: true, Limit: 100}
+	all, _, _, err := FindRefSites(context.Background(), q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q.Filter = "path:other"
+	only, _, _, err := FindRefSites(context.Background(), q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(only) == 0 || len(only) >= len(all) {
+		t.Fatalf("path: で絞れていない: 全 %d 件 → %d 件", len(all), len(only))
+	}
+	for _, s := range only {
+		if !strings.Contains(strings.ToLower(s.File), "other") {
+			t.Errorf("path:other に一致しない行が残っている: %s", s.File)
+		}
+	}
+	q.Filter = "-path:other"
+	rest, _, _, err := FindRefSites(context.Background(), q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rest)+len(only) != len(all) {
+		t.Errorf("除外と抽出の合計が全体に一致しない: %d + %d != %d", len(rest), len(only), len(all))
 	}
 }

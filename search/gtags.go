@@ -204,9 +204,8 @@ var (
 const _gtagsRefsCacheTTL = 2 * time.Minute
 
 type gtagsRefsEntry struct {
-	sites     []CallSite
-	truncated bool
-	storedAt  time.Time
+	hits     []DefHit
+	storedAt time.Time
 }
 
 func gtagsCacheKey(dir, word string) string { return dir + "\x00" + word }
@@ -1489,21 +1488,45 @@ func GtagsFindHoverHits(ctx context.Context, word, dir string) ([]DefHit, error)
 // 解決はヒットのあるファイルを読んでコメント除去と関数範囲表を作る処理で、
 // linux の `ret` のように参照が数十万ある語では、上限の 2000 件しか使わないのに
 // 全件を解決して 17 秒かかっていた。切るのを後ろに置くと上限が効かない。
-func gtagsRefSites(ctx context.Context, word, dir string, maxHits int) ([]CallSite, bool, error) {
-	sites, tr, err := gtagsRefsWithFlag(ctx, word, dir, "-xr", maxHits)
-	if err != nil || len(sites) > 0 {
-		return sites, tr, err
+func gtagsRawRefs(ctx context.Context, word, dir string) ([]DefHit, error) {
+	hits, err := gtagsRefsWithFlag(ctx, word, dir, "-xr")
+	if err != nil || len(hits) > 0 {
+		return hits, err
 	}
-	return gtagsRefsWithFlag(ctx, word, dir, "-xs", maxHits)
+	return gtagsRefsWithFlag(ctx, word, dir, "-xs")
+}
+
+// ResolveRefSites は索引の生ヒットに、そのファイルを読んで分かることを付ける。
+// ファイルごとにコメント除去と関数範囲表を作る処理なので、絞り込みと上限を
+// 済ませた後の、実際に返すぶんだけに掛けること。
+func ResolveRefSites(hits []DefHit, word string) []CallSite {
+	var results []CallSite
+	code := codeOnlyCache{}
+	for _, h := range hits {
+		lines, err := CachedLines(h.File)
+		if err != nil {
+			continue
+		}
+		// 索引はコメント内の識別子も拾うので、コード部分に無い出現は落とす
+		if !code.mentionsInCode(h.File, lines, h.Line, word) {
+			continue
+		}
+		funcName, defLine := code.containingFunc(h.File, lines, h.Line)
+		results = append(results, CallSite{
+			Func: funcName, File: h.File, Line: defLine,
+			CallLine: h.Line, Text: callSiteText(lines, h.Line),
+		})
+	}
+	return results
 }
 
 // gtagsRefsWithFlag は global の参照系オプション（-xr / -xs）1つぶんを引く。
 // 結果は (dir,word,flag) でキャッシュされ、インデックス更新か寿命切れまで保持される。
-func gtagsRefsWithFlag(ctx context.Context, word, dir, flag string, maxHits int) ([]CallSite, bool, error) {
-	cacheKey := gtagsCacheKey(dir, word) + "|" + flag + "|" + strconv.Itoa(maxHits)
+func gtagsRefsWithFlag(ctx context.Context, word, dir, flag string) ([]DefHit, error) {
+	cacheKey := gtagsCacheKey(dir, word) + "|" + flag
 	if v, ok := _gtagsRefsCache.Load(cacheKey); ok {
 		if e := v.(gtagsRefsEntry); time.Since(e.storedAt) < _gtagsRefsCacheTTL {
-			return e.sites, e.truncated, nil
+			return e.hits, nil
 		}
 		_gtagsRefsCache.Delete(cacheKey)
 	}
@@ -1525,10 +1548,10 @@ func gtagsRefsWithFlag(ctx context.Context, word, dir, flag string, maxHits int)
 			if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
 				slog.Debug("gtags-find-refs no results", "word", word)
 				_gtagsRefsCache.Store(cacheKey, gtagsRefsEntry{storedAt: time.Now()})
-				return nil, false, nil
+				return nil, nil
 			}
 			slog.Warn("gtags-find-refs error", "word", word, "err", err, "stderr", stderr.String())
-			return nil, false, err
+			return nil, err
 		}
 		// Cygwin global.exe が native pipe に書けず stdout が空のことがある（GtagsFindDefinitions と同症状）。
 		if len(bytes.TrimSpace(out)) == 0 {
@@ -1538,41 +1561,11 @@ func gtagsRefsWithFlag(ctx context.Context, word, dir, flag string, maxHits int)
 		}
 	}
 	hits := gtagsParseOutput(out, "ref", dir)
-	slog.Debug("gtags-find-refs raw hits", "word", word, "count", len(hits))
-	var results []CallSite
-	code := codeOnlyCache{}
-	// 索引が古いと行がずれている。下の絞り込みは「その行にシンボルが無ければ
-	// 捨てる」ので、先に取り直しておかないと、ずれたヒットはコメント扱いで消え、
+	// 索引が古いと行がずれている。後段は「その行にシンボルが無ければ捨てる」ので、
+	// 先に取り直しておかないと、ずれたヒットはコメント扱いで消え、
 	// 参照一覧が黙って不完全になる。
-	hits = regatherDriftedRefs(hits, word, dir, code)
-	truncated := false
-	if maxHits > 0 && len(hits) > maxHits {
-		hits, truncated = hits[:maxHits], true
-	}
-	skippedComment := 0
-	for _, h := range hits {
-		lines, lerr := CachedLines(h.File)
-		if lerr != nil {
-			slog.Debug("gtags-find-refs CachedLines error", "file", h.File, "err", lerr)
-			continue
-		}
-		// gtags の参照インデックスはコメント内の識別子も拾うため、
-		// コード部分に無い出現（説明文中の foo() など）は呼び出し元にしない
-		if !code.mentionsInCode(h.File, lines, h.Line, word) {
-			skippedComment++
-			continue
-		}
-		funcName, defLine := code.containingFunc(h.File, lines, h.Line)
-		results = append(results, CallSite{
-			Func:     funcName,
-			File:     h.File,
-			Line:     defLine,
-			CallLine: h.Line,
-			Text:     callSiteText(lines, h.Line),
-		})
-	}
-	slog.Debug("gtags-find-refs result", "word", word, "results", len(results),
-		"skipped_comment", skippedComment)
-	_gtagsRefsCache.Store(cacheKey, gtagsRefsEntry{sites: results, truncated: truncated, storedAt: time.Now()})
-	return results, truncated, nil
+	hits = regatherDriftedRefs(hits, word, dir, codeOnlyCache{})
+	slog.Debug("gtags-find-refs raw hits", "word", word, "count", len(hits))
+	_gtagsRefsCache.Store(cacheKey, gtagsRefsEntry{hits: hits, storedAt: time.Now()})
+	return hits, nil
 }

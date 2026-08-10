@@ -183,7 +183,12 @@ addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  id('fzf-input').addEventListener('input', e => fzfRender(e.target.value));
+  id('fzf-input').addEventListener('input', e => {
+    fzfRender(e.target.value);
+    // 参照・代入の一覧は絞り込みをサーバへ送り直す（索引が返した全件に届く）。
+    // 呼び先は1関数ぶんしかないので手元の絞り込みで足りる
+    if(fzfMode === 'ref' && fzfRefWord) fzfReloadRefs(e.target.value);
+  });
   id('fzf-input').addEventListener('keydown', e => {
     if(e.key === 'ArrowDown')  { e.preventDefault(); fzfMoveSel(1); }
     if(e.key === 'ArrowUp')    { e.preventDefault(); fzfMoveSel(-1); }
