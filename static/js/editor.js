@@ -1989,7 +1989,14 @@ function fzfRenderRefs(query) {
     div.className = 'fzf-item fzf-ref-row' + (i === 0 ? ' fzf-sel' : '');
     const name = document.createElement('span');
     name.className = 'fzf-name fzf-col-name';
-    name.textContent = ref.func || '';
+    // 関数の外にある参照（プロトタイプ宣言・マクロ定義・型定義の中）は
+    // 囲む関数が無い。空欄だと表示が壊れたように見えるので、何なのかを出す
+    if(ref.func) {
+      name.textContent = ref.func;
+    } else {
+      name.textContent = fileScopeLabel(ref.text || '');
+      name.classList.add('fzf-col-scope');
+    }
     if(ref.kind === 'define') {
       const badge = document.createElement('span');
       badge.className = 'fzf-kind';
@@ -2012,6 +2019,14 @@ function fzfRenderRefs(query) {
     };
     list.appendChild(div);
   });
+}
+
+// fileScopeLabel は囲む関数が無い参照の正体を1語で表す。
+function fileScopeLabel(text) {
+  const t = text.trim();
+  if(t.startsWith('#')) return 'マクロ定義';
+  if(t.endsWith(';') && t.includes('(')) return '宣言';
+  return 'ファイル直下';
 }
 
 function fzfMatchToken(path, token) {
