@@ -147,3 +147,89 @@ func TestCodeOnlyLinesDropsIf0(t *testing.T) {
 		}
 	}
 }
+
+// codeOnlyLinesRef は置き換え前の実装。行ごとに文字列を作る素直な形で、
+// 新しい実装が1文字も振る舞いを変えていないことを突き合わせるために残す。
+func codeOnlyLinesRef(lines []string) []string {
+	out := make([]string, len(lines))
+	inBlock := false
+	var condStack []bool
+	for i, line := range lines {
+		var b strings.Builder
+		inStr, inChar := false, false
+		for j := 0; j < len(line); j++ {
+			c := line[j]
+			switch {
+			case inBlock:
+				if c == '*' && j+1 < len(line) && line[j+1] == '/' {
+					inBlock = false
+					j++
+				}
+			case inStr, inChar:
+				if c == '\\' {
+					j++
+					continue
+				}
+				if (inStr && c == '"') || (inChar && c == '\'') {
+					inStr, inChar = false, false
+				}
+			case c == '/' && j+1 < len(line) && line[j+1] == '*':
+				inBlock = true
+				j++
+			case c == '/' && j+1 < len(line) && line[j+1] == '/':
+				j = len(line)
+			case c == '"':
+				inStr = true
+			case c == '\'':
+				inChar = true
+			default:
+				b.WriteByte(c)
+			}
+		}
+		stripped := b.String()
+		condStack = applyCondDirective(condStack, stripped)
+		if anyDead(condStack) {
+			stripped = ""
+		}
+		out[i] = stripped
+	}
+	return out
+}
+
+func TestCodeOnlyLinesMatchesReference(t *testing.T) {
+	corpora := map[string][]string{
+		"生成コード": benchCFile(6, 25),
+		"手書き": {
+			`#include <stdio.h>`,
+			`/* block comment with "quote" and { brace`,
+			`   still inside */ int live_after_comment;`,
+			`char *s = "text /* not a comment */ with \" escape";`,
+			`char c = '\'';`,
+			`  # if 0`,
+			`  dead_call();`,
+			`  #else`,
+			`  live_call();`,
+			`  #endif`,
+			`#ifdef CONFIG_X`,
+			`  conditional_call(); // trailing comment`,
+			`#endif`,
+			``,
+			`int tail; /* unterminated`,
+			`still swallowed`,
+		},
+		"空":     {},
+		"空行だけ": {"", "", ""},
+	}
+	for name, lines := range corpora {
+		got := codeOnlyLines(lines)
+		want := codeOnlyLinesRef(lines)
+		if len(got) != len(want) {
+			t.Fatalf("%s: 行数が違う got=%d want=%d", name, len(got), len(want))
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("%s: [%d] got=%q want=%q", name, i+1, got[i], want[i])
+			}
+		}
+	}
+}

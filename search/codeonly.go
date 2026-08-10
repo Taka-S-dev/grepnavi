@@ -1,6 +1,9 @@
 package search
 
-import "strings"
+import (
+	"bytes"
+	"strings"
+)
 
 // codeOnlyLines は各行からコメント・文字列リテラル・`#if 0` ブロックを取り除いた
 // 「生きているコードだけ」の行を返す（行数と行番号は元のまま保つ）。
@@ -14,12 +17,22 @@ import "strings"
 // 捨てられるので、これだけが安全に落とせる。
 //
 // ブロックコメントと条件ブロックは行をまたぐので、必ずファイル先頭から順に処理すること。
+// 実装メモ: 行ごとに文字列を作ると1行につき1回確保することになり、
+// 8千行のファイルで8千回を超える。全行をひとつのバッファに詰めてから
+// 一度だけ文字列にし、各行はその部分文字列として切り出す。
 func codeOnlyLines(lines []string) []string {
-	out := make([]string, len(lines))
+	total := 0
+	for _, l := range lines {
+		total += len(l)
+	}
+	buf := make([]byte, 0, total)
+	type span struct{ start, end int }
+	spans := make([]span, len(lines))
+
 	inBlock := false
 	var condStack []bool // 各 #if 系ブロックが `#if 0` 由来か
 	for i, line := range lines {
-		var b strings.Builder
+		start := len(buf)
 		inStr, inChar := false, false
 		for j := 0; j < len(line); j++ {
 			c := line[j]
@@ -47,17 +60,33 @@ func codeOnlyLines(lines []string) []string {
 			case c == '\'':
 				inChar = true
 			default:
-				b.WriteByte(c)
+				buf = append(buf, c)
 			}
 		}
-		stripped := b.String()
-		condStack = applyCondDirective(condStack, stripped)
-		if anyDead(condStack) {
-			stripped = "" // `#if 0` の中身は構成に依らず捨てられる
+		end := len(buf)
+		// 条件スタックを進めるのはディレクティブ行だけ。ここで文字列にすると
+		// 結局1行1回の確保に戻るので、`#` で始まる行に限って作る
+		if isDirectiveLine(buf[start:end]) {
+			condStack = applyCondDirective(condStack, string(buf[start:end]))
 		}
-		out[i] = stripped
+		if anyDead(condStack) {
+			end = start // `#if 0` の中身は構成に依らず捨てられる
+		}
+		spans[i] = span{start, end}
+	}
+
+	all := string(buf) // 全行ぶんの確保はこの1回だけ
+	out := make([]string, len(lines))
+	for i, sp := range spans {
+		out[i] = all[sp.start:sp.end]
 	}
 	return out
+}
+
+// isDirectiveLine は前処理ディレクティブ行かを、文字列を作らずに判定する。
+func isDirectiveLine(b []byte) bool {
+	t := bytes.TrimSpace(b)
+	return len(t) > 0 && t[0] == '#'
 }
 
 // applyCondDirective は前処理ディレクティブ1行ぶんだけ条件スタックを進める。
