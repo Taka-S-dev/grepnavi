@@ -2074,11 +2074,12 @@ function fzfRenderRefs(query) {
     div.appendChild(name);
     div.appendChild(loc);
     div.appendChild(code);
-    div.onclick = () => {
+    div.onclick = async () => {
       setRefStepList(fzfRefsFiltered, i);
       closeFzf();
-      if(ref.callee) jumpToDefinition(ref.callee);
-        else openPeek(ref.file, ref.line);
+      if(ref.callee) await jumpToDefinition(ref.callee);
+      else await openPeek(ref.file, ref.line);
+      focusEditorAfterJump();
     };
     list.appendChild(div);
   });
@@ -2315,6 +2316,15 @@ function refStepJump(delta) {
 
 // fzfActivate は Enter / クリック相当の決定操作。モード (と `#` プレフィックス) に応じて
 // 開く対象を切り替える。
+// 選んだ後はコードに焦点を戻す。Monaco のキー割り当てはエディタに
+// フォーカスが無いと発火しないので、これが無いと着地した直後は
+// Alt+D も Alt+F も効かず、一度クリックしないと操作を続けられない。
+function focusEditorAfterJump() {
+  if(typeof monacoEditor !== 'undefined' && monacoEditor) {
+    try { monacoEditor.focus(); } catch(_) {}
+  }
+}
+
 async function fzfActivate(idx) {
   if(fzfMode === 'ref') {
     const ref = fzfRefsFiltered[idx];
@@ -2322,16 +2332,24 @@ async function fzfActivate(idx) {
     setRefStepList(fzfRefsFiltered, idx);
     closeFzf();
     // 呼び先を選んだときは「呼び出し行」ではなくその関数の定義を見たい
-    if(ref.callee) jumpToDefinition(ref.callee);
-    else openPeek(ref.file, ref.line);
+    if(ref.callee) await jumpToDefinition(ref.callee);
+    else await openPeek(ref.file, ref.line);
+    focusEditorAfterJump();
     return;
   }
   if(_fzfSymbolQuery(id('fzf-input').value) !== null) {
     const s = fzfSymResults[idx];
-    if(s) { closeFzf(); openPeek(s.file, await healedSymbolLine(s)); }
+    if(s) {
+      closeFzf();
+      await openPeek(s.file, await healedSymbolLine(s));
+      focusEditorAfterJump();
+    }
     return;
   }
-  if(fzfFiltered[idx]) fzfOpen(fzfFiltered[idx]);
+  if(fzfFiltered[idx]) {
+    await fzfOpen(fzfFiltered[idx]);
+    focusEditorAfterJump();
+  }
 }
 
 // healedSymbolLine は索引の行番号を現在のファイルに合わせて取り直す。
@@ -2497,8 +2515,8 @@ function openHistoryPicker() {
       e.preventDefault(); e.stopPropagation();
       closeHistoryPicker(); monacoEditor?.focus(); return;
     }
-    if(k === 'z' || k === 'arrowup')   { e.preventDefault(); e.stopPropagation(); navBack(); return; }
-    if(k === 'x' || k === 'arrowdown') { e.preventDefault(); e.stopPropagation(); navForward(); return; }
+    if(k === 'z' || k === 'arrowup')   { e.preventDefault(); e.stopPropagation(); navBack().then(focusEditorAfterJump); return; }
+    if(k === 'x' || k === 'arrowdown') { e.preventDefault(); e.stopPropagation(); navForward().then(focusEditorAfterJump); return; }
   };
   document.addEventListener('keydown', _histKeyHandler, true);
   setTimeout(() => document.addEventListener('mousedown', _histOutside, true), 0);
@@ -2536,7 +2554,7 @@ function renderHistoryPicker() {
     code.className = 'hist-code';
     code.textContent = (h.text || navLineText(h.file, h.line)).slice(0, 160);
     row.append(step, loc, code);
-    row.onclick = () => navGoTo(i);
+    row.onclick = () => navGoTo(i).then(focusEditorAfterJump);
     list.appendChild(row);
     if(i === navIndex) setTimeout(() => row.scrollIntoView({block: 'nearest'}), 0);
   });
