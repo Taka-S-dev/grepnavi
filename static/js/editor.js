@@ -1919,10 +1919,15 @@ async function openRefPicker(word, assignOnly) {
   anchorFzfBox(takePickerAnchor());
   setTimeout(() => id('fzf-input').focus(), 30);
   try {
-    const dir = id('dir').value.trim();
+    // 検索パネルの絞り込みは渡さない。参照は「これで全部か」を見る一覧で、
+    // 別のパネルの設定で黙って件数が減るほうが危ない（呼び出し元一覧と同じ）。
+    // 絞るのは入力欄で行う（空白 AND / -語 / path:）。
+    // 上限を上げても速くならない: 索引が返した全件について囲む関数を
+    // 解決してから最後に切る作りなので、コストは上限に依らない
+    // （linux の ret で limit 1000/2000/4000 いずれも約17秒）。
+    // 直すべきは順序のほうなので、上限は据え置いて打ち切りを必ず表示する。
     const params = new URLSearchParams({ word, limit: '2000' });
     if(assignOnly) params.set('assign', '1');
-    if(dir) params.set('dir', dir);
     const r = await fetch('/api/references?' + params.toString());
     if(!r.ok) { id('fzf-list').innerHTML = '<div class="fzf-empty">参照の検索に失敗しました</div>'; return; }
     const engine = r.headers.get('X-Engine') || '';
@@ -1930,6 +1935,7 @@ async function openRefPicker(word, assignOnly) {
     // 索引ベース（gtags）か字面（rg）かで結果の性質が変わるので明示する
     fzfRefs._engine = (assignOnly ? '代入 / ' : '') +
       (engine === 'gtags' ? 'gtags 索引' : 'rg テキスト');
+    fzfRefs._truncated = r.headers.get('X-Truncated') === 'true';
     if(fzfMode !== 'ref') return; // 待っている間に別のピッカーへ移った
     fzfRenderRefs(id('fzf-input').value);
     reanchorFzfBox();
@@ -1964,6 +1970,7 @@ async function openCalleePicker() {
     if(!r.ok) { id('fzf-list').innerHTML = '<div class="fzf-empty">呼び先を取得できませんでした</div>'; return; }
     const hits = (await r.json()) || [];
     if(fzfMode !== 'ref') return;
+    const calleeTruncated = r.headers.get('X-Truncated') === 'true';
     // どの関数の呼び先なのかを見せる。カーソル位置の語ではなく囲む関数を
     // 使うので、名前が出ていないと別の関数の結果だと誤解される
     const encl = r.headers.get('X-Func') || '';
@@ -1975,6 +1982,7 @@ async function openCalleePicker() {
       func: h.name, kind: h.kind || '', callee: h.name,
     }));
     fzfRefs._engine = encl ? `${encl} の呼び先` : '呼び先';
+    fzfRefs._truncated = calleeTruncated;
     fzfRefs._sameFile = true; // 呼び先は全件この関数の中＝同じファイル
     if(!fzfRefs.length) {
       id('fzf-count').textContent = '';
@@ -1995,8 +2003,11 @@ function fzfRenderRefs(query) {
   const q = query.trim().toLowerCase();
   fzfRefsFiltered = q ? fzfRefs.filter(refFilterPredicate(q)) : fzfRefs.slice();
   fzfSelIdx = 0;
+  // 打ち切りを黙って隠すと「これで全部」と読まれる。絞り込みは手元で
+  // 掛かるので、切られていれば絞り込んでも戻ってこないことも伝わる
   id('fzf-count').textContent =
-    `${fzfRefsFiltered.length} / ${fzfRefs.length} 件 [${fzfRefs._engine || ''}]`;
+    `${fzfRefsFiltered.length} / ${fzfRefs.length}${fzfRefs._truncated ? '+ (上限で打ち切り)' : ''} 件`
+    + ` [${fzfRefs._engine || ''}]`;
   list.innerHTML = '';
   if(!fzfRefsFiltered.length) {
     list.innerHTML = `<div class="fzf-empty">${fzfRefs.length ? '絞り込みに一致しません' : '参照が見つかりませんでした'}</div>`;
@@ -2040,6 +2051,14 @@ function fzfRenderRefs(query) {
     };
     list.appendChild(div);
   });
+  // 描画は 300 行までにしている。件数だけ多く出して行が足りないと、
+  // 絞り込みが効いていないように見える
+  if(fzfRefsFiltered.length > 300) {
+    const more = document.createElement('div');
+    more.className = 'fzf-empty';
+    more.textContent = `ほか ${fzfRefsFiltered.length - 300} 件（絞り込むと出ます）`;
+    list.appendChild(more);
+  }
 }
 
 // fileScopeLabel は囲む関数が無い参照の正体を1語で表す。
