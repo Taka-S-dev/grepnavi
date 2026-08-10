@@ -1,9 +1,11 @@
 package search
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestPreferDefinitionHits(t *testing.T) {
@@ -272,5 +274,75 @@ func TestRankDefHitsByTag(t *testing.T) {
 		if got := RankDefHitsByTag(hits, tag); got[0].Kind != "func" {
 			t.Errorf("tag %q reordered hits: %+v", tag, got)
 		}
+	}
+}
+
+// 定義が見つからないときは全レベルの完了を待つ経路に入る。ここで打ち切りを
+// 見ていないと、どれか1つのレベルが返らないだけで検索全体が止まり、
+// 呼び出し元が付けた打ち切りの天井も効かなくなる（UI が「検索中」で固まる）。
+func TestCollectNearestReturnsWhenALevelNeverFinishes(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	ch := make(chan levelResult, 3)
+	ch <- levelResult{level: 1} // level 0 と 2 は永久に返らない
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if hits, _ := collectNearest(ctx, cancel, ch, 3, time.Now()); len(hits) != 0 {
+			t.Errorf("打ち切りなのにヒットを返した: %d 件", len(hits))
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("レベルが1つ返らないだけで戻ってこない")
+	}
+}
+
+// 遠いレベルが先に返っても、近いレベルが未完なら採用しない。
+func TestCollectNearestPrefersNearestLevel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ch := make(chan levelResult, 2)
+	ch <- levelResult{level: 1, hits: []DefHit{{File: "far.c", Line: 1, Text: "int f(void) {"}}}
+	ch <- levelResult{level: 0, hits: []DefHit{{File: "near.c", Line: 1, Text: "int f(void) {"}}}
+
+	hits, err := collectNearest(ctx, cancel, ch, 2, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].File != "near.c" {
+		t.Errorf("近いレベルを採用していない: %+v", hits)
+	}
+}
+
+// 定義が見つからないときは全レベルの完了を待つ経路に入る。ここで打ち切りを
+// 見ていないと、どれか1つのレベルが返らないだけで検索全体が止まり、
+// 呼び出し元が付けた 8 秒の天井も効かなくなる（UI が「検索中」で固まる）。
+func TestFindDefinitionsSmartReturnsOnCancel(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "a.c")
+	if err := os.WriteFile(src, []byte("int other(void) { return 0; }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		// 存在しない語なので、打ち切りを見ない実装では全レベルの完了待ちになる
+		if hits, _ := FindDefinitionsSmart(ctx, "no_such_symbol_anywhere", src, root, ""); len(hits) != 0 {
+			t.Errorf("打ち切り済みなのにヒットを返した: %d 件", len(hits))
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("打ち切り済みの context で戻ってこない")
 	}
 }

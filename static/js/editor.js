@@ -3096,6 +3096,7 @@ function showDefPeek(hits, word, pixelPos) {
 // ===== 定義ジャンプ =====
 let _defAbortCtrl = null;
 let _defGen = 0;
+const _defFetchCeiling = 15000; // サーバーの打ち切り(8秒)より後ろに置く
 
 // statusGate は「自分がまだ最新の検索か」を確かめてから状態欄に書く関数を作る。
 // 検索の表示は点滅表示が 80ms ごとに書き換えるので、中断された検索が中断に
@@ -3137,8 +3138,16 @@ async function jumpToDefinition(word, tagCtx = '') {
     if (typeof window.getDefEngines === 'function') {
       p.set('engines', window.getDefEngines().join(','));
     }
+    // サーバー側にも打ち切りの天井はあるが、接続が落ちた場合（スリープ復帰・
+    // サーバー再起動）は応答も失敗も返らない。返らない検索を待ち続けると
+    // 状態欄が「検索中」のまま固まるので、こちら側にも天井を置く
+    let timedOut = false;
+    // 中断するのはこの検索の分だけ。共有変数を切ると、待っている間に
+    // 始まった新しい検索を巻き添えにする
+    const mine = _defAbortCtrl;
+    const bell = setTimeout(() => { timedOut = true; mine.abort(); }, _defFetchCeiling);
     try {
-      const r = await fetch('/api/definition?' + p, {signal: _defAbortCtrl.signal});
+      const r = await fetch('/api/definition?' + p, {signal: mine.signal});
       if (r.ok) {
         hits = await r.json();
         totalCount = hits.length;
@@ -3146,7 +3155,18 @@ async function jumpToDefinition(word, tagCtx = '') {
         if (eng) window._lastDefEngine = eng;
         defHint = r.headers.get('X-Definition-Hint') || '';
       }
-    } catch(e) { if(e?.name === 'AbortError') { clearInterval(stimer); return; } }
+    } catch(e) {
+      if(e?.name === 'AbortError') {
+        clearInterval(stimer);
+        // 新しい検索に譲った中断は何も出さない（その検索が状態欄を持つ）。
+        // 天井で切った場合だけ、待たされた理由を残す
+        if(timedOut) {
+          stMine('検索を打ち切りました: ' + word + ' — 応答がありません');
+          flashAtCursor(`定義の検索が終わりません: ${word}`, 'warn');
+        }
+        return;
+      }
+    } finally { clearTimeout(bell); }
   }
 
   clearInterval(stimer);

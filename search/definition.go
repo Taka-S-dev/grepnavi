@@ -86,12 +86,6 @@ func FindDefinitionsSmart(ctx context.Context, word, currentFile, root, glob str
 	// level 0: Phase0、level 1〜N: walkDirs
 	total := 1 + len(walkDirs)
 
-	type levelResult struct {
-		level int
-		hits  []DefHit
-		err   error
-	}
-
 	innerCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -151,11 +145,34 @@ func FindDefinitionsSmart(ctx context.Context, word, currentFile, root, glob str
 		}(i+1, d)
 	}
 
-	// 結果を受け取り、近い順（level 0 最優先）にチェック
+	return collectNearest(ctx, cancel, ch, total, t0)
+}
+
+
+// levelResult は1つの探索レベルの結果。
+type levelResult struct {
+	level int
+	hits  []DefHit
+	err   error
+}
+
+// collectNearest は各レベルの結果を届いた順に受け取り、近い順に採用できる
+// ものが揃った時点で返す。近いレベルが未完のあいだは、遠いレベルが先に
+// ヒットしても採用しない（近さが優先順位そのものなので）。
+//
+// 見つからないときだけ全レベルの完了待ちになる。ここで打ち切りを見ていないと、
+// どれか1つのレベルが返らないだけで検索全体が永久に止まり、呼び出し元が
+// 付けた打ち切りの天井も効かなくなる（UI は「検索中」の表示のまま固まる）。
+func collectNearest(ctx context.Context, cancel context.CancelFunc, ch <-chan levelResult, total int, t0 time.Time) ([]DefHit, error) {
 	received := make([]levelResult, total)
 	done := make([]bool, total)
 	for count := 0; count < total; count++ {
-		r := <-ch
+		var r levelResult
+		select {
+		case r = <-ch:
+		case <-ctx.Done():
+			return nil, nil // 打ち切りは「定義なし」の確定ではない
+		}
 		received[r.level] = r
 		done[r.level] = true
 
@@ -183,7 +200,6 @@ func FindDefinitionsSmart(ctx context.Context, word, currentFile, root, glob str
 			// 宣言のみ → 次のレベルを試す
 		}
 	}
-
 	return nil, nil
 }
 
