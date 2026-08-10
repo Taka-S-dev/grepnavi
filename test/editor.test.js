@@ -187,3 +187,27 @@ test('hasInternalEditorPane - ペイン自体が無い窓でも落ちない', ()
   global.getComputedStyle = () => { throw new Error('呼んではいけない'); };
   assert.equal(hasInternalEditorPane(), false);
 });
+
+// ---- 履歴の現在位置の追従 ----
+// 履歴には到着した行が入る。そのファイル内でカーソルを動かしてから別へ飛ぶと、
+// 直しておかないと「離れた場所」ではなく「着地点」に戻ってしまう。
+const { syncedNavLine } = require('../static/js/editor.js');
+const same = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
+
+test('syncedNavLine - 同じファイルでカーソルが動いていれば現在行を返す', () => {
+  assert.equal(syncedNavLine({ file: 'a.c', line: 100 }, 'a.c', 500, same), 500);
+});
+
+test('syncedNavLine - 動いていなければ書き戻さない', () => {
+  assert.equal(syncedNavLine({ file: 'a.c', line: 100 }, 'a.c', 100, same), 0);
+});
+
+test('syncedNavLine - 別のファイルを見ているときは触らない', () => {
+  assert.equal(syncedNavLine({ file: 'a.c', line: 100 }, 'b.c', 500, same), 0);
+});
+
+test('syncedNavLine - 履歴が空・カーソル不明なら触らない', () => {
+  assert.equal(syncedNavLine(undefined, 'a.c', 500, same), 0);
+  assert.equal(syncedNavLine({ file: 'a.c', line: 100 }, 'a.c', 0, same), 0);
+  assert.equal(syncedNavLine({ file: 'a.c', line: 100 }, '', 500, same), 0);
+});

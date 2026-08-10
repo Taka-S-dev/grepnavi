@@ -2221,8 +2221,30 @@ function navLineText(file, line) {
   return m.getLineContent(line).trim();
 }
 
+// syncedNavLine は「いまいる履歴項目」に書き戻すべき行番号を返す（0 = 書き戻さない）。
+// 履歴には到着した行が入るので、そのファイル内でカーソルを動かしてから別へ飛ぶと、
+// 戻ったときに離れた場所ではなく着地点に戻ってしまう。離れる直前に現在行へ
+// 直しておけば、どの経路で飛んでも「さっきまで見ていた行」に戻れる。
+function syncedNavLine(entry, curFile, curLine, samePath) {
+  if(!entry || !curFile || !curLine) return 0;
+  if(!samePath(entry.file, curFile)) return 0;
+  return curLine === entry.line ? 0 : curLine;
+}
+
+// navSyncCurrent は履歴のいまいる項目を、実際のカーソル位置に合わせる。
+// 履歴を移動する側（戻る/進む/一覧から選ぶ）でも、離れる前に必ず呼ぶこと。
+function navSyncCurrent() {
+  const cur = navHistory[navIndex];
+  const line = syncedNavLine(cur, tabs[activeTabIdx]?.file,
+                             monacoEditor?.getPosition()?.lineNumber, _samePath);
+  if(!line) return;
+  cur.line = line;
+  cur.text = navLineText(cur.file, line);
+}
+
 function navPush(file, line) {
   if(navSkipPush) return;
+  navSyncCurrent();
   const last = navHistory[navIndex];
   if(last && _samePath(last.file, file) && last.line === line) return;
   navHistory.splice(navIndex + 1);
@@ -2235,6 +2257,7 @@ function navPush(file, line) {
 // 実際に動けたかを返す（ランチャーは動けたときだけ履歴一覧に持ち替える）
 async function navBack() {
   if(navIndex <= 0) { flashAtCursor('これより前の履歴はありません'); return false; }
+  navSyncCurrent();
   navIndex--;
   const h = navHistory[navIndex];
   navSkipPush = true;
@@ -2247,6 +2270,7 @@ async function navBack() {
 
 async function navForward() {
   if(navIndex >= navHistory.length - 1) { flashAtCursor('これより先の履歴はありません'); return false; }
+  navSyncCurrent();
   navIndex++;
   const h = navHistory[navIndex];
   navSkipPush = true;
@@ -2261,6 +2285,7 @@ async function navForward() {
 // 積まれて先の履歴が消えるので、位置だけ動かす
 async function navGoTo(idx) {
   if(idx < 0 || idx >= navHistory.length || idx === navIndex) return;
+  navSyncCurrent();
   navIndex = idx;
   const h = navHistory[idx];
   navSkipPush = true;
@@ -3080,4 +3105,4 @@ addEventListener('DOMContentLoaded', () => {
   }
 });
 
-if (typeof module !== 'undefined') module.exports = { fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane };
+if (typeof module !== 'undefined') module.exports = { syncedNavLine, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane };
