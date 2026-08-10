@@ -22,6 +22,7 @@ type CallSite struct {
 	Line     int    `json:"line"`           // 関数定義行（1-indexed）
 	CallLine int    `json:"call_line"`      // 実際の呼び出し行（callersのみ）
 	Indirect bool   `json:"indirect"`       // 関数ポインタ経由の参照
+	Assign   bool   `json:"assign,omitempty"` // その語へ書き込んでいる行
 	Text     string `json:"text,omitempty"` // 呼び出し行のソース（呼び出しか否かを呼び出し側で判断できるように）
 }
 

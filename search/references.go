@@ -19,8 +19,10 @@ type Reference struct {
 //
 // 索引と ripgrep の使い分け・絞り込み・コメント除外は FindRefSites が持つ。
 // 呼び出し元一覧と同じ経路を通すことで、片方だけが取りこぼす形にならない。
-func FindReferences(ctx context.Context, word, dir string, limit int) ([]Reference, bool, string, error) {
-	sites, engine, truncated, err := FindRefSites(ctx, RefQuery{Word: word, Root: dir, Limit: limit})
+// assignOnly を立てると、その語へ書き込んでいる行だけを返す。
+func FindReferences(ctx context.Context, word, dir string, limit int, assignOnly bool) ([]Reference, bool, string, error) {
+	sites, engine, truncated, err := FindRefSites(ctx, RefQuery{
+		Word: word, Root: dir, Limit: limit, AssignOnly: assignOnly})
 	if err != nil {
 		return nil, false, engine, err
 	}

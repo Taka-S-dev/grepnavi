@@ -1586,6 +1586,22 @@ async function ensureEditor() {
     run: () => openCalleePicker()
   });
 
+  // Alt+W → その語へ書き込んでいる場所（write）。参照一覧だと読み出しに埋もれる
+  monacoEditor.addAction({
+    id: 'grepnavi-assignments', label: 'この語への代入',
+    contextMenuGroupId: 'grepnavi-nav',
+    contextMenuOrder: 2.5,
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyW],
+    run: ed => {
+      const sel = ed.getSelection();
+      const model = ed.getModel();
+      if(!model) return;
+      const word = (sel && !sel.isEmpty() ? model.getValueInRange(sel).trim() : null)
+                   || model.getWordAtPosition(ed.getPosition())?.word;
+      if(word) openAssignPicker(word);
+    }
+  });
+
   // Alt+V → 通ってきた場所の一覧（Z / X の連打で探すより速い）。
   // 移動系の Z X C の隣に置いて、指の位置で覚えられるようにする
   monacoEditor.addAction({
@@ -1883,7 +1899,11 @@ function reanchorFzfBox() { if(_fzfAnchorPt) anchorFzfBox(_fzfAnchorPt); }
 // 参照は「候補から1つ選んで読みに行く」一時的な操作なので、検索ワークスペース
 // （タブ・フィルタが残る grep パネル）ではなくクイックピッカーで出す。
 // 引くたびにタブが増えず、視線も画面中央から動かず、Esc で何も残さず消える。
-async function openRefPicker(word) {
+// openAssignPicker は「その語へ書き込んでいる場所」だけを出す。
+// 「この変数を誰が書き換えているか」は参照一覧だと読み出しに埋もれる。
+function openAssignPicker(word) { return openRefPicker(word, true); }
+
+async function openRefPicker(word, assignOnly) {
   if(!word) { flashAtCursor('語の上ではありません', 'warn'); return; }
   if(word.length < 2) { flashAtCursor(`参照を探せません: ${word} は1文字です`, 'warn'); return; }
   fzfMode = 'ref';
@@ -1892,7 +1912,9 @@ async function openRefPicker(word) {
   fzfRefsFiltered = [];
   id('fzf-overlay').classList.add('open');
   id('fzf-input').value = '';
-  id('fzf-input').placeholder = `${word} の参照を絞り込む（関数名・パス）`;
+  id('fzf-input').placeholder = assignOnly
+    ? `${word} への代入を絞り込む（関数名・パス）`
+    : `${word} の参照を絞り込む（関数名・パス）`;
   id('fzf-count').textContent = '検索中…';
   id('fzf-list').innerHTML = '<div class="fzf-empty">参照を検索しています…</div>';
   anchorFzfBox(takePickerAnchor());
@@ -1900,13 +1922,15 @@ async function openRefPicker(word) {
   try {
     const dir = id('dir').value.trim();
     const params = new URLSearchParams({ word, limit: '2000' });
+    if(assignOnly) params.set('assign', '1');
     if(dir) params.set('dir', dir);
     const r = await fetch('/api/references?' + params.toString());
     if(!r.ok) { id('fzf-list').innerHTML = '<div class="fzf-empty">参照の検索に失敗しました</div>'; return; }
     const engine = r.headers.get('X-Engine') || '';
     fzfRefs = (await r.json()) || [];
     // 索引ベース（gtags）か字面（rg）かで結果の性質が変わるので明示する
-    fzfRefs._engine = engine === 'gtags' ? 'gtags 索引' : 'rg テキスト';
+    fzfRefs._engine = (assignOnly ? '代入 / ' : '') +
+      (engine === 'gtags' ? 'gtags 索引' : 'rg テキスト');
     if(fzfMode !== 'ref') return; // 待っている間に別のピッカーへ移った
     fzfRenderRefs(id('fzf-input').value);
     reanchorFzfBox();

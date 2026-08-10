@@ -23,6 +23,8 @@ type RefQuery struct {
 	Limit int
 	// CallersOnly は呼び出し元一覧用。囲む関数が要る＆関数ごとに1件へまとめる。
 	CallersOnly bool
+	// AssignOnly はその語へ書き込んでいる行だけに絞る。
+	AssignOnly bool
 	// NoIndex は索引を使わず ripgrep だけで引く（利用者が明示的に指定したとき）。
 	NoIndex bool
 }
@@ -44,6 +46,10 @@ func FindRefSites(ctx context.Context, q RefQuery) ([]CallSite, string, bool, er
 				sites = keepCallers(sites, q.Word)
 			}
 			MarkIndirectCalls(sites, q.Word)
+			MarkAssignments(sites, q.Word)
+			if q.AssignOnly {
+				sites = keepAssignments(sites)
+			}
 			if len(sites) > 0 {
 				sites, truncated := capSites(sites, q.Limit)
 				return sites, "gtags", truncated, nil
@@ -57,6 +63,9 @@ func FindRefSites(ctx context.Context, q RefQuery) ([]CallSite, string, bool, er
 		return sites, "rg", truncated, err
 	}
 	sites, truncated, err := rgRefSites(ctx, q.Word, q.Scope, q.Glob, q.Limit)
+	if q.AssignOnly {
+		sites = keepAssignments(sites)
+	}
 	return sites, "rg", truncated, err
 }
 
@@ -75,6 +84,16 @@ func keepCallers(sites []CallSite, word string) []CallSite {
 		}
 		seen[key] = true
 		out = append(out, s)
+	}
+	return out
+}
+
+func keepAssignments(sites []CallSite) []CallSite {
+	out := sites[:0:0]
+	for _, s := range sites {
+		if s.Assign {
+			out = append(out, s)
+		}
 	}
 	return out
 }
@@ -124,5 +143,6 @@ func rgRefSites(ctx context.Context, word, dir, glob string, limit int) ([]CallS
 		})
 	}
 	MarkIndirectCalls(sites, word)
+	MarkAssignments(sites, word)
 	return sites, false, nil
 }

@@ -603,7 +603,9 @@ func (h *Handler) handleReferences(w http.ResponseWriter, r *http.Request) {
 	}
 	limit, _ := strconv.Atoi(q.Get("limit"))
 
-	refs, truncated, engine, err := search.FindReferences(r.Context(), word, dir, limit)
+	// assign=1 で「その語へ書き込んでいる行」だけに絞る
+	refs, truncated, engine, err := search.FindReferences(r.Context(), word, dir, limit,
+		q.Get("assign") == "1")
 	if err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return

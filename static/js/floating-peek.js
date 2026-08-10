@@ -681,6 +681,9 @@ function initFloatingPeek(getHoverCtx) {
       if(typeof openCalleePicker === 'function') {
         addItem('codicon-call-outgoing', 'いまいる関数の呼び先', () => openCalleePicker(), 'c');
       }
+      if(typeof openAssignPicker === 'function') {
+        addItem('codicon-edit', 'この語への代入', () => openAssignPicker(word), 'w', w);
+      }
       addItem('codicon-file-code',   'その場で定義を見る', () => _showFloatingDef(word), 'e', w);
       addItem('codicon-search',      'grep',           () => grepSearchWord(word), 'g', w);
       if(typeof window.openCallTree === 'function') {
@@ -711,6 +714,9 @@ function initFloatingPeek(getHoverCtx) {
     }
     if(typeof openCalleePicker === 'function') {
       addItem('codicon-call-outgoing', 'いまいる関数の呼び先', () => openCalleePicker(), 'c');
+    }
+    if(typeof openAssignPicker === 'function') {
+      addItem('codicon-edit', 'この語への代入', () => openAssignPicker(word), 'w');
     }
     addItem('codicon-file-code',   'その場で定義を見る',  () => _showFloatingDef(word), 'e');
     addItem('codicon-search',      'grep',               () => grepSearchWord(word), 'g');
