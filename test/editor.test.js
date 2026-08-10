@@ -211,3 +211,40 @@ test('syncedNavLine - 履歴が空・カーソル不明なら触らない', () =
   assert.equal(syncedNavLine({ file: 'a.c', line: 100 }, 'a.c', 0, same), 0);
   assert.equal(syncedNavLine({ file: 'a.c', line: 100 }, '', 500, same), 0);
 });
+
+// ---- 参照一覧の絞り込み ----
+// stat のようなありふれた名前は部分文字列ひとつでは絞りきれない。
+// 語彙は grep の絞り込みバー・シンボルパネルと揃える。
+const { refFilterPredicate } = require('../static/js/editor.js');
+const row = (file, func, text) => ({ file, func, text });
+
+test('refFilterPredicate - 空白区切りは AND', () => {
+  const p = refFilterPredicate('crypto init');
+  assert.ok(p(row('crypto/evp/e_aes.c', 'aes_init_key', 'x = 1;')));
+  assert.ok(!p(row('crypto/evp/e_aes.c', 'aes_cipher', 'x = 1;')));
+});
+
+test('refFilterPredicate - 先頭の - は除外', () => {
+  const p = refFilterPredicate('-test');
+  assert.ok(p(row('ssl/ssl_lib.c', 'f', 'x = 1;')));
+  assert.ok(!p(row('test/ssltest.c', 'f', 'x = 1;')));
+});
+
+test('refFilterPredicate - path: はパスだけに掛かる', () => {
+  const p = refFilterPredicate('path:ssl');
+  assert.ok(p(row('ssl/ssl_lib.c', 'f', 'x = 1;')));
+  // 本文に ssl があってもパスに無ければ落ちる
+  assert.ok(!p(row('apps/openssl_app.c', 'f', 'SSL_read(s);')) === false);
+  assert.ok(!p(row('crypto/x.c', 'f', 'ssl_thing();')));
+});
+
+test('refFilterPredicate - -path: でパスだけ除外', () => {
+  const p = refFilterPredicate('-path:doc');
+  assert.ok(p(row('ssl/ssl_lib.c', 'f', 'see doc for details')));
+  assert.ok(!p(row('doc/man3/x.pod', 'f', 'x = 1;')));
+});
+
+test('refFilterPredicate - 空の条件は全部通す', () => {
+  const p = refFilterPredicate('   ');
+  assert.ok(p(row('a.c', 'f', 'x')));
+});

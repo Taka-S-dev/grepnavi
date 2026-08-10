@@ -1912,9 +1912,8 @@ async function openRefPicker(word, assignOnly) {
   fzfRefsFiltered = [];
   id('fzf-overlay').classList.add('open');
   id('fzf-input').value = '';
-  id('fzf-input').placeholder = assignOnly
-    ? `${word} への代入を絞り込む（関数名・パス）`
-    : `${word} の参照を絞り込む（関数名・パス）`;
+  id('fzf-input').placeholder = (assignOnly ? `${word} への代入` : `${word} の参照`)
+    + ' を絞り込む（空白で AND / -語 で除外 / path:… でパスだけ）';
   id('fzf-count').textContent = '検索中…';
   id('fzf-list').innerHTML = '<div class="fzf-empty">参照を検索しています…</div>';
   anchorFzfBox(takePickerAnchor());
@@ -1952,7 +1951,7 @@ async function openCalleePicker() {
   fzfRefsFiltered = [];
   id('fzf-overlay').classList.add('open');
   id('fzf-input').value = '';
-  id('fzf-input').placeholder = 'いまいる関数の呼び先を絞り込む';
+  id('fzf-input').placeholder = '呼び先を絞り込む（空白で AND / -語 で除外 / path:… でパスだけ）';
   id('fzf-count').textContent = '検索中…';
   id('fzf-list').innerHTML = '<div class="fzf-empty">呼び先を探しています…</div>';
   anchorFzfBox(takePickerAnchor());
@@ -1994,9 +1993,7 @@ async function openCalleePicker() {
 function fzfRenderRefs(query) {
   const list = id('fzf-list');
   const q = query.trim().toLowerCase();
-  fzfRefsFiltered = q
-    ? fzfRefs.filter(r => ((r.func || '') + ' ' + r.file + ' ' + (r.text || '')).toLowerCase().includes(q))
-    : fzfRefs.slice();
+  fzfRefsFiltered = q ? fzfRefs.filter(refFilterPredicate(q)) : fzfRefs.slice();
   fzfSelIdx = 0;
   id('fzf-count').textContent =
     `${fzfRefsFiltered.length} / ${fzfRefs.length} 件 [${fzfRefs._engine || ''}]`;
@@ -2051,6 +2048,29 @@ function fileScopeLabel(text) {
   if(t.startsWith('#')) return 'マクロ定義';
   if(t.endsWith(';') && t.includes('(')) return '宣言';
   return 'ファイル直下';
+}
+
+// refFilterPredicate は参照一覧の絞り込み条件を組む。
+// 語彙は grep の絞り込みバー・シンボルパネルと同じにする。stat のような
+// ありふれた名前は素の部分文字列ひとつでは絞りきれないため、
+// 空白区切りは AND、先頭の - は除外、path: / file: はパスだけに掛ける。
+//   例: `path:crypto -test`  crypto の下でテスト以外
+//       `-.pod`              ドキュメント中のサンプルを外す
+function refFilterPredicate(query) {
+  const terms = query.trim().split(/\s+/).filter(Boolean).map(tok => {
+    const neg = tok.startsWith('-');
+    const body = neg ? tok.slice(1) : tok;
+    const m = body.match(/^(?:path|file):(.*)$/i);
+    return { neg, pathOnly: !!m, text: (m ? m[1] : body).toLowerCase() };
+  }).filter(t => t.text);
+  return row => {
+    const path = (row.file || '').toLowerCase();
+    const all = ((row.func || '') + ' ' + (row.file || '') + ' ' + (row.text || '')).toLowerCase();
+    for (const t of terms) {
+      if ((t.pathOnly ? path : all).includes(t.text) === t.neg) return false;
+    }
+    return true;
+  };
 }
 
 function fzfMatchToken(path, token) {
@@ -3129,4 +3149,4 @@ addEventListener('DOMContentLoaded', () => {
   }
 });
 
-if (typeof module !== 'undefined') module.exports = { syncedNavLine, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane };
+if (typeof module !== 'undefined') module.exports = { syncedNavLine, refFilterPredicate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane };
