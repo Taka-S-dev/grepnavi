@@ -569,7 +569,7 @@ func (h *Handler) handleCallees(w http.ResponseWriter, r *http.Request) {
 		hits = []search.CalleeHit{}
 	}
 	// どの関数の呼び先を出したのかを返す。カーソル位置の語ではなく囲む関数を
-	// 使うので、名前を見せないと利用者は別の関数の結果だと思う
+	// 使うので、名前を見せないと利用者は別の関数の結果と受け取る
 	if funcName != "" {
 		w.Header().Set("X-Func", funcName)
 	}

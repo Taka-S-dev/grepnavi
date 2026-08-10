@@ -73,7 +73,10 @@ func TestCorpusAgainstCtags(t *testing.T) {
 	if _, err := exec.LookPath("ctags"); err != nil {
 		t.Skip("ctags なし")
 	}
-	cmd := exec.Command("ctags", "-x", "--c-kinds=f", "--languages=C", "-R", ".")
+	// C++ も含める。C だけで測っていたあいだ、`namespace {` の直前に残った
+	// マクロ呼び出しでファイル全体が偽の関数に飲まれるのを見逃していた
+	cmd := exec.Command("ctags", "-x", "--c-kinds=f", "--c++-kinds=f",
+		"--languages=C,C++", "-R", ".")
 	cmd.Dir = root
 	// Exuberant ctags は一時ファイルを作る。POSIX 風の TMPDIR を継承すると
 	// Windows 版が開けずに落ちるので、この OS で使える場所を明示する
@@ -135,17 +138,15 @@ func TestCorpusAgainstCtags(t *testing.T) {
 	t.Logf("ctags の関数 %d 件 / 走査器が囲む関数を答えられない %d 件", total, miss)
 
 	// 名前の食い違いは上限を課さない。openssl では 232 件のうち 227 件が
-	// `STACK_OF(...) *f(...)` を ctags が `STACK_OF` と誤るもので、こちらが正しい。
+	// `STACK_OF(...) *f(...)` を ctags が `STACK_OF` と誤るもので、走査器の答えが正しい。
 	//
-	// 取りこぼしはこちらが答えられていない側。方言の違う4つのツリーで測った:
+	// 取りこぼしは走査器が答えられていない側。方言の違う4つのツリーで測った:
 	//
-	//	linux    683326 関数 / 31 件 (0.005%)
-	//	postgres  25551 関数 /  2 件 (0.008%)
-	//	openssl   10106 関数 /  0 件
-	//	curl       4970 関数 /  0 件
+	//	linux    751453 関数 / 58 件 (0.008%)
+	//	postgres  26664 関数 /  3 件 (0.011%)
+	//	openssl   10311 関数 /  2 件 (0.019%)
+	//	curl       4990 関数 /  0 件
 	//
-	// 残っているのは `int f(struct { ... } *_)` のように引数が無名構造体定義に
-	// なっている形だけで、bpf の BTF テスト用フィクスチャに固まっている。
 	// 0.05% を超えたら新しい形が入ったということなので落とす。
 	if total > 0 && miss*2000 > total {
 		t.Errorf("取りこぼしが多すぎる: %d/%d (%.3f%%) — 上限 0.05%%",

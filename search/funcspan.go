@@ -215,6 +215,15 @@ func declaratorName(decl string) string {
 		}
 		return ""
 	}
+	// 関数定義の宣言子は引数リストで終わる。`namespace {` や `class Foo {`、
+	// それに `;` の無いマクロ呼び出しが前に残った状態（openssl の
+	// `OPENSSL_MSVC_PRAGMA(comment(lib, ))` の次が namespace）はここで落ちる。
+	// 落とさないと、マクロ名を関数名として採ったうえ namespace の `{` が
+	// 閉じないので、ファイルの残り全部がその偽の関数に飲まれる。
+	// C++ の後置修飾（const / noexcept など）は引数リストの後に来るので剥がす。
+	if !strings.HasSuffix(trimTrailingQualifiers(d), ")") {
+		return ""
+	}
 	// `)` を右から順に見て、対応する `(` の直前にある識別子を候補にする。
 	// 最後の `)` だけを見ると、関数ポインタを返す関数
 	// `int (*SSL_get_verify_callback(const SSL *s)) (int, X509_STORE_CTX *)`
@@ -235,6 +244,25 @@ func declaratorName(decl string) string {
 		return name
 	}
 	return ""
+}
+
+// cTrailingQualifiers は引数リストの後ろに付きうる語。
+var cTrailingQualifiers = map[string]bool{
+	"const": true, "volatile": true, "noexcept": true, "override": true,
+	"final": true, "mutable": true, "throw": true,
+}
+
+// trimTrailingQualifiers は宣言子の末尾から後置修飾を剥がす。
+// `int f() const noexcept` を `int f()` にして、引数リストで終わるか見られるようにする。
+func trimTrailingQualifiers(d string) string {
+	for {
+		t := strings.TrimRight(d, " \t")
+		i := strings.LastIndexAny(t, " \t")
+		if i < 0 || !cTrailingQualifiers[t[i+1:]] {
+			return t
+		}
+		d = t[:i]
+	}
 }
 
 // matchingOpenParen は close 位置の `)` に対応する `(` の位置を返す（-1 = 無し）。

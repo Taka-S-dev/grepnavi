@@ -147,7 +147,7 @@ static 変数・関数呼び出しはテキストパターンに基づくヒュ�
 | [Go](https://golang.org/) 1.25 以上 | — | ソースからビルドする場合のみ。バイナリ配布版は不要 |
 | [ripgrep](https://github.com/BurntSushi/ripgrep) | ✅ | `rg` コマンドが PATH にあること |
 | [GNU Global](https://www.gnu.org/software/global/) | — | **なくても動作します。** `gtags` / `global` コマンドが PATH にあると定義ジャンプ・ホバー・Callers の精度が向上 |
-| [Universal Ctags](https://github.com/universal-ctags/ctags) | — | **なくても動作します。** `tags` ファイルを生成しておくと定義ジャンプの精度が向上し、定数・マクロのハイライトが有効になる |
+| [Universal Ctags](https://github.com/universal-ctags/ctags) | — | **なくても動作します。** `tags` ファイルを生成しておくと定義ジャンプの精度が向上し、定数・マクロのハイライトが有効になる。索引の対象は C / C++ のみ |
 
 ---
 

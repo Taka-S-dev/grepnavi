@@ -166,6 +166,7 @@ func (h *Handler) handleCtagsIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sendLine("使用バイナリ: " + ctagsBin)
+	sendLine("対象言語: C / C++")
 
 	var stderrBuf bytes.Buffer
 	tagsPath := filepath.Join(root, "tags")
@@ -175,7 +176,15 @@ func (h *Handler) handleCtagsIndex(w http.ResponseWriter, r *http.Request) {
 	// エディタによってはタグジャンプを解決できないため、Vim の :h tags-file-format
 	// が定義する e-ctags 形式を明示する。Exuberant はこのオプションを知らないが、
 	// 既定の出力が元々 e-ctags 形式なので付けない。
-	args := []string{"-R", "--fields=+n"}
+	//
+	// 索引を C/C++ に絞る。この索引を読むのは定義ジャンプ・シンボル検索・
+	// マクロと enum のハイライトで、どれも C/C++ の話しかしない。既定の
+	// 全言語のままだと、ツリーに紛れた生成物（doc の minified JS 等）まで
+	// 拾って openssl で 490MB / 34 秒かかり、C/C++ だけなら 10MB / 2.9 秒で済む。
+	// 大きさだけの問題でもなく、空白始まりのタグ名が "!_TAG_FILE_SORTED"
+	// ヘッダを押し下げてソート済み判定を壊し、1 回の検索が 0.5ms から 220ms に
+	// 落ちる原因にもなっていた。
+	args := []string{"-R", "--fields=+n", "--languages=C,C++"}
 	if isUniversal {
 		args = append(args, "--output-format=e-ctags")
 	}

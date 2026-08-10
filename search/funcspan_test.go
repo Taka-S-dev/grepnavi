@@ -131,6 +131,19 @@ var scanFuncSpanCases = []styleCase{
 			want: []funcSpan{{"impl_a", 2, 4}, {"impl_b", 6, 8}},
 		},
 		{
+			// openssl の ossl_shim.cc で踏んだ形。`;` の無いマクロ呼び出しが残った
+			// まま namespace に入ると、マクロ名を関数名として採ったうえ namespace の
+			// `{` が閉じないので、ファイルの残り全部が偽の関数に飲まれていた
+			name: "namespace とマクロ呼び出しを関数と取り違えない",
+			src:  "OPENSSL_MSVC_PRAGMA(comment(lib, ))\nnamespace {\nstatic int helper(int a)\n{\n\treturn a;\n}\n}\n",
+			want: []funcSpan{{"helper", 3, 6}},
+		},
+		{
+			name: "C++ の後置修飾が付いた関数",
+			src:  "int Foo::size() const noexcept\n{\n\treturn n;\n}\n",
+			want: []funcSpan{{"size", 1, 4}},
+		},
+		{
 			name: "プロトタイプ宣言は範囲を作らない",
 			src: "int declared(void);\nint impl(void)\n{\n\treturn 0;\n}\n",
 			want: []funcSpan{{"impl", 2, 5}},
