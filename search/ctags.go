@@ -320,14 +320,14 @@ func ctagsReadSortedFlag(tagsPath string) int {
 	defer f.Close()
 
 	scanner := bufio.NewScanner(f)
-	// メタ行は "!" で始まる限り読み続ける。Universal Ctags は !_TAG_EXTRA_DESCRIPTION 等を
-	// 多数出力し、!_TAG_FILE_SORTED がその後ろに来る（行数上限で打ち切ると
-	// ソート済みを見落とし、バイナリサーチではなく rg 全走査に落ちる）。
+	// メタ行 (!_TAG_*) は先頭付近にあるが、必ずしも1行目からではない。
+	// ソート済みの tags では "!" より前に並ぶ名前のタグ（minified JS から
+	// 拾われる空白始まりの名前など）が上に来ることがあり、「1行目が ! でなければ
+	// ヘッダ無し」と判断すると未ソート扱いになる。そうなると全ての検索が
+	// バイナリサーチではなく rg の全走査に落ちて 200 倍遅くなるため、
+	// 途中で打ち切らず一定行数を読んでからあきらめる。
 	for i := 0; i < _ctagsHeaderScanLines && scanner.Scan(); i++ {
 		line := scanner.Text()
-		if !strings.HasPrefix(line, "!") {
-			break
-		}
 		if strings.HasPrefix(line, "!_TAG_FILE_SORTED\t") {
 			fields := strings.SplitN(line, "\t", 3)
 			if len(fields) >= 2 {

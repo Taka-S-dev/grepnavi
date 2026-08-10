@@ -168,3 +168,37 @@ func TestCtagsParseLine(t *testing.T) {
 		}
 	})
 }
+
+// ソート済み tags でも、先頭に "!" より前に並ぶ名前のタグ（minified JS から
+// 拾われる空白始まりの名前など）があるとヘッダが1行目に来ない。
+// そこで打ち切ると未ソート扱いになり、全検索が rg の全走査に落ちて
+// 200 倍遅くなる（openssl の tags で実際に踏んだ）。
+func TestCtagsReadSortedFlagAfterJunkTags(t *testing.T) {
+	dir := t.TempDir()
+	tags := filepath.Join(dir, "tags")
+	content := " \t./html/jquery.js\t/^!function(e,t){}/;\"\tp\tline:2\n" +
+		" \t./ssl/html/jquery.js\t/^!function(e,t){}/;\"\tp\tline:2\n" +
+		"!_TAG_EXTRA_DESCRIPTION\tanonymous\n" +
+		"!_TAG_FILE_FORMAT\t2\t/extended format/\n" +
+		"!_TAG_FILE_SORTED\t1\t/0=unsorted, 1=sorted, 2=foldcase/\n" +
+		"BN_add_word\t./crypto/bn/bn_word.c\t/^int BN_add_word(void)$/;\"\tf\tline:98\n"
+	if err := os.WriteFile(tags, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := ctagsReadSortedFlag(tags); got != 1 {
+		t.Errorf("sorted = %d, want 1（ヘッダの前にタグ行があっても見つけること）", got)
+	}
+}
+
+func TestCtagsReadSortedFlagUnsorted(t *testing.T) {
+	dir := t.TempDir()
+	tags := filepath.Join(dir, "tags")
+	content := "!_TAG_FILE_SORTED\t0\t/0=unsorted/\n" +
+		"zz_last\t./a.c\t/^void zz_last(void)$/;\"\tf\n"
+	if err := os.WriteFile(tags, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := ctagsReadSortedFlag(tags); got != 0 {
+		t.Errorf("sorted = %d, want 0", got)
+	}
+}
