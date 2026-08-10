@@ -204,8 +204,9 @@ var (
 const _gtagsRefsCacheTTL = 2 * time.Minute
 
 type gtagsRefsEntry struct {
-	sites    []CallSite
-	storedAt time.Time
+	sites     []CallSite
+	truncated bool
+	storedAt  time.Time
 }
 
 func gtagsCacheKey(dir, word string) string { return dir + "\x00" + word }
@@ -1483,21 +1484,26 @@ func GtagsFindHoverHits(ctx context.Context, word, dir string) ([]DefHit, error)
 // GRTAGS（-r）が持つのは「プロジェクト内で定義されている」シンボルへの参照だけ。
 // malloc のように定義がツリー外にある関数は GSYMS（-s）側にあり、-r では 0 件になる。
 // 索引にありながら 0 件を返すと呼び出し元が無いように見えるので、続けて -s も引く。
-func gtagsRefSites(ctx context.Context, word, dir string) ([]CallSite, error) {
-	sites, err := gtagsRefsWithFlag(ctx, word, dir, "-xr")
+//
+// maxHits を渡すと、索引が返したヒットをその件数で切ってから解決する（0 = 無制限）。
+// 解決はヒットのあるファイルを読んでコメント除去と関数範囲表を作る処理で、
+// linux の `ret` のように参照が数十万ある語では、上限の 2000 件しか使わないのに
+// 全件を解決して 17 秒かかっていた。切るのを後ろに置くと上限が効かない。
+func gtagsRefSites(ctx context.Context, word, dir string, maxHits int) ([]CallSite, bool, error) {
+	sites, tr, err := gtagsRefsWithFlag(ctx, word, dir, "-xr", maxHits)
 	if err != nil || len(sites) > 0 {
-		return sites, err
+		return sites, tr, err
 	}
-	return gtagsRefsWithFlag(ctx, word, dir, "-xs")
+	return gtagsRefsWithFlag(ctx, word, dir, "-xs", maxHits)
 }
 
 // gtagsRefsWithFlag は global の参照系オプション（-xr / -xs）1つぶんを引く。
 // 結果は (dir,word,flag) でキャッシュされ、インデックス更新か寿命切れまで保持される。
-func gtagsRefsWithFlag(ctx context.Context, word, dir, flag string) ([]CallSite, error) {
-	cacheKey := gtagsCacheKey(dir, word) + "|" + flag
+func gtagsRefsWithFlag(ctx context.Context, word, dir, flag string, maxHits int) ([]CallSite, bool, error) {
+	cacheKey := gtagsCacheKey(dir, word) + "|" + flag + "|" + strconv.Itoa(maxHits)
 	if v, ok := _gtagsRefsCache.Load(cacheKey); ok {
 		if e := v.(gtagsRefsEntry); time.Since(e.storedAt) < _gtagsRefsCacheTTL {
-			return e.sites, nil
+			return e.sites, e.truncated, nil
 		}
 		_gtagsRefsCache.Delete(cacheKey)
 	}
@@ -1519,10 +1525,10 @@ func gtagsRefsWithFlag(ctx context.Context, word, dir, flag string) ([]CallSite,
 			if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
 				slog.Debug("gtags-find-refs no results", "word", word)
 				_gtagsRefsCache.Store(cacheKey, gtagsRefsEntry{storedAt: time.Now()})
-				return nil, nil
+				return nil, false, nil
 			}
 			slog.Warn("gtags-find-refs error", "word", word, "err", err, "stderr", stderr.String())
-			return nil, err
+			return nil, false, err
 		}
 		// Cygwin global.exe が native pipe に書けず stdout が空のことがある（GtagsFindDefinitions と同症状）。
 		if len(bytes.TrimSpace(out)) == 0 {
@@ -1539,6 +1545,10 @@ func gtagsRefsWithFlag(ctx context.Context, word, dir, flag string) ([]CallSite,
 	// 捨てる」ので、先に取り直しておかないと、ずれたヒットはコメント扱いで消え、
 	// 参照一覧が黙って不完全になる。
 	hits = regatherDriftedRefs(hits, word, dir, code)
+	truncated := false
+	if maxHits > 0 && len(hits) > maxHits {
+		hits, truncated = hits[:maxHits], true
+	}
 	skippedComment := 0
 	for _, h := range hits {
 		lines, lerr := CachedLines(h.File)
@@ -1563,6 +1573,6 @@ func gtagsRefsWithFlag(ctx context.Context, word, dir, flag string) ([]CallSite,
 	}
 	slog.Debug("gtags-find-refs result", "word", word, "results", len(results),
 		"skipped_comment", skippedComment)
-	_gtagsRefsCache.Store(cacheKey, gtagsRefsEntry{sites: results, storedAt: time.Now()})
-	return results, nil
+	_gtagsRefsCache.Store(cacheKey, gtagsRefsEntry{sites: results, truncated: truncated, storedAt: time.Now()})
+	return results, truncated, nil
 }

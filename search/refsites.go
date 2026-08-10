@@ -39,7 +39,13 @@ func FindRefSites(ctx context.Context, q RefQuery) ([]CallSite, string, bool, er
 		q.Scope = q.Root
 	}
 	if !q.NoIndex && GtagsAvailable(q.Root) {
-		sites, err := gtagsRefSites(ctx, q.Word, q.Root)
+		// 索引のヒットを先に切ってから解決する。呼び出し元一覧は関数ごとに
+		// 畳むので、切ったあとに件数が減る分だけ余裕を持たせる
+		maxHits := q.Limit * 2
+		if q.CallersOnly {
+			maxHits = q.Limit * 20
+		}
+		sites, cut, err := gtagsRefSites(ctx, q.Word, q.Root, maxHits)
 		if err == nil {
 			sites = FilterCallSites(sites, q.Scope, q.Glob)
 			if q.CallersOnly {
@@ -52,7 +58,7 @@ func FindRefSites(ctx context.Context, q RefQuery) ([]CallSite, string, bool, er
 			}
 			if len(sites) > 0 {
 				sites, truncated := capSites(sites, q.Limit)
-				return sites, "gtags", truncated, nil
+				return sites, "gtags", truncated || cut, nil
 			}
 		}
 	}

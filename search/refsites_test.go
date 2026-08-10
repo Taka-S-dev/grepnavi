@@ -221,3 +221,38 @@ func TestFindRefSitesIndexPathMatchesReferences(t *testing.T) {
 		t.Errorf("自分自身を呼び出し元にしている: %v", got)
 	}
 }
+
+// 索引のヒットは解決の前に切る。全件を解決してから切ると、上限が
+// 2000 でも linux の `ret`（参照 60 万件）で 17 秒かかっていた。
+// 打ち切ったことは必ず伝わること。
+func TestFindRefSitesReportsIndexTruncation(t *testing.T) {
+	if _, err := exec.LookPath("gtags"); err != nil {
+		t.Skip("gtags なし")
+	}
+	dir := writeRefFixture(t)
+	cmd := exec.Command("gtags")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("gtags の作成に失敗: %v %s", err, out)
+	}
+	if !GtagsAvailable(dir) {
+		t.Skip("索引を認識できない")
+	}
+	full, _, tr, err := FindRefSites(context.Background(), RefQuery{Word: "helper", Root: dir, Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr {
+		t.Fatalf("上限に届いていないのに打ち切り扱い: %d 件", len(full))
+	}
+	cut, _, tr2, err := FindRefSites(context.Background(), RefQuery{Word: "helper", Root: dir, Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !tr2 {
+		t.Errorf("上限 1 で切ったのに伝えていない: %d 件", len(cut))
+	}
+	if len(cut) > 1 {
+		t.Errorf("上限 1 を超えて返している: %d 件", len(cut))
+	}
+}
