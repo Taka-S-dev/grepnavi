@@ -280,6 +280,7 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 		// 優先順に試行し、最初にヒットしたエンジンで確定する
 		eng := order[0]
 		gtagsTried := false
+		gtagsAnswered := false // gtags が索引を引けて、エラー無しで答えた
 		for _, engName := range order {
 			t0 := time.Now()
 			switch engName {
@@ -289,6 +290,8 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 				if e != nil {
 					slog.Warn("definition gtags error, falling back", "word", word, "err", e)
 					e = nil
+				} else {
+					gtagsAnswered = true
 				}
 			case "ctags":
 				h, e = search.CtagsFindDefinitions(word, hroot)
@@ -297,10 +300,9 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 					e = nil
 				}
 			case "rg":
-				// gtags を先に試していて、プリロード表が「無い」を確定できるなら
-				// 全域スキャンはしない（stale 時は取りこぼし防止で従来通り走らせる）。
-				// rg を gtags より先に置く設定は意図的な全文検索なのでスキップしない。
-				if gtagsTried && search.GtagsDefsPreloaded(hroot) && !search.GtagsIsStale() {
+				// rg を gtags より先に置く設定は意図的な全文検索なのでスキップしない
+				if gtagsTried && authoritativeGtagsMiss(gtagsAnswered, search.GtagsIsStale(),
+					search.GtagsDefsPreloaded(hroot), search.GtagsQueriesDirect()) {
 					slog.Debug("definition authoritative miss, rg skipped", "word", word)
 					continue
 				}
@@ -338,6 +340,22 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 	h.writeDefinitionResponse(w, word, hroot, res, q.Get("tag"))
 }
 
+
+// authoritativeGtagsMiss は gtags の空振りを「索引に無い」と確定してよいかを返す。
+// 確定できるなら全域スキャンを省ける。
+//
+// 索引が古ければ確定できない（追加されたばかりの定義を取りこぼす）。
+// プリロード表は直接起動が使えない環境でしか作らないので、それだけを条件に
+// すると健全な環境では一度も成立せず、索引が答えているのに毎回全域スキャンへ
+// 落ちていた。ビルド生成物を含む大きなツリー（1.3GB の openssl で rg が3分半）
+// では、定義の無い語を引くたびに打ち切りまで待たされる。
+func authoritativeGtagsMiss(answered, stale, preloaded, direct bool) bool {
+	if !answered || stale {
+		return false
+	}
+	return preloaded || direct
+}
+
 // writeDefinitionResponse は X-Engine と（0件時の）X-Definition-Hint を添えて hits を返す。
 // 新規検索・キャッシュヒット・in-flight 待機のどの経路でも同じヘッダが付くよう一本化。
 func (h *Handler) writeDefinitionResponse(w http.ResponseWriter, word, hroot string, res defResult, tag string) {
@@ -370,8 +388,9 @@ func definitionEmptyHint(word, root string) string {
 			return "'" + word + "' is indexed by ctags as a #define/enum constant, but no definition location could be resolved — the tags file may lack line numbers (regenerate with ctags --fields=+n). A text search for the #define site will find it."
 		}
 	}
-	if reIdentifier.MatchString(word) && search.GtagsDefsPreloaded(root) && !search.GtagsIsStale() {
-		return "'" + word + "' is not in the gtags index (checked against the full preloaded definition table; text scan skipped). If it was added recently, update the index."
+	if reIdentifier.MatchString(word) && !search.GtagsIsStale() &&
+		(search.GtagsDefsPreloaded(root) || (search.GtagsIndexed(root) && search.GtagsQueriesDirect())) {
+		return "'" + word + "' is not in the gtags index (text scan skipped). If it was added recently, update the index."
 	}
 	if !search.CtagsIndexed(root) && !search.GtagsIndexed(root) {
 		return "no ctags/gtags index for this root; only ripgrep heuristics ran. Building an index can surface more results."

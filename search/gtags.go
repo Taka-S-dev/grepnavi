@@ -716,6 +716,14 @@ func GtagsDefsPreloaded(dir string) bool {
 	return snap != nil && snap.dir == dir
 }
 
+// GtagsQueriesDirect は global を直接起動して索引を引けているかを返す。
+// 直接起動が効いていれば1問い合わせが数十msで返るので、空の結果はその場で
+// 「索引に無い」と読める。迂回経路（ファイル出力・bash 経由）は結果が
+// 欠けることがあり、そこまでの確度は無い。
+func GtagsQueriesDirect() bool {
+	return _globalTransport.Load() == _transportDirect
+}
+
 // maybePreloadDefsAsync は直接起動が使えない環境でのみ、バックグラウンドで
 // 全定義をプリロードする。ロード済み・実行中なら何もしない。
 func maybePreloadDefsAsync(globalBin, dir string) {

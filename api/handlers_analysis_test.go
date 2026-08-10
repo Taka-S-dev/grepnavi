@@ -44,3 +44,27 @@ func TestHandleMacroValues(t *testing.T) {
 		t.Errorf("空の names が %d を返した（400 のはず）", rec.Code)
 	}
 }
+
+// 定義の無い語を引くたびに全域スキャンへ落ちると、大きなツリーでは毎回
+// 打ち切りまで待たされる（UI は「定義を検索中」のまま固まって見える）。
+// 逆に確定できないのに省くと、索引の外にある定義を取りこぼす。
+func TestAuthoritativeGtagsMiss(t *testing.T) {
+	tests := []struct {
+		name                               string
+		answered, stale, preloaded, direct bool
+		want                               bool
+	}{
+		{"直接起動で答えた: 確定できる", true, false, false, true, true},
+		{"プリロード表がある: 確定できる", true, false, true, false, true},
+		{"索引が古い: 確定できない", true, true, true, true, false},
+		{"gtags がエラー: 確定できない", false, false, true, true, false},
+		{"迂回経路かつ表も無い: 確定できない", true, false, false, false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := authoritativeGtagsMiss(tt.answered, tt.stale, tt.preloaded, tt.direct); got != tt.want {
+				t.Errorf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
