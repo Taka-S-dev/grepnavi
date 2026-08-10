@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // 状態機械の組み立て。スキャナ (statescan.go) が返す生の遷移に、
@@ -143,7 +144,7 @@ func expandHelperCalls(ctx context.Context, trs []StateTransition, varName, dir 
 	}
 
 	var out []StateTransition
-	for _, tr := range scanStateFiles(files, varName, helpers) {
+	for _, tr := range scanStateFilesWith(files, varName, helpers, knownFuncName(dir)) {
 		if tr.Via == "" {
 			// 直接代入は走査済みファイルなら二重、未走査ファイルなら
 			// 対象範囲の外から来たものなので、どちらも加えない
@@ -165,6 +166,49 @@ func expandHelperCalls(ctx context.Context, trs []StateTransition, varName, dir 
 
 var reIdentOnly = regexp.MustCompile(`^[A-Za-z_]\w*$`)
 
+// knownFuncName は「その名前がこのツリーの関数として索引にあるか」を返す判定を作る。
+//
+// 状態を受け取るヘルパの引数が小文字の識別子のとき、それが関数名なのか
+// 変数なのかは行の字面では決まらない。C の関数ポインタ欄
+// （`SSL_CTX_set_psk_use_session_callback(ctx, psk_use_session_cb)`）では
+// 「結局どの関数が入るのか」が知りたい答えそのものなので、ここを落とすと
+// 一覧に `式: cb` しか出ず、仮引数の名前を見せるだけになる。
+//
+// 判定は索引に聞く。推測しないので、同名のローカル変数を関数と取り違えない。
+// 索引が無ければ何も通さない（従来どおり大文字始まりだけ）。
+func knownFuncName(dir string) func(string) bool {
+	if dir == "" || !CtagsIndexed(dir) {
+		return nil
+	}
+	var mu sync.Mutex
+	cache := map[string]bool{}
+	return func(name string) bool {
+		if name == "" || !reIdentOnly.MatchString(name) {
+			return false
+		}
+		mu.Lock()
+		v, ok := cache[name]
+		mu.Unlock()
+		if ok {
+			return v
+		}
+		hits, err := CtagsFindDefinitions(name, dir)
+		v = false
+		if err == nil {
+			for _, h := range hits {
+				if h.Kind == "func" {
+					v = true
+					break
+				}
+			}
+		}
+		mu.Lock()
+		cache[name] = v
+		mu.Unlock()
+		return v
+	}
+}
+
 // paramIndex は file 内の関数 funcName の仮引数リストから name の位置を返す
 // （見つからなければ -1）。シグネチャは関数の開始行から括弧が閉じるまでを読む。
 func paramIndex(file, funcName, name string) int {
@@ -172,11 +216,13 @@ func paramIndex(file, funcName, name string) int {
 	if err != nil {
 		return -1
 	}
-	syms, _ := ExtractSymbols(file)
+	// 関数の開始行は呼び出し元一覧と同じ範囲表から引く。別の抽出器では
+	// 引数リストが割れた関数を置けず、ヘルパと分かっていても仮引数の位置が
+	// 取れなかった（curl の multistate は `#ifdef` で引数リストが割れている）
 	start := -1
-	for _, s := range syms {
-		if s.Name == funcName {
-			start = s.StartLine
+	for _, sp := range scanFuncSpans(codeOnlyLines(lines)) {
+		if sp.Name == funcName {
+			start = sp.Start
 			break
 		}
 	}
