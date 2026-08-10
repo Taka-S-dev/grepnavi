@@ -605,7 +605,10 @@ function initFloatingPeek(getHoverCtx) {
 
   // ===== 共通右クリックコンテキストメニュー =====
   const _wordCtxMenuId = 'grepnavi-word-ctx';
-  function _showWordCtxMenu(word, x, y, hoverHit, peekEditors) {
+  // opts.mode === 'jump' でコードジャンプ系だけに絞る（ランチャー用）。
+  // 右クリックの全部入りメニューとは別物として使う
+  function _showWordCtxMenu(word, x, y, hoverHit, peekEditors, opts) {
+    const jumpOnly = opts && opts.mode === 'jump';
     document.getElementById(_wordCtxMenuId)?.remove();
     const menu = document.createElement('div');
     menu.id = _wordCtxMenuId;
@@ -625,8 +628,14 @@ function initFloatingPeek(getHoverCtx) {
       menu.appendChild(sep);
     };
 
-    const addItem = (iconClass, label, fn) => {
+    // key を渡すとその1文字で実行できる。操作ごとにキーを覚える代わりに
+    // 「メニューを1つ開いて、そこから1文字」で済ませるための入口
+    const accel = new Map();
+    // 実体は _mountWordCtxMenu で差し替わる（リスナー解除まで面倒を見る版に）
+    let closeMenu = () => menu.remove();
+    const addItem = (iconClass, label, fn, key) => {
       const el = document.createElement('div');
+      el.className = 'wc-item';
       el.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 12px 5px 8px;color:#ccc;cursor:pointer;white-space:nowrap';
       const icon = document.createElement('i');
       icon.className = 'codicon ' + iconClass;
@@ -635,27 +644,56 @@ function initFloatingPeek(getHoverCtx) {
       text.textContent = label;
       el.appendChild(icon);
       el.appendChild(text);
+      if(key) {
+        const hint = document.createElement('span');
+        hint.textContent = key.toUpperCase();
+        hint.style.cssText = 'margin-left:auto;padding-left:14px;color:#7a7a7a;font-size:10px;font-family:monospace';
+        el.appendChild(hint);
+        accel.set(key.toLowerCase(), fn);
+      }
       el.onmouseenter = () => { el.style.background = '#094771'; icon.style.color = '#ccc'; };
       el.onmouseleave = () => { el.style.background = ''; icon.style.color = '#858585'; };
-      el.onclick = () => { menu.remove(); fn(); };
+      el.onclick = () => { closeMenu(); fn(); };
       menu.appendChild(el);
     };
 
+    if(jumpOnly) {
+      addItem('codicon-go-to-file',  '定義へジャンプ', () => jumpToDefinition(word), 'd');
+      if(typeof openRefPicker === 'function') {
+        addItem('codicon-references', '参照を検索',    () => openRefPicker(word), 'r');
+      }
+      if(typeof openCalleePicker === 'function') {
+        addItem('codicon-call-outgoing', 'この関数が呼ぶ関数', () => openCalleePicker(), 'c');
+      }
+      addItem('codicon-file-code',   'その場で定義を見る', () => _showFloatingDef(word), 'e');
+      addItem('codicon-search',      'grep',           () => grepSearchWord(word), 'g');
+      if(typeof window.openCallTree === 'function') {
+        addItem('codicon-list-tree', 'コールツリー',   () => window.openCallTree(word), 't');
+      }
+      if(typeof navBack === 'function' && typeof navForward === 'function') {
+        addSep();
+        addItem('codicon-arrow-left',  '戻る', () => navBack(), 'z');
+        addItem('codicon-arrow-right', '進む', () => navForward(), 'x');
+      }
+      _mountWordCtxMenu();
+      return;
+    }
+
     // ナビゲーション
     if(typeof openRefPicker === 'function') {
-      addItem('codicon-references', '参照を検索',      () => openRefPicker(word));
+      addItem('codicon-references', '参照を検索',      () => openRefPicker(word), 'r');
     }
-    addItem('codicon-search',      'grep',             () => grepSearchWord(word));
-    addItem('codicon-go-to-file',  '定義へジャンプ',   () => jumpToDefinition(word));
+    addItem('codicon-search',      'grep',             () => grepSearchWord(word), 'g');
+    addItem('codicon-go-to-file',  '定義へジャンプ',   () => jumpToDefinition(word), 'd');
     // ホバー内は再ホバーできないので、展開カードに見えている定数を調べる
     // 導線はこのメニューに置く（マクロ名は電卓側で索引解決される）
     if (typeof showRadixCalc === 'function') {
-      addItem('codicon-symbol-numeric', '基数変換電卓', () => showRadixCalc(word));
+      addItem('codicon-symbol-numeric', '基数変換電卓', () => showRadixCalc(word), 'x');
     }
 
     // Peek
     addSep();
-    addItem('codicon-file-code',     'Floating Peek',  () => _showFloatingDef(word));
+    addItem('codicon-file-code',     'Floating Peek',  () => _showFloatingDef(word), 'p');
     if(peekEditors && peekEditors.length) {
       addItem('codicon-symbol-color', 'ハイライト: ' + word, () => _highlightInEditors(peekEditors, word));
     }
@@ -677,13 +715,63 @@ function initFloatingPeek(getHoverCtx) {
         addItem('codicon-add', 'ノードに追加: ' + nodeLabel, () => addToGraph(match, '', 'ref', word));
       }
       if(hasCallTree) {
-        addItem('codicon-list-tree', 'コールツリー', () => window.openCallTree(word));
+        addItem('codicon-list-tree', 'コールツリー', () => window.openCallTree(word), 't');
       }
     }
 
+    _mountWordCtxMenu();
+
+    function _mountWordCtxMenu() {
     document.body.appendChild(menu);
-    const close = e => { if(!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', close); } };
-    setTimeout(() => document.addEventListener('click', close), 0);
+    // 画面外にはみ出さない位置へ寄せる（カーソルが下端・右端にあるとき）
+    const r = menu.getBoundingClientRect();
+    if(r.bottom > window.innerHeight) menu.style.top = Math.max(0, window.innerHeight - r.height - 4) + 'px';
+    if(r.right > window.innerWidth) menu.style.left = Math.max(0, window.innerWidth - r.width - 4) + 'px';
+
+    const close = e => { if(!e || !menu.contains(e.target)) closeMenu(); };
+    // 1文字で実行、↑↓ で選択、Esc で閉じる。キーを個別に覚えなくても
+    // 「メニューを開く1キー」だけ覚えれば操作にたどり着ける
+    const onKey = e => {
+      if(e.key === 'Escape') { e.preventDefault(); closeMenu(); focusEditorSafe(); return; }
+      if(e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const items = [...menu.querySelectorAll('.wc-item')];
+        if(!items.length) return;
+        const cur = items.findIndex(el => el.dataset.sel === '1');
+        const next = (cur + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+        items.forEach((el, i) => {
+          el.dataset.sel = i === next ? '1' : '';
+          el.style.background = i === next ? '#094771' : '';
+        });
+        return;
+      }
+      if(e.key === 'Enter') {
+        const sel = menu.querySelector('[data-sel="1"]');
+        if(sel) { e.preventDefault(); sel.click(); }
+        return;
+      }
+      const fn = accel.get(e.key.toLowerCase());
+      if(fn && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        closeMenu();
+        fn();
+      }
+    };
+    setTimeout(() => {
+      document.addEventListener('click', close);
+      document.addEventListener('keydown', onKey, true);
+    }, 0);
+    closeMenu = () => {
+      menu.remove();
+      document.removeEventListener('click', close);
+      document.removeEventListener('keydown', onKey, true);
+    };
+    function focusEditorSafe() {
+      if(typeof monacoEditor !== 'undefined' && monacoEditor) {
+        try { monacoEditor.focus(); } catch(_) {}
+      }
+    }
+    }
   }
 
   // ===== Monaco ホバーポップアップ右クリック =====

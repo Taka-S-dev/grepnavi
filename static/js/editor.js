@@ -1063,6 +1063,8 @@ async function ensureEditor() {
     lineNumbers: 'on',
     wordWrap: 'off',
     occurrencesHighlight: 'singleFile',
+    // Alt+クリックをジャンプランチャーに使うため、マルチカーソルは Ctrl 側へ譲る
+    multiCursorModifier: 'ctrlCmd',
     selectionHighlight: true,
     renderLineHighlight: 'line',
     stickyScroll: {enabled: true, maxLineCount: 3},
@@ -1419,7 +1421,16 @@ async function ensureEditor() {
     const word = monacoEditor.getModel()?.getWordAtPosition(pos);
     if(!word) return;
     if(e.event.ctrlKey) { e.event.preventDefault(); jumpToDefinition(word.word, _tagContextAt(monacoEditor.getModel(), pos.lineNumber, word.startColumn)); }
-    else if(e.event.altKey) { e.event.preventDefault(); grepSearchWord(word.word); }
+    // Alt+クリック → その場でジャンプランチャー。マウスを持った手だけで
+    // 「語をクリック → 行き先を選ぶ」が終わる（grep もランチャーの中にある）
+    else if(e.event.altKey) {
+      e.event.preventDefault();
+      monacoEditor.setPosition(pos);
+      // このクリックの click イベントはメニューより後に届くので、
+      // 開いた直後に自分自身で閉じてしまわないよう1回だけ握りつぶす
+      document.addEventListener('click', ev => ev.stopPropagation(), {capture: true, once: true});
+      openJumpLauncher(monacoEditor, {x: e.event.posx, y: e.event.posy + 6});
+    }
   });
 
   // F12 → 定義ジャンプ
@@ -1516,6 +1527,38 @@ async function ensureEditor() {
                    || model.getWordAtPosition(ed.getPosition())?.word;
       if(word) openRefPicker(word);
     }
+  });
+
+  // Alt+A → カーソル位置の語のジャンプ先を一覧で出す。
+  // 移動系のキーを個別に覚えなくても、この1つを覚えれば全部にたどり着ける
+  // （出たメニューは1文字・↑↓+Enter で選べる）。左手だけで完結するよう
+  // 起動キーも項目キーも左手側に寄せてある
+  function openJumpLauncher(ed, at) {
+    const sel = ed.getSelection();
+    const model = ed.getModel();
+    if(!model) return;
+    const word = (sel && !sel.isEmpty() ? model.getValueInRange(sel).trim() : null)
+                 || model.getWordAtPosition(ed.getPosition())?.word;
+    if(!word) return;
+    let x = 100, y = 100;
+    if(at) {
+      x = at.x; y = at.y;
+    } else {
+      const pos = ed.getScrolledVisiblePosition(ed.getPosition());
+      const rect = ed.getDomNode()?.getBoundingClientRect();
+      if(rect && pos) { x = rect.left + pos.left; y = rect.top + pos.top + (pos.height || 18); }
+    }
+    const file = tabs[activeTabIdx]?.file;
+    const line = ed.getPosition()?.lineNumber;
+    _showWordCtxMenu(word, x, y, file && line ? { file, line } : null, null, {mode: 'jump'});
+  }
+
+  monacoEditor.addAction({
+    id: 'grepnavi-word-actions', label: 'ジャンプ先を選ぶ…',
+    contextMenuGroupId: 'grepnavi-nav',
+    contextMenuOrder: 0.1,
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyA, monaco.KeyMod.Alt | monaco.KeyCode.Enter],
+    run: ed => openJumpLauncher(ed)
   });
 
   // Alt+D → この関数が呼んでいる関数（読み進める途中で何度も要るので、
