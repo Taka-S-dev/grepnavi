@@ -1804,9 +1804,9 @@ function closeFzf() {
 // 視線が語から離れてしまう。定義候補のピークと同じく、語のすぐ下に出す。
 let _pendingAnchor = null;
 function setPickerAnchor(x, y) { _pendingAnchor = {x, y, t: Date.now()}; }
-function takePickerAnchor() {
+function pickerAnchorPoint(consume) {
   const a = _pendingAnchor;
-  _pendingAnchor = null;
+  if(consume) _pendingAnchor = null;
   // ランチャーを開いたまま放置された後の座標は、スクロール済みで的外れになる
   if(a && Date.now() - a.t < 30000) return a;
   if(!monacoEditor) return null;
@@ -1814,6 +1814,39 @@ function takePickerAnchor() {
   const rect = monacoEditor.getDomNode()?.getBoundingClientRect();
   if(!pos || !rect) return null;
   return {x: rect.left + pos.left, y: rect.top + pos.top + (pos.height || 18)};
+}
+function takePickerAnchor() { return pickerAnchorPoint(true); }
+
+// ===== カーソル位置に一瞬だけ出す通知 =====
+// ジャンプが空振りしたことをステータスバーだけで伝えると、視線がコードに
+// あるので気づけず「押したのに無反応」に見える。目のある場所に出す。
+// 次の操作で消えるので、読み進める邪魔にはならない
+let _flashTimer = null;
+function flashAtCursor(text, kind) {
+  document.getElementById('grepnavi-flash')?.remove();
+  if(_flashTimer) clearTimeout(_flashTimer);
+  const pt = pickerAnchorPoint(false);
+  if(!pt) { return; }
+  const el = document.createElement('div');
+  el.id = 'grepnavi-flash';
+  el.className = 'gn-flash' + (kind === 'warn' ? ' gn-flash-warn' : '');
+  el.textContent = text;
+  el.style.left = pt.x + 'px';
+  el.style.top  = pt.y + 'px';
+  document.body.appendChild(el);
+  const r = el.getBoundingClientRect();
+  if(r.right > window.innerWidth)   el.style.left = Math.max(4, window.innerWidth - r.width - 8) + 'px';
+  if(r.bottom > window.innerHeight) el.style.top  = Math.max(4, window.innerHeight - r.height - 8) + 'px';
+  const dismiss = () => {
+    el.remove();
+    document.removeEventListener('keydown', dismiss, true);
+    document.removeEventListener('mousedown', dismiss, true);
+  };
+  _flashTimer = setTimeout(dismiss, 2400);
+  setTimeout(() => {
+    document.addEventListener('keydown', dismiss, true);
+    document.addEventListener('mousedown', dismiss, true);
+  }, 0);
 }
 let _fzfAnchorPt = null;
 function anchorFzfBox(pt) {
@@ -1837,7 +1870,8 @@ function reanchorFzfBox() { if(_fzfAnchorPt) anchorFzfBox(_fzfAnchorPt); }
 // （タブ・フィルタが残る grep パネル）ではなくクイックピッカーで出す。
 // 引くたびにタブが増えず、視線も画面中央から動かず、Esc で何も残さず消える。
 async function openRefPicker(word) {
-  if(!word || word.length < 2) return;
+  if(!word) { flashAtCursor('語の上ではありません', 'warn'); return; }
+  if(word.length < 2) { flashAtCursor(`参照を探せません: ${word} は1文字です`, 'warn'); return; }
   fzfMode = 'ref';
   fzfRefWord = word;
   fzfRefs = [];
@@ -1874,7 +1908,7 @@ async function openRefPicker(word) {
 async function openCalleePicker() {
   const tab = tabs[activeTabIdx];
   const line = monacoEditor?.getPosition()?.lineNumber;
-  if(!tab || !line) return;
+  if(!tab || !line) { flashAtCursor('先にファイルを開いてください', 'warn'); return; }
   fzfMode = 'ref';
   fzfRefs = [];
   fzfRefsFiltered = [];
@@ -2155,7 +2189,7 @@ function navPush(file, line) {
 }
 
 async function navBack() {
-  if(navIndex <= 0) return;
+  if(navIndex <= 0) { flashAtCursor('これより前の履歴はありません'); return; }
   navIndex--;
   const h = navHistory[navIndex];
   navSkipPush = true;
@@ -2165,7 +2199,7 @@ async function navBack() {
 }
 
 async function navForward() {
-  if(navIndex >= navHistory.length - 1) return;
+  if(navIndex >= navHistory.length - 1) { flashAtCursor('これより先の履歴はありません'); return; }
   navIndex++;
   const h = navHistory[navIndex];
   navSkipPush = true;
@@ -2710,7 +2744,8 @@ function showDefPeek(hits, word, pixelPos) {
 // ===== 定義ジャンプ =====
 let _defAbortCtrl = null;
 async function jumpToDefinition(word, tagCtx = '') {
-  if(!word || word.length < 2) return;
+  if(!word) { flashAtCursor('語の上ではありません', 'warn'); return; }
+  if(word.length < 2) { flashAtCursor(`定義を探せません: ${word} は1文字です`, 'warn'); return; }
   if(_defAbortCtrl) _defAbortCtrl.abort();
   _defAbortCtrl = new AbortController();
   // ジャンプ前の現在位置を履歴に記録（Alt+← で戻れるように）
@@ -2756,12 +2791,15 @@ async function jumpToDefinition(word, tagCtx = '') {
     // サーバーが理由を特定できたとき (X-Definition-Hint) はそれを優先して表示する
     if (defHint) {
       st('見つかりません: ' + word + ' — ' + defHint);
+      flashAtCursor(`定義が見つかりません: ${word} — ${defHint}`, 'warn');
       return;
     }
     const hint = (typeof window.gtagsEnabled === 'function' && window.gtagsEnabled())
       ? ' — インデックスが古い場合は再生成を試してください'
       : '';
     st('見つかりません: ' + word + hint);
+    // 定義が無いのか索引に無いだけなのかは判断できないので、次の一手を添える
+    flashAtCursor(`定義が見つかりません: ${word}（Alt+G で grep、Alt+R で参照）`, 'warn');
     return;
   }
 

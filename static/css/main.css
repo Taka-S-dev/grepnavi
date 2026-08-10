@@ -605,6 +605,15 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 #fzf-input{flex:1;background:transparent;border:none;color:#ccc;font:14px Consolas,monospace;outline:none}
 #fzf-count{font-size:10px;color:#555;flex-shrink:0;white-space:nowrap}
 #fzf-list{overflow-y:auto;max-height:360px}
+/* 空振りをカーソルの隣で知らせる小さな通知。次の操作で消える */
+.gn-flash{position:fixed;z-index:var(--z-context-menu);max-width:520px;padding:6px 12px;
+  border-radius:4px;background:#2d2d2d;border:1px solid #555;color:#ccc;
+  font:12px sans-serif;box-shadow:0 4px 12px rgba(0,0,0,.6);pointer-events:none;
+  animation:gn-flash-in .12s ease-out}
+.gn-flash-warn{border-color:#8a6d3b;color:#e8c07a}
+@keyframes gn-flash-in{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion: reduce){.gn-flash{animation:none}}
+
 /* 語に紐づくピッカー(参照・呼び先)はカーソル/マウスの隣に出す。
    画面を暗くすると視線が奪われるので、背景は落とさない */
 #fzf-overlay.anchored.open{display:block;padding:0;background:transparent}
