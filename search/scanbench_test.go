@@ -54,15 +54,6 @@ func BenchmarkFindContainingFunc(b *testing.B) {
 	}
 }
 
-func BenchmarkEnclosingFuncStart(b *testing.B) {
-	lines := benchCFile(40, 60)
-	target := len(lines) - 20
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		enclosingFuncStart(lines, target)
-	}
-}
-
 // 参照1件ごとに走る経路。呼び出し元が数百件あればこの回数だけ回る。
 func BenchmarkMentionsInCode(b *testing.B) {
 	lines := benchCFile(40, 60)
@@ -74,30 +65,32 @@ func BenchmarkMentionsInCode(b *testing.B) {
 	}
 }
 
-// 包含関数が無い行（トップレベル）は候補を遡り切るので最悪ケースになる。
-func BenchmarkEnclosingFuncStartNoMatch(b *testing.B) {
-	lines := benchCFile(40, 60)
-	lines = append(lines, "int global_tail = 1;") // どの関数にも属さない行
-	target := len(lines)
+
+
+// 全関数の範囲を1回で出す方式。1件ずつ遡る方式と比べる。
+func BenchmarkScanFuncSpans(b *testing.B) {
+	code := codeOnlyLines(benchCFile(40, 60))
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		enclosingFuncStart(lines, target)
+		scanFuncSpans(code)
 	}
 }
 
-// 実際の呼び出し元一覧: 同じファイルに 200 件ヒットし、キャッシュを共有する形。
-func BenchmarkCallerScanSharedCache(b *testing.B) {
+// 呼び出し元200件を、範囲テーブル1回 + 二分探索で解く場合。
+func BenchmarkCallerScanWithSpans(b *testing.B) {
 	lines := benchCFile(40, 60)
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		c := codeOnlyCache{}
+		code := c.get("bench.c", lines)
+		spans := scanFuncSpans(code)
 		for h := 0; h < 200; h++ {
 			line := 10 + h*20
 			if line >= len(lines) {
 				line = len(lines) - 1
 			}
 			c.mentionsInCode("bench.c", lines, line, "helper_1")
-			findContainingFunc(lines, line)
+			enclosingSpan(spans, line)
 		}
 	}
 }

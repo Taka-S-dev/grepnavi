@@ -127,15 +127,36 @@ func anyDead(stack []bool) bool {
 }
 
 // codeOnlyCache は1リクエスト内で同じファイルを何度も走査しないための一時キャッシュ。
-type codeOnlyCache map[string][]string
+// 除去済みの行と、そこから求めた関数の範囲を同じ寿命で持つ。
+type codeOnlyCache map[string]*codeOnlyEntry
 
-func (c codeOnlyCache) get(file string, lines []string) []string {
+type codeOnlyEntry struct {
+	code  []string
+	spans []funcSpan
+}
+
+func (c codeOnlyCache) entry(file string, lines []string) *codeOnlyEntry {
 	if v, ok := c[file]; ok {
 		return v
 	}
-	v := codeOnlyLines(lines)
+	code := codeOnlyLines(lines)
+	v := &codeOnlyEntry{code: code, spans: scanFuncSpans(code)}
 	c[file] = v
 	return v
+}
+
+func (c codeOnlyCache) get(file string, lines []string) []string {
+	return c.entry(file, lines).code
+}
+
+// containingFunc は file の line 行を囲む関数の名前と開始行を返す（""=関数の外）。
+// ファイルごとに範囲表を1回だけ作り、あとは二分探索で引く。
+func (c codeOnlyCache) containingFunc(file string, lines []string, line int) (string, int) {
+	sp, ok := enclosingSpan(c.entry(file, lines).spans, line)
+	if !ok {
+		return "", 0
+	}
+	return sp.Name, sp.Start
 }
 
 // mentionsInCode は file の line 行のコード部分に word が現れるかを返す。

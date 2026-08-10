@@ -129,7 +129,7 @@ func FindCallers(ctx context.Context, word, dir, glob string) ([]CallSite, bool,
 					continue
 				}
 			}
-			funcName, defLine := findContainingFunc(lines, m.Line)
+			funcName, defLine := code.containingFunc(m.File, lines, m.Line)
 			if funcName == "" || funcName == word {
 				continue
 			}
@@ -231,35 +231,6 @@ func MarkIndirectCalls(sites []CallSite, word string) {
 	}
 }
 
-// enclosingFuncStart は line（1-indexed）を含む関数の開始行を返す（0 = 不明）。
-// シンボル抽出の正規表現に頼らず、「列0から始まる行のブレースブロックが
-// その行を含むか」を実際に切り出して確かめる。openssl の
-// `static STACK_OF(GENERAL_NAME) *f(...)` のように戻り値がマクロで
-// シグネチャが複数行にまたがる形でも、この方法なら取りこぼさない。
-func enclosingFuncStart(lines []string, line int) int {
-	if line < 1 || line > len(lines) {
-		return 0
-	}
-	for i := line - 1; i >= 0 && line-i < 3000; i-- {
-		l := lines[i]
-		if l == "" {
-			continue
-		}
-		// 関数定義は列0から始まる。空白始まり・プリプロセッサ・閉じ括弧は候補外
-		if l[0] == ' ' || l[0] == '\t' || l[0] == '#' || l[0] == '}' {
-			continue
-		}
-		body := extractBraceBlock(lines, i+1)
-		if body == "" {
-			continue // 宣言（; で終わる）などはブロックにならない
-		}
-		if end := i + strings.Count(body, "\n") + 1; i+1 <= line && line <= end {
-			return i + 1
-		}
-	}
-	return 0
-}
-
 // CalleeHit は FindCallees が返す 1 件。重複名は最初の出現行を採用する。
 type CalleeHit struct {
 	Name     string `json:"name"`
@@ -284,8 +255,8 @@ func FindCallees(_ context.Context, file string, line int, root string) ([]Calle
 	}
 	// 関数の途中の行を渡されても答えられるようにする。読んでいる最中に
 	// 「この関数は何を呼んでいるか」を聞くとき、カーソルは本体の中にある
-	if start := enclosingFuncStart(lines, line); start > 0 {
-		line = start
+	if sp, ok := enclosingSpan(scanFuncSpans(codeOnlyLines(lines)), line); ok {
+		line = sp.Start
 	}
 	// 表示用の 200 行上限だと 500 行級の関数で後半の呼び出しが黙って消える。
 	// 一覧は全件そろっていることに意味があるので解析用の上限で切り出し、
@@ -350,69 +321,3 @@ func annotateCalleeKinds(hits []CalleeHit, root string) []CalleeHit {
 	return hits
 }
 
-// findContainingFunc は lines の callLine（1-indexed）から逆方向に
-// 包含する関数定義を探し、関数名と定義行（1-indexed）を返す。
-func findContainingFunc(lines []string, callLine int) (string, int) {
-	idx := callLine - 1
-	if idx < 0 || idx >= len(lines) {
-		return "", 0
-	}
-
-	depth := 0
-	for i := idx; i >= 0 && i > idx-2000; i-- {
-		line := lines[i]
-		for j := len(line) - 1; j >= 0; j-- {
-			ch := line[j]
-			if ch == '}' {
-				depth++
-			} else if ch == '{' {
-				depth--
-				if depth < 0 {
-					// インデントされた { は if/for/while 等の内側ブロック。
-					// 関数のオープンブレースは列0（`{` 単独行、または `void f(void) {`）
-					// なので、そうでなければ1段外に出たものとして走査を続ける。
-					// これを見落とすと、ブロック内の呼び出しが全て関数名を取れずに捨てられる。
-					if len(line) > 0 && (line[0] == ' ' || line[0] == '\t') {
-						depth = 0
-						continue
-					}
-					// この { が包含関数のオープンブレース
-					// この行とその前の数行から関数名を探す（行頭が空白でない行）
-					var structName string
-					var structLine int
-					for k := i; k >= 0 && k >= i-8; k-- {
-						l := lines[k]
-						if len(l) == 0 || l[0] == '#' {
-							continue
-						}
-						if l[0] != ' ' && l[0] != '\t' {
-							// 関数定義を優先探索
-							ms := reCalleeFunc.FindAllStringSubmatch(l, -1)
-							for mi := len(ms) - 1; mi >= 0; mi-- {
-								name := ms[mi][1]
-								if !ctKeywords[name] {
-									return name, k + 1
-								}
-							}
-							// 構造体変数初期化: name = { パターン
-							if ms2 := reStructVarName.FindAllStringSubmatch(l, -1); len(ms2) > 0 {
-								for mi := len(ms2) - 1; mi >= 0; mi-- {
-									name := ms2[mi][1]
-									if !ctKeywords[name] && structName == "" {
-										structName = name
-										structLine = k + 1
-									}
-								}
-							}
-						}
-					}
-					if structName != "" {
-						return structName, structLine
-					}
-					return "", i + 1
-				}
-			}
-		}
-	}
-	return "", 0
-}

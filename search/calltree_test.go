@@ -263,3 +263,101 @@ func TestMarkIndirectCalls(t *testing.T) {
 		}
 	}
 }
+
+func TestFindCalleesDeepInsideLongFunction(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("void outer(void)\n{\n")
+	for i := 0; i < 300; i++ {
+		b.WriteString("\tfiller();\n")
+	}
+	b.WriteString("\ttarget_call();\n") // 303行目あたり
+	b.WriteString("}\n")
+	dir := t.TempDir()
+	f := filepath.Join(dir, "long.c")
+	if err := os.WriteFile(f, []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// 関数の 300 行目あたりにカーソルがある状態で問い合わせる
+	hits, _, err := FindCallees(context.Background(), f, 300, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, h := range hits {
+		if h.Name == "target_call" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("200行より奥から問い合わせると呼び先が取れない: %d 件", len(hits))
+	}
+}
+
+// findContainingFunc は範囲表に置き換わる前の実装。新しい実装が
+// 本体の中で同じ答えを出すことを確かめる基準として残す。
+// findContainingFunc は lines の callLine（1-indexed）から逆方向に
+// 包含する関数定義を探し、関数名と定義行（1-indexed）を返す。
+func findContainingFunc(lines []string, callLine int) (string, int) {
+	idx := callLine - 1
+	if idx < 0 || idx >= len(lines) {
+		return "", 0
+	}
+
+	depth := 0
+	for i := idx; i >= 0 && i > idx-2000; i-- {
+		line := lines[i]
+		for j := len(line) - 1; j >= 0; j-- {
+			ch := line[j]
+			if ch == '}' {
+				depth++
+			} else if ch == '{' {
+				depth--
+				if depth < 0 {
+					// インデントされた { は if/for/while 等の内側ブロック。
+					// 関数のオープンブレースは列0（`{` 単独行、または `void f(void) {`）
+					// なので、そうでなければ1段外に出たものとして走査を続ける。
+					// これを見落とすと、ブロック内の呼び出しが全て関数名を取れずに捨てられる。
+					if len(line) > 0 && (line[0] == ' ' || line[0] == '\t') {
+						depth = 0
+						continue
+					}
+					// この { が包含関数のオープンブレース
+					// この行とその前の数行から関数名を探す（行頭が空白でない行）
+					var structName string
+					var structLine int
+					for k := i; k >= 0 && k >= i-8; k-- {
+						l := lines[k]
+						if len(l) == 0 || l[0] == '#' {
+							continue
+						}
+						if l[0] != ' ' && l[0] != '\t' {
+							// 関数定義を優先探索
+							ms := reCalleeFunc.FindAllStringSubmatch(l, -1)
+							for mi := len(ms) - 1; mi >= 0; mi-- {
+								name := ms[mi][1]
+								if !ctKeywords[name] {
+									return name, k + 1
+								}
+							}
+							// 構造体変数初期化: name = { パターン
+							if ms2 := reStructVarName.FindAllStringSubmatch(l, -1); len(ms2) > 0 {
+								for mi := len(ms2) - 1; mi >= 0; mi-- {
+									name := ms2[mi][1]
+									if !ctKeywords[name] && structName == "" {
+										structName = name
+										structLine = k + 1
+									}
+								}
+							}
+						}
+					}
+					if structName != "" {
+						return structName, structLine
+					}
+					return "", i + 1
+				}
+			}
+		}
+	}
+	return "", 0
+}

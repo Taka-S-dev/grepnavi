@@ -162,7 +162,7 @@ func regatherDriftedRefs(hits []DefHit, word, dir string, code codeOnlyCache) []
 
 // _regatherPerFileMax は1ファイルから取り直す参照の上限。
 // ありふれた識別子と巨大なファイルが重なると、1回の問い合わせが
-// findContainingFunc の遡り走査を何千回も呼ぶことになる。
+// ファイル全体の走査を何千回も呼ぶことになる。
 const _regatherPerFileMax = 500
 
 // gtagsIndexModTime は GTAGS（無ければ GRTAGS）の更新時刻を返す。

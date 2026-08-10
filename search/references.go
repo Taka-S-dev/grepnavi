@@ -79,7 +79,7 @@ func rgReferences(ctx context.Context, word, dir string, limit int) ([]Reference
 		if len(refs) >= limit {
 			return refs, true, nil
 		}
-		fn, _ := findContainingFunc(lines, m.Line)
+		fn, _ := code.containingFunc(m.File, lines, m.Line)
 		refs = append(refs, Reference{
 			File: m.File,
 			Line: m.Line,

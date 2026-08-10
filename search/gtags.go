@@ -1476,7 +1476,7 @@ func GtagsFindHoverHits(ctx context.Context, word, dir string) ([]DefHit, error)
 }
 
 // GtagsFindRefs は GNU Global で word の参照箇所を検索する（callers 用）。
-// 各参照行を囲む関数名・定義行を findContainingFunc で解決して返す。
+// 各参照行を囲む関数名・定義行を、ファイルごとの関数範囲表から解決して返す。
 //
 // GRTAGS（-r）が持つのは「プロジェクト内で定義されている」シンボルへの参照だけ。
 // malloc のように定義がツリー外にある関数は GSYMS（-s）側にあり、-r では 0 件になる。
@@ -1551,7 +1551,7 @@ func gtagsRefsWithFlag(ctx context.Context, word, dir, flag string) ([]CallSite,
 			skippedComment++
 			continue
 		}
-		funcName, defLine := findContainingFunc(lines, h.Line)
+		funcName, defLine := code.containingFunc(h.File, lines, h.Line)
 		if funcName == "" {
 			skippedNoFunc++
 			continue
