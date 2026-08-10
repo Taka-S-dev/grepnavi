@@ -1,10 +1,6 @@
 package search
 
-import (
-	"context"
-	"regexp"
-	"strings"
-)
+import "context"
 
 // Reference は word が使われている1箇所。
 //
@@ -21,71 +17,16 @@ type Reference struct {
 // FindReferences は word が使われている箇所を返す。
 // 戻り値の第2要素は上限で打ち切ったか、第3要素は使用したエンジン。
 //
-// gtags の参照インデックスがあればそれを使い、無ければ ripgrep で単語検索する。
-// どちらの経路でも、コメント内・文字列内・`#if 0` 内だけの出現は除外する。
+// 索引と ripgrep の使い分け・絞り込み・コメント除外は FindRefSites が持つ。
+// 呼び出し元一覧と同じ経路を通すことで、片方だけが取りこぼす形にならない。
 func FindReferences(ctx context.Context, word, dir string, limit int) ([]Reference, bool, string, error) {
-	if limit <= 0 {
-		limit = 100
-	}
-	if GtagsAvailable(dir) {
-		refs, truncated, err := gtagsReferences(ctx, word, dir, limit)
-		if err == nil && len(refs) > 0 {
-			return refs, truncated, "gtags", nil
-		}
-	}
-	refs, truncated, err := rgReferences(ctx, word, dir, limit)
-	return refs, truncated, "rg", err
-}
-
-func gtagsReferences(ctx context.Context, word, dir string, limit int) ([]Reference, bool, error) {
-	hits, err := GtagsFindRefs(ctx, word, dir)
+	sites, engine, truncated, err := FindRefSites(ctx, RefQuery{Word: word, Root: dir, Limit: limit})
 	if err != nil {
-		return nil, false, err
+		return nil, false, engine, err
 	}
-	refs := make([]Reference, 0, len(hits))
-	for _, h := range hits {
-		if len(refs) >= limit {
-			return refs, true, nil
-		}
-		refs = append(refs, Reference{File: h.File, Line: h.CallLine, Text: h.Text, Func: h.Func})
+	refs := make([]Reference, 0, len(sites))
+	for _, s := range sites {
+		refs = append(refs, Reference{File: s.File, Line: s.CallLine, Text: s.Text, Func: s.Func})
 	}
-	return refs, false, nil
-}
-
-func rgReferences(ctx context.Context, word, dir string, limit int) ([]Reference, bool, error) {
-	matches, err := Search(ctx, Options{
-		Pattern:       `\b` + regexp.QuoteMeta(word) + `\b`,
-		Dir:           dir,
-		Regex:         true,
-		CaseSensitive: true,
-		ContextLines:  -1,
-		MaxResults:    limit * 3, // コメント除外で減るぶんを見込む
-		MaxThreads:    _defRgThreads,
-	})
-	if err != nil {
-		return nil, false, err
-	}
-	code := codeOnlyCache{}
-	refs := make([]Reference, 0, limit)
-	for _, m := range matches {
-		lines, lerr := CachedLines(m.File)
-		if lerr != nil {
-			continue
-		}
-		// コメント・文字列・#if 0 の中だけの出現は参照ではない
-		if !code.mentionsInCode(m.File, lines, m.Line, word) {
-			continue
-		}
-		if len(refs) >= limit {
-			return refs, true, nil
-		}
-		fn, _ := code.containingFunc(m.File, lines, m.Line)
-		refs = append(refs, Reference{
-			File: m.File,
-			Line: m.Line,
-			Text: strings.TrimSpace(callSiteText(lines, m.Line)),
-			Func: fn,
-		})
-	}
-	return refs, false, nil
+	return refs, truncated, engine, nil
 }

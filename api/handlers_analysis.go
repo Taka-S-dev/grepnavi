@@ -518,31 +518,17 @@ func (h *Handler) handleCallers(w http.ResponseWriter, r *http.Request) {
 	} else if !filepath.IsAbs(dir) {
 		dir = filepath.Join(hroot, dir)
 	}
-	useGtags := q.Get("gtags") != "0" && search.GtagsAvailable(hroot)
-	var hits []search.CallSite
-	var err error
-	engine := "gtags"
-	truncated := false
-	if useGtags {
-		hits, err = search.GtagsFindRefs(r.Context(), word, hroot)
-		if err == nil {
-			// gtags はツリー全体を引くので、絞り込みはここで効かせる。
-			// でないと検索ディレクトリを狭めても呼び出し元だけ全体が出る。
-			hits = search.FilterCallSites(hits, dir, q.Get("glob"))
-			search.MarkIndirectCalls(hits, word)
-		}
-		// 0件なら rg で確かめる。索引が拾えないファイル種別（gtags が解析
-		// しない拡張子・GTAGSSKIP で外したもの）からの呼び出しがあり得るので、
-		// 「索引が 0 件」＝「呼び出し元が無い」とは言い切れない。
-		if err != nil || len(hits) == 0 {
-			err = nil
-			engine = "rg"
-			hits, truncated, err = search.FindCallers(r.Context(), word, dir, q.Get("glob"))
-		}
-	} else {
-		engine = "rg"
-		hits, truncated, err = search.FindCallers(r.Context(), word, dir, q.Get("glob"))
-	}
+	hits, engine, truncated, err := search.FindRefSites(r.Context(), search.RefQuery{
+		Word:        word,
+		Root:        hroot,
+		Scope:       dir,
+		Glob:        q.Get("glob"),
+		CallersOnly: true,
+		NoIndex:     q.Get("gtags") == "0",
+		// 呼び出し元は「これで全部か」を見る一覧なので上限は高く取り、
+		// 触れたときは X-Truncated で伝える
+		Limit: 1000,
+	})
 	if err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return

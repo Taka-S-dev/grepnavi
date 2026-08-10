@@ -1475,13 +1475,15 @@ func GtagsFindHoverHits(ctx context.Context, word, dir string) ([]DefHit, error)
 	return out, nil
 }
 
-// GtagsFindRefs は GNU Global で word の参照箇所を検索する（callers 用）。
-// 各参照行を囲む関数名・定義行を、ファイルごとの関数範囲表から解決して返す。
+// gtagsRefSites は GNU Global で word の参照箇所を検索する。
+// 各参照行を囲む関数名・定義行を、ファイルごとの関数範囲表から解決して付ける。
+// 囲む関数が分からない箇所（プロトタイプ宣言・マクロ定義・型定義の中）も
+// 落とさずに返す。何を捨てるかは用途ごとに違うので、決めるのは呼び手の仕事。
 //
 // GRTAGS（-r）が持つのは「プロジェクト内で定義されている」シンボルへの参照だけ。
 // malloc のように定義がツリー外にある関数は GSYMS（-s）側にあり、-r では 0 件になる。
 // 索引にありながら 0 件を返すと呼び出し元が無いように見えるので、続けて -s も引く。
-func GtagsFindRefs(ctx context.Context, word, dir string) ([]CallSite, error) {
+func gtagsRefSites(ctx context.Context, word, dir string) ([]CallSite, error) {
 	sites, err := gtagsRefsWithFlag(ctx, word, dir, "-xr")
 	if err != nil || len(sites) > 0 {
 		return sites, err
@@ -1532,13 +1534,12 @@ func gtagsRefsWithFlag(ctx context.Context, word, dir, flag string) ([]CallSite,
 	hits := gtagsParseOutput(out, "ref", dir)
 	slog.Debug("gtags-find-refs raw hits", "word", word, "count", len(hits))
 	var results []CallSite
-	seen := map[string]bool{}
 	code := codeOnlyCache{}
 	// 索引が古いと行がずれている。下の絞り込みは「その行にシンボルが無ければ
 	// 捨てる」ので、先に取り直しておかないと、ずれたヒットはコメント扱いで消え、
 	// 参照一覧が黙って不完全になる。
 	hits = regatherDriftedRefs(hits, word, dir, code)
-	skippedNoFunc, skippedSelf, skippedDup, skippedComment := 0, 0, 0, 0
+	skippedComment := 0
 	for _, h := range hits {
 		lines, lerr := CachedLines(h.File)
 		if lerr != nil {
@@ -1552,20 +1553,6 @@ func gtagsRefsWithFlag(ctx context.Context, word, dir, flag string) ([]CallSite,
 			continue
 		}
 		funcName, defLine := code.containingFunc(h.File, lines, h.Line)
-		if funcName == "" {
-			skippedNoFunc++
-			continue
-		}
-		if funcName == word {
-			skippedSelf++
-			continue
-		}
-		key := h.File + ":" + strconv.Itoa(defLine)
-		if seen[key] {
-			skippedDup++
-			continue
-		}
-		seen[key] = true
 		results = append(results, CallSite{
 			Func:     funcName,
 			File:     h.File,
@@ -1575,7 +1562,6 @@ func gtagsRefsWithFlag(ctx context.Context, word, dir, flag string) ([]CallSite,
 		})
 	}
 	slog.Debug("gtags-find-refs result", "word", word, "results", len(results),
-		"skipped_no_func", skippedNoFunc, "skipped_self", skippedSelf, "skipped_dup", skippedDup,
 		"skipped_comment", skippedComment)
 	_gtagsRefsCache.Store(cacheKey, gtagsRefsEntry{sites: results, storedAt: time.Now()})
 	return results, nil
