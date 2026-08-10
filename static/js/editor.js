@@ -1914,8 +1914,11 @@ async function openRefPicker(word, assignOnly, filter) {
   fzfRefsFiltered = [];
   id('fzf-overlay').classList.add('open');
   if(filter === undefined) id('fzf-input').value = '';
+  // 代入一覧のときだけ、値まで見る手段があることを言う。知らないと存在に気づけない
+  const deeper = (assignOnly && typeof window.openStateMachine === 'function')
+    ? ' / Alt+S で何が入るか' : '';
   id('fzf-input').placeholder = (assignOnly ? `${word} への代入` : `${word} の参照`)
-    + ' を絞り込む（空白で AND / -語 で除外 / path:… でパスだけ）';
+    + ` を絞り込む（空白で AND / -語 で除外 / path:… でパスだけ${deeper}）`;
   id('fzf-count').textContent = '検索中…';
   id('fzf-list').innerHTML = '<div class="fzf-empty">参照を検索しています…</div>';
   // 絞り込みでの再問い合わせでは、位置と入力欄とフォーカスをそのままにする
