@@ -1550,6 +1550,8 @@ async function ensureEditor() {
     }
     const file = tabs[activeTabIdx]?.file;
     const line = ed.getPosition()?.lineNumber;
+    // ここから開くピッカーも同じ場所に出す（視線と手を動かさない）
+    setPickerAnchor(x, y);
     _showWordCtxMenu(word, x, y, file && line ? { file, line } : null, null, {mode: 'jump'});
   }
 
@@ -1773,6 +1775,7 @@ async function openFzf(mode = 'file') {
     } catch { fzfFiles = []; }
   }
   id('fzf-overlay').classList.add('open');
+  anchorFzfBox(null); // ファイル/シンボル検索は語に紐づかないので中央のまま
   id('fzf-input').value = '';
   id('fzf-input').placeholder = mode === 'symbol'
     ? 'シンボル名を入力… (例: recipe save)'
@@ -1782,8 +1785,41 @@ async function openFzf(mode = 'file') {
 }
 
 function closeFzf() {
-  id('fzf-overlay').classList.remove('open');
+  id('fzf-overlay').classList.remove('open', 'anchored');
 }
+
+// ===== ピッカーをカーソル/マウスの近くに出す =====
+// 参照や呼び先は「いま見ている語」に紐づく操作なので、画面中央に出すと
+// 視線が語から離れてしまう。定義候補のピークと同じく、語のすぐ下に出す。
+let _pendingAnchor = null;
+function setPickerAnchor(x, y) { _pendingAnchor = {x, y, t: Date.now()}; }
+function takePickerAnchor() {
+  const a = _pendingAnchor;
+  _pendingAnchor = null;
+  // ランチャーを開いたまま放置された後の座標は、スクロール済みで的外れになる
+  if(a && Date.now() - a.t < 30000) return a;
+  if(!monacoEditor) return null;
+  const pos = monacoEditor.getScrolledVisiblePosition(monacoEditor.getPosition());
+  const rect = monacoEditor.getDomNode()?.getBoundingClientRect();
+  if(!pos || !rect) return null;
+  return {x: rect.left + pos.left, y: rect.top + pos.top + (pos.height || 18)};
+}
+let _fzfAnchorPt = null;
+function anchorFzfBox(pt) {
+  const ov = id('fzf-overlay'), box = id('fzf-box');
+  _fzfAnchorPt = pt || null;
+  if(!pt) { ov.classList.remove('anchored'); box.style.left = box.style.top = ''; return; }
+  ov.classList.add('anchored');
+  box.style.left = pt.x + 'px';
+  box.style.top  = pt.y + 'px';
+  // 画面外へはみ出す分だけ戻す（下端・右端の語で開いたとき）
+  const r = box.getBoundingClientRect();
+  if(r.right > window.innerWidth)   box.style.left = Math.max(4, window.innerWidth - r.width - 8) + 'px';
+  if(r.bottom > window.innerHeight) box.style.top  = Math.max(4, window.innerHeight - r.height - 8) + 'px';
+}
+// 「検索中…」の小さい状態で位置を決めた後に結果が入って伸びるので、
+// 埋まってからもう一度だけ画面内に収め直す
+function reanchorFzfBox() { if(_fzfAnchorPt) anchorFzfBox(_fzfAnchorPt); }
 
 // ===== 参照ピッカー =====
 // 参照は「候補から1つ選んで読みに行く」一時的な操作なので、検索ワークスペース
@@ -1800,6 +1836,7 @@ async function openRefPicker(word) {
   id('fzf-input').placeholder = `${word} の参照を絞り込む（関数名・パス）`;
   id('fzf-count').textContent = '検索中…';
   id('fzf-list').innerHTML = '<div class="fzf-empty">参照を検索しています…</div>';
+  anchorFzfBox(takePickerAnchor());
   setTimeout(() => id('fzf-input').focus(), 30);
   try {
     const dir = id('dir').value.trim();
@@ -1813,6 +1850,7 @@ async function openRefPicker(word) {
     fzfRefs._engine = engine === 'gtags' ? 'gtags 索引' : 'rg テキスト';
     if(fzfMode !== 'ref') return; // 待っている間に別のピッカーへ移った
     fzfRenderRefs(id('fzf-input').value);
+    reanchorFzfBox();
   } catch {
     id('fzf-list').innerHTML = '<div class="fzf-empty">参照の検索に失敗しました</div>';
   }
@@ -1834,6 +1872,7 @@ async function openCalleePicker() {
   id('fzf-input').placeholder = 'この関数が呼んでいる関数を絞り込む';
   id('fzf-count').textContent = '検索中…';
   id('fzf-list').innerHTML = '<div class="fzf-empty">呼び先を探しています…</div>';
+  anchorFzfBox(takePickerAnchor());
   setTimeout(() => id('fzf-input').focus(), 30);
   try {
     // 囲んでいる関数の解決はサーバ側が行う（シグネチャがマクロ戻り値や
@@ -1857,6 +1896,7 @@ async function openCalleePicker() {
       return;
     }
     fzfRenderRefs(id('fzf-input').value);
+    reanchorFzfBox();
   } catch {
     id('fzf-list').innerHTML = '<div class="fzf-empty">呼び先を取得できませんでした</div>';
   }
