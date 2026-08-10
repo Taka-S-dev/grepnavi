@@ -71,6 +71,12 @@ document.addEventListener('DOMContentLoaded', () => {
         <span id="sm-status"></span>
         <button id="sm-close" title="閉じる (Esc)">×</button>
       </div>
+      <div id="sm-busy">
+        <span class="sm-busy-spin"></span>
+        <span class="sm-busy-msg">解析中</span>
+        <span class="sm-busy-time"></span>
+        <button class="sm-busy-cancel" title="解析をやめる">中止</button>
+      </div>
       <div id="sm-body">
         <div id="sm-graph"></div>
         <div id="sm-side">
@@ -80,6 +86,13 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
     </div>
   `);
+
+  // 35 秒かかる木もあるので、待つのをやめられるようにする
+  document.querySelector('#sm-busy .sm-busy-cancel').onclick = () => {
+    _smAbort?.abort();
+    smBusyStop();
+    _smStatus('解析を中止しました');
+  };
 
   const addonBar = document.getElementById('addon-buttons');
   if (addonBar) {
@@ -160,6 +173,49 @@ function _smStatus(text, isErr) {
   el.classList.toggle('sm-err', !!isErr);
 }
 
+// 待ちの表示は 250ms 経ってから出す。openssl は 0.2 秒で返るので、
+// 即座に出すとバーが一瞬光るだけで、かえって落ち着かない。
+// 一方 linux の icsk_ca_state は 35 秒かかるので、無表示では固まって見える。
+const SM_BUSY_DELAY = 250;
+let _smBusyTimer = null;
+let _smBusyTick = null;
+
+function smBusyStart() {
+  smBusyStop();
+  const t0 = Date.now();
+  _smBusyTimer = setTimeout(() => {
+    const el = document.getElementById('sm-busy');
+    if (!el) return;
+    el.classList.add('on');
+    const spin = el.querySelector('.sm-busy-spin');
+    const label = el.querySelector('.sm-busy-time');
+    // 回り物は grep と定義検索で使っているものと同じにする。同じ「待っている」
+    // に別の見た目を当てると、画面ごとに意味を覚え直すことになる。
+    // 進捗率は出せない（参照検索とファイル走査の二段で、総量が事前に分からない）
+    // ので、経過秒を添える。待つ価値があるかの判断材料になる
+    const frames = (typeof SPINNER_FRAMES !== 'undefined')
+      ? SPINNER_FRAMES : ['|', '/', '-', String.fromCharCode(92)];
+    let i = 0;
+    const tick = () => {
+      spin.textContent = frames[i = (i + 1) % frames.length];
+      label.textContent = ((Date.now() - t0) / 1000).toFixed(1) + ' 秒';
+    };
+    tick();
+    _smBusyTick = setInterval(tick, 80);
+  }, SM_BUSY_DELAY);
+}
+
+function smBusyStop() {
+  clearTimeout(_smBusyTimer); _smBusyTimer = null;
+  clearInterval(_smBusyTick); _smBusyTick = null;
+  const el = document.getElementById('sm-busy');
+  if (el) {
+    el.classList.remove('on');
+    const label = el.querySelector('.sm-busy-time');
+    if (label) label.textContent = '';
+  }
+}
+
 async function smAnalyze() {
   const name = document.getElementById('sm-input').value.trim();
   if (!name) return;
@@ -173,6 +229,7 @@ async function smAnalyze() {
   _smStatus('解析中...');
   document.getElementById('sm-list').innerHTML = '';
   document.getElementById('sm-states').innerHTML = '';
+  smBusyStart();
   try {
     const glob = document.getElementById('glob')?.value.trim() || '';
     const scope = document.getElementById('sm-scope').value.trim();
@@ -193,6 +250,10 @@ async function smAnalyze() {
     smRender();
   } catch (e) {
     if (e.name !== 'AbortError') _smStatus('解析に失敗しました', true);
+  } finally {
+    // どの経路でも必ず消す。消し忘れると「解析中」のまま止まって見え、
+    // 押した操作が届いたのかどうかも分からなくなる
+    smBusyStop();
   }
 }
 

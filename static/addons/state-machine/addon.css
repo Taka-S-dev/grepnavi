@@ -156,3 +156,24 @@
 .sm-focusbar button:hover { background: #4a4d51; }
 .sm-graph-box { position: absolute; inset: 0; }
 .sm-state-row.focused { background: #0b3a5c; }
+
+/* ===== 解析中の表示 ===== */
+/* 回り物は grep・定義検索と同じ ⠋⠙⠹。進捗率は出せないので経過秒を添える。
+   250ms 経つまで .on が付かないので、速い解析では一度も現れない */
+#sm-busy { display: none; }
+#sm-busy.on {
+  display: flex; align-items: center; gap: 8px;
+  padding: 3px 10px; background: #252526; border-bottom: 1px solid #3a3a3a;
+}
+.sm-busy-spin {
+  color: #4a90d9; font-family: monospace; font-size: 13px;
+  width: 12px; text-align: center;
+}
+.sm-busy-msg  { color: #b0b0b0; font-size: 11px; }
+.sm-busy-time { color: #8a8a8a; font-size: 11px; margin-left: auto;
+                font-variant-numeric: tabular-nums; }
+.sm-busy-cancel {
+  background: #3a3d41; color: #ddd; border: 1px solid #555; border-radius: 2px;
+  padding: 1px 8px; font-size: 11px; cursor: pointer;
+}
+.sm-busy-cancel:hover { background: #4a4d51; }
