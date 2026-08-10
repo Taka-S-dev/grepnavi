@@ -1440,7 +1440,10 @@ async function ensureEditor() {
   // F12 → 定義ジャンプ
   monacoEditor.addAction({
     id: 'grepnavi-goto-def', label: '定義へジャンプ',
-    keybindings: [monaco.KeyCode.F12],
+    // 移動系の直キーはランチャー(Alt+A)の一文字と同じ文字に揃える。
+    // 覚える地図を1枚にして、ランチャーがそのまま直キーの教材になるように。
+    // F12 は VS Code の標準なので、初見でも当たるように残す
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyD, monaco.KeyCode.F12],
     run: ed => {
       const word = ed.getModel()?.getWordAtPosition(ed.getPosition());
       if(word) jumpToDefinition(word.word, _tagContextAtPosition(ed.getModel(), ed.getPosition()));
@@ -1507,7 +1510,8 @@ async function ensureEditor() {
     id: 'grepnavi-open-external', label: '外部エディタで開く',
     contextMenuGroupId: 'grepnavi-nav',
     contextMenuOrder: 0,
-    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyE],
+    // Alt+E は移動系（その場で定義を見る）に譲った
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyMod.Shift | monaco.KeyCode.KeyE],
     run: ed => {
       const tab = tabs[activeTabIdx];
       if(!tab) return;
@@ -1522,7 +1526,7 @@ async function ensureEditor() {
     id: 'grepnavi-references', label: '参照を検索',
     contextMenuGroupId: 'grepnavi-nav',
     contextMenuOrder: 0.5,
-    keybindings: [monaco.KeyMod.Shift | monaco.KeyCode.F12],
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyR, monaco.KeyMod.Shift | monaco.KeyCode.F12],
     run: ed => {
       const sel = ed.getSelection();
       const model = ed.getModel();
@@ -1568,13 +1572,13 @@ async function ensureEditor() {
     run: ed => openJumpLauncher(ed)
   });
 
-  // Alt+D → この関数が呼んでいる関数（読み進める途中で何度も要るので、
+  // Alt+C → この関数が呼んでいる関数（読み進める途中で何度も要るので、
   // コールツリーのサイドバーを開かずに一覧から選べるようにする）
   monacoEditor.addAction({
     id: 'grepnavi-callees', label: 'この関数が呼ぶ関数',
     contextMenuGroupId: 'grepnavi-nav',
     contextMenuOrder: 0.6,
-    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyD],
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyC],
     run: () => openCalleePicker()
   });
 
@@ -1583,6 +1587,7 @@ async function ensureEditor() {
     id: 'grepnavi-grep-word', label: 'grep 検索',
     contextMenuGroupId: 'grepnavi-nav',
     contextMenuOrder: 1,
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyG],
     run: ed => {
       const sel = ed.getSelection();
       const model = ed.getModel();
@@ -1609,6 +1614,7 @@ async function ensureEditor() {
     id: 'grepnavi-calltree', label: 'コールツリーで検索',
     contextMenuGroupId: 'grepnavi-nav',
     contextMenuOrder: 3,
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyT],
     run: ed => {
       const sel = ed.getSelection();
       const model = ed.getModel();
@@ -1622,7 +1628,7 @@ async function ensureEditor() {
   // 右クリック → Floating Peek
   monacoEditor.addAction({
     id: 'grepnavi-float-def', label: 'Floating Peek で開く',
-    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyF],
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyE],
     contextMenuGroupId: 'grepnavi-nav',
     contextMenuOrder: 4,
     run: ed => {
@@ -1669,10 +1675,10 @@ async function ensureEditor() {
     }
   });
 
-  // Alt+G → 選択行をノードに追加
+  // Alt+Shift+G → 選択行をノードに追加（Alt+G は移動系の grep に譲った）
   monacoEditor.addAction({
     id: 'grepnavi-add-node', label: 'ノードに追加',
-    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyG],
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyMod.Shift | monaco.KeyCode.KeyG],
     contextMenuGroupId: 'grepnavi-mark',
     contextMenuOrder: 2,
     run: ed => {

@@ -129,6 +129,13 @@ addEventListener('DOMContentLoaded', async () => {
     // 開いたままジャンプして回る使い方を想定。どのアドオンともキーは衝突しない）
     if(e.altKey && e.key === 'ArrowLeft')  { e.preventDefault(); navBack(); return; }
     if(e.altKey && e.key === 'ArrowRight') { e.preventDefault(); navForward(); return; }
+    // Ctrl+Z の位置がそのまま「戻る」になるので、ランチャー(Alt+A)の
+    // Z / X と同じ文字で覚えられる
+    if(e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+      const k = e.key.toLowerCase();
+      if(k === 'z') { e.preventDefault(); navBack(); return; }
+      if(k === 'x') { e.preventDefault(); navForward(); return; }
+    }
     // 挿入ダイアログは背面を触れるので、Escape を押す時点でフォーカスが
     // エディタやピークにあることが多い。閉じる順は「ピーク → ダイアログ」で、
     // 直前に開いた参照窓から畳む。
@@ -152,8 +159,9 @@ addEventListener('DOMContentLoaded', async () => {
       jumpResult(e.shiftKey ? -1 : 1);
     }
     if((e.ctrlKey || e.metaKey) && e.key === 'p') { e.preventDefault(); openFzf('file'); }
-    // Ctrl+T はブラウザ予約 (新規タブ) で奪えないため Alt+T。Ctrl+P 内の `#` プレフィックスでも入れる
-    if(e.altKey && !e.ctrlKey && !e.metaKey && e.key === 't') { e.preventDefault(); openFzf('symbol'); }
+    // Ctrl+T はブラウザ予約 (新規タブ) で奪えず、Alt+T は移動系（コールツリー）に
+    // 譲ったので Alt+Shift+T。Ctrl+P 内の `#` プレフィックスでも入れる
+    if(e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 't') { e.preventDefault(); openFzf('symbol'); }
     if((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'O') { e.preventDefault(); showFileBrowser('open-file'); }
     if((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
       // 検索タブ以外（エクスプローラ・シンボル・プロジェクト・ノード）を開いて

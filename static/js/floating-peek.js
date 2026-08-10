@@ -633,9 +633,26 @@ function initFloatingPeek(getHoverCtx) {
     const accel = new Map();
     // 実体は _mountWordCtxMenu で差し替わる（リスナー解除まで面倒を見る版に）
     let closeMenu = () => menu.remove();
+
+    // keepOpen の項目を実行した後、同じ場所に出し直す。移動した先の
+    // カーソル語で組み直すので、履歴を戻った先の語がそのまま次の対象になる
+    const reopen = () => {
+      let w = word;
+      if(typeof monacoEditor !== 'undefined' && monacoEditor) {
+        const p = monacoEditor.getPosition();
+        w = (p && monacoEditor.getModel()?.getWordAtPosition(p)?.word) || '';
+      }
+      _showWordCtxMenu(w, x, y, null, peekEditors, opts);
+    };
+    // ランチャーの1文字はグローバルの Alt+同じ文字と同じ動作にしてあるので、
+    // 表示は Alt+X の形にする。使っているうちに直キーが身につくように
+    // （Windows のメニューが「保存 Ctrl+S」と並べるのと同じ狙い）
+    const hintPrefix = jumpOnly ? 'Alt+' : '';
+
     // disabled の項目も消さずに並べる。並び順が毎回同じでないと
     // 「Z を押せば戻る」のような手の記憶が効かなくなる
-    const addItem = (iconClass, label, fn, key, disabled) => {
+    const addItem = (iconClass, label, fn, key, o) => {
+      const disabled = o && o.disabled;
       const el = document.createElement('div');
       el.className = disabled ? 'wc-item wc-disabled' : 'wc-item';
       el.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 12px 5px 8px;white-space:nowrap;'
@@ -647,17 +664,21 @@ function initFloatingPeek(getHoverCtx) {
       text.textContent = label;
       el.appendChild(icon);
       el.appendChild(text);
+      // 連打したい操作（戻る/進む）はメニューを閉じずに、押せる状態を作り直す
+      const activate = (o && o.keepOpen)
+        ? async () => { closeMenu(); await fn(); reopen(); }
+        : () => { closeMenu(); fn(); };
       if(key) {
         const hint = document.createElement('span');
-        hint.textContent = key.toUpperCase();
+        hint.textContent = hintPrefix + key.toUpperCase();
         hint.style.cssText = 'margin-left:auto;padding-left:14px;font-size:10px;font-family:monospace;color:' + (disabled ? '#4a4a4a' : '#7a7a7a');
         el.appendChild(hint);
-        if(!disabled) accel.set(key.toLowerCase(), fn);
+        if(!disabled) accel.set(key.toLowerCase(), activate);
       }
       if(!disabled) {
         el.onmouseenter = () => { el.style.background = '#094771'; icon.style.color = '#ccc'; };
         el.onmouseleave = () => { el.style.background = ''; icon.style.color = '#858585'; };
-        el.onclick = () => { closeMenu(); fn(); };
+        el.onclick = activate;
       }
       menu.appendChild(el);
     };
@@ -665,26 +686,26 @@ function initFloatingPeek(getHoverCtx) {
     if(jumpOnly) {
       // 空行やスペースの上でも開ける。語が要る項目だけ非活性にして並びは保つ
       // （「戻りたいだけ」のときに語を探して当てる必要をなくす）
-      const noWord = !word;
-      addItem('codicon-go-to-file',  '定義へジャンプ', () => jumpToDefinition(word), 'd', noWord);
+      const w = {disabled: !word};
+      addItem('codicon-go-to-file',  '定義へジャンプ', () => jumpToDefinition(word), 'd', w);
       if(typeof openRefPicker === 'function') {
-        addItem('codicon-references', '参照を検索',    () => openRefPicker(word), 'r', noWord);
+        addItem('codicon-references', '参照を検索',    () => openRefPicker(word), 'r', w);
       }
       if(typeof openCalleePicker === 'function') {
         addItem('codicon-call-outgoing', 'この関数が呼ぶ関数', () => openCalleePicker(), 'c');
       }
-      addItem('codicon-file-code',   'その場で定義を見る', () => _showFloatingDef(word), 'e', noWord);
-      addItem('codicon-search',      'grep',           () => grepSearchWord(word), 'g', noWord);
+      addItem('codicon-file-code',   'その場で定義を見る', () => _showFloatingDef(word), 'e', w);
+      addItem('codicon-search',      'grep',           () => grepSearchWord(word), 'g', w);
       if(typeof window.openCallTree === 'function') {
-        addItem('codicon-list-tree', 'コールツリー',   () => window.openCallTree(word), 't', noWord);
+        addItem('codicon-list-tree', 'コールツリー',   () => window.openCallTree(word), 't', w);
       }
       if(typeof navBack === 'function' && typeof navForward === 'function') {
         addSep();
         const noBack = typeof navIndex === 'number' && navIndex <= 0;
         const noFwd  = typeof navIndex === 'number' && Array.isArray(navHistory)
                        && navIndex >= navHistory.length - 1;
-        addItem('codicon-arrow-left',  '戻る', () => navBack(),    'z', noBack);
-        addItem('codicon-arrow-right', '進む', () => navForward(), 'x', noFwd);
+        addItem('codicon-arrow-left',  '戻る', () => navBack(),    'z', {disabled: noBack, keepOpen: true});
+        addItem('codicon-arrow-right', '進む', () => navForward(), 'x', {disabled: noFwd,  keepOpen: true});
       }
       _mountWordCtxMenu();
       return;
@@ -764,8 +785,7 @@ function initFloatingPeek(getHoverCtx) {
       const fn = accel.get(e.key.toLowerCase());
       if(fn && !e.ctrlKey && !e.altKey && !e.metaKey) {
         e.preventDefault();
-        closeMenu();
-        fn();
+        fn(); // 閉じるかどうかは項目側（keepOpen）が決める
       }
     };
     setTimeout(() => {
