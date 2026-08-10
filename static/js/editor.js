@@ -1518,6 +1518,16 @@ async function ensureEditor() {
     }
   });
 
+  // Alt+D → この関数が呼んでいる関数（読み進める途中で何度も要るので、
+  // コールツリーのサイドバーを開かずに一覧から選べるようにする）
+  monacoEditor.addAction({
+    id: 'grepnavi-callees', label: 'この関数が呼ぶ関数',
+    contextMenuGroupId: 'grepnavi-nav',
+    contextMenuOrder: 0.6,
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyD],
+    run: () => openCalleePicker()
+  });
+
   // 右クリック → grep 検索（カーソル単語）
   monacoEditor.addAction({
     id: 'grepnavi-grep-word', label: 'grep 検索',
@@ -1765,6 +1775,50 @@ async function openRefPicker(word) {
   }
 }
 
+// ===== 呼び先ピッカー =====
+// 「いま読んでいる関数が何を呼んでいるか」は読み進める途中で何度も要るのに、
+// コールツリーのサイドバーを開いて検索するのは手数が多い。カーソル位置の
+// 関数の呼び先だけを、参照ピッカーと同じ操作で出す。
+async function openCalleePicker() {
+  const tab = tabs[activeTabIdx];
+  const line = monacoEditor?.getPosition()?.lineNumber;
+  if(!tab || !line) return;
+  fzfMode = 'ref';
+  fzfRefs = [];
+  fzfRefsFiltered = [];
+  id('fzf-overlay').classList.add('open');
+  id('fzf-input').value = '';
+  id('fzf-input').placeholder = 'この関数が呼んでいる関数を絞り込む';
+  id('fzf-count').textContent = '検索中…';
+  id('fzf-list').innerHTML = '<div class="fzf-empty">呼び先を探しています…</div>';
+  setTimeout(() => id('fzf-input').focus(), 30);
+  try {
+    // 囲んでいる関数の解決はサーバ側が行う（シグネチャがマクロ戻り値や
+    // 複数行でもブレースブロックの実測で当てるため、カーソル行のまま渡す）
+    const p = new URLSearchParams({ file: tab.file, line: String(line) });
+    const r = await fetch('/api/callees?' + p.toString());
+    if(!r.ok) { id('fzf-list').innerHTML = '<div class="fzf-empty">呼び先を取得できませんでした</div>'; return; }
+    const hits = (await r.json()) || [];
+    if(fzfMode !== 'ref') return;
+    // 呼び出し行へ飛ぶのではなく、選んだ関数の定義へ飛びたいので、
+    // Reference 形ではなく「名前 + 呼び出し行」を持たせて活性化時に解決する
+    fzfRefs = hits.map(h => ({
+      file: tab.file, line: h.call_line, text: h.text || '',
+      func: h.name, kind: h.kind || '', callee: h.name,
+    }));
+    fzfRefs._engine = '呼び先';
+    fzfRefs._sameFile = true; // 呼び先は全件この関数の中＝同じファイル
+    if(!fzfRefs.length) {
+      id('fzf-count').textContent = '';
+      id('fzf-list').innerHTML = '<div class="fzf-empty">呼び先が見つかりません（カーソルが関数の中にあるか確認）</div>';
+      return;
+    }
+    fzfRenderRefs(id('fzf-input').value);
+  } catch {
+    id('fzf-list').innerHTML = '<div class="fzf-empty">呼び先を取得できませんでした</div>';
+  }
+}
+
 function fzfRenderRefs(query) {
   const list = id('fzf-list');
   const q = query.trim().toLowerCase();
@@ -1779,18 +1833,35 @@ function fzfRenderRefs(query) {
     list.innerHTML = `<div class="fzf-empty">${fzfRefs.length ? '絞り込みに一致しません' : '参照が見つかりませんでした'}</div>`;
     return;
   }
+  // 呼び先は全件が同じファイルなので、パスを毎行出すと幅の大半が無情報になる。
+  // 行番号だけにして、空いた幅をソース行（選ぶときに一番見る情報）へ回す
+  const sameFile = !!fzfRefs._sameFile;
   fzfRefsFiltered.slice(0, 300).forEach((ref, i) => {
     const div = document.createElement('div');
-    div.className = 'fzf-item' + (i === 0 ? ' fzf-sel' : '');
+    div.className = 'fzf-item fzf-ref-row' + (i === 0 ? ' fzf-sel' : '');
+    const name = document.createElement('span');
+    name.className = 'fzf-name fzf-col-name';
+    name.textContent = ref.func || '';
+    if(ref.kind === 'define') {
+      const badge = document.createElement('span');
+      badge.className = 'fzf-kind';
+      badge.textContent = 'マクロ';
+      name.appendChild(badge);
+    }
     const loc = document.createElement('span');
-    loc.className = 'fzf-name';
-    loc.textContent = (ref.func ? ref.func + '  ' : '') + shortPath(ref.file) + ':' + ref.line;
+    loc.className = 'fzf-col-loc';
+    loc.textContent = sameFile ? String(ref.line) : shortPath(ref.file) + ':' + ref.line;
     const code = document.createElement('span');
     code.className = 'fzf-dir fzf-ref-code';
-    code.textContent = (ref.text || '').trim().slice(0, 120);
+    code.textContent = (ref.text || '').trim().slice(0, 160);
+    div.appendChild(name);
     div.appendChild(loc);
     div.appendChild(code);
-    div.onclick = () => { closeFzf(); openPeek(ref.file, ref.line); };
+    div.onclick = () => {
+      closeFzf();
+      if(ref.callee) jumpToDefinition(ref.callee);
+      else openPeek(ref.file, ref.line);
+    };
     list.appendChild(div);
   });
 }
@@ -1932,7 +2003,11 @@ function fzfRenderSymbols(query) {
 async function fzfActivate(idx) {
   if(fzfMode === 'ref') {
     const ref = fzfRefsFiltered[idx];
-    if(ref) { closeFzf(); openPeek(ref.file, ref.line); }
+    if(!ref) return;
+    closeFzf();
+    // 呼び先を選んだときは「呼び出し行」ではなくその関数の定義を見たい
+    if(ref.callee) jumpToDefinition(ref.callee);
+    else openPeek(ref.file, ref.line);
     return;
   }
   if(_fzfSymbolQuery(id('fzf-input').value) !== null) {

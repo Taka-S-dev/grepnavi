@@ -135,3 +135,44 @@ EXPORT_SYMBOL_GPL(blkg_conf_prep);
 		t.Errorf("callees = %v, want just blkg_conf_open_bdev", names)
 	}
 }
+
+// 読んでいる最中に呼び先を聞くとき、カーソルは本体の途中にある。
+// openssl の `static STACK_OF(GENERAL_NAME) *f(...)` のように戻り値が
+// マクロでシグネチャが複数行にまたがる形でも囲む関数を特定できること。
+func TestFindCalleesFromLineInsideBody(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "v3_crld.c")
+	src := `static const int table[] = {
+	1, 2, 3,
+};
+
+static STACK_OF(GENERAL_NAME) *gnames_from_sectname(X509V3_CTX *ctx,
+                                                    char *sect)
+{
+	STACK_OF(CONF_VALUE) *gnsect;
+	if (*sect == '@')
+		gnsect = X509V3_get_section(ctx, sect + 1);
+	else
+		gnsect = X509V3_parse_list(sect);
+	return gnsect;
+}
+`
+	if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// 10 行目（本体の途中）を渡す
+	hits, err := FindCallees(t.Context(), file, 10, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, h := range hits {
+		got[h.Name] = true
+	}
+	if !got["X509V3_get_section"] || !got["X509V3_parse_list"] {
+		t.Errorf("本体の途中の行から呼び先を取れていない: %v", got)
+	}
+	// シグネチャの STACK_OF や関数自身は呼び先ではない
+	if got["gnames_from_sectname"] {
+		t.Errorf("関数自身が呼び先に混ざった: %v", got)
+	}
+}

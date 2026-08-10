@@ -173,7 +173,35 @@ func FindCallers(ctx context.Context, word, dir, glob string) ([]CallSite, bool,
 	return results, truncated, nil
 }
 
-// FindCallees は file の line から始まる関数が呼び出す関数名一覧を返す（最大80件）。
+// enclosingFuncStart は line（1-indexed）を含む関数の開始行を返す（0 = 不明）。
+// シンボル抽出の正規表現に頼らず、「列0から始まる行のブレースブロックが
+// その行を含むか」を実際に切り出して確かめる。openssl の
+// `static STACK_OF(GENERAL_NAME) *f(...)` のように戻り値がマクロで
+// シグネチャが複数行にまたがる形でも、この方法なら取りこぼさない。
+func enclosingFuncStart(lines []string, line int) int {
+	if line < 1 || line > len(lines) {
+		return 0
+	}
+	for i := line - 1; i >= 0 && line-i < 3000; i-- {
+		l := lines[i]
+		if l == "" {
+			continue
+		}
+		// 関数定義は列0から始まる。空白始まり・プリプロセッサ・閉じ括弧は候補外
+		if l[0] == ' ' || l[0] == '\t' || l[0] == '#' || l[0] == '}' {
+			continue
+		}
+		body := extractBraceBlock(lines, i+1)
+		if body == "" {
+			continue // 宣言（; で終わる）などはブロックにならない
+		}
+		if end := i + strings.Count(body, "\n") + 1; i+1 <= line && line <= end {
+			return i + 1
+		}
+	}
+	return 0
+}
+
 // CalleeHit は FindCallees が返す 1 件。重複名は最初の出現行を採用する。
 type CalleeHit struct {
 	Name     string `json:"name"`
@@ -195,6 +223,11 @@ func FindCallees(_ context.Context, file string, line int, root string) ([]Calle
 	lines, err := CachedLines(file)
 	if err != nil {
 		return nil, err
+	}
+	// 関数の途中の行を渡されても答えられるようにする。読んでいる最中に
+	// 「この関数は何を呼んでいるか」を聞くとき、カーソルは本体の中にある
+	if start := enclosingFuncStart(lines, line); start > 0 {
+		line = start
 	}
 	body := extractBraceBlock(lines, line)
 	if body == "" {
