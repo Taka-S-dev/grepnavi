@@ -264,3 +264,45 @@ test('statusGate - 最新の検索だけが状態欄に書ける', () => {
   first('検索中: A');           // 中断された側の点滅が遅れて届く
   assert.equal(shown, '定義: b.c:12');
 });
+
+// ---- 右クリックメニューの形を守る ----
+// メニューは直キーの教材でもあるので、行が増えすぎないことと、
+// キーを持つ操作がキー無しの複製としてメニューに出ないことを見る。
+const fs = require('node:fs');
+const path = require('node:path');
+
+function contextMenuActions() {
+  const dir = path.join(__dirname, '..', 'static', 'js');
+  const items = [];
+  for (const f of fs.readdirSync(dir).filter(n => n.endsWith('.js'))) {
+    const src = fs.readFileSync(path.join(dir, f), 'utf8');
+    for (const m of src.matchAll(/addAction\(\{([\s\S]*?)\n {2}\}\)/g)) {
+      const b = m[1];
+      const label = (b.match(/label:\s*'([^']*)'/) || [])[1];
+      if (!label) continue;
+      items.push({
+        label,
+        group: (b.match(/contextMenuGroupId:\s*'([^']*)'/) || [])[1] || null,
+        precondition: (b.match(/precondition:\s*'([^']*)'/) || [])[1] || null,
+        hasKey: /keybindings:\s*\[[^\]]+\]/.test(b),
+      });
+    }
+  }
+  return items;
+}
+
+test('右クリックメニュー - キーを持つ操作をキー無しの複製で出さない', () => {
+  const all = contextMenuActions();
+  for (const item of all.filter(i => i.group && !i.hasKey)) {
+    const twin = all.find(o => o !== item && o.label === item.label && o.hasKey);
+    assert.equal(twin, undefined,
+      `"${item.label}" はキー割り当てのある同名アクションの複製。` +
+      'メニューにキーが表示されないので、本体に contextMenuGroupId を付けて1つにする');
+  }
+});
+
+test('右クリックメニュー - 常時出る項目を12件までに抑える', () => {
+  const always = contextMenuActions().filter(i => i.group && !i.precondition);
+  assert.ok(always.length <= 12,
+    `常時出る項目が ${always.length} 件: ${always.map(i => i.label).join(', ')}`);
+});

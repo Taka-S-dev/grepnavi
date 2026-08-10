@@ -1448,6 +1448,9 @@ async function ensureEditor() {
     // 覚える地図を1枚にして、ランチャーがそのまま直キーの教材になるように。
     // F12 は VS Code の標準なので、初見でも当たるように残す
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyD, monaco.KeyCode.F12],
+    // 右クリックにもこの1つを出す。メニュー専用の複製を別に持つと、そちらには
+    // キー割り当てが無いので、一番使う項目だけショートカットが表示されなかった
+    contextMenuGroupId: 'grepnavi-nav', contextMenuOrder: 1,
     run: ed => {
       const word = ed.getModel()?.getWordAtPosition(ed.getPosition());
       if(word) jumpToDefinition(word.word, _tagContextAtPosition(ed.getModel(), ed.getPosition()));
@@ -1580,8 +1583,6 @@ async function ensureEditor() {
   // コールツリーのサイドバーを開かずに一覧から選べるようにする）
   monacoEditor.addAction({
     id: 'grepnavi-callees', label: 'いまいる関数の呼び先',
-    contextMenuGroupId: 'grepnavi-nav',
-    contextMenuOrder: 3,
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyC],
     run: () => openCalleePicker()
   });
@@ -1589,8 +1590,6 @@ async function ensureEditor() {
   // Alt+W → その語へ書き込んでいる場所（write）。参照一覧だと読み出しに埋もれる
   monacoEditor.addAction({
     id: 'grepnavi-assignments', label: 'この語への代入',
-    contextMenuGroupId: 'grepnavi-nav',
-    contextMenuOrder: 2.5,
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyW],
     run: ed => {
       const sel = ed.getSelection();
@@ -1605,8 +1604,6 @@ async function ensureEditor() {
   // Alt+F → 送っている一覧を開き直す（並び順そのまま・現在地に色）
   monacoEditor.addAction({
     id: 'grepnavi-step-list', label: '確認中の一覧',
-    contextMenuGroupId: 'grepnavi-nav',
-    contextMenuOrder: 7.5,
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyF],
     run: () => openRefStepList()
   });
@@ -1615,8 +1612,6 @@ async function ensureEditor() {
   // 移動系の Z X C の隣に置いて、指の位置で覚えられるようにする
   monacoEditor.addAction({
     id: 'grepnavi-history', label: '移動の履歴',
-    contextMenuGroupId: 'grepnavi-nav',
-    contextMenuOrder: 7,
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyV],
     run: () => openHistoryPicker()
   });
@@ -1624,8 +1619,6 @@ async function ensureEditor() {
   // 右クリック → grep 検索（カーソル単語）
   monacoEditor.addAction({
     id: 'grepnavi-grep-word', label: 'grep 検索',
-    contextMenuGroupId: 'grepnavi-nav',
-    contextMenuOrder: 5,
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyG],
     run: ed => {
       const sel = ed.getSelection();
@@ -1637,22 +1630,10 @@ async function ensureEditor() {
     }
   });
 
-  // 右クリック → 定義へジャンプ
-  monacoEditor.addAction({
-    id: 'grepnavi-goto-def-menu', label: '定義へジャンプ',
-    contextMenuGroupId: 'grepnavi-nav',
-    contextMenuOrder: 1,
-    run: ed => {
-      const word = ed.getModel()?.getWordAtPosition(ed.getPosition())?.word;
-      if(word) jumpToDefinition(word, _tagContextAtPosition(ed.getModel(), ed.getPosition()));
-    }
-  });
 
   // 右クリック → コールツリーで検索
   monacoEditor.addAction({
     id: 'grepnavi-calltree', label: 'コールツリーで検索',
-    contextMenuGroupId: 'grepnavi-nav',
-    contextMenuOrder: 6,
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyT],
     run: ed => {
       const sel = ed.getSelection();
@@ -1668,8 +1649,6 @@ async function ensureEditor() {
   monacoEditor.addAction({
     id: 'grepnavi-float-def', label: 'その場で定義を見る',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyE],
-    contextMenuGroupId: 'grepnavi-nav',
-    contextMenuOrder: 4,
     run: ed => {
       const sel = ed.getSelection();
       const model = ed.getModel();
@@ -1737,8 +1716,6 @@ async function ensureEditor() {
   monacoEditor.addAction({
     id: 'grepnavi-insert-debug', label: 'デバッグ行を挿入',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyP],
-    contextMenuGroupId: 'grepnavi-tool',
-    contextMenuOrder: 3,
     run: () => { if (typeof openInsertDialog === 'function') openInsertDialog(); }
   });
   // デバッグ行の上でだけ出る「書き換え / 撤去」(insertions.js)
@@ -1747,6 +1724,9 @@ async function ensureEditor() {
   monacoEditor.addAction({
     id: 'grepnavi-range-memo-delete', label: '選択範囲のメモを削除',
     keybindings: [monaco.KeyCode.Delete],
+    // 選択が無いと何も消せない項目。常時出していると「メモを追加/編集」の
+    // 真隣に Delete の破壊操作が並ぶ
+    precondition: 'editorHasSelection',
     contextMenuGroupId: 'grepnavi-mark',
     contextMenuOrder: 5,
     run: ed => {
