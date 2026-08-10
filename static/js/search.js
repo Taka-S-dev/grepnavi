@@ -135,6 +135,8 @@ function buildFolderGroups(files) {
 
 // ===== SEARCH =====
 function doSearch() {
+  // 新しい grep 結果が出たら F3 の送り先をそちらへ戻す
+  if(typeof clearRefStepList === 'function') clearRefStepList();
   const q = id('q').value.trim(); if(!q) return;
   const dir = id('dir').value.trim();
   const glob = id('glob').value.trim();

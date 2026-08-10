@@ -2063,6 +2063,7 @@ function fzfRenderRefs(query) {
     div.appendChild(loc);
     div.appendChild(code);
     div.onclick = () => {
+      setRefStepList(fzfRefsFiltered, i);
       closeFzf();
       if(ref.callee) jumpToDefinition(ref.callee);
         else openPeek(ref.file, ref.line);
@@ -2242,12 +2243,39 @@ function fzfRenderSymbols(query) {
   }, 120);
 }
 
+// ピッカーで選んだ一覧は、そのまま F3 / Shift+F3 の送り対象になる。
+// 絞り込んだ結果を1件ずつ確かめたいのに、ピッカーは選ぶと閉じるので、
+// これが無いと次を見るたびに開き直して選び直すことになる。
+// vim で :cs find の結果を quickfix に入れて :cnext で送るのと同じ位置づけ。
+let _refStep = null; // {rows, idx}
+
+function setRefStepList(rows, idx) {
+  _refStep = rows && rows.length > 1 ? { rows: rows.slice(), idx } : null;
+}
+
+// clearRefStepList は grep 検索が新しい結果を出したときに呼ぶ。
+// F3 の送り先が古い参照一覧のままだと、検索したのに別のものが送られる。
+function clearRefStepList() { _refStep = null; }
+
+// refStepJump は参照一覧を1つ送る。送れたら true（F3 はこれを優先する）。
+function refStepJump(delta) {
+  if(!_refStep) return false;
+  const n = _refStep.rows.length;
+  _refStep.idx = (_refStep.idx + delta + n) % n;
+  const ref = _refStep.rows[_refStep.idx];
+  if(!ref) return false;
+  openPeek(ref.file, ref.line).then(() => monacoEditor?.focus());
+  st(`${_refStep.idx + 1} / ${n} 件: ${shortPath(ref.file)}:${ref.line}`);
+  return true;
+}
+
 // fzfActivate は Enter / クリック相当の決定操作。モード (と `#` プレフィックス) に応じて
 // 開く対象を切り替える。
 async function fzfActivate(idx) {
   if(fzfMode === 'ref') {
     const ref = fzfRefsFiltered[idx];
     if(!ref) return;
+    setRefStepList(fzfRefsFiltered, idx);
     closeFzf();
     // 呼び先を選んだときは「呼び出し行」ではなくその関数の定義を見たい
     if(ref.callee) jumpToDefinition(ref.callee);

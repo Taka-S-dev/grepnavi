@@ -156,7 +156,8 @@ addEventListener('DOMContentLoaded', async () => {
     if(document.querySelector('#include-overlay.open, #ct-sidebar.open')) return;
     if(e.key === 'F3' && !e.altKey && !e.ctrlKey && !e.metaKey) {
       e.preventDefault();
-      jumpResult(e.shiftKey ? -1 : 1);
+      // 直前にピッカーから選んでいれば、その一覧を送る（grep 結果より優先）
+      if(!refStepJump(e.shiftKey ? -1 : 1)) jumpResult(e.shiftKey ? -1 : 1);
     }
     if((e.ctrlKey || e.metaKey) && e.key === 'p') { e.preventDefault(); openFzf('file'); }
     // Ctrl+T はブラウザ予約 (新規タブ) で奪えず、Alt+T は移動系（コールツリー）に
