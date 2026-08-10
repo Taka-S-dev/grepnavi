@@ -703,44 +703,48 @@ function initFloatingPeek(getHoverCtx) {
       return;
     }
 
-    // ナビゲーション
+    // 並び・一文字キーは Alt+A のランチャーおよび直キーと同じにする。
+    // 同じ操作がメニューごとに違う位置・違う文字だと、手が覚えられない
+    addItem('codicon-go-to-file',  '定義へジャンプ',     () => jumpToDefinition(word), 'd');
     if(typeof openRefPicker === 'function') {
-      addItem('codicon-references', '参照を検索',      () => openRefPicker(word), 'r');
+      addItem('codicon-references', '参照を検索',        () => openRefPicker(word), 'r');
     }
-    addItem('codicon-search',      'grep',             () => grepSearchWord(word), 'g');
-    addItem('codicon-go-to-file',  '定義へジャンプ',   () => jumpToDefinition(word), 'd');
+    if(typeof openCalleePicker === 'function') {
+      addItem('codicon-call-outgoing', 'いまいる関数の呼び先', () => openCalleePicker(), 'c');
+    }
+    addItem('codicon-file-code',   'その場で定義を見る',  () => _showFloatingDef(word), 'e');
+    addItem('codicon-search',      'grep',               () => grepSearchWord(word), 'g');
+    if(typeof window.openCallTree === 'function') {
+      addItem('codicon-list-tree', 'コールツリー',        () => window.openCallTree(word), 't');
+    }
+    if(typeof window.openStateMachine === 'function') {
+      addItem('codicon-git-merge', '状態遷移',            () => window.openStateMachine(word), 's');
+    }
+
+    // この語に印を付ける・書き留める
+    addSep();
+    if(peekEditors && peekEditors.length) {
+      addItem('codicon-symbol-color', 'ハイライト: ' + word, () => _highlightInEditors(peekEditors, word), 'h');
+    }
+    if(typeof addToGraph === 'function') {
+      const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      const match = hoverHit
+        ? {id: genId(), file: hoverHit.file, line: hoverHit.line, text: word}
+        : {id: genId(), file: '', line: 0, text: word};
+      const nodeLabel = hoverHit ? shortPath(hoverHit.file) + ':' + hoverHit.line : word;
+      addItem('codicon-add', 'ノードに追加: ' + nodeLabel, () => addToGraph(match, '', 'ref', word));
+    }
+    if(hoverHit) {
+      addItem('codicon-link-external', '行を開く: ' + shortPath(hoverHit.file) + ':' + hoverHit.line,
+              () => openPeekPermanent(hoverHit.file, hoverHit.line));
+    }
+
+    // 移動でも印付けでもない道具
     // ホバー内は再ホバーできないので、展開カードに見えている定数を調べる
     // 導線はこのメニューに置く（マクロ名は電卓側で索引解決される）
     if (typeof showRadixCalc === 'function') {
-      addItem('codicon-symbol-numeric', '基数変換電卓', () => showRadixCalc(word), 'x');
-    }
-
-    // Peek
-    addSep();
-    addItem('codicon-file-code',     'Floating Peek',  () => _showFloatingDef(word), 'p');
-    if(peekEditors && peekEditors.length) {
-      addItem('codicon-symbol-color', 'ハイライト: ' + word, () => _highlightInEditors(peekEditors, word));
-    }
-    if(hoverHit) {
-      addItem('codicon-link-external', '行を開く: ' + shortPath(hoverHit.file) + ':' + hoverHit.line, () => openPeekPermanent(hoverHit.file, hoverHit.line));
-    }
-
-    // グラフ
-    const hasGraph = typeof addToGraph === 'function';
-    const hasCallTree = typeof window.openCallTree === 'function';
-    if(hasGraph || hasCallTree) {
       addSep();
-      if(hasGraph) {
-        const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-        const match = hoverHit
-          ? {id: genId(), file: hoverHit.file, line: hoverHit.line, text: word}
-          : {id: genId(), file: '', line: 0, text: word};
-        const nodeLabel = hoverHit ? shortPath(hoverHit.file) + ':' + hoverHit.line : word;
-        addItem('codicon-add', 'ノードに追加: ' + nodeLabel, () => addToGraph(match, '', 'ref', word));
-      }
-      if(hasCallTree) {
-        addItem('codicon-list-tree', 'コールツリー', () => window.openCallTree(word), 't');
-      }
+      addItem('codicon-symbol-numeric', '基数変換電卓', () => showRadixCalc(word), 'x');
     }
 
     _mountWordCtxMenu();

@@ -1131,8 +1131,8 @@ async function ensureEditor() {
   monacoEditor.addAction({
     id: 'grepnavi.addToJumpMap',
     label: 'ジャンプマップに追加',
-    contextMenuGroupId: 'navigation',
-    contextMenuOrder: 1.5,
+    contextMenuGroupId: 'grepnavi-mark',
+    contextMenuOrder: 3,
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyJ],
     run(ed) {
       const file = tabs[activeTabIdx]?.file;
@@ -1149,8 +1149,8 @@ async function ensureEditor() {
   monacoEditor.addAction({
     id: 'grepnavi.toggleBookmark',
     label: 'ブックマークを切り替え',
-    contextMenuGroupId: 'navigation',
-    contextMenuOrder: 1.4,
+    contextMenuGroupId: 'grepnavi-mark',
+    contextMenuOrder: 2,
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyB],
     run(ed) {
       const file = tabs[activeTabIdx]?.file;
@@ -1459,7 +1459,7 @@ async function ensureEditor() {
     id: 'grepnavi-line-memo', label: 'メモを追加/編集',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyN],
     contextMenuGroupId: 'grepnavi-mark',
-    contextMenuOrder: 2.1,
+    contextMenuOrder: 4,
     run: ed => {
       const file = tabs[activeTabIdx]?.file;
       if (!file) return;
@@ -1487,8 +1487,8 @@ async function ensureEditor() {
   // 右クリック → 基数変換電卓（選択中の式、無ければカーソル位置の数値を初期値に）
   monacoEditor.addAction({
     id: 'grepnavi-radix-calc', label: '基数変換電卓',
-    contextMenuGroupId: 'grepnavi-nav',
-    contextMenuOrder: 3,
+    contextMenuGroupId: 'grepnavi-tool',
+    contextMenuOrder: 1,
     run: ed => {
       const sel = ed.getSelection();
       let init = '';
@@ -1512,8 +1512,8 @@ async function ensureEditor() {
 
   monacoEditor.addAction({
     id: 'grepnavi-open-external', label: '外部エディタで開く',
-    contextMenuGroupId: 'grepnavi-nav',
-    contextMenuOrder: 0,
+    contextMenuGroupId: 'grepnavi-tool',
+    contextMenuOrder: 2,
     // Alt+E は移動系（その場で定義を見る）に譲った
     keybindings: [monaco.KeyMod.Alt | monaco.KeyMod.Shift | monaco.KeyCode.KeyE],
     run: ed => {
@@ -1529,7 +1529,7 @@ async function ensureEditor() {
   monacoEditor.addAction({
     id: 'grepnavi-references', label: '参照を検索',
     contextMenuGroupId: 'grepnavi-nav',
-    contextMenuOrder: 0.5,
+    contextMenuOrder: 2,
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyR, monaco.KeyMod.Shift | monaco.KeyCode.F12],
     run: ed => {
       const sel = ed.getSelection();
@@ -1581,7 +1581,7 @@ async function ensureEditor() {
   monacoEditor.addAction({
     id: 'grepnavi-callees', label: 'いまいる関数の呼び先',
     contextMenuGroupId: 'grepnavi-nav',
-    contextMenuOrder: 0.6,
+    contextMenuOrder: 3,
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyC],
     run: () => openCalleePicker()
   });
@@ -1591,7 +1591,7 @@ async function ensureEditor() {
   monacoEditor.addAction({
     id: 'grepnavi-history', label: '移動の履歴',
     contextMenuGroupId: 'grepnavi-nav',
-    contextMenuOrder: 0.7,
+    contextMenuOrder: 7,
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyV],
     run: () => openHistoryPicker()
   });
@@ -1600,7 +1600,7 @@ async function ensureEditor() {
   monacoEditor.addAction({
     id: 'grepnavi-grep-word', label: 'grep 検索',
     contextMenuGroupId: 'grepnavi-nav',
-    contextMenuOrder: 1,
+    contextMenuOrder: 5,
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyG],
     run: ed => {
       const sel = ed.getSelection();
@@ -1616,7 +1616,7 @@ async function ensureEditor() {
   monacoEditor.addAction({
     id: 'grepnavi-goto-def-menu', label: '定義へジャンプ',
     contextMenuGroupId: 'grepnavi-nav',
-    contextMenuOrder: 2,
+    contextMenuOrder: 1,
     run: ed => {
       const word = ed.getModel()?.getWordAtPosition(ed.getPosition())?.word;
       if(word) jumpToDefinition(word, _tagContextAtPosition(ed.getModel(), ed.getPosition()));
@@ -1627,7 +1627,7 @@ async function ensureEditor() {
   monacoEditor.addAction({
     id: 'grepnavi-calltree', label: 'コールツリーで検索',
     contextMenuGroupId: 'grepnavi-nav',
-    contextMenuOrder: 3,
+    contextMenuOrder: 6,
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyT],
     run: ed => {
       const sel = ed.getSelection();
@@ -1641,7 +1641,7 @@ async function ensureEditor() {
 
   // 右クリック → Floating Peek
   monacoEditor.addAction({
-    id: 'grepnavi-float-def', label: 'Floating Peek で開く',
+    id: 'grepnavi-float-def', label: 'その場で定義を見る',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyE],
     contextMenuGroupId: 'grepnavi-nav',
     contextMenuOrder: 4,
@@ -1694,7 +1694,7 @@ async function ensureEditor() {
     id: 'grepnavi-add-node', label: 'ノードに追加',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyMod.Shift | monaco.KeyCode.KeyG],
     contextMenuGroupId: 'grepnavi-mark',
-    contextMenuOrder: 2,
+    contextMenuOrder: 6,
     run: ed => {
       const sel   = ed.getSelection();
       const model = ed.getModel();
@@ -1712,8 +1712,8 @@ async function ensureEditor() {
   monacoEditor.addAction({
     id: 'grepnavi-insert-debug', label: 'デバッグ行を挿入',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyP],
-    contextMenuGroupId: 'grepnavi-mark',
-    contextMenuOrder: 2.4,
+    contextMenuGroupId: 'grepnavi-tool',
+    contextMenuOrder: 3,
     run: () => { if (typeof openInsertDialog === 'function') openInsertDialog(); }
   });
   // デバッグ行の上でだけ出る「書き換え / 撤去」(insertions.js)
@@ -1723,7 +1723,7 @@ async function ensureEditor() {
     id: 'grepnavi-range-memo-delete', label: '選択範囲のメモを削除',
     keybindings: [monaco.KeyCode.Delete],
     contextMenuGroupId: 'grepnavi-mark',
-    contextMenuOrder: 2.2,
+    contextMenuOrder: 5,
     run: ed => {
       const sel = ed.getSelection();
       const file = tabs[activeTabIdx]?.file;
@@ -1756,8 +1756,8 @@ async function ensureEditor() {
 
   monacoEditor.addAction({
     id: 'grepnavi-snapshot', label: 'コードスナップショットを開く',
-    contextMenuGroupId: 'grepnavi-mark',
-    contextMenuOrder: 3,
+    contextMenuGroupId: 'grepnavi-tool',
+    contextMenuOrder: 4,
     run: ed => exportSelectionSnapshot(ed), // → editor-snapshot.js
   });
 
