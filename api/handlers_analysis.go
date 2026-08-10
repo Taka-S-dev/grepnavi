@@ -560,13 +560,18 @@ func (h *Handler) handleCallees(w http.ResponseWriter, r *http.Request) {
 	h.mu.RLock()
 	root := h.root
 	h.mu.RUnlock()
-	hits, truncated, err := search.FindCallees(r.Context(), file, line, root)
+	hits, funcName, truncated, err := search.FindCallees(r.Context(), file, line, root)
 	if err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if hits == nil {
 		hits = []search.CalleeHit{}
+	}
+	// どの関数の呼び先を出したのかを返す。カーソル位置の語ではなく囲む関数を
+	// 使うので、名前を見せないと利用者は別の関数の結果だと思う
+	if funcName != "" {
+		w.Header().Set("X-Func", funcName)
 	}
 	// 全件そろっているかは呼び出し側の判断に効く（「これで全部」と言えるか）
 	if truncated {

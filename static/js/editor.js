@@ -1576,10 +1576,10 @@ async function ensureEditor() {
     run: ed => openJumpLauncher(ed)
   });
 
-  // Alt+C → この関数が呼んでいる関数（読み進める途中で何度も要るので、
+  // Alt+C → いまカーソルがいる関数の呼び先（読み進める途中で何度も要るので、
   // コールツリーのサイドバーを開かずに一覧から選べるようにする）
   monacoEditor.addAction({
-    id: 'grepnavi-callees', label: 'この関数が呼ぶ関数',
+    id: 'grepnavi-callees', label: 'いまいる関数の呼び先',
     contextMenuGroupId: 'grepnavi-nav',
     contextMenuOrder: 0.6,
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyC],
@@ -1928,7 +1928,7 @@ async function openCalleePicker() {
   fzfRefsFiltered = [];
   id('fzf-overlay').classList.add('open');
   id('fzf-input').value = '';
-  id('fzf-input').placeholder = 'この関数が呼んでいる関数を絞り込む';
+  id('fzf-input').placeholder = 'いまいる関数の呼び先を絞り込む';
   id('fzf-count').textContent = '検索中…';
   id('fzf-list').innerHTML = '<div class="fzf-empty">呼び先を探しています…</div>';
   anchorFzfBox(takePickerAnchor());
@@ -1941,17 +1941,23 @@ async function openCalleePicker() {
     if(!r.ok) { id('fzf-list').innerHTML = '<div class="fzf-empty">呼び先を取得できませんでした</div>'; return; }
     const hits = (await r.json()) || [];
     if(fzfMode !== 'ref') return;
+    // どの関数の呼び先なのかを見せる。カーソル位置の語ではなく囲む関数を
+    // 使うので、名前が出ていないと別の関数の結果だと誤解される
+    const encl = r.headers.get('X-Func') || '';
+    if(encl) id('fzf-input').placeholder = `${encl} の呼び先を絞り込む`;
     // 呼び出し行へ飛ぶのではなく、選んだ関数の定義へ飛びたいので、
     // Reference 形ではなく「名前 + 呼び出し行」を持たせて活性化時に解決する
     fzfRefs = hits.map(h => ({
       file: tab.file, line: h.call_line, text: h.text || '',
       func: h.name, kind: h.kind || '', callee: h.name,
     }));
-    fzfRefs._engine = '呼び先';
+    fzfRefs._engine = encl ? `${encl} の呼び先` : '呼び先';
     fzfRefs._sameFile = true; // 呼び先は全件この関数の中＝同じファイル
     if(!fzfRefs.length) {
       id('fzf-count').textContent = '';
-      id('fzf-list').innerHTML = '<div class="fzf-empty">呼び先が見つかりません（カーソルが関数の中にあるか確認）</div>';
+      id('fzf-list').innerHTML = '<div class="fzf-empty">'
+        + (encl ? `${encl} は関数を呼んでいません` : 'カーソルが関数の中にありません')
+        + '</div>';
       return;
     }
     fzfRenderRefs(id('fzf-input').value);

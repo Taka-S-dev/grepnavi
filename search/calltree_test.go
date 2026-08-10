@@ -84,7 +84,7 @@ EXPORT_SYMBOL_GPL(__libeth_xdpsq_lock);
 	if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	hits, _, err := FindCallees(t.Context(), file, 2, "")
+	hits, _, _, err := FindCallees(t.Context(), file, 2, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ EXPORT_SYMBOL_GPL(blkg_conf_prep);
 	if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	hits, _, err := FindCallees(context.Background(), file, 1, "")
+	hits, _, _, err := FindCallees(context.Background(), file, 1, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ static STACK_OF(GENERAL_NAME) *gnames_from_sectname(X509V3_CTX *ctx,
 		t.Fatal(err)
 	}
 	// 10 行目（本体の途中）を渡す
-	hits, _, err := FindCallees(t.Context(), file, 10, "")
+	hits, _, _, err := FindCallees(t.Context(), file, 10, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestFindCalleesLongFunction(t *testing.T) {
 	if err := os.WriteFile(file, []byte(b.String()), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	hits, truncated, err := FindCallees(t.Context(), file, 1, "")
+	hits, _, truncated, err := FindCallees(t.Context(), file, 1, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +278,7 @@ func TestFindCalleesDeepInsideLongFunction(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 関数の 300 行目あたりにカーソルがある状態で問い合わせる
-	hits, _, err := FindCallees(context.Background(), f, 300, "")
+	hits, _, _, err := FindCallees(context.Background(), f, 300, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,4 +360,30 @@ func findContainingFunc(lines []string, callLine int) (string, int) {
 		}
 	}
 	return "", 0
+}
+
+// 呼び先はカーソル位置の語ではなく「囲む関数」で決まる。どちらの関数の
+// 結果なのかを利用者に見せられるよう、解決した名前を返すこと。
+func TestFindCalleesReportsEnclosingFunction(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "x.c")
+	src := "void bar(void)\n{\n\tfoo();\n\tbaz();\n}\n"
+	if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// foo() の呼び出し行にカーソルがあっても、答えるのは bar の呼び先
+	hits, funcName, _, err := FindCallees(t.Context(), file, 3, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if funcName != "bar" {
+		t.Errorf("解決した関数名 got=%q want=bar", funcName)
+	}
+	names := map[string]bool{}
+	for _, h := range hits {
+		names[h.Name] = true
+	}
+	if !names["foo"] || !names["baz"] {
+		t.Errorf("bar の呼び先が揃っていない: %v", names)
+	}
 }

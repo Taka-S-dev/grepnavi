@@ -248,22 +248,27 @@ const _calleeKindLookupMax = 200
 // 索引に無い候補も落とさないこと: カーネルの btrfs_header_owner や
 // folio_test_dirty のようにマクロで生成される API は索引に現れないが、
 // 実在する呼び出しである。索引の不在は「存在しない」ではなく「未知」を意味する。
-func FindCallees(_ context.Context, file string, line int, root string) ([]CalleeHit, bool, error) {
+// 第2戻り値は解決した「囲む関数」の名前。どの関数の呼び先を出したのかを
+// 利用者に見せるために返す。カーソル位置の語ではなく囲む関数を使うので、
+// 名前を出さないと `bar()` の中の `foo()` の上で実行したときに
+// `foo` の呼び先だと誤解される。
+func FindCallees(_ context.Context, file string, line int, root string) ([]CalleeHit, string, bool, error) {
 	lines, err := CachedLines(file)
 	if err != nil {
-		return nil, false, err
+		return nil, "", false, err
 	}
 	// 関数の途中の行を渡されても答えられるようにする。読んでいる最中に
 	// 「この関数は何を呼んでいるか」を聞くとき、カーソルは本体の中にある
+	funcName := ""
 	if sp, ok := enclosingSpan(scanFuncSpans(codeOnlyLines(lines)), line); ok {
-		line = sp.Start
+		line, funcName = sp.Start, sp.Name
 	}
 	// 表示用の 200 行上限だと 500 行級の関数で後半の呼び出しが黙って消える。
 	// 一覧は全件そろっていることに意味があるので解析用の上限で切り出し、
 	// それでも足りなければ打ち切ったことを返す
 	body, truncated := extractBraceBlockN(lines, line, analysisBlockMaxLines)
 	if body == "" {
-		return nil, false, nil
+		return nil, funcName, false, nil
 	}
 
 	seen := map[string]bool{}
@@ -304,7 +309,7 @@ func FindCallees(_ context.Context, file string, line int, root string) ([]Calle
 			})
 		}
 	}
-	return annotateCalleeKinds(result, root), truncated, nil
+	return annotateCalleeKinds(result, root), funcName, truncated, nil
 }
 
 // annotateCalleeKinds は ctags 索引で分かる範囲の種別を付ける（候補は落とさない）。

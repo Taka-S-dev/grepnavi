@@ -679,7 +679,7 @@ function initFloatingPeek(getHoverCtx) {
         addItem('codicon-references', '参照を検索',    () => openRefPicker(word), 'r', w);
       }
       if(typeof openCalleePicker === 'function') {
-        addItem('codicon-call-outgoing', 'この関数が呼ぶ関数', () => openCalleePicker(), 'c');
+        addItem('codicon-call-outgoing', 'いまいる関数の呼び先', () => openCalleePicker(), 'c');
       }
       addItem('codicon-file-code',   'その場で定義を見る', () => _showFloatingDef(word), 'e', w);
       addItem('codicon-search',      'grep',           () => grepSearchWord(word), 'g', w);
