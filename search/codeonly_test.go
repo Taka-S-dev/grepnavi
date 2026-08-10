@@ -153,7 +153,7 @@ func TestCodeOnlyLinesDropsIf0(t *testing.T) {
 func codeOnlyLinesRef(lines []string) []string {
 	out := make([]string, len(lines))
 	inBlock := false
-	var condStack []bool
+	var condStack []deadFrame
 	for i, line := range lines {
 		var b strings.Builder
 		inStr, inChar := false, false
@@ -230,6 +230,40 @@ func TestCodeOnlyLinesMatchesReference(t *testing.T) {
 			if got[i] != want[i] {
 				t.Errorf("%s: [%d] got=%q want=%q", name, i+1, got[i], want[i])
 			}
+		}
+	}
+}
+
+// `#if 1` の裏は構成に依らず死ぬ。ここを生かすと、コンパイルされないコードの
+// 中の識別子が参照として一覧に出る。ブレース勘定のほうは
+// overCountedAltLines も面倒を見るので、こちらでしか差が出ない。
+func TestCodeOnlyLinesDropsElseOfIfOne(t *testing.T) {
+	got := codeOnlyLines([]string{
+		"#if 1",
+		"    live_call();",
+		"#else",
+		"    dead_call();",
+		"#endif",
+		"#if 0",
+		"    also_dead();",
+		"#else",
+		"    also_live();",
+		"#endif",
+		"#ifdef CONFIG_X",
+		"    maybe_a();",
+		"#else",
+		"    maybe_b();",
+		"#endif",
+	})
+	want := map[int]bool{ // 行番号 → コードとして残るべきか
+		2: true, 4: false, // #if 1 の表は生き、裏は死ぬ
+		7: false, 9: true, // #if 0 はその逆
+		12: true, 14: true, // 構成次第の #ifdef はどちらも生かす
+	}
+	for line, alive := range want {
+		has := strings.TrimSpace(got[line-1]) != ""
+		if has != alive {
+			t.Errorf("%d行目 %q: コードとして残る=%v, want %v", line, got[line-1], has, alive)
 		}
 	}
 }

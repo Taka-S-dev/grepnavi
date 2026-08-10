@@ -9,12 +9,17 @@ func spansOf(src string) []funcSpan {
 	return scanFuncSpans(codeOnlyLines(strings.Split(src, "\n")))
 }
 
-func TestScanFuncSpansStyles(t *testing.T) {
-	cases := []struct {
-		name string
-		src  string
-		want []funcSpan
-	}{
+type styleCase struct {
+	name string
+	src  string
+	want []funcSpan
+}
+
+// styleCaseSources は不変条件テストからも使う。手で書いた形の一覧を
+// 2箇所に持つと、片方に足したときにもう片方が守られなくなる。
+func styleCaseSources() []styleCase { return scanFuncSpanCases }
+
+var scanFuncSpanCases = []styleCase{
 		{
 			name: "列0のブレース（K&R / Linux 形式）",
 			src: "int top(void)\n{\n\treturn 1;\n}\n",
@@ -81,12 +86,59 @@ func TestScanFuncSpansStyles(t *testing.T) {
 			want: nil,
 		},
 		{
+			// openssl の ssl_lib.c / ssl_sess.c に10個ある形。最後の `)` だけを見ると
+			// 戻り値側の括弧に当たって名前が取れず、関数ごと見えなくなっていた
+			name: "関数ポインタを返す関数",
+			src:  "int (*SSL_get_verify_callback(const SSL *s)) (int, X509_STORE_CTX *) {\n\treturn s->cb;\n}\n",
+			want: []funcSpan{{"SSL_get_verify_callback", 1, 3}},
+		},
+		{
+			// どちらの名前も構成次第で正しい。大事なのは本体を範囲に収めること
+			name: "シグネチャが #ifdef で分岐している",
+			src:  "#ifdef ALT\nvoid DES_cbc_encrypt(int a)\n#else\nvoid DES_ncbc_encrypt(int a)\n#endif\n{\n\treturn;\n}\n",
+			want: []funcSpan{{"DES_ncbc_encrypt", 2, 8}}, // 範囲は #ifdef 群の先頭から
+		},
+		{
+			// `#if 1` の裏は構成に依らず死ぬ。生かすと両分岐のブレースを数えて
+			// 深度がずれ、そのファイルの残り全部の関数が消える（openssl の gcm128.c）
+			name: "#if 1 の裏側のブレースを数えない",
+			src:  "void f(void)\n{\n#if 1\n\tif (a) {\n#else\n\tif (b) {\n#endif\n\t}\n}\nvoid g(void)\n{\n}\n",
+			want: []funcSpan{{"f", 1, 9}, {"g", 10, 12}},
+		},
+		{
+			name: "本体の中の #define のブレースを数えない",
+			src:  "void f(void)\n{\n#define LOCAL(x) do { x; } while (0)\n#define OPEN() {\n\treturn;\n}\nvoid g(void)\n{\n}\n",
+			want: []funcSpan{{"f", 1, 6}, {"g", 7, 9}},
+		},
+		{
+			// openssl の testutil。`;` の無いマクロ呼び出しが宣言候補に残り、
+			// その中の `==` で次の関数が初期化子扱いになって消えていた
+			name: "セミコロンの無いマクロ呼び出しの直後の関数",
+			src:  "DEFINE_COMPARISON(void *, ptr, eq, ==, \"%p\")\nDEFINE_COMPARISON(void *, ptr, ne, !=, \"%p\")\nint test_ptr_null(const char *file, int line)\n{\n}\n",
+			want: []funcSpan{{"test_ptr_null", 1, 5}}, // 範囲はマクロ呼び出しから始まる
+		},
+		{
+			// 両方の分岐が `{` を開いて閉じは1つ。数えすぎると深度が1ずれ、
+			// そのファイルの残り全部の関数が消える（openssl gcm128.c / curl multi.c）。
+			// 「#else に実装まるごと」は両分岐とも収支0なので巻き込まれない
+			name: "両分岐が同じだけブレースを開く #if",
+			src:  "void f(void)\n{\n#if defined(A) && defined(B)\n\tif (x && z) {\n#else\n\tif (x) {\n#endif\n\t}\n}\nvoid g(void)\n{\n}\n",
+			want: []funcSpan{{"f", 1, 9}, {"g", 10, 12}},
+		},
+		{
+			name: "#else に実装まるごとの形は落とさない",
+			src:  "#ifdef HAVE_X\nint impl_a(void)\n{\n}\n#else\nint impl_b(void)\n{\n}\n#endif\n",
+			want: []funcSpan{{"impl_a", 2, 4}, {"impl_b", 6, 8}},
+		},
+		{
 			name: "プロトタイプ宣言は範囲を作らない",
 			src: "int declared(void);\nint impl(void)\n{\n\treturn 0;\n}\n",
 			want: []funcSpan{{"impl", 2, 5}},
 		},
-	}
-	for _, c := range cases {
+}
+
+func TestScanFuncSpansStyles(t *testing.T) {
+	for _, c := range scanFuncSpanCases {
 		got := spansOf(c.src)
 		if len(got) != len(c.want) {
 			t.Errorf("%s: 件数 got=%d want=%d (%+v)", c.name, len(got), len(c.want), got)

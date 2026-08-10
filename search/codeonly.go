@@ -30,7 +30,7 @@ func codeOnlyLines(lines []string) []string {
 	spans := make([]span, len(lines))
 
 	inBlock := false
-	var condStack []bool // 各 #if 系ブロックが `#if 0` 由来か
+	var condStack []deadFrame
 	for i, line := range lines {
 		start := len(buf)
 		inStr, inChar := false, false
@@ -89,9 +89,17 @@ func isDirectiveLine(b []byte) bool {
 	return len(t) > 0 && t[0] == '#'
 }
 
+// deadFrame は #if 系ブロック1段のうち、構成に依らず結果が決まる部分。
+type deadFrame struct {
+	dead  bool // この分岐は構成に依らず必ず捨てられる
+	taken bool // `#if 1` のように、この分岐が必ず採られる（＝裏が必ず死ぬ）
+}
+
 // applyCondDirective は前処理ディレクティブ1行ぶんだけ条件スタックを進める。
-// スタックの各要素は「そのブロックが `#if 0` で無効化されているか」を持つ。
-func applyCondDirective(stack []bool, stripped string) []bool {
+//
+// 落とすのは構成に依らず death が確定するものだけ。`#ifdef CONFIG_X` の
+// 有効・無効はビルド構成次第なので、落とすと本物のコードを隠してしまう。
+func applyCondDirective(stack []deadFrame, stripped string) []deadFrame {
 	t := strings.TrimSpace(stripped)
 	if !strings.HasPrefix(t, "#") {
 		return stack
@@ -99,14 +107,16 @@ func applyCondDirective(stack []bool, stripped string) []bool {
 	body := strings.TrimSpace(t[1:])
 	switch {
 	case strings.HasPrefix(body, "ifdef"), strings.HasPrefix(body, "ifndef"):
-		return append(stack, false)
+		return append(stack, deadFrame{})
 	case strings.HasPrefix(body, "if"):
-		// 条件が定数 0 のときだけ無効ブロックとして扱う
-		return append(stack, strings.TrimSpace(strings.TrimPrefix(body, "if")) == "0")
+		cond := strings.TrimSpace(strings.TrimPrefix(body, "if"))
+		return append(stack, deadFrame{dead: cond == "0", taken: cond == "1"})
 	case strings.HasPrefix(body, "elif"), strings.HasPrefix(body, "else"):
-		// `#if 0` の裏側は生きている。逆に生きている側の裏は不明なので生かす。
+		// `#if 1` の裏は `#if 0` の表と同じで、必ず捨てられる。ここを生かすと
+		// 両方の分岐のブレースを数えることになり、深度がずれてファイルの
+		// 残り全部の関数が見えなくなる（openssl の gcm128.c で実際に起きた）。
 		if n := len(stack); n > 0 {
-			stack[n-1] = false
+			stack[n-1].dead = stack[n-1].taken
 		}
 		return stack
 	case strings.HasPrefix(body, "endif"):
@@ -117,9 +127,9 @@ func applyCondDirective(stack []bool, stripped string) []bool {
 	return stack
 }
 
-func anyDead(stack []bool) bool {
-	for _, dead := range stack {
-		if dead {
+func anyDead(stack []deadFrame) bool {
+	for _, f := range stack {
+		if f.dead {
 			return true
 		}
 	}
