@@ -605,6 +605,24 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 #fzf-input{flex:1;background:transparent;border:none;color:#ccc;font:14px Consolas,monospace;outline:none}
 #fzf-count{font-size:10px;color:#555;flex-shrink:0;white-space:nowrap}
 #fzf-list{overflow-y:auto;max-height:360px}
+/* 移動の履歴。ハイライトがそのまま現在地なので、絞り込み欄は置かない */
+.hist-panel{position:fixed;z-index:var(--z-context-menu);width:560px;max-width:92vw;
+  background:#1e1e1e;border:1px solid #555;border-radius:6px;overflow:hidden;
+  display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.6);font:12px Consolas,monospace}
+.hist-hdr{padding:7px 12px;border-bottom:1px solid #333;color:#999;font-size:11px;
+  font-family:sans-serif;letter-spacing:.03em}
+.hist-list{overflow-y:auto;max-height:300px}
+.hist-row{display:flex;align-items:center;gap:10px;padding:4px 12px;color:#ccc;cursor:pointer}
+.hist-row:hover{background:#094771;color:#fff}
+.hist-cur{background:#3a3d1e}
+.hist-cur .hist-step{color:#e0d060;font-weight:600}
+.hist-step{flex:0 0 46px;color:#7a7a7a;font-variant-numeric:tabular-nums}
+.hist-loc{flex:0 0 auto;max-width:44%;color:#8a9a7a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hist-code{flex:1 1 auto;min-width:0;color:#7f9f6f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hist-row:hover .hist-loc,.hist-row:hover .hist-code{color:#cfe0c0}
+.hist-foot{padding:5px 12px;border-top:1px solid #333;color:#6a6a6a;font-size:10px;
+  font-family:sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
 /* 空振りをカーソルの隣で知らせる小さな通知。次の操作で消える */
 .gn-flash{position:fixed;z-index:var(--z-context-menu);max-width:520px;padding:6px 12px;
   border-radius:4px;background:#2d2d2d;border:1px solid #555;color:#ccc;

@@ -1582,6 +1582,16 @@ async function ensureEditor() {
     run: () => openCalleePicker()
   });
 
+  // Alt+V → 通ってきた場所の一覧（Z / X の連打で探すより速い）。
+  // 移動系の Z X C の隣に置いて、指の位置で覚えられるようにする
+  monacoEditor.addAction({
+    id: 'grepnavi-history', label: '移動の履歴',
+    contextMenuGroupId: 'grepnavi-nav',
+    contextMenuOrder: 0.7,
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyV],
+    run: () => openHistoryPicker()
+  });
+
   // 右クリック → grep 検索（カーソル単語）
   monacoEditor.addAction({
     id: 'grepnavi-grep-word', label: 'grep 検索',
@@ -1988,7 +1998,7 @@ function fzfRenderRefs(query) {
     div.onclick = () => {
       closeFzf();
       if(ref.callee) jumpToDefinition(ref.callee);
-      else openPeek(ref.file, ref.line);
+        else openPeek(ref.file, ref.line);
     };
     list.appendChild(div);
   });
@@ -2177,35 +2187,156 @@ async function fzfOpen(relPath) {
 }
 
 // ===== ナビゲーション履歴 =====
+// 履歴一覧に出すソース行。開いているタブのモデルから取るだけで、
+// 一覧のためにファイルを読み直すことはしない（無い行はパスだけ出す）
+function navLineText(file, line) {
+  const t = tabs.find(t => _samePath(t.file, file));
+  const m = t?.model;
+  if(!m || m.isDisposed?.() || line < 1 || line > m.getLineCount()) return '';
+  return m.getLineContent(line).trim();
+}
+
 function navPush(file, line) {
   if(navSkipPush) return;
   const last = navHistory[navIndex];
   if(last && _samePath(last.file, file) && last.line === line) return;
   navHistory.splice(navIndex + 1);
-  navHistory.push({file, line});
+  navHistory.push({file, line, text: navLineText(file, line)});
   if(navHistory.length > 100) { navHistory.shift(); }
   navIndex = navHistory.length - 1;
   updateNavButtons();
 }
 
+// 実際に動けたかを返す（ランチャーは動けたときだけ履歴一覧に持ち替える）
 async function navBack() {
-  if(navIndex <= 0) { flashAtCursor('これより前の履歴はありません'); return; }
+  if(navIndex <= 0) { flashAtCursor('これより前の履歴はありません'); return false; }
   navIndex--;
   const h = navHistory[navIndex];
   navSkipPush = true;
   await openPeek(h.file, h.line);
   navSkipPush = false;
   updateNavButtons();
+  renderHistoryPicker();
+  return true;
 }
 
 async function navForward() {
-  if(navIndex >= navHistory.length - 1) { flashAtCursor('これより先の履歴はありません'); return; }
+  if(navIndex >= navHistory.length - 1) { flashAtCursor('これより先の履歴はありません'); return false; }
   navIndex++;
   const h = navHistory[navIndex];
   navSkipPush = true;
   await openPeek(h.file, h.line);
   navSkipPush = false;
   updateNavButtons();
+  renderHistoryPicker();
+  return true;
+}
+
+// 履歴の任意の位置へ移る。openPeek をそのまま呼ぶと新しい訪問として
+// 積まれて先の履歴が消えるので、位置だけ動かす
+async function navGoTo(idx) {
+  if(idx < 0 || idx >= navHistory.length || idx === navIndex) return;
+  navIndex = idx;
+  const h = navHistory[idx];
+  navSkipPush = true;
+  await openPeek(h.file, h.line);
+  navSkipPush = false;
+  updateNavButtons();
+  renderHistoryPicker();
+}
+
+// ===== 履歴一覧 =====
+// 通ってきた場所を古い順に並べ、いまいる場所をハイライトする。絞り込み欄は
+// 置かない。履歴は数十件で目で追える量だし、入力欄があると z / x が
+// 文字入力になってしまう。ハイライト＝現在地なので、動かす操作がそのまま移動になる
+let _histPanel = null;
+let _histKeyHandler = null;
+
+function openHistoryPicker() {
+  if(navHistory.length < 2) { flashAtCursor('移動の履歴がまだありません'); return; }
+  closeHistoryPicker();
+
+  const panel = document.createElement('div');
+  panel.className = 'hist-panel';
+
+  const hdr = document.createElement('div');
+  hdr.className = 'hist-hdr';
+  hdr.textContent = `移動の履歴  ${navIndex + 1} / ${navHistory.length}`;
+  panel.appendChild(hdr);
+
+  const list = document.createElement('div');
+  list.className = 'hist-list';
+  panel.appendChild(list);
+
+  const foot = document.createElement('div');
+  foot.className = 'hist-foot';
+  foot.textContent = 'Z / X または ↑ ↓ で移動、クリックでその場所へ、Esc で閉じる';
+  panel.appendChild(foot);
+
+  document.body.appendChild(panel);
+  _histPanel = panel;
+
+  const pt = takePickerAnchor();
+  if(pt) { panel.style.left = pt.x + 'px'; panel.style.top = pt.y + 'px'; }
+  const r = panel.getBoundingClientRect();
+  if(r.right > window.innerWidth)   panel.style.left = Math.max(4, window.innerWidth - r.width - 8) + 'px';
+  if(r.bottom > window.innerHeight) panel.style.top  = Math.max(4, window.innerHeight - r.height - 8) + 'px';
+
+  renderHistoryPicker();
+
+  // z / x を素で拾うため、パネルを開いている間はキーを先取りする。
+  // Alt+Z / Alt+X（手が Alt を押したまま来る場合）も同じ扱いにする
+  _histKeyHandler = e => {
+    if(!_histPanel) return;
+    if(e.ctrlKey || e.metaKey) return;
+    const k = e.key.toLowerCase();
+    if(k === 'escape') {
+      e.preventDefault(); e.stopPropagation();
+      closeHistoryPicker(); monacoEditor?.focus(); return;
+    }
+    if(k === 'z' || k === 'arrowup')   { e.preventDefault(); e.stopPropagation(); navBack(); return; }
+    if(k === 'x' || k === 'arrowdown') { e.preventDefault(); e.stopPropagation(); navForward(); return; }
+  };
+  document.addEventListener('keydown', _histKeyHandler, true);
+  setTimeout(() => document.addEventListener('mousedown', _histOutside, true), 0);
+}
+
+function _histOutside(e) {
+  if(_histPanel && !_histPanel.contains(e.target)) closeHistoryPicker();
+}
+
+function closeHistoryPicker() {
+  if(!_histPanel) return;
+  _histPanel.remove();
+  _histPanel = null;
+  document.removeEventListener('keydown', _histKeyHandler, true);
+  document.removeEventListener('mousedown', _histOutside, true);
+}
+
+// Alt+Z / Alt+X や一覧クリックで移動したとき、ハイライトを追従させる
+function renderHistoryPicker() {
+  if(!_histPanel) return;
+  _histPanel.querySelector('.hist-hdr').textContent =
+    `移動の履歴  ${navIndex + 1} / ${navHistory.length}`;
+  const list = _histPanel.querySelector('.hist-list');
+  list.innerHTML = '';
+  navHistory.forEach((h, i) => {
+    const row = document.createElement('div');
+    row.className = 'hist-row' + (i === navIndex ? ' hist-cur' : '');
+    const step = document.createElement('span');
+    step.className = 'hist-step';
+    step.textContent = i === navIndex ? '● 現在' : (i < navIndex ? '← ' : '→ ') + Math.abs(i - navIndex);
+    const loc = document.createElement('span');
+    loc.className = 'hist-loc';
+    loc.textContent = shortPath(h.file) + ':' + h.line;
+    const code = document.createElement('span');
+    code.className = 'hist-code';
+    code.textContent = (h.text || navLineText(h.file, h.line)).slice(0, 160);
+    row.append(step, loc, code);
+    row.onclick = () => navGoTo(i);
+    list.appendChild(row);
+    if(i === navIndex) setTimeout(() => row.scrollIntoView({block: 'nearest'}), 0);
+  });
 }
 
 function updateNavButtons() {

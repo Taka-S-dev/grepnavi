@@ -634,16 +634,6 @@ function initFloatingPeek(getHoverCtx) {
     // 実体は _mountWordCtxMenu で差し替わる（リスナー解除まで面倒を見る版に）
     let closeMenu = () => menu.remove();
 
-    // keepOpen の項目を実行した後、同じ場所に出し直す。移動した先の
-    // カーソル語で組み直すので、履歴を戻った先の語がそのまま次の対象になる
-    const reopen = () => {
-      let w = word;
-      if(typeof monacoEditor !== 'undefined' && monacoEditor) {
-        const p = monacoEditor.getPosition();
-        w = (p && monacoEditor.getModel()?.getWordAtPosition(p)?.word) || '';
-      }
-      _showWordCtxMenu(w, x, y, null, peekEditors, opts);
-    };
     // ランチャーの1文字はグローバルの Alt+同じ文字と同じ動作にしてあるので、
     // 表示は Alt+X の形にする。使っているうちに直キーが身につくように
     // （Windows のメニューが「保存 Ctrl+S」と並べるのと同じ狙い）
@@ -664,10 +654,7 @@ function initFloatingPeek(getHoverCtx) {
       text.textContent = label;
       el.appendChild(icon);
       el.appendChild(text);
-      // 連打したい操作（戻る/進む）はメニューを閉じずに、押せる状態を作り直す
-      const activate = (o && o.keepOpen)
-        ? async () => { closeMenu(); await fn(); reopen(); }
-        : () => { closeMenu(); fn(); };
+      const activate = () => { closeMenu(); fn(); };
       if(key) {
         const hint = document.createElement('span');
         hint.textContent = hintPrefix + key.toUpperCase();
@@ -704,8 +691,13 @@ function initFloatingPeek(getHoverCtx) {
         const noBack = typeof navIndex === 'number' && navIndex <= 0;
         const noFwd  = typeof navIndex === 'number' && Array.isArray(navHistory)
                        && navIndex >= navHistory.length - 1;
-        addItem('codicon-arrow-left',  '戻る', () => navBack(),    'z', {disabled: noBack, keepOpen: true});
-        addItem('codicon-arrow-right', '進む', () => navForward(), 'x', {disabled: noFwd,  keepOpen: true});
+        addItem('codicon-arrow-left',  '戻る', () => navBack(),    'z', {disabled: noBack});
+        addItem('codicon-arrow-right', '進む', () => navForward(), 'x', {disabled: noFwd});
+        // 連続して動かしたいときは一覧側（V）に入る。Z / X は1段だけ
+        if(typeof openHistoryPicker === 'function') {
+          addItem('codicon-history', '移動の履歴', () => openHistoryPicker(), 'v',
+                  {disabled: !Array.isArray(navHistory) || navHistory.length < 2});
+        }
       }
       _mountWordCtxMenu();
       return;
