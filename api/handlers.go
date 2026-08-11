@@ -31,6 +31,7 @@ type Handler struct {
 
 func NewHandler(store *graph.Store, root string) *Handler {
 	h := &Handler{store: store, root: root, events: NewEventBus(), editorState: newEditorStateCache()}
+	applyProjectSettings(root)
 	if search.GtagsAvailable(root) {
 		search.GtagsCheckStaleAsync(root)
 		search.GtagsWarmupAsync(root)

@@ -391,6 +391,11 @@ func CtagsSymbolsForFile(file, dir string) ([]DefHit, error) {
 // ファイルがシンボル名順にソートされていればバイナリサーチを、
 // そうでなければ ripgrep を使う。
 func CtagsFindDefinitions(word, dir string) ([]DefHit, error) {
+	hits, err := ctagsFindDefinitionsRaw(word, dir)
+	return dropExcludedHits(hits), err
+}
+
+func ctagsFindDefinitionsRaw(word, dir string) ([]DefHit, error) {
 	tagsPath := filepath.Join(dir, "tags")
 
 	sorted := ctagsReadSortedFlag(tagsPath)

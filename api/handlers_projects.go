@@ -181,6 +181,7 @@ func (h *Handler) handleGrepnaviOpen(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	h.root = root
 	h.mu.Unlock()
+	applyProjectSettings(root)
 	invalidateFilesCache()
 	search.GtagsWarmupAsync(root)
 	jsonOK(w, map[string]interface{}{"root": root, "graphs": cfg.Graphs})

@@ -1002,6 +1002,11 @@ func gtagsParseOutput(out []byte, kind, dir string) []DefHit {
 // 宣言(.h)と実装(.c/.cpp)が両方ヒットした場合は実装を優先する。
 // 結果は (dir,word) でキャッシュされ、インデックス更新まで保持される。
 func GtagsFindDefinitions(ctx context.Context, word, dir string) ([]DefHit, error) {
+	hits, err := gtagsFindDefinitionsRaw(ctx, word, dir)
+	return dropExcludedHits(hits), err
+}
+
+func gtagsFindDefinitionsRaw(ctx context.Context, word, dir string) ([]DefHit, error) {
 	cacheKey := gtagsCacheKey(dir, word)
 	if v, ok := _gtagsDefCache.Load(cacheKey); ok {
 		return v.([]DefHit), nil
@@ -1455,6 +1460,11 @@ func diagGuess(stderr string) string {
 // GtagsFindHoverHits は GNU Global で定義位置を特定し、
 // ファイル行から kind を再分類した DefHit スライスを返す（ホバー用）。
 func GtagsFindHoverHits(ctx context.Context, word, dir string) ([]DefHit, error) {
+	hits, err := gtagsFindHoverHitsRaw(ctx, word, dir)
+	return dropExcludedHits(hits), err
+}
+
+func gtagsFindHoverHitsRaw(ctx context.Context, word, dir string) ([]DefHit, error) {
 	hits, err := GtagsFindDefinitions(ctx, word, dir)
 	if err != nil || len(hits) == 0 {
 		return hits, err
@@ -1499,9 +1509,10 @@ func GtagsFindHoverHits(ctx context.Context, word, dir string) ([]DefHit, error)
 func gtagsRawRefs(ctx context.Context, word, dir string) ([]DefHit, error) {
 	hits, err := gtagsRefsWithFlag(ctx, word, dir, "-xr")
 	if err != nil || len(hits) > 0 {
-		return hits, err
+		return dropExcludedHits(hits), err
 	}
-	return gtagsRefsWithFlag(ctx, word, dir, "-xs")
+	hits, err = gtagsRefsWithFlag(ctx, word, dir, "-xs")
+	return dropExcludedHits(hits), err
 }
 
 // ResolveRefSites は索引の生ヒットに、そのファイルを読んで分かることを付ける。

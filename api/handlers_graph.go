@@ -620,6 +620,7 @@ func (h *Handler) handleGraphImport(w http.ResponseWriter, r *http.Request) {
 			h.root = g.RootDir
 			h.mu.Unlock()
 			h.store.SetRootDir(g.RootDir)
+			applyProjectSettings(g.RootDir)
 			invalidateFilesCache()
 			newRoot = g.RootDir
 			if search.CtagsIndexed(g.RootDir) {
@@ -721,6 +722,7 @@ func (h *Handler) handleGraphOpenFile(w http.ResponseWriter, r *http.Request) {
 			h.root = g.RootDir
 			h.mu.Unlock()
 			h.store.SetRootDirNoSave(g.RootDir)
+			applyProjectSettings(g.RootDir)
 			invalidateFilesCache()
 			newRoot = g.RootDir
 			if search.CtagsIndexed(g.RootDir) {

@@ -125,6 +125,21 @@ func addGraphToGrepnavi(root, graphPath string) {
 type grepnaviCfg struct {
 	Root   string   `json:"root"`
 	Graphs []string `json:"graphs"`
+	// Exclude はこのプロジェクトの対象から外すパス（.gitignore と同じ書き方）。
+	// 検索の絞り込みではなく「何を読むツリーとみなすか」の宣言で、検索・参照・
+	// 定義ジャンプ・MCP のすべてに効く。既定は空（推測で外さない）。
+	Exclude []string `json:"exclude,omitempty"`
+}
+
+// applyProjectSettings は root の .grepnavi に書かれたプロジェクト設定を
+// 検索側へ反映する。root が変わるところでは必ず呼ぶこと。
+func applyProjectSettings(root string) {
+	if root == "" {
+		search.SetExcludes("", nil)
+		return
+	}
+	cfg := readGrepnavi(filepath.Join(root, grepnaviFile))
+	search.SetExcludes(root, cfg.Exclude)
 }
 
 func readGrepnavi(path string) grepnaviCfg {
@@ -132,9 +147,10 @@ func readGrepnavi(path string) grepnaviCfg {
 	if err != nil {
 		return grepnaviCfg{}
 	}
-	// new format
+	// new format（graphs だけを見ると、除外だけを書いたファイルが旧形式扱いで
+	// 落ちる。旧形式は値が全部文字列なので、配列がどれか1つでもあれば新形式）
 	var cfg grepnaviCfg
-	if json.Unmarshal(data, &cfg) == nil && cfg.Graphs != nil {
+	if json.Unmarshal(data, &cfg) == nil && (cfg.Graphs != nil || cfg.Exclude != nil) {
 		return cfg
 	}
 	// legacy format: {root, graph}
@@ -171,11 +187,14 @@ func (h *Handler) handleGrepnavi(w http.ResponseWriter, r *http.Request) {
 		jsonOK(w, cfg)
 
 	case http.MethodPost:
-		// body: {root, graph} — graph を追加、または {graphs:[...]} で直接上書き
+		// body: {root, graph} — graph を追加、または {graphs:[...]} で直接上書き。
+		// exclude は省略と空配列を区別する（グラフだけを更新する呼び出しが
+		// 除外設定を巻き添えで消さないように）
 		var body struct {
-			Root   string   `json:"root"`
-			Graph  string   `json:"graph"`
-			Graphs []string `json:"graphs"`
+			Root    string    `json:"root"`
+			Graph   string    `json:"graph"`
+			Graphs  []string  `json:"graphs"`
+			Exclude *[]string `json:"exclude"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			jsonErr(w, err.Error(), http.StatusBadRequest)
@@ -197,10 +216,15 @@ func (h *Handler) handleGrepnavi(w http.ResponseWriter, r *http.Request) {
 				cfg.Graphs = append(cfg.Graphs, body.Graph)
 			}
 		}
+		if body.Exclude != nil {
+			cfg.Exclude = *body.Exclude
+		}
 		if err := writeGrepnavi(p, cfg); err != nil {
 			jsonErr(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		search.SetExcludes(root, cfg.Exclude)
+		invalidateFilesCache() // ファイル一覧・ディレクトリ候補は除外前のものが残っている
 		jsonOK(w, cfg)
 
 	default:
@@ -249,6 +273,11 @@ func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {
 		// graph は調査再開用のダイジェスト。これが無いと AI は root / graph_list /
 		// list_memos を別々に呼ぶことになるので、固定サイズの要約だけ同梱する。
 		resp := map[string]any{"root": root, "index": indexStatus(root), "graph": h.store.GetDigest(root)}
+		// 除外が掛かっていると grep の結果と食い違う。宣言されているときだけ
+		// 載せる（無いのが既定なので、空配列を毎回返しても意味が無い）
+		if ex := search.Excludes(); len(ex) > 0 {
+			resp["exclude"] = ex
+		}
 		// 前回の作業を退避したファイルがあれば「復元できる」ことを伝える。
 		// 起動時は必ず空から始めるので、これが無いと前回分に戻る手段が見えない。
 		if rec := h.store.Recover(); rec != nil {
@@ -280,6 +309,7 @@ func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {
 		// 保存ありの SetRootDir を使うと、別 root のファイルを開いたまま root を変えた際に
 		// そのファイルへ別 root を焼き付けてしまうため、NoSave 版を使う。
 		h.store.SetRootDirNoSave(abs)
+		applyProjectSettings(abs)
 		invalidateFilesCache()
 		slog.Debug("root changed", "abs", abs, "ctags_indexed", search.CtagsIndexed(abs))
 		if search.CtagsIndexed(abs) {
@@ -346,8 +376,10 @@ func (h *Handler) handleFiles(w http.ResponseWriter, r *http.Request) {
 	for _, g := range strings.FieldsFunc(glob, func(r rune) bool { return r == ',' || r == ' ' }) {
 		args = append(args, "--glob", g)
 	}
+	args = append(args, search.RgIgnoreArgs()...)
 	args = append(args, root)
 	cmd := proc.Command("rg", args...)
+	cmd.Dir = search.RgWorkDir() // 除外パターンは cwd 基準で照合される
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
@@ -362,6 +394,9 @@ func (h *Handler) handleFiles(w http.ResponseWriter, r *http.Request) {
 			}
 			base := filepath.Base(filepath.Dir(path))
 			if base[0] == '.' || base == "node_modules" || base == "vendor" {
+				return nil
+			}
+			if search.IsExcluded(path) {
 				return nil
 			}
 			rel, _ := filepath.Rel(root, path)
@@ -391,6 +426,9 @@ func (h *Handler) handleFiles(w http.ResponseWriter, r *http.Request) {
 		for scanner.Scan() {
 			l := scanner.Text()
 			if l == "" {
+				continue
+			}
+			if search.IsExcluded(l) {
 				continue
 			}
 			rel, relErr := filepath.Rel(root, l)
@@ -428,6 +466,9 @@ func (h *Handler) handleFiles(w http.ResponseWriter, r *http.Request) {
 	for scanner.Scan() {
 		l := scanner.Text()
 		if l == "" {
+			continue
+		}
+		if search.IsExcluded(l) {
 			continue
 		}
 		rel, err := filepath.Rel(root, l)
@@ -489,6 +530,10 @@ func (h *Handler) handleDirs(w http.ResponseWriter, r *http.Request) {
 		}
 		// 隠しディレクトリ・よくある無関係ディレクトリはスキップ
 		if base := d.Name(); path != root && (base[0] == '.' || base == "node_modules" || base == "vendor" || base == "__pycache__") {
+			return filepath.SkipDir
+		}
+		// 除外したディレクトリは、その配下ごと候補から外す
+		if path != root && search.IsExcludedDir(path) {
 			return filepath.SkipDir
 		}
 		rel, rerr := filepath.Rel(root, path)

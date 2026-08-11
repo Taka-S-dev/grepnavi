@@ -49,6 +49,7 @@ func Search(ctx context.Context, opts Options) ([]graph.Match, error) {
 
 	args := buildArgs(opts)
 	cmd := proc.CommandContext(ctx, "rg", args...)
+	cmd.Dir = RgWorkDir() // 除外パターンの基準。空なら exec 側の既定のまま
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -64,7 +65,17 @@ func Search(ctx context.Context, opts Options) ([]graph.Match, error) {
 		return nil, fmt.Errorf("rg failed: %v\n%s", err, stderr.String())
 	}
 
-	return parseOutput(stdout.Bytes(), opts.Pattern, opts.ContextLines)
+	matches, err := parseOutput(stdout.Bytes(), opts.Pattern, opts.ContextLines)
+	if err != nil || len(Excludes()) == 0 {
+		return matches, err
+	}
+	kept := matches[:0]
+	for _, m := range matches {
+		if !IsExcluded(m.File) {
+			kept = append(kept, m)
+		}
+	}
+	return kept, nil
 }
 
 func buildArgs(opts Options) []string {
@@ -110,6 +121,9 @@ func buildArgs(opts Options) []string {
 	for _, g := range splitGlobs(opts.FileGlob) {
 		args = append(args, "--glob", g)
 	}
+	// プロジェクト設定の除外。--glob より後ろに置く。rg は後勝ちなので、
+	// 検索ごとの絞り込みで「対象外」の宣言を覆せないようにする
+	args = append(args, RgIgnoreArgs()...)
 	args = append(args, "--context", strconv.Itoa(opts.ContextLines))
 	if opts.MaxResults > 0 {
 		args = append(args, "--max-count", strconv.Itoa(opts.MaxResults))
@@ -330,6 +344,7 @@ func SearchStream(ctx context.Context, opts Options, callback func(graph.Match) 
 	defer cancel()
 
 	cmd := proc.CommandContext(innerCtx, "rg", buildArgs(opts)...)
+	cmd.Dir = RgWorkDir()
 	cmd.Stderr = io.Discard
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -352,6 +367,10 @@ func SearchStream(ctx context.Context, opts Options, callback func(graph.Match) 
 	for m := range matchCh {
 		if cbErr != nil {
 			continue // goroutine が matchCh を close するまで読み捨て
+		}
+		// 上限を数える前に落とす。後ろで落とすと除外したぶんが件数を食う
+		if IsExcluded(m.File) {
+			continue
 		}
 		if err := callback(m); err != nil {
 			cbErr = err
