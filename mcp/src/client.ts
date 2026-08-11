@@ -123,6 +123,19 @@ export interface GraphResponse {
 // 取ってこなかった範囲は最初から候補に入らない（linux の ret は参照が 60 万件
 // あり、返るのは先頭の一部でしかない）。渡し忘れると、その事実に気づけないまま
 // 「これで全部」と読める一覧が返る。
+export interface RefGroups {
+  group: string[];
+  root: string;
+  groups: Array<{
+    key: string;
+    count: number;
+    sample?: string[];
+    sub?: Array<{ key: string; file?: string; lines: number[] }>;
+  }>;
+  total: number;
+  truncated: boolean;
+}
+
 export function referenceParams(
   word: string,
   opts: { dir?: string; limit?: number; assign?: boolean; filter?: string } = {},
@@ -359,6 +372,24 @@ export class GrepnaviClient {
   }
 
   // /api/references は word が使われている箇所を返す（呼び出しに限らない）。
+  // groupReferences は参照をまとめた形で取る。参照が多い語は1件ずつだと
+  // 受け取る側が読めない（openssl の hand_state は代入だけで 19.3 KB あり、
+  // 大きすぎて読めず素の grep へ落ちた）。代入値でまとめると 4.4 KB になり、
+  // しかも表示上限で切られずに全件を数えた分布が返る。
+  async groupReferences(
+    word: string,
+    by: string,
+    opts: { dir?: string; filter?: string; assign?: boolean; sample?: number } = {},
+  ): Promise<RefGroups> {
+    const params = new URLSearchParams({ word, group: by });
+    if (opts.dir) params.set("dir", opts.dir);
+    if (opts.filter) params.set("filter", opts.filter);
+    if (opts.assign) params.set("assign", "1");
+    if (opts.sample !== undefined) params.set("sample", String(opts.sample));
+    const r = await this.req("/api/references?" + params.toString());
+    return (await r.json()) as RefGroups;
+  }
+
   async references(
     word: string,
     opts: { dir?: string; limit?: number; assign?: boolean; filter?: string } = {},

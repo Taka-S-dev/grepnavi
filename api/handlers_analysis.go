@@ -418,6 +418,46 @@ func definitionEmptyHint(word, root string) string {
 	return ""
 }
 
+// writeRefGroups は参照をまとめた形で返す。
+// 数え上げは表示上限ではなく集約用の予算で行う（上限で切ってから数えると
+// 「先頭 limit 件の中での分布」になり、全体の分布とは別物になる）。
+func (h *Handler) writeRefGroups(w http.ResponseWriter, r *http.Request, word, dir, by, filter string, assign bool, sample int) {
+	// group=value,func で2段にまとめる。1段だと使う側が「値は分かったが場所が
+	// 分からない」で生データを取り直すことになり、往復も総量も増える
+	levels := strings.Split(by, ",")
+	if len(levels) > 2 {
+		jsonErr(w, "group takes at most two levels", http.StatusBadRequest)
+		return
+	}
+	for i, l := range levels {
+		levels[i] = strings.TrimSpace(l)
+		switch levels[i] {
+		case "value", "func", "file":
+		default:
+			jsonErr(w, "group must be one of: value, func, file", http.StatusBadRequest)
+			return
+		}
+	}
+	groups, total, truncated, err := search.GroupRefSites(r.Context(), search.RefQuery{
+		Word: word, Root: dir, Filter: filter, AssignOnly: assign,
+	}, levels, sample)
+	if err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if truncated {
+		w.Header().Set("X-Truncated", "true")
+	}
+	// 見本のパスは root からの相対。root を1回だけ返して繰り返しを避ける
+	jsonOK(w, map[string]interface{}{
+		"group":     levels,
+		"root":      dir,
+		"groups":    groups,
+		"total":     total,
+		"truncated": truncated,
+	})
+}
+
 // --- /api/symbol-search ---
 
 // handleSymbolSearch はシンボル名のパターン検索（プロジェクト全体）。
@@ -641,6 +681,19 @@ func (h *Handler) handleReferences(w http.ResponseWriter, r *http.Request) {
 		dir = filepath.Join(hroot, dir)
 	}
 	limit, _ := strconv.Atoi(q.Get("limit"))
+
+	// group=value|func|file で1件ずつではなくまとめて返す。参照が多い語は
+	// 1件ずつだと読む側が破綻する（openssl の hand_state は代入だけで 19.3 KB
+	// あり、受け取った側が読めずに素の grep へ戻った）。まとめると 3.9 KB になり、
+	// 「どの値が誰から入るか」にそのまま答える形になる
+	if by := q.Get("group"); by != "" {
+		sample := 2
+		if v := q.Get("sample"); v != "" {
+			sample, _ = strconv.Atoi(v)
+		}
+		h.writeRefGroups(w, r, word, dir, by, q.Get("filter"), q.Get("assign") == "1", sample)
+		return
+	}
 
 	// assign=1 で「その語へ書き込んでいる行」だけに絞る
 	// filter は解決の前に掛かるので、索引が返した全件に届く

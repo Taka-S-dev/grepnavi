@@ -40,6 +40,9 @@ export const definitions: ToolDef[] = [
       "Comment-only and string-only mentions are filtered out, as are references inside `#if 0`. Returns `{ references, count, engine, truncated }`; `truncated: true` means the cap was reached, so treat the list as a sample and narrow with `dir`, `filter` or `assign`.\n\n" +
       "**Answer \"who writes this?\" with `assign: true`** instead of reading every hit: it keeps only the lines that write the symbol (`=`, `+=`, `++`, ...), judged on the source line with comments and strings stripped. A field with 200 references usually has a handful of writes.\n\n" +
       "**Narrow with `filter` before the cap bites.** It is applied on the server, over everything the index returned, so it reaches hits that `limit` would have cut off — filtering the returned list cannot. Space-separated terms are AND, a leading `-` excludes, and `path:` / `file:` match the path only: `filter: \"path:net/ipv4 -test\"`.\n\n" +
+      "**`group: \"value,func\"` is usually what you want**: it answers \"which value, set by which function, on which lines\" in one call. One level alone tells you the values but not the places, so you end up fetching the raw list anyway - for openssl the symbol `hand_state` cost 4.4 KB + 25.3 KB across two calls, against 9.8 KB for the two-level form.\n\n" +
+      "**Note `group: \"func\"` and `group: \"file\"` count reads as well as writes.** Only `value` implies `assign` (a read has no assigned value). Pass `assign: true` explicitly with the other two when you mean writes.\n\n" +
+      "**Use `group` when a symbol has more references than you want to read.** One row per hit does not scale: openssl\u0027s `hand_state` returns 19.3 KB of writes, capped at 100 of the 132 that exist. `group: \"value\"` answers the same question in 4.4 KB, counts all 132, and comes back as \"which value, how many times, where\" — the shape the question was asked in. Counting happens before the cap, so the distribution is over everything, not over the first page.\n\n" +
       "**Next step**: grepnavi_func_body on an interesting `func` to see the surrounding logic, or grepnavi_callers if the symbol turns out to be a function after all.",
     inputSchema: {
       type: "object",
@@ -55,6 +58,15 @@ export const definitions: ToolDef[] = [
           type: "string",
           description:
             "Narrow on the server, over every hit the index returned. Space = AND, leading `-` excludes, `path:` / `file:` match the path only. Example: \"path:net/ipv4 -test\".",
+        },
+        group: {
+          type: "string",
+          description:
+            "Return counts per group instead of one row per hit. One of `value` (what the writes assign; implies assign), `func` (enclosing function), `file`. Give two comma-separated for a two-level breakdown, e.g. \"value,func\" — the inner level carries every line number, so no second call is needed to find the places.",
+        },
+        sample: {
+          type: "integer",
+          description: "Locations to attach to each group, 0-2 (default 1). Only with `group`.",
         },
       },
       required: ["word"],
@@ -307,8 +319,25 @@ export const handlers: Record<string, ToolHandler> = {
     }));
   },
   grepnavi_references: async (args) => {
-    const a = args as { word: string; dir?: string; limit?: number; assign?: boolean; filter?: string };
+    const a = args as {
+      word: string; dir?: string; limit?: number; assign?: boolean;
+      filter?: string; group?: string; sample?: number;
+    };
     if (!a.word) throw new Error("`word` is required");
+    if (a.group) {
+      const g = await client.groupReferences(a.word, a.group, {
+        dir: normalizeInputPath(a.dir),
+        filter: a.filter,
+        assign: a.assign,
+        sample: a.sample,
+      });
+      return ok({
+        ...g,
+        note: g.truncated
+          ? "Capped while counting: the distribution is over a sample, not every hit. Narrow with `filter` or `dir`."
+          : "`sample` paths are relative to `root`. Ask again without `group` and with `filter` to list one group in full.",
+      });
+    }
     const r = await client.references(a.word, {
       dir: normalizeInputPath(a.dir),
       limit: a.limit,
