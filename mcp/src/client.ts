@@ -622,6 +622,21 @@ export class GrepnaviClient {
     };
   }
 
+  // funcBodyBlocks は関数全体ではなく、指定した行を囲む case ブロックだけ取る。
+  // 遷移関数は巨大な switch で、確かめたいのはその中の1つの case だけのことが多い
+  // （openssl の遷移関数は全文 5.8 KB、3つの case を指せば 2.3 KB）。
+  async funcBodyBlocks(
+    file: string,
+    line: number,
+    opts: { at?: number[]; containing?: string },
+  ): Promise<{ blocks: Array<{ label?: string; start_line: number; end_line: number; body: string }> }> {
+    const params = new URLSearchParams({ file, line: String(line) });
+    if (opts.at?.length) params.set("at", opts.at.join(","));
+    else if (opts.containing) params.set("containing", opts.containing);
+    const r = await this.req("/api/func-body?" + params.toString());
+    return (await r.json()) as { blocks: Array<{ label?: string; start_line: number; end_line: number; body: string }> };
+  }
+
   async funcBody(
     file: string,
     line: number,

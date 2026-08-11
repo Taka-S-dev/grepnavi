@@ -148,6 +148,35 @@ func (h *Handler) handleFuncBody(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid line", http.StatusBadRequest)
 		return
 	}
+	// containing=語 でその語を含む case ブロックだけ返す。遷移関数は巨大な
+	// switch で、確かめたいのはその中の1つの case だけ、ということが多い
+	// （openssl の遷移関数6つを全文取ると 31.8 KB）
+	// at=行,行 でその行を囲む case だけ返す。値と関数でまとめた結果は行番号を
+	// 持っているので、語で探し直すより直接指す方が小さい
+	if at := q.Get("at"); at != "" {
+		var want []int
+		for _, v := range strings.Split(at, ",") {
+			if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+				want = append(want, n)
+			}
+		}
+		blocks, err := search.ExtractCaseBlocksAt(file, want)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		jsonOK(w, map[string]any{"blocks": blocks, "at": want})
+		return
+	}
+	if word := q.Get("containing"); word != "" {
+		blocks, err := search.ExtractCaseBlocks(file, line, word)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		jsonOK(w, map[string]any{"blocks": blocks, "containing": word})
+		return
+	}
 	body, startLine, endLine, err := search.ExtractFuncBody(file, line)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

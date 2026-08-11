@@ -221,7 +221,8 @@ export const definitions: ToolDef[] = [
     description:
       "Return the full body of a function in one call — finds the enclosing { ... } and returns it with start/end line numbers.\n\n" +
       "Pass `word` (function name) for auto-resolve via grepnavi_definition (same flow as grepnavi_callees) — lets you parallelize with definition/callees calls. Or pass `file`+`line` directly to skip resolution. Errors on ambiguity with candidate list, then disambiguate via `file`+`line`.\n\n" +
-      "**Prefer this over grepnavi_read_file when you want a function**: one call vs computing line ranges. Use grepnavi_read_file only for non-function ranges or whole files.",
+      "**Prefer this over grepnavi_read_file when you want a function**: one call vs computing line ranges. Use grepnavi_read_file only for non-function ranges or whole files." +
+      "**Pass `at` to read one case instead of the whole function.** A transition function is one big switch; feeding it the line numbers from grepnavi_references group=\"value,func\" returns just those cases - 5.8 KB becomes 2.3 KB, and parallel fetches stop overflowing.\n\n",
     inputSchema: {
       type: "object",
       properties: {
@@ -234,6 +235,17 @@ export const definitions: ToolDef[] = [
         line: {
           type: "integer",
           description: "Any line within the function (typically the definition line).",
+        },
+        at: {
+          type: "array",
+          items: { type: "integer" },
+          description:
+            "Return only the switch cases containing these lines, not the whole function. Feed the line numbers from grepnavi_references group=\"value,func\": one transition function drops from 5.8 KB to 2.3 KB.",
+        },
+        containing: {
+          type: "string",
+          description:
+            "Return only the switch cases mentioning this text. Use `at` instead when you already know the lines — a name that appears in six cases returns all six.",
         },
       },
     },
@@ -406,7 +418,10 @@ export const handlers: Record<string, ToolHandler> = {
     return ok(await client.search({ ...a, dir: normalizeInputPath(a.dir) }));
   },
   grepnavi_func_body: async (args) => {
-    const a = args as { word?: string; file?: string; line?: number };
+    const a = args as {
+      word?: string; file?: string; line?: number;
+      at?: number[]; containing?: string;
+    };
     let file = normalizeInputPath(a.file);
     let line = a.line;
     if (!file || !line) {
@@ -415,6 +430,10 @@ export const handlers: Record<string, ToolHandler> = {
       const resolved = await resolveWordToLocation(a.word);
       file = resolved.file;
       line = resolved.line;
+    }
+    // at / containing が来たら関数全体ではなく該当する case だけ返す
+    if ((a.at && a.at.length) || a.containing) {
+      return ok(await client.funcBodyBlocks(file, line, { at: a.at, containing: a.containing }));
     }
     return ok(await client.funcBody(file, line));
   },
