@@ -170,6 +170,7 @@ export const definitions: ToolDef[] = [
       "  - You want chunked retrieval via `limit` + `next_offset` instead of one giant response.\n" +
       "  - You want per-hit ifdef stack on C/C++ matches for context.\n\n" +
       "**When Bash `rg` is fine**: source is confirmed UTF-8 AND you just want a quick one-shot search. Same results, less plumbing.\n\n" +
+      "**Do not grep for assignments.** A pattern like \"x =\" also matches \"x ==\", misses \"x  =\" and \"*p =\", and cannot tell a write from a comparison. grepnavi_references with `assign: true` decides that on the comment-stripped line, and `group: \"value\"` returns the values themselves.\n\n" +
       "**Set `context: 0` unless you need the surrounding lines.** The snippet is 8 lines per hit and dominates the response: searching 150 hits returns 140 KB with it and 37 KB without. Read the surroundings with grepnavi_func_body on the few hits that matter instead.\n\n" +
       "Returns matches with file, line, col, text, optional 8-line snippet, `non_utf8: true` when fallback decoding was used, and `enclosing_function` ({name, start_line}, C files) — the function containing the hit.\n\n" +
       "**Group hits by `enclosing_function` BEFORE reading anything**: 30 hits are often just 4-5 functions. Read each unique function once via grepnavi_func_body(file, enclosing_function.start_line) instead of investigating hit by hit.\n\n" +
