@@ -367,3 +367,44 @@ func TestRgRefSitesNarrowsBeforeCap(t *testing.T) {
 		}
 	})
 }
+
+// 索引経路でも、代入だけに絞るのは予算で切る前に行う。
+// 切ってから絞ると、索引順で先頭が読み出しに埋まっている語で
+// 「0 件・打ち切りあり」という矛盾した答えが返る（openssl の hand_state）。
+func TestKeepAssignRawRunsBeforeTheBudget(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "a.c")
+	var b strings.Builder
+	b.WriteString("void f(void)\n{\n")
+	for i := 0; i < 300; i++ {
+		b.WriteString("    if (st->target == VALUE_A) { }\n") // 読み出しだけ
+	}
+	for i := 0; i < 5; i++ {
+		b.WriteString("    st->target = VALUE_B;\n") // 代入は後ろ
+	}
+	b.WriteString("}\n")
+	if err := os.WriteFile(file, []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(b.String(), "\n")
+
+	var hits []DefHit
+	for i, l := range lines {
+		if strings.Contains(l, "target") {
+			hits = append(hits, DefHit{File: file, Line: i + 1, Text: l})
+		}
+	}
+	if len(hits) != 305 {
+		t.Fatalf("下準備が想定と違う: %d 件", len(hits))
+	}
+
+	got := keepAssignRaw(hits, "target")
+	if len(got) != 5 {
+		t.Fatalf("代入 %d 件, want 5", len(got))
+	}
+	for _, h := range got {
+		if !strings.Contains(h.Text, "= VALUE_B") {
+			t.Errorf("代入でない行が残った: %s", strings.TrimSpace(h.Text))
+		}
+	}
+}

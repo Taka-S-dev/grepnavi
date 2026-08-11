@@ -50,6 +50,13 @@ func FindRefSites(ctx context.Context, q RefQuery) ([]CallSite, string, bool, er
 			// 先に掛ければ、絞り込みは索引が返した全件に届く（手元だけで絞ると
 			// 取ってこなかった範囲は出てこない）。
 			hits = filterRawRefs(hits, q.Scope, q.Glob, parseRefFilter(q.Filter))
+			// 代入だけに絞るのも予算で切る前に済ませる。切ってから絞ると、
+			// 先頭が読み出しで埋まっている語で「0 件・打ち切りあり」が返る
+			// （openssl の hand_state で実際に起きた。代入は数百件あるのに、
+			// 索引順で先頭 200 件が switch の比較で埋まっていた）
+			if q.AssignOnly {
+				hits = keepAssignRaw(hits, q.Word)
+			}
 			budget := q.Limit * 2
 			if q.CallersOnly {
 				budget = q.Limit * 20 // 関数ごとに1件へ畳むぶんの余裕
@@ -64,9 +71,7 @@ func FindRefSites(ctx context.Context, q RefQuery) ([]CallSite, string, bool, er
 			}
 			MarkIndirectCalls(sites, q.Word)
 			MarkAssignments(sites, q.Word)
-			if q.AssignOnly {
-				sites = keepAssignments(sites)
-			}
+
 			if len(sites) > 0 {
 				sites, truncated := capSites(sites, q.Limit)
 				return sites, "gtags", truncated || cut, nil
@@ -83,6 +88,26 @@ func FindRefSites(ctx context.Context, q RefQuery) ([]CallSite, string, bool, er
 	sites, truncated, err := rgRefSites(ctx, q.Word, q.Scope, q.Glob, q.Limit,
 		parseRefFilter(q.Filter), q.AssignOnly)
 	return sites, "rg", truncated, err
+}
+
+// keepAssignRaw は解決前の生ヒットを「その語へ書き込んでいる行」だけに削る。
+// 判定はコメント・文字列を落とした行で行う（生の行だと `printf("x = %d")` の
+// 書式文字列が代入に見える）。読めないファイルは判定できないので残す
+// ＝ 後段の解決で改めて判定される。
+func keepAssignRaw(hits []DefHit, word string) []DefHit {
+	re := assignMatcher(word)
+	code := codeOnlyCache{}
+	out := hits[:0:0]
+	for _, h := range hits {
+		text := h.Text
+		if lines, err := CachedLines(h.File); err == nil {
+			text = codeLineAt(code, h.File, lines, h.Line, h.Text)
+		}
+		if re.MatchString(text) {
+			out = append(out, h)
+		}
+	}
+	return out
 }
 
 // keepCallers は呼び出し元一覧の形に整える。囲む関数が分からない箇所を落とし、
@@ -183,16 +208,6 @@ func matchesTerms(s CallSite, terms []refTerm) bool {
 		}
 	}
 	return true
-}
-
-func keepAssignments(sites []CallSite) []CallSite {
-	out := sites[:0:0]
-	for _, s := range sites {
-		if s.Assign {
-			out = append(out, s)
-		}
-	}
-	return out
 }
 
 func capSites(sites []CallSite, limit int) ([]CallSite, bool) {
