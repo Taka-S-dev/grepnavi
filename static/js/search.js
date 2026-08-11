@@ -31,19 +31,26 @@ async function updateIgnoreMarker() {
     has = !!d.has;
     files = d.files || [];
   } catch (_) {}
+  // プロジェクト設定の除外はこのボタンでは戻らない。結果が足りないときに
+  // 最初に押されるのがここなので、別の設定が掛かっていることを併せて出す
+  const nEx = typeof projectExcludeCount === 'function' ? projectExcludeCount() : 0;
+  const exNote = nEx
+    ? '\n\nこれとは別に、プロジェクト設定で ' + nEx + ' 件のパターンを対象外にしています'
+      + '（このボタンでは戻りません。設定で変更）'
+    : '';
   btn.classList.toggle('has-ignore', has);
   // 除外設定が無いと --no-ignore は無意味なので非活性化（ON状態も解除）。
   btn.disabled = !has;
   if (!has) btn.classList.remove('on');
   const on = btn.classList.contains('on');
   if (!has) {
-    btn.title = '除外ファイルなし（このルートに .gitignore / .ignore なし）';
+    btn.title = '除外ファイルなし（このルートに .gitignore / .ignore なし）' + exNote;
   } else if (on) {
     btn.title = '現在: ' + files.join(' / ') + ' を無視して全ファイルを検索中'
-      + '\nクリックで通常の検索に戻す — Alt+I';
+      + '\nクリックで通常の検索に戻す — Alt+I' + exNote;
   } else {
     btn.title = '現在: ' + files.join(' / ') + ' により一部ファイルを除外中'
-      + '\nクリックで除外ファイルも検索 — Alt+I';
+      + '\nクリックで除外ファイルも検索 — Alt+I' + exNote;
   }
 }
 window.updateIgnoreMarker = updateIgnoreMarker;

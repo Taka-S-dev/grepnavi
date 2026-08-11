@@ -474,6 +474,11 @@
     </div>
 
     <div style="font-size:11px;color:#666;margin-top:8px"><code>{file}</code> = ファイルパス　<code>{line}</code> = 行番号</div>
+
+    <div style="font-size:12px;color:#aaa;margin:14px 0 6px">対象から外すもの<span id="settings-exclude-scope" style="color:#666;font-weight:normal"></span></div>
+    <textarea id="settings-exclude" rows="5" spellcheck="false" placeholder="1行に1つ。.gitignore と同じ書き方（例）&#10;*.BAK&#10;.history/&#10;ssl/html/&#10;!ssl/html/notes.md" style="width:100%;box-sizing:border-box;resize:vertical"></textarea>
+    <div style="font-size:11px;color:#666;margin-top:4px"><strong>書き方は .gitignore と同じ</strong>です（<code>*</code> <code>**</code> 先頭 <code>/</code> でルート固定、末尾 <code>/</code> でフォルダのみ、<code>!</code> で戻す、<code>#</code> でコメント）。このプロジェクトが読まないものの宣言なので、検索・参照・定義ジャンプ・ファイル一覧・MCP のすべてに効き、検索の glob や「除外ファイルも検索」では戻りません。既定は空で、grepnavi の側から生成物を推測して外すことはしません。</div>
+
     <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:14px">
       <button id="settings-modal-ok">OK</button>
       <button class="sec" id="settings-modal-cancel">キャンセル</button>

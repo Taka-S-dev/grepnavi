@@ -63,14 +63,18 @@ function updateRootChip() {
   const rootName = projectRoot
     ? projectRoot.replace(/\\/g,'/').split('/').filter(Boolean).pop() || projectRoot
     : '未設定';
+  // 除外は結果から黙って消える設定なので、掛かっていること自体は常に見せる
+  const exTip = projectExcludes.length
+    ? '\n対象外: ' + projectExcludes.join(' / ') + '（設定で変更）'
+    : '';
   if(dirVal) {
     chipText.innerHTML = rootName + '<span class="chip-subdir"> ▸ ' + dirVal.replace(/</g,'&lt;') + '</span>';
     chip.classList.add('has-subdir');
-    chip.title = 'ルート: ' + (projectRoot || '未設定') + '\n検索範囲: ' + dirVal + '\n(クリックでルートを変更)';
+    chip.title = 'ルート: ' + (projectRoot || '未設定') + '\n検索範囲: ' + dirVal + exTip + '\n(クリックでルートを変更)';
   } else {
     chipText.textContent = rootName;
     chip.classList.remove('has-subdir');
-    chip.title = 'ルート: ' + (projectRoot || '未設定') + '\n(クリックで変更)';
+    chip.title = 'ルート: ' + (projectRoot || '未設定') + exTip + '\n(クリックで変更)';
   }
   updateTitle();
   // ルートが変わったら ignore マーカーも更新（新ルートに .gitignore 等があるか）。
@@ -176,6 +180,7 @@ async function setRoot(newRoot) {
   if(typeof explorerInvalidate === 'function') explorerInvalidate();
   id('dir').value = '';
   updateRootChip();
+  loadProjectExcludes(); // 除外はツリーごとに違うので、切り替えたら読み直す
 
   // クライアント側をリセット
   localStorage.removeItem(LS_PROJECT_PATH);
@@ -770,6 +775,7 @@ async function openProject(path) {
     dirList = null; fzfFiles = null;
     if (typeof explorerInvalidate === 'function') explorerInvalidate();
     updateRootChip();
+    loadProjectExcludes();
     localStorage.setItem('grepnavi_project_root', d.root.replace(/\\/g, '/'));
     if (typeof loadPinnedHighlights === 'function') loadPinnedHighlights();
   }
@@ -855,6 +861,33 @@ function _saveCurrentFieldsToBuffer(prevValue) {
   };
 }
 
+// 除外はブラウザではなくツリー側（.grepnavi）に持つ。「このプロジェクトが
+// 何を読まないか」はツリーの性質で、見ている窓や PC の都合ではない。
+let projectExcludes = [];
+
+async function loadProjectExcludes() {
+  try {
+    const cfg = await (await fetch('/api/grepnavi')).json();
+    projectExcludes = cfg.exclude || [];
+  } catch(_) { projectExcludes = []; }
+  updateRootChip();
+  if(typeof updateIgnoreMarker === 'function') updateIgnoreMarker();
+  return projectExcludes;
+}
+window.loadProjectExcludes = loadProjectExcludes;
+window.projectExcludeCount = () => projectExcludes.length;
+
+async function saveProjectExcludes(list) {
+  const r = await fetch('/api/grepnavi', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ exclude: list }),
+  });
+  if(!r.ok) throw new Error(await r.text());
+  projectExcludes = list;
+  updateRootChip();
+  if(typeof updateIgnoreMarker === 'function') updateIgnoreMarker();
+}
+
 function showSettingsModal() {
   const s = getSettings();
   const modeSel = id('settings-page-mode');
@@ -875,6 +908,20 @@ function showSettingsModal() {
   _syncDropdownLabels();
   const active = sel.value;
   _showCustomFields(active === 'vscode' ? null : parseInt(active.replace('custom', '')));
+  const ta = id('settings-exclude');
+  if(ta) {
+    // 他の項目はこの窓の設定だが、除外はプロジェクト単位。どちらに効くのかが
+    // 分からないと、別ツリーを開いたときに消えたように見える
+    const scope = id('settings-exclude-scope');
+    if(scope) scope.textContent = projectRoot ? '（' + projectRoot + '）' : '（ルート未設定）';
+    const pre = projectExcludes.join('\n');
+    ta.value = pre;
+    ta.disabled = !projectRoot;
+    // 取り直しは表示を最新にするためだけのもの。入力を上書きしない
+    loadProjectExcludes().then(list => {
+      if(ta.value === pre) ta.value = list.join('\n');
+    });
+  }
   id('settings-modal').classList.add('open');
 }
 
@@ -884,6 +931,7 @@ function hideSettingsModal() {
 
 (function initSettingsModal() {
   document.addEventListener('DOMContentLoaded', () => {
+    loadProjectExcludes();
     const sel = id('settings-active-editor');
     let prevValue = 'vscode';
 
@@ -909,6 +957,13 @@ function hideSettingsModal() {
       const newMode = (!modeSel || modeSel.disabled) ? savedMode : modeSel.value;
       const modeChanged = newMode !== savedMode;
       saveSettings({ activeEditor: sel.value, customEditors: _editingCustoms, pageMode: newMode });
+      const ta = id('settings-exclude');
+      if(ta && !ta.disabled) {
+        const list = ta.value.split('\n').map(s => s.trim()).filter(Boolean);
+        if(list.join('\n') !== projectExcludes.join('\n')) {
+          saveProjectExcludes(list).catch(e => alert('除外設定を保存できませんでした: ' + e.message));
+        }
+      }
       hideSettingsModal();
       // レイアウトは起動時に組み立てられる（パネルのタブバー等）ので、
       // 途中で作り直すより読み込み直す方が確実。調査グラフはサーバ側にあり
