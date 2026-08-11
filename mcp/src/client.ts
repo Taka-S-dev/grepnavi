@@ -276,9 +276,9 @@ export class GrepnaviClient {
     }
   }
 
-  async root(): Promise<{ root: string; index?: unknown; graph?: GraphDigest }> {
+  async root(): Promise<{ root: string; index?: unknown; graph?: GraphDigest; exclude?: string[] }> {
     const r = await this.req("/api/root");
-    return (await r.json()) as { root: string; index?: unknown; graph?: GraphDigest };
+    return (await r.json()) as { root: string; index?: unknown; graph?: GraphDigest; exclude?: string[] };
   }
 
   // 相対パスを grepnavi root と join して絶対化する。Windows / POSIX どちらの root でも
