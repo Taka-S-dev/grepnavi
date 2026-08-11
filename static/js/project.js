@@ -910,10 +910,13 @@ function showSettingsModal() {
   _showCustomFields(active === 'vscode' ? null : parseInt(active.replace('custom', '')));
   const ta = id('settings-exclude');
   if(ta) {
-    // 他の項目はこの窓の設定だが、除外はプロジェクト単位。どちらに効くのかが
-    // 分からないと、別ツリーを開いたときに消えたように見える
+    // どのツリーに保存されるのかを見出しに出す。ここが空だと、別ツリーを
+    // 開いたときに設定が消えたように見える
     const scope = id('settings-exclude-scope');
-    if(scope) scope.textContent = projectRoot ? '（' + projectRoot + '）' : '（ルート未設定）';
+    if(scope) {
+      scope.textContent = projectRoot || 'ルート未設定';
+      scope.title = projectRoot ? projectRoot + '/.grepnavi に保存されます' : '';
+    }
     const pre = projectExcludes.join('\n');
     ta.value = pre;
     ta.disabled = !projectRoot;
