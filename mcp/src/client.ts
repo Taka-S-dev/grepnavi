@@ -123,6 +123,21 @@ export interface GraphResponse {
 // 取ってこなかった範囲は最初から候補に入らない（linux の ret は参照が 60 万件
 // あり、返るのは先頭の一部でしかない）。渡し忘れると、その事実に気づけないまま
 // 「これで全部」と読める一覧が返る。
+export interface StateSummary {
+  var: string;
+  root: string;
+  family: string;
+  states: string[];
+  funcs: string[];
+  from: Array<{
+    from: string;
+    edges: Array<{ to: string; fn: number; kind?: string; lines: number[]; via?: string; fell_through?: boolean }>;
+  }>;
+  total: number;
+  unknown_from: number;
+  unreached?: string[];
+}
+
 export interface RefGroups {
   group: string[];
   root: string;
@@ -376,6 +391,20 @@ export class GrepnaviClient {
   // 受け取る側が読めない（openssl の hand_state は代入だけで 19.3 KB あり、
   // 大きすぎて読めず素の grep へ落ちた）。代入値でまとめれば読める大きさになり、
   // しかも表示上限で切られずに全件を数えた分布が返る。
+  // stateTransitions は状態変数の遷移を、遷移元ごとに畳んだ形で取る。
+  // 生のまま返すと openssl の hand_state で 34.8 KB あり、受け取る側が読めない。
+  async stateTransitions(
+    v: string,
+    opts: { dir?: string; glob?: string } = {},
+  ): Promise<StateSummary> {
+    const params = new URLSearchParams({ var: v, summary: "1" });
+    if (opts.dir) params.set("dir", opts.dir);
+    if (opts.glob) params.set("glob", opts.glob);
+    const r = await this.req("/api/state-machine?" + params.toString());
+    const d = (await r.json()) as { summary: StateSummary };
+    return d.summary;
+  }
+
   async groupReferences(
     word: string,
     by: string,
