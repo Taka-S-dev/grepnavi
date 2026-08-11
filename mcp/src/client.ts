@@ -374,7 +374,7 @@ export class GrepnaviClient {
   // /api/references は word が使われている箇所を返す（呼び出しに限らない）。
   // groupReferences は参照をまとめた形で取る。参照が多い語は1件ずつだと
   // 受け取る側が読めない（openssl の hand_state は代入だけで 19.3 KB あり、
-  // 大きすぎて読めず素の grep へ落ちた）。代入値でまとめると 4.4 KB になり、
+  // 大きすぎて読めず素の grep へ落ちた）。代入値でまとめれば読める大きさになり、
   // しかも表示上限で切られずに全件を数えた分布が返る。
   async groupReferences(
     word: string,
@@ -589,8 +589,7 @@ export class GrepnaviClient {
     if (opts.word) params.set("word", "1");
     if (opts.regex) params.set("regex", "1");
     // 文脈行は1件あたり最大 8 行。画面で読むには要るが、機械が受け取ると
-    // 効かない容量になる（openssl の hand_state を 150 件で 140.1 KB。
-    // context=0 なら 37.0 KB）
+    // 効かない容量になる（150 件引くと応答の大半が文脈行で占められる）
     if (opts.context !== undefined) params.set("context", String(opts.context));
     if (opts.encoding) params.set("enc", opts.encoding);
     if (opts.limit && opts.limit > 0) params.set("limit", String(opts.limit));
@@ -623,8 +622,7 @@ export class GrepnaviClient {
   }
 
   // funcBodyBlocks は関数全体ではなく、指定した行を囲む case ブロックだけ取る。
-  // 遷移関数は巨大な switch で、確かめたいのはその中の1つの case だけのことが多い
-  // （openssl の遷移関数は全文 5.8 KB、3つの case を指せば 2.3 KB）。
+  // 遷移関数は巨大な switch で、確かめたいのはその中の1つの case だけのことが多い。
   async funcBodyBlocks(
     file: string,
     line: number,

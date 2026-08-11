@@ -742,8 +742,8 @@ func (h *Handler) handleReferences(w http.ResponseWriter, r *http.Request) {
 
 	// group=value|func|file で1件ずつではなくまとめて返す。参照が多い語は
 	// 1件ずつだと読む側が破綻する（openssl の hand_state は代入だけで 19.3 KB
-	// あり、受け取った側が読めずに素の grep へ戻った）。まとめると 3.9 KB になり、
-	// 「どの値が誰から入るか」にそのまま答える形になる
+	// あり、受け取った側が読めずに素の grep へ戻った）。まとめると数十グループに
+	// 畳めて、「どの値が誰から入るか」にそのまま答える形になる
 	if by := q.Get("group"); by != "" {
 		sample := 2
 		if v := q.Get("sample"); v != "" {

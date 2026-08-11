@@ -40,9 +40,9 @@ export const definitions: ToolDef[] = [
       "Comment-only and string-only mentions are filtered out, as are references inside `#if 0`. Returns `{ references, count, engine, truncated }`; `truncated: true` means the cap was reached, so treat the list as a sample and narrow with `dir`, `filter` or `assign`.\n\n" +
       "**Answer \"who writes this?\" with `assign: true`** instead of reading every hit: it keeps only the lines that write the symbol (`=`, `+=`, `++`, ...), judged on the source line with comments and strings stripped. A field with 200 references usually has a handful of writes.\n\n" +
       "**Narrow with `filter` before the cap bites.** It is applied on the server, over everything the index returned, so it reaches hits that `limit` would have cut off — filtering the returned list cannot. Space-separated terms are AND, a leading `-` excludes, and `path:` / `file:` match the path only: `filter: \"path:net/ipv4 -test\"`.\n\n" +
-      "**`group: \"value,func\"` is usually what you want**: it answers \"which value, set by which function, on which lines\" in one call. One level alone tells you the values but not the places, so you end up fetching the raw list anyway - for openssl the symbol `hand_state` cost 4.4 KB + 25.3 KB across two calls, against 9.8 KB for the two-level form.\n\n" +
+      "**`group: \"value,func\"` is usually what you want**: it answers \"which value, set by which function, on which lines\" in one call. One level names the values but not the places, so you end up fetching the raw list anyway - two calls that together cost more than the ungrouped list did.\n\n" +
       "**Note `group: \"func\"` and `group: \"file\"` count reads as well as writes.** Only `value` implies `assign` (a read has no assigned value). Pass `assign: true` explicitly with the other two when you mean writes.\n\n" +
-      "**Use `group` when a symbol has more references than you want to read.** One row per hit does not scale: openssl\u0027s `hand_state` returns 19.3 KB of writes, capped at 100 of the 132 that exist. `group: \"value\"` answers the same question in 4.4 KB, counts all 132, and comes back as \"which value, how many times, where\" — the shape the question was asked in. Counting happens before the cap, so the distribution is over everything, not over the first page.\n\n" +
+      "**Use `group` when a symbol has more references than you want to read.** One row per hit does not scale: openssl\u0027s `hand_state` has 132 writes and the plain list stops at the first 100, so its distribution is of a sample. `group` counts every hit before the cap and comes back as \"which value, how many times, where\" - the shape the question was asked in.\n\n" +
       "**Next step**: grepnavi_func_body on an interesting `func` to see the surrounding logic, or grepnavi_callers if the symbol turns out to be a function after all.",
     inputSchema: {
       type: "object",
@@ -171,7 +171,7 @@ export const definitions: ToolDef[] = [
       "  - You want per-hit ifdef stack on C/C++ matches for context.\n\n" +
       "**When Bash `rg` is fine**: source is confirmed UTF-8 AND you just want a quick one-shot search. Same results, less plumbing.\n\n" +
       "**Do not grep for assignments.** A pattern like \"x =\" also matches \"x ==\", misses \"x  =\" and \"*p =\", and cannot tell a write from a comparison. grepnavi_references with `assign: true` decides that on the comment-stripped line, and `group: \"value\"` returns the values themselves.\n\n" +
-      "**Set `context: 0` unless you need the surrounding lines.** The snippet is 8 lines per hit and dominates the response: searching 150 hits returns 140 KB with it and 37 KB without. Read the surroundings with grepnavi_func_body on the few hits that matter instead.\n\n" +
+      "**Set `context: 0` unless you need the surrounding lines.** The snippet is 8 lines per hit and is most of the response. Read the surroundings with grepnavi_func_body on the few hits that matter instead.\n\n" +
       "Returns matches with file, line, col, text, optional 8-line snippet, `non_utf8: true` when fallback decoding was used, and `enclosing_function` ({name, start_line}, C files) — the function containing the hit.\n\n" +
       "**Group hits by `enclosing_function` BEFORE reading anything**: 30 hits are often just 4-5 functions. Read each unique function once via grepnavi_func_body(file, enclosing_function.start_line) instead of investigating hit by hit.\n\n" +
       "**0 matches may come with a `hint`** explaining a probable tool-use mistake (glob matched no files; regex syntax in a literal search). Read it and retry before concluding the text does not exist.\n\n" +
@@ -183,7 +183,7 @@ export const definitions: ToolDef[] = [
         context: {
           type: "integer",
           description:
-            "Lines of context around each hit, 0-8 (default 8). Set 0 when you only need locations: 150 hits drop from 140 KB to 37 KB.",
+            "Lines of context around each hit, 0-8 (default 8). Set 0 when you only need locations - the context lines are most of the payload and grow with the hit count.",
         },
         dir: { type: "string", description: "Optional subdirectory (relative to root or absolute)." },
         glob: { type: "string", description: "Optional file glob (e.g. '*.c', '!vendor/**')." },
@@ -222,7 +222,7 @@ export const definitions: ToolDef[] = [
       "Return the full body of a function in one call — finds the enclosing { ... } and returns it with start/end line numbers.\n\n" +
       "Pass `word` (function name) for auto-resolve via grepnavi_definition (same flow as grepnavi_callees) — lets you parallelize with definition/callees calls. Or pass `file`+`line` directly to skip resolution. Errors on ambiguity with candidate list, then disambiguate via `file`+`line`.\n\n" +
       "**Prefer this over grepnavi_read_file when you want a function**: one call vs computing line ranges. Use grepnavi_read_file only for non-function ranges or whole files." +
-      "**Pass `at` to read one case instead of the whole function.** A transition function is one big switch; feeding it the line numbers from grepnavi_references group=\"value,func\" returns just those cases - 5.8 KB becomes 2.3 KB, and parallel fetches stop overflowing.\n\n",
+      "**Pass `at` to read one case instead of the whole function.** A transition function is one big switch; feeding it the line numbers from grepnavi_references group=\"value,func\" returns just those cases, so parallel fetches stop overflowing.\n\n",
     inputSchema: {
       type: "object",
       properties: {
@@ -240,7 +240,7 @@ export const definitions: ToolDef[] = [
           type: "array",
           items: { type: "integer" },
           description:
-            "Return only the switch cases containing these lines, not the whole function. Feed the line numbers from grepnavi_references group=\"value,func\": one transition function drops from 5.8 KB to 2.3 KB.",
+            "Return only the switch cases containing these lines, not the whole function. Feed the line numbers from grepnavi_references group=\"value,func\".",
         },
         containing: {
           type: "string",

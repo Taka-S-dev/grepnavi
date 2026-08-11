@@ -195,8 +195,8 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 		FileGlob:      q.Get("glob"),
 		NoIgnore:      q.Get("noignore") == "1",
 		// context=0 で前後の行を付けない。1件あたり 8 行の文脈は画面で読むには
-		// 要るが、機械が受け取ると効かない容量になる（openssl の hand_state を
-		// 150 件引くと 134.6 KB。文脈を落とせば 1/10 以下）
+		// 要るが、機械が受け取ると効かない容量になる（150 件引くと、応答の
+		// 大半が文脈行で占められる）
 		ContextLines: snippetContext(q.Get("context")),
 		MaxResults:   maxFetch,
 		Encoding:     enc,
