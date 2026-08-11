@@ -14,10 +14,12 @@ export const definitions: ToolDef[] = [
       "0. *\"Where do I start?\" / \"which modules does this cross?\"* — anything about the shape of the tree rather than one symbol.\n" +
       "   - grepnavi_structure() first: one call for the whole layout, then grepnavi_structure(focus) on the part you land on.\n" +
       "   - Listing directories and grepping around to infer the layout costs many calls and invents files that are not there.\n\n" +
-      "1. *\"Where is X output / written / created?\"*\n" +
-      "   - grepnavi_search the keyword (e.g. \"recipe\") to find write-like call sites.\n" +
-      "   - For each promising hit: grepnavi_func_body on the surrounding function to confirm it actually writes.\n" +
-      "   - grepnavi_callers on that function to trace who triggers the write.\n\n" +
+      "1. *\"Who writes this variable / field, and what does it get set to?\"*\n" +
+      "   - grepnavi_references(word, assign: true, group: \"value,func\") — values, functions and line numbers in one call.\n" +
+      "   - Do NOT grep for \"x =\": it matches \"x ==\", misses writes through a pointer, and cannot tell a write from a comparison.\n" +
+      "   - grepnavi_func_body(file, line, at: [lines]) to read just the cases that matter.\n\n" +
+      "1b. *\"Where is X output / created?\"* (an action, not a variable)\n" +
+      "   - grepnavi_search the keyword, then grepnavi_func_body on promising hits, then grepnavi_callers to find who triggers it.\n\n" +
       "2. *\"What does function F do?\"*\n" +
       "   - grepnavi_definition(\"F\") → file:line of the implementation.\n" +
       "   - grepnavi_func_body(file, line) → read the body.\n" +
@@ -27,7 +29,9 @@ export const definitions: ToolDef[] = [
       "   - grepnavi_read_file(file, start_line, end_line) to read targeted ranges instead of the whole file.\n\n" +
       "4. *\"Who calls function F?\"*\n" +
       "   - grepnavi_callers(\"F\", depth=1). Only bump depth when you actually need the wider tree — each level fans out.\n\n" +
-      "5. *Exact symbol name unknown* (the user describes behavior, not an identifier).\n" +
+      "5. *\"How does this state machine move between states?\"*\n" +
+      "   - grepnavi_state_transitions(var) — the transition table. A reference list cannot answer this: the state the code was IN comes from the enclosing switch case or if, often far above the line.\n\n" +
+      "6. *Exact symbol name unknown* (the user describes behavior, not an identifier).\n" +
       "   - grepnavi_symbol_search(\"recipe.*(save|write)\") → candidate names with kind/file/line in one call.\n" +
       "   - Then grepnavi_definition / grepnavi_func_body on the name you picked.\n\n" +
       "**Tool ↔ file access**: Every grepnavi_* result's `file` is an ABSOLUTE path. Three ways to read content:\n" +
