@@ -355,6 +355,7 @@ export const handlers: Record<string, ToolHandler> = {
       count: r.refs.length,
       engine: r.engine,
       truncated: r.truncated,
+      hint: r.hint,
       assign_only: a.assign || undefined,
       filter: a.filter || undefined,
       note: r.truncated

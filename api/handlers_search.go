@@ -147,11 +147,13 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 	h.mu.RLock()
 	hroot := h.root
 	h.mu.RUnlock()
-	dir := q.Get("dir")
-	if dir == "" {
-		dir = hroot
-	} else if !filepath.IsAbs(dir) {
-		dir = filepath.Join(hroot, dir)
+	dir, dirErr := resolveDir(hroot, q.Get("dir"))
+	if dirErr != "" {
+		// 検索に渡すと rg の生エラーになる。0 件と理由を返して、
+		// 呼び出し側が自分で直せるようにする
+		w.Header().Set("X-Search-Hint", headerSafe(dirErr))
+		jsonOK(w, map[string]interface{}{"matches": []interface{}{}, "count": 0})
+		return
 	}
 
 	limit := 0

@@ -127,3 +127,42 @@ func TestDefinitionEmptyHintIsASCII(t *testing.T) {
 		}
 	}
 }
+
+// 存在しない dir をそのまま検索へ渡すと rg が exit 2 を返し、500 と rg の生
+// メッセージだけが戻る。呼び出し側には「ルート配下に無い」が届かず、同じ失敗を
+// 繰り返す（Copilot と Codex の両方が踏んだ）。
+func TestResolveDir(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "ssl")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(root, "a.c")
+	if err := os.WriteFile(file, []byte("int x;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, hint := resolveDir(root, ""); got != root || hint != "" {
+		t.Errorf("空 = (%q, %q), want (root, 無し)", got, hint)
+	}
+	if got, hint := resolveDir(root, "ssl"); got != sub || hint != "" {
+		t.Errorf("存在する dir = (%q, %q)", got, hint)
+	}
+	_, hint := resolveDir(root, "net/ipv4")
+	if hint == "" {
+		t.Error("存在しない dir で理由を返していない")
+	}
+	if !strings.Contains(hint, "net/ipv4") || !strings.Contains(hint, root) {
+		t.Errorf("理由に語とルートが入っていない: %q", hint)
+	}
+	// 理由は HTTP ヘッダに載るので ASCII であること
+	for _, r := range hint {
+		if r > 0x7f {
+			t.Errorf("理由に非 ASCII (%q): %s", r, hint)
+			break
+		}
+	}
+	if _, hint := resolveDir(root, "a.c"); !strings.Contains(hint, "not a directory") {
+		t.Errorf("ファイルを渡したときの理由が違う: %q", hint)
+	}
+}

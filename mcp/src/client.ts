@@ -397,12 +397,17 @@ export class GrepnaviClient {
     refs: Array<{ file: string; line: number; text: string; func?: string }>;
     engine: string;
     truncated: boolean;
+    hint?: string;
   }> {
     const r = await this.req("/api/references?" + referenceParams(word, opts));
     return {
       refs: (await r.json()) as Array<{ file: string; line: number; text: string; func?: string }>,
       engine: r.headers.get("X-Engine") || "",
       truncated: r.headers.get("X-Truncated") === "true",
+      // 0 件のとき、サーバーが理由を特定できていればそれを渡す。
+      // 「見つからない」と「dir が存在しない」を取り違えると、呼び出し側は
+      // 同じ失敗を繰り返す
+      hint: r.headers.get("X-Reference-Hint") || undefined,
     };
   }
 

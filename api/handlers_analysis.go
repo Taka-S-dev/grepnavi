@@ -183,6 +183,33 @@ func (h *Handler) handleSymbols(w http.ResponseWriter, r *http.Request) {
 
 // --- /api/definition ---
 
+// resolveDir は dir パラメータを絶対パスへ直し、存在しなければ理由を返す。
+//
+// 存在しないディレクトリをそのまま検索に渡すと rg が exit 2 を返し、
+// 500 と rg の生メッセージだけが戻る。呼び出し側 — 特にエージェント — には
+// 「ルート配下にそのディレクトリが無い」という肝心の事実が届かず、
+// 同じ失敗を繰り返す。見つからない理由を言うのは定義ジャンプの
+// X-Definition-Hint と同じ方針。
+func resolveDir(root, dir string) (string, string) {
+	if dir == "" {
+		return root, ""
+	}
+	abs := dir
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(root, abs)
+	}
+	// 理由は HTTP ヘッダに載せるので ASCII で書く（headerSafe が非 ASCII を落とす）
+	fi, err := os.Stat(abs)
+	if err != nil {
+		return abs, "No such directory under the root: " + strconv.Quote(dir) +
+			" (root is " + root + "). Pass a path that exists, or drop `dir` to search the whole tree."
+	}
+	if !fi.IsDir() {
+		return abs, strconv.Quote(dir) + " is a file, not a directory. Use `glob` to restrict to one file."
+	}
+	return abs, ""
+}
+
 func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	word := q.Get("word")
@@ -674,11 +701,13 @@ func (h *Handler) handleReferences(w http.ResponseWriter, r *http.Request) {
 	h.mu.RLock()
 	hroot := h.root
 	h.mu.RUnlock()
-	dir := q.Get("dir")
-	if dir == "" {
-		dir = hroot
-	} else if !filepath.IsAbs(dir) {
-		dir = filepath.Join(hroot, dir)
+	dir, dirErr := resolveDir(hroot, q.Get("dir"))
+	if dirErr != "" {
+		// 検索に渡すと rg の生エラーになる。0 件と理由を返して、
+		// 呼び出し側が自分で直せるようにする
+		w.Header().Set("X-Reference-Hint", headerSafe(dirErr))
+		jsonOK(w, []search.Reference{})
+		return
 	}
 	limit, _ := strconv.Atoi(q.Get("limit"))
 
