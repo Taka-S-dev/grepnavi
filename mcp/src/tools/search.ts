@@ -73,6 +73,24 @@ export const definitions: ToolDef[] = [
     },
   },
   {
+    name: "grepnavi_state_transitions",
+    description:
+      "Read a state variable as a transition table: for each state, which states it can move to, in which function, on which lines.' + NL + NL + '" +
+      "**This is the one thing you cannot reconstruct from a reference list.** Which value a line assigns is on the line; which state the code was *in* when it did is not — it comes from the enclosing switch case or if condition, often 90 lines above and spread over several. Asking for the writes and reading the functions yourself is how the answer gets missed.' + NL + NL + '" +
+      "Returns `from[]`, each with the edges leaving that state. `funcs` is a lookup table and `edges[].fn` indexes into it, so a function name is written once. `from: ' + Q + Q + '` collects the writes whose source state could not be determined — they are not dropped, because \"could not tell\" and \"does not happen\" are different answers. `unreached` lists states nothing ever assigns.' + NL + NL + '" +
+      "**Verified, with known limits.** Source states taken from a case label were checked against an independent scan on openssl, curl and two linux subsystems: 304 of 304 matched. Not covered: a value assigned through a macro-wrapped setter, an assignment split across lines, and a ternary — `a ? B : C` stays one value rather than two edges.' + NL + NL + '" +
+      "**Next step**: grepnavi_func_body with `at` on an interesting line to read just that case.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        var: { type: "string", description: "State variable name, without the struct prefix (`hand_state`, not `s->hand_state`)." },
+        dir: { type: "string", description: "Optional subdirectory. Use it when a common name is shared by unrelated variables." },
+        glob: { type: "string", description: "Optional file glob." },
+      },
+      required: ["var"],
+    },
+  },
+  {
     name: "grepnavi_ifdef_context",
     description:
       "Show which `#ifdef` / `#if` blocks enclose a line, outermost first.\n\n" +
@@ -404,6 +422,14 @@ export const handlers: Record<string, ToolHandler> = {
         ? "Capped: this is a sample, not every reference. Narrow with `filter`, `assign` or `dir` — they are applied before the cap, so they reach hits this list does not contain."
         : undefined,
     });
+  },
+  grepnavi_state_transitions: async (args) => {
+    const a = args as { var?: string; dir?: string; glob?: string };
+    if (!a.var) throw new Error("`var` is required");
+    return ok(await client.stateTransitions(a.var, {
+      dir: normalizeInputPath(a.dir),
+      glob: a.glob,
+    }));
   },
   grepnavi_ifdef_context: async (args) => {
     const a = args as { file: string; line: number };

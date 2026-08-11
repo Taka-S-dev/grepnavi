@@ -567,6 +567,15 @@ func (h *Handler) handleStateMachine(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sm := search.AnalyzeStateMachine(r.Context(), files, varName, dir, glob)
+	// summary=1 で (遷移元, 遷移先, 関数) に畳んで返す。生のまま返すと
+	// openssl の hand_state で 34.8 KB あり、機械が受け取ると読めない
+	if q.Get("summary") == "1" {
+		out := search.SummarizeStateMachine(sm, dir)
+		jsonOK(w, map[string]interface{}{
+			"summary": out, "files": len(files), "truncated": truncated, "engine": engine,
+		})
+		return
+	}
 	jsonOK(w, map[string]interface{}{
 		"var":         sm.Var,
 		"transitions": sm.Transitions,
