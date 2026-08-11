@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"grepnavi/graph"
@@ -14,6 +15,26 @@ import (
 )
 
 // --- /api/search/stream (SSE) ---
+
+// snippetContext は前後の文脈行数を決める。空なら画面向けの既定 8 行。
+// 0 を明示すると一致行だけになる。search.Options では 0 が「既定に任せる」
+// なので、文脈なしは -1 に翻訳する。
+func snippetContext(v string) int {
+	if v == "" {
+		return 8
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return 8
+	}
+	if n == 0 {
+		return -1 // search.Options の「文脈行なし」
+	}
+	if n > 8 {
+		return 8
+	}
+	return n
+}
 
 func (h *Handler) handleSearchStream(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -171,9 +192,12 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 		Regex:         q.Get("regex") == "1",
 		FileGlob:      q.Get("glob"),
 		NoIgnore:      q.Get("noignore") == "1",
-		ContextLines:  8,
-		MaxResults:    maxFetch,
-		Encoding:      enc,
+		// context=0 で前後の行を付けない。1件あたり 8 行の文脈は画面で読むには
+		// 要るが、機械が受け取ると効かない容量になる（openssl の hand_state を
+		// 150 件引くと 134.6 KB。文脈を落とせば 1/10 以下）
+		ContextLines: snippetContext(q.Get("context")),
+		MaxResults:   maxFetch,
+		Encoding:     enc,
 	}
 
 	matches, err := search.Search(r.Context(), opts)

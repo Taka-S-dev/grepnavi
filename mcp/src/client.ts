@@ -569,6 +569,7 @@ export class GrepnaviClient {
     encoding?: string;
     limit?: number;
     offset?: number;
+    context?: number;
   }): Promise<{
     matches: SearchMatch[];
     count: number;
@@ -582,6 +583,10 @@ export class GrepnaviClient {
     if (opts.case) params.set("case", "1");
     if (opts.word) params.set("word", "1");
     if (opts.regex) params.set("regex", "1");
+    // 文脈行は1件あたり最大 8 行。画面で読むには要るが、機械が受け取ると
+    // 効かない容量になる（openssl の hand_state を 150 件で 140.1 KB。
+    // context=0 なら 37.0 KB）
+    if (opts.context !== undefined) params.set("context", String(opts.context));
     if (opts.encoding) params.set("enc", opts.encoding);
     if (opts.limit && opts.limit > 0) params.set("limit", String(opts.limit));
     if (opts.offset && opts.offset > 0) params.set("offset", String(opts.offset));
