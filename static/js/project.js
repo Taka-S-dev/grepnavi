@@ -67,6 +67,13 @@ function updateRootChip() {
   const exTip = projectExcludes.length
     ? '\n対象外: ' + projectExcludes.join(' / ') + '（設定で変更）'
     : '';
+  const exBtn = id('root-chip-exclude');
+  if(exBtn) {
+    exBtn.classList.toggle('on', projectExcludes.length > 0);
+    exBtn.textContent = '除外 ' + projectExcludes.length;
+    exBtn.title = 'このプロジェクトの対象から外しているもの:\n'
+      + projectExcludes.join('\n') + '\n\nクリックで設定を開く';
+  }
   if(dirVal) {
     chipText.innerHTML = rootName + '<span class="chip-subdir"> ▸ ' + dirVal.replace(/</g,'&lt;') + '</span>';
     chip.classList.add('has-subdir');
@@ -935,6 +942,8 @@ function hideSettingsModal() {
 (function initSettingsModal() {
   document.addEventListener('DOMContentLoaded', () => {
     loadProjectExcludes();
+    const exBtn = id('root-chip-exclude');
+    if(exBtn) exBtn.onclick = e => { e.stopPropagation(); showSettingsModal(); };
     const sel = id('settings-active-editor');
     let prevValue = 'vscode';
 

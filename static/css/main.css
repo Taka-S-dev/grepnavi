@@ -97,6 +97,21 @@ body{font:13px/1.4 'Consolas','Courier New',monospace;background:#1e1e1e;color:#
 #root-chip{display:flex;align-items:center;gap:4px;background:#252526;border:1px solid #333;border-left:3px solid #007acc;border-radius:3px;padding:3px 4px 3px 7px;font-size:11px;color:#9a9a9a;flex:1;min-width:0;white-space:nowrap;overflow:hidden;user-select:none}
 #root-chip.has-subdir{border-color:#333;color:#9a9a9a;background:#252526}
 #root-chip-text{overflow:hidden;text-overflow:ellipsis;flex:1}
+/* 除外は結果から黙って消える設定なので、掛かっている間はルートチップ上に
+   出しておく。tooltip だけだと、--no-ignore ボタンが無効なときに気づく手段が
+   1つも無くなる。
+   ただし chip 本体は中立色で揃える方針なので、ここも色を持たせない。
+   「常に見えている」ことが目的で、注意を引くことではない（除外はユーザーが
+   自分で宣言したものであって、警告ではない） */
+#root-chip-exclude{
+  display:none;flex-shrink:0;margin-left:auto;cursor:pointer;font-family:inherit;
+  background:none;border:none;border-radius:2px;
+  color:#777;font-size:9px;line-height:1;padding:2px 4px;
+}
+#root-chip-exclude.on{display:inline-block}
+#root-chip-exclude:hover{background:#3c3c3c;color:#ddd}
+/* 除外バッジが出ているときは、右寄せの起点がそちらに移る */
+#root-chip-exclude.on + #root-chip-change{margin-left:4px}
 #root-chip-change{margin-left:auto;flex-shrink:0;background:none;border:none;color:#aaa;cursor:pointer;padding:0 4px;border-radius:2px;display:flex;align-items:center;transition:color 0.12s, background 0.12s}
 /* chip 全体を hover した時にも ⚙ を明るくして「ここに操作がある」を伝える。
    実際のクリックは ⚙ ボタン本体のみ受け付ける（VSCode の discoverable control 流儀）。 */
