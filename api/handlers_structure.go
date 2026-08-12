@@ -22,13 +22,45 @@ func (h *Handler) handleStructure(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	search.GtagsRefreshStaleAsync(root)
 
+	// brief=1 はエージェント向けの畳んだ形。UI 用の応答は openssl 全域で 47 KB
+	// あり、そのまま渡しても読まれずに終わる（このプロジェクトで実測済み:
+	// 19.3 KB の参照一覧はエージェントに捨てられ、素の grep に戻られた）
+	brief := q.Get("brief") == "1"
+	top, _ := strconv.Atoi(q.Get("top"))
+
 	var payload any
 	var err error
 	if focus := q.Get("focus"); focus != "" {
-		payload, err = search.StructMapFocus(r.Context(), root, focus)
+		var f *search.StructFocus
+		if f, err = search.StructMapFocus(r.Context(), root, focus); err == nil {
+			payload = f
+			if brief {
+				payload = map[string]any{
+					"module":   f.Module,
+					"incoming": search.BriefEdges(f.Incoming, top),
+					"internal": search.BriefEdges(f.Internal, top),
+					"outgoing": search.BriefEdges(f.Outgoing, top),
+					"counts": map[string]int{
+						"incoming": len(f.Incoming), "internal": len(f.Internal), "outgoing": len(f.Outgoing),
+					},
+					"files":   map[string]int{"open": f.FilesOpen, "total": f.Files},
+					"omitted": f.Omitted,
+				}
+			}
+		}
 	} else {
 		depth, _ := strconv.Atoi(q.Get("depth"))
-		payload, err = search.StructMapOverview(r.Context(), root, depth)
+		var o *search.StructOverview
+		if o, err = search.StructMapOverview(r.Context(), root, depth); err == nil {
+			payload = o
+			if brief {
+				edges := search.BriefEdges(o.Edges, top)
+				payload = search.StructBrief{
+					Root: root, Edges: edges,
+					Total: len(o.Edges), Shown: len(edges), Omitted: o.Omitted,
+				}
+			}
+		}
 	}
 	if errors.Is(err, search.ErrRefMapNotBuilt) {
 		// 押した瞬間に数十秒使わない。状態と見込みを返して、生成は選ばせる

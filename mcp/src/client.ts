@@ -246,11 +246,17 @@ export class GrepnaviClient {
 
   constructor(private readonly baseUrl: string) {}
 
-  private async req(path: string, init?: RequestInit): Promise<Response> {
+  // allowStatus は「エラーではなく意味のある応答」として扱うステータス。
+  // 参照マップの 409（未生成）のように、本文を読んで案内したいものに使う。
+  private async req(
+    path: string,
+    init?: RequestInit,
+    opts: { allowStatus?: number[] } = {},
+  ): Promise<Response> {
     const url = this.baseUrl + path;
     try {
       const r = await fetch(url, init);
-      if (!r.ok) {
+      if (!r.ok && !(opts.allowStatus || []).includes(r.status)) {
         const body = await r.text().catch(() => "");
         throw new GrepnaviError(
           `grepnavi ${path} returned HTTP ${r.status}${body ? `: ${body.slice(0, 300)}` : ""}`,
@@ -274,6 +280,26 @@ export class GrepnaviClient {
         err,
       );
     }
+  }
+
+  // 参照マップ。UI 用の応答は openssl 全域で 47 KB あるので brief で受ける。
+  // 未生成なら 409 が返る（数十秒の生成をエージェントの判断で始めさせない）。
+  async structure(opts: { focus?: string; top?: number } = {}): Promise<{
+    built: boolean;
+    root?: string;
+    map?: unknown;
+    stale?: boolean;
+    status?: unknown;
+  }> {
+    const q = new URLSearchParams({ brief: "1" });
+    if (opts.focus) q.set("focus", opts.focus);
+    if (opts.top) q.set("top", String(opts.top));
+    const r = await this.req(`/api/structure?${q}`, undefined, { allowStatus: [409] });
+    const d = (await r.json()) as Record<string, unknown>;
+    if (r.status === 409) {
+      return { built: false, root: d.root as string, status: d.status };
+    }
+    return { built: true, root: d.root as string, map: d.map, stale: d.stale as boolean };
   }
 
   async root(): Promise<{ root: string; index?: unknown; graph?: GraphDigest; exclude?: string[] }> {

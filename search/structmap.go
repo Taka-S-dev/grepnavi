@@ -268,6 +268,40 @@ func overviewFrom(t *structTables, depth int) *StructOverview {
 	return &StructOverview{Edges: finish(agg), Omitted: t.omitted()}
 }
 
+// StructBrief はエージェント向けに畳んだ形。
+//
+// UI 用の応答は openssl 全域で 47 KB あり、そのまま渡しても読まれずに終わる
+// （このプロジェクトでは実測済み: 19.3 KB の参照一覧はエージェントに捨てられ、
+// 素の grep に戻られた）。エッジを1本の文字列にし、上位だけに絞ると 1 KB を切る。
+type StructBrief struct {
+	Root string `json:"root"`
+	// Edges は "from>to:件数" の羅列。構造を掴むのに要るのは向きと太さだけで、
+	// 見本シンボルはこの段階では要らない（要るなら focus を呼ぶ）
+	Edges []string `json:"edges"`
+	Total int      `json:"total_edges"`
+	Shown int      `json:"shown_edges"`
+	// Omitted は同名で集計から外れた分。地図に無いことと存在しないことは違う
+	Omitted StructOmitted `json:"omitted"`
+}
+
+// BriefEdges は上位 top 本を "from>to:件数" に畳む（top<=0 で既定値）。
+func BriefEdges(edges []StructEdge, top int) []string {
+	if top <= 0 {
+		top = structBriefTop
+	}
+	if len(edges) > top {
+		edges = edges[:top]
+	}
+	out := make([]string, 0, len(edges))
+	for _, e := range edges {
+		out = append(out, fmt.Sprintf("%s>%s:%d", e.From, e.To, e.Count))
+	}
+	return out
+}
+
+// structBriefTop は既定の本数。openssl 全域で約 1 KB に収まる。
+const structBriefTop = 40
+
 // StructMapFocus は module（ディレクトリまたはルート直下のファイル）の
 // 周辺だけを返す。外側の相手は module と同じ深さで畳む。
 func StructMapFocus(ctx context.Context, root, module string) (*StructFocus, error) {

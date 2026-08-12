@@ -320,9 +320,36 @@ export const definitions: ToolDef[] = [
       },
     },
   },
+  {
+    name: "grepnavi_structure",
+    description:
+      "Return a map of which parts of the tree reference which, computed from the gtags index. Use it when the question is about STRUCTURE — \"where should I start reading?\", \"which subsystems does this cross?\", \"what does this module depend on?\" — instead of grepping around to build a sense of the layout.\n\n" +
+      "Do NOT use it to locate a specific symbol: grepnavi_definition, grepnavi_references and grepnavi_callers answer those directly and the map adds nothing.\n\n" +
+      "Without `focus` you get the whole tree folded into parts, ordered by how much they are referenced — the top of that list is what everything else depends on, which is usually where reading starts. Large parts are split by weight, so a deep boundary like `drivers/net` appears beside a shallow one like `net`; a name that is also a prefix of others is the REMAINDER of its children, not their total.\n\n" +
+      "With `focus: \"<path>\"` you get that part alone: `incoming` (which outside parts enter through which file — the concentration here is its public face), `internal` (its pieces referencing each other), `outgoing` (what it depends on). Every edge is \"from>to:count\", where count is (symbol, referencing file) pairs, not lines. A name ending in `/` is a folder, so its references spread over several files.\n\n" +
+      "**`built: false` means the map does not exist yet.** Building reads the whole index (seconds on a small tree, about a minute on a kernel-sized one), so it never starts on its own — tell the user to open the map panel and press build, and answer the question another way for now.\n\n" +
+      "`omitted.same_name` counts symbols implemented in several files, left out because the index cannot say which one a reference means; `omitted.same_name_refs` is how many references that hides. Absence from the map is not proof that nothing references a part.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        focus: {
+          type: "string",
+          description: "Path of one part, e.g. \"ssl/record\". Omit for the whole tree.",
+        },
+        top: {
+          type: "number",
+          description: "Edges per list (default 40). Raise only when the default was cut and you need more.",
+        },
+      },
+    },
+  },
 ];
 
 export const handlers: Record<string, ToolHandler> = {
+  grepnavi_structure: async (args) => {
+    const a = args as { focus?: string; top?: number };
+    return ok(await client.structure(a));
+  },
   grepnavi_read_file: async (args) => {
     const a = args as { file: string; start_line?: number; end_line?: number };
     const r = await client.readFile(normalizeInputPath(a.file), {
