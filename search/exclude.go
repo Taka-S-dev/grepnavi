@@ -53,10 +53,26 @@ func SetExcludes(root string, pats []string) {
 		}
 	}
 
+	// 否定 (`!`) を含む宣言は rg へ前倒ししない。rg が区切りを含むパターンを
+	// 絶対パスの検索対象へ適用するかはバージョンで異なり（実測: Windows の
+	// rg 15.1 は適用、CI の Ubuntu の rg は不適用）、否定だけが不発になると
+	// 「戻したはずのファイル」を rg が先に落とす。前倒しが落としてよいのは
+	// IsExcluded の部分集合だけで、否定なしならどのパターンが不発でも
+	// 「落とし足りない」側にしか倒れない。
+	hasNeg := false
+	for _, r := range rules {
+		if r.neg {
+			hasNeg = true
+			break
+		}
+	}
 	excludeMu.Lock()
 	old := excludeFile
 	excludeRoot, excludePats, excludeRules = root, clean, rules
-	excludeFile = writeExcludeFile(clean, &excludeSeq)
+	excludeFile = ""
+	if !hasNeg {
+		excludeFile = writeExcludeFile(clean, &excludeSeq)
+	}
 	excludeMu.Unlock()
 
 	// 実行中の rg が掴んでいると Windows では消せない。放置しても一時ディレクトリ
@@ -76,10 +92,9 @@ func Excludes() []string {
 // RgIgnoreArgs は rg に渡す除外指定を返す（除外が無ければ空）。
 //
 // glob (`--glob !p`) ではなくパターンファイルを使うのは、区切りを含む glob が
-// 検索ルートではなく **カレントディレクトリ** 基準で照合されるため。常駐する
+// 検索ルートではなくカレントディレクトリ基準で照合されるため。常駐する
 // grepnavi では当てにできず、実際 `ssl/html` は効かなかった。`--ignore-file` は
-// gitignore の意味論そのままで、否定 (`!`) も「除外したディレクトリの中は
-// 否定で戻せない」規則も rg 側が正しく扱う。
+// gitignore の意味論で解釈される（否定を rg に渡さない理由は SetExcludes 参照）。
 //
 // rg への前倒し自体は省けない。Go 側だけで落とす形は、除外対象を読んでから
 // 捨てるぶん 5 倍遅かった（openssl の ssl3_read_bytes 検索で 130ms → 674ms）。

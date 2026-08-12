@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -109,44 +110,99 @@ func TestSearchGlobCannotOverrideExclude(t *testing.T) {
 	}
 }
 
-// 検索は rg の --ignore-file、索引ヒットはこちらの照合器と、gitignore の解釈が
-// 2つある。食い違うと「検索には出ないのに定義ジャンプでは飛べる」ような、
-// 理由の説明できない挙動になる。rg を正解として突き合わせる。
-func TestExcludeMatchesRipgrep(t *testing.T) {
-	requireRg(t)
+// excludeTestFiles / excludeTestPatterns は照合の突き合わせに使う共通の材料。
+var excludeTestFiles = []string{
+	"keep.c", "a.BAK", "tags", "note.txt",
+	"src/keep.c", "src/a.BAK", "src/tags", "src/doc/x.txt",
+	"ssl/html/i.html", "ssl/html/keep.md", "ssl/keep.c",
+	"gen/keep.c", "gen/sub/deep.c",
+	"doc/a.txt", "vendor/lib/x.c",
+}
+
+var excludeTestPatterns = [][]string{
+	{"*.BAK"},
+	{"/tags"},
+	{"tags"},
+	{"ssl/html"},
+	{"doc/"},
+	{"gen/**"},
+	{"*.c", "!keep.c"},
+	{"gen/", "!gen/keep.c"},
+	{"gen/*", "!gen/keep.c"},
+	{"**/doc/*.txt"},
+	{"*.BAK", "ssl/html", "/tags", "!src/tags"},
+}
+
+func makeExcludeTree(t *testing.T) string {
+	t.Helper()
 	dir := t.TempDir()
-	files := []string{
-		"keep.c", "a.BAK", "tags", "note.txt",
-		"src/keep.c", "src/a.BAK", "src/tags", "src/doc/x.txt",
-		"ssl/html/i.html", "ssl/html/keep.md", "ssl/keep.c",
-		"gen/keep.c", "gen/sub/deep.c",
-		"doc/a.txt", "vendor/lib/x.c",
-	}
-	for _, f := range files {
+	for _, f := range excludeTestFiles {
 		p := filepath.Join(dir, filepath.FromSlash(f))
 		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
 			t.Fatal(err)
 		}
 		mustWrite(t, p, "x\n")
 	}
+	return dir
+}
 
-	patternSets := [][]string{
-		{"*.BAK"},
-		{"/tags"},
-		{"tags"},
-		{"ssl/html"},
-		{"doc/"},
-		{"gen/**"},
-		{"*.c", "!keep.c"},
-		{"gen/", "!gen/keep.c"},
-		{"gen/*", "!gen/keep.c"},
-		{"**/doc/*.txt"},
-		{"*.BAK", "ssl/html", "/tags", "!src/tags"},
-	}
-	for _, pats := range patternSets {
+// 検索は rg の --ignore-file、索引ヒットはこちらの照合器と、gitignore の解釈が
+// 2つある。食い違うと「検索には出ないのに定義ジャンプでは飛べる」ような、
+// 理由の説明できない挙動になる。rg を正解として突き合わせる。
+//
+// rg はパターンもパスも cwd 相対のときが定義どおりの挙動なので、cwd をツリーに
+// 移して相対パスで走らせる。絶対パスの検索対象に区切り付きパターンを適用するかは
+// rg のバージョンで異なり（CI の Ubuntu で不適用を実測）、比較の土台にならない。
+// 製品がその差で壊れないことは TestRgPrePassDropsOnlyExcludedFiles が見る。
+func TestExcludeMatchesRipgrep(t *testing.T) {
+	requireRg(t)
+	dir := makeExcludeTree(t)
+	patDir := t.TempDir() // パターンファイルはツリーの外に置き、一覧に混ぜない
+
+	for i, pats := range excludeTestPatterns {
 		SetExcludes(dir, pats)
+		// 否定を含む宣言では製品は前倒し自体をやめるので、ここでは照合器の
+		// 意味だけを比べる。パターンファイルは自前で書く
+		pf := filepath.Join(patDir, "pats"+strconv.Itoa(i))
+		mustWrite(t, pf, strings.Join(pats, "\n")+"\n")
 
-		// rg 側: --ignore-file を効かせるには cwd が基準
+		cmd := exec.Command("rg", "--files", "--hidden", "--ignore-file", pf, ".")
+		cmd.Dir = dir
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("%v: rg failed: %v", pats, err)
+		}
+		rgKept := map[string]bool{}
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			if line == "" {
+				continue
+			}
+			rel := strings.TrimPrefix(filepath.ToSlash(line), "./")
+			rgKept[rel] = true
+		}
+
+		for _, f := range excludeTestFiles {
+			goDrops := IsExcluded(filepath.Join(dir, filepath.FromSlash(f)))
+			rgDrops := !rgKept[f]
+			if goDrops != rgDrops {
+				t.Errorf("%v で %s: rg=%v こちら=%v", pats, f,
+					map[bool]string{true: "落とす", false: "残す"}[rgDrops],
+					map[bool]string{true: "落とす", false: "残す"}[goDrops])
+			}
+		}
+	}
+	SetExcludes("", nil)
+}
+
+// 前倒し（rg への --ignore-file）は最適化で、落としてよいのは IsExcluded の
+// 部分集合だけ。rg が Go 側より多く落とすと、宣言で戻したファイルが結果から
+// 黙って消える。製品と同じ呼び方（絶対パスの検索対象）で、その向きだけを見る。
+func TestRgPrePassDropsOnlyExcludedFiles(t *testing.T) {
+	requireRg(t)
+	dir := makeExcludeTree(t)
+
+	for _, pats := range excludeTestPatterns {
+		SetExcludes(dir, pats)
 		args := append([]string{"--files", "--hidden"}, RgIgnoreArgs()...)
 		args = append(args, dir)
 		cmd := exec.Command("rg", args...)
@@ -166,18 +222,26 @@ func TestExcludeMatchesRipgrep(t *testing.T) {
 			}
 			rgKept[filepath.ToSlash(rel)] = true
 		}
-
-		for _, f := range files {
-			goDrops := IsExcluded(filepath.Join(dir, filepath.FromSlash(f)))
-			rgDrops := !rgKept[f]
-			if goDrops != rgDrops {
-				t.Errorf("%v で %s: rg=%v こちら=%v", pats, f,
-					map[bool]string{true: "落とす", false: "残す"}[rgDrops],
-					map[bool]string{true: "落とす", false: "残す"}[goDrops])
+		for _, f := range excludeTestFiles {
+			if !rgKept[f] && !IsExcluded(filepath.Join(dir, filepath.FromSlash(f))) {
+				t.Errorf("%v: 前倒しが宣言より多く落としている: %s", pats, f)
 			}
 		}
 	}
 	SetExcludes("", nil)
+}
+
+// 否定を含む宣言は rg へ渡さない（SetExcludes のコメント参照）。
+func TestNoPrePassWithNegation(t *testing.T) {
+	defer SetExcludes("", nil)
+	SetExcludes("x", []string{"*.BAK", "!keep.BAK"})
+	if len(RgIgnoreArgs()) != 0 {
+		t.Error("否定を含む宣言を rg へ前倒ししている")
+	}
+	SetExcludes("x", []string{"*.BAK"})
+	if len(RgIgnoreArgs()) == 0 {
+		t.Error("否定なしの宣言で前倒しが消えている")
+	}
 }
 
 func mustWrite(t *testing.T, path, body string) {
