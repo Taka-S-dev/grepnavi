@@ -1,0 +1,225 @@
+/* ===== 参照マップ Sidebar ===== */
+
+#rm-sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 380px;
+  background: #1e1e1e;
+  border-left: 1px solid #454545;
+  box-shadow: -4px 0 16px rgba(0,0,0,.5);
+  display: flex;
+  flex-direction: column;
+  z-index: 500;
+  transform: translateX(100%);
+  transition: transform 0.2s ease;
+}
+#rm-sidebar.open { transform: translateX(0); }
+
+#rm-resizer {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  cursor: ew-resize;
+  background: transparent;
+  z-index: 10;
+}
+#rm-resizer:hover { background: #007acc; }
+
+#rm-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid #333;
+  font-size: 12px;
+  color: #ccc;
+  flex-shrink: 0;
+}
+#rm-spacer { flex: 1; }
+#rm-close {
+  background: none; border: none; color: #888;
+  font-size: 14px; cursor: pointer; padding: 0 4px;
+}
+#rm-close:hover { color: #fff; }
+
+#rm-crumbs { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rm-crumb { color: #4fc1ff; cursor: pointer; }
+.rm-crumb:hover { text-decoration: underline; }
+
+/* スクロールしない帯: 公開面の事実・絞り込み・タブ。一覧が長くても消えない */
+#rm-bar {
+  flex-shrink: 0;
+  padding: 6px 14px 0 10px;
+  font-size: 12px;
+}
+#rm-bar:empty { display: none; }
+
+#rm-body {
+  flex: 1;
+  overflow-y: auto;
+  /* 右端は数字の定位置。スクロールバーに食われると桁が欠ける */
+  padding: 2px 14px 6px 10px;
+  font-size: 12px;
+}
+
+.rm-msg { color: #888; padding: 12px 4px; }
+.rm-facts {
+  color: #9aa0a6;
+  font-size: 11px;
+  margin: 2px 0 6px;
+  padding: 3px 6px;
+  background: #252526;
+  border-left: 2px solid #4ec9b0;
+  border-radius: 2px;
+}
+.rm-hint { color: #777; font-size: 11px; margin: 2px 0 4px; line-height: 1.5; }
+.rm-clickable { cursor: pointer; }
+
+#rm-filter {
+  width: 100%;
+  box-sizing: border-box;
+  background: #1e1e1e;
+  border: 1px solid #555;
+  border-radius: 3px;
+  color: #ccc;
+  padding: 4px 7px;
+  font: 12px/1.4 'Segoe UI', sans-serif;
+  outline: none;
+  margin: 2px 0 6px;
+}
+#rm-filter:focus { border-color: #007acc; }
+
+/* フォーカスの面タブ（#rm-bar 内なのでスクロールで消えない） */
+.rm-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 0 4px;
+  border-bottom: 1px solid #333;
+  margin-bottom: 4px;
+}
+.rm-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #888;
+  font-size: 12px;
+  padding: 2px 8px 4px;
+  cursor: pointer;
+}
+.rm-tab:hover { color: #ccc; }
+.rm-tab.active { color: #fff; border-bottom-color: #007acc; }
+.rm-tab:disabled { color: #555; cursor: default; }
+
+.rm-sec-title {
+  color: #9aa0a6;
+  font-size: 11px;
+  margin: 12px 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* 面を展開して長くなっても、いまどの面を見ているかが消えないようにする */
+  position: sticky;
+  top: -6px;
+  background: #1e1e1e;
+  z-index: 1;
+  padding: 4px 0;
+}
+.rm-sec-title::after { content: ''; flex: 1; height: 1px; background: #333; }
+.rm-sec { display: flex; flex-direction: column; }
+
+.rm-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 2px;
+  border-radius: 2px;
+  min-width: 0;
+}
+.rm-row:hover { background: #252526; }
+.rm-arrow { color: #666; flex-shrink: 0; }
+.rm-meta { margin-left: auto; color: #666; font-size: 11px; flex-shrink: 0; }
+
+.rm-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 絞り込みの一致箇所。ディレクトリ候補の .dir-hl と同じ強調色 */
+.rm-hl { color: #4ec9b0; font-weight: bold; }
+.rm-mod { color: #4fc1ff; cursor: pointer; }
+.rm-mod:hover { text-decoration: underline; }
+.rm-file { color: #ce9178; cursor: pointer; }
+.rm-file:hover { text-decoration: underline; }
+
+.rm-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 0 2px 6px 14px;
+}
+.rm-chip {
+  background: #2d2d2d;
+  border: 1px solid #3c3c3c;
+  border-radius: 2px;
+  padding: 0 5px;
+  font-size: 11px;
+  color: #9cdcfe;
+  cursor: pointer;
+  font-family: Consolas, 'Courier New', monospace;
+}
+.rm-chip:hover { background: #37373d; }
+
+#rm-footer {
+  flex-shrink: 0;
+  padding: 5px 10px;
+  border-top: 1px solid #333;
+  font-size: 11px;
+  color: #777;
+}
+#rm-footer:empty { display: none; }
+
+/* 未生成のときの案内と生成ボタン（gtags 索引の生成と同じ流儀） */
+.rm-build { padding: 8px 2px; }
+.rm-build-head { color: #ccc; font-size: 12px; margin-bottom: 6px; }
+.rm-build-btn {
+  background: #0e639c;
+  border: none;
+  border-radius: 3px;
+  color: #fff;
+  font-size: 12px;
+  padding: 5px 12px;
+  cursor: pointer;
+  margin-top: 4px;
+}
+.rm-build-btn:hover { background: #1177bb; }
+.rm-build-btn:disabled { background: #3a3a3a; color: #888; cursor: default; }
+.rm-build-log {
+  margin-top: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 11px;
+  color: #9a9a9a;
+  line-height: 1.6;
+}
+.rm-build-spin { color: #4ec9b0; }
+
+/* チップの下に開く参照行。検索パネルを書き換えずにここで完結させる */
+.rm-chip.on { background: #094771; color: #fff; border-color: #0e639c; }
+.rm-sites {
+  width: 100%;
+  margin: 3px 0 5px;
+  padding: 3px 0 3px 8px;
+  border-left: 2px solid #3c3c3c;
+  color: #888;
+  font-size: 11px;
+}
+.rm-site { display: flex; gap: 6px; padding: 1px 2px; cursor: pointer; min-width: 0; }
+.rm-site:hover { background: #252526; }
+.rm-site-at { color: #ce9178; white-space: nowrap; flex-shrink: 0; }
+.rm-site-text {
+  color: #7a7a7a;
+  font-family: Consolas, 'Courier New', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rm-site-more { color: #666; padding: 2px; }
