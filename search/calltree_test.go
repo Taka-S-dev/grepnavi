@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -386,4 +387,58 @@ func TestFindCalleesReportsEnclosingFunction(t *testing.T) {
 	if !names["foo"] || !names["baz"] {
 		t.Errorf("bar の呼び先が揃っていない: %v", names)
 	}
+}
+
+// 関数ポインタの宣言・キャストは呼び出しではない。字面が `識別子(` なので
+// 型名が呼び先として拾われていた（実測: openssl の ssl3_read_bytes に `void`、
+// ssl3_ctx_ctrl に `int`）。呼び出しを巻き添えにしていないことも併せて見る。
+func TestCalleeSkipsFunctionPointerDeclarations(t *testing.T) {
+	dir := t.TempDir()
+	src := `void target(SSL *s, void *parg)
+{
+    void (*cb) (const SSL *ssl, int type2, int val) = NULL;
+    void (*tbl[4])(int) = { 0 };
+    *(int (**)(SSL *, void *))parg = 0;
+    memcpy((const unsigned char (*)[16])s, parg, 16);
+    i = s->handshake_func(s);
+    cb(s, 1, 2);
+    ret = foo(*parg, s);
+}
+`
+	f := filepath.Join(dir, "t.c")
+	if err := os.WriteFile(f, []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	hits, fn, _, err := FindCallees(context.Background(), f, 1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fn != "target" {
+		t.Fatalf("囲む関数 = %q, want target", fn)
+	}
+	got := map[string]bool{}
+	for _, h := range hits {
+		got[h.Name] = true
+	}
+	// 宣言・キャストの型名は呼び先ではない
+	for _, bad := range []string{"void", "int", "char", "unsigned"} {
+		if got[bad] {
+			t.Errorf("型名 %q が呼び先として出ている: %v", bad, keysOf(got))
+		}
+	}
+	// 本物の呼び出しは残る
+	for _, want := range []string{"memcpy", "handshake_func", "cb", "foo"} {
+		if !got[want] {
+			t.Errorf("呼び出し %q が落ちている: %v", want, keysOf(got))
+		}
+	}
+}
+
+func keysOf(m map[string]bool) []string {
+	var out []string
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

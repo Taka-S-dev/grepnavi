@@ -43,6 +43,16 @@ func callSiteText(lines []string, line int) string {
 
 var reCalleeFunc = regexp.MustCompile(`\b([A-Za-z_]\w*)\s*\(`)
 
+// 関数ポインタの宣言 `void (*cb)(const SSL *, int)` とキャスト
+// `*(int (**)(SSL *, void *))parg` は呼び出しではないが、字面は `識別子(` なので
+// 型名が呼び先として拾われる（実測: openssl の ssl3_read_bytes の callee に
+// `void`、ssl3_ctx_ctrl に `int` が出ていた）。型名の位置だけを除く。
+// 型名の一覧で弾かず形で弾くのは、独自 typedef を型に使った宣言にも効かせるため。
+// 名前を任意にしているのは、キャストと引数の宣言では名前が無いことがあるため。
+// 末尾を [(\[] にしているのは、ポインタ配列へのキャスト (unsigned char (*)[16]) も
+// 同じ形で型名が拾われるため。
+var reFuncPtrDecl = regexp.MustCompile(`\b([A-Za-z_]\w*)\s*\(\s*\*+\s*(?:[A-Za-z_]\w*)?(?:\s*\[[^\]]*\])*\s*\)\s*[(\[]`)
+
 // 構造体変数名: identifier = { や identifier[] = { のパターン
 var reStructVarName = regexp.MustCompile(`\b([A-Za-z_]\w*)\s*(?:\[[^\]]*\]\s*)*=\s*\{?\s*$`)
 
@@ -297,8 +307,15 @@ func FindCallees(_ context.Context, file string, line int, root string) ([]Calle
 			continue
 		}
 		l := code[srcIdx]
-		for _, m := range reCalleeFunc.FindAllStringSubmatch(l, -1) {
-			name := m[1]
+		declType := map[int]bool{}
+		for _, m := range reFuncPtrDecl.FindAllStringSubmatchIndex(l, -1) {
+			declType[m[2]] = true // 型名の開始位置
+		}
+		for _, m := range reCalleeFunc.FindAllStringSubmatchIndex(l, -1) {
+			if declType[m[2]] {
+				continue
+			}
+			name := l[m[2]:m[3]]
 			if ctKeywords[name] || seen[name] {
 				continue
 			}
