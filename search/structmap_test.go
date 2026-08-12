@@ -351,3 +351,52 @@ func TestRefMapCacheRejectsGarbage(t *testing.T) {
 		t.Error("壊れた保存を受け入れている")
 	}
 }
+
+// 同名の実装が複数あっても、参照元が自分で定義しているなら、その参照は
+// その定義を指す（C の規則。static はファイルの外から見えない）。
+// 決められないのは、定義を持たないファイルからの参照だけ。
+func TestSameNameResolvedWithinDefiningFile(t *testing.T) {
+	if !GtagsInPath() {
+		t.Skip("gtags なし")
+	}
+	dir := t.TempDir()
+	write := func(rel, body string) {
+		p := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+			t.Fatal(err)
+		}
+		mustWrite(t, p, body)
+	}
+	// cmp が a.c と b.c の両方にある。a.c は自分の cmp を呼ぶ
+	write("a/a.c", "static int cmp(int x) { return x; }\nint a_run(void) { return cmp(1); }\n")
+	write("b/b.c", "static int cmp(int x) { return -x; }\nint b_run(void) { return cmp(2); }\n")
+	// どちらの cmp を指すか決められない参照
+	write("c/c.c", "extern int cmp(int);\nint c_run(void) { return cmp(3); }\n")
+
+	if err := GtagsBuildIndex(context.Background(), dir); err != nil {
+		t.Fatalf("gtags: %v", err)
+	}
+	InvalidateStructCache()
+	defer InvalidateStructCache()
+	if err := BuildRefMap(context.Background(), dir, nil); err != nil {
+		t.Fatal(err)
+	}
+	o, err := StructMapOverview(context.Background(), dir, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// a.c / b.c の中の cmp は解決済みなので「決められない参照」に数えない。
+	// c.c の1件だけが残る
+	if o.Omitted.SameNameRefs != 1 {
+		t.Errorf("決められない参照 = %d, want 1", o.Omitted.SameNameRefs)
+	}
+	if o.Omitted.SameName != 1 {
+		t.Errorf("同名シンボル = %d, want 1", o.Omitted.SameName)
+	}
+	// 同じファイル内で解決したものは境界をまたがないのでエッジにならない
+	for _, e := range o.Edges {
+		if e.From == e.To {
+			t.Errorf("自己参照がエッジになっている: %+v", e)
+		}
+	}
+}

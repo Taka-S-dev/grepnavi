@@ -520,6 +520,10 @@ func buildStructTables(ctx context.Context, root string) (*structTables, error) 
 	t := &structTables{edges: map[structPair]*structFileEdge{}}
 	defFile := map[string]string{}
 	dup := map[string]bool{}
+	// 同名の実装が複数あるシンボルの、定義ファイル一覧。参照元が自分でも
+	// 定義しているなら、その参照はその定義を指す（C の規則。static は
+	// ファイルの外から見えない）。推測ではないので使ってよい
+	multi := map[string][]string{}
 	err = gtagsDump(ctx, root, "GTAGS", func(l string) {
 		sym, id, ok := structEntry(l)
 		if !ok {
@@ -530,9 +534,13 @@ func buildStructTables(ctx context.Context, root string) (*structTables, error) 
 			return
 		}
 		if prev, seen := defFile[sym]; seen {
-			if prev != f && !dup[sym] {
-				dup[sym] = true
-				t.sameName++
+			if prev != f {
+				if !dup[sym] {
+					dup[sym] = true
+					t.sameName++
+					multi[sym] = []string{prev}
+				}
+				multi[sym] = append(multi[sym], f)
 			}
 			return
 		}
@@ -560,15 +568,25 @@ func buildStructTables(ctx context.Context, root string) (*structTables, error) 
 		if !ok {
 			return
 		}
-		def := defFile[sym]
-		if def == "" {
-			if dup[sym] {
-				t.sameNameRefs++ // 実在するが、どの実装を指すか決められない参照
-			}
-			return
-		}
 		src := id2path[id]
 		if src == "" || !isSourceFile(src) {
+			return
+		}
+		def := defFile[sym]
+		if def == "" {
+			fs := multi[sym]
+			if fs == nil {
+				return // ツリー外の定義（libc 等）。同名の問題ではない
+			}
+			if !slices.Contains(fs, src) {
+				t.sameNameRefs++ // どの実装を指すか決められない参照
+				return
+			}
+			def = src // 同じファイルの定義を指す
+		}
+		if src == def {
+			// 自分自身への参照は、どの畳み方でも境界をまたがない。
+			// 表に持つとエッジ数と保存が無駄に膨らむ
 			return
 		}
 		k := structPair{src: src, def: def}
