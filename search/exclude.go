@@ -81,6 +81,9 @@ func Excludes() []string {
 // gitignore の意味論そのままで、否定 (`!`) も「除外したディレクトリの中は
 // 否定で戻せない」規則も rg 側が正しく扱う。
 //
+// rg への前倒し自体は省けない。Go 側だけで落とす形は、除外対象を読んでから
+// 捨てるぶん 5 倍遅かった（openssl の ssl3_read_bytes 検索で 130ms → 674ms）。
+//
 // 使うときは RgWorkDir() を cmd.Dir に入れること。パターンの基準が cwd なので、
 // これを忘れると区切りを含むパターンが黙って効かなくなる。
 func RgIgnoreArgs() []string {
