@@ -420,9 +420,15 @@ export const handlers: Record<string, ToolHandler> = {
     });
   },
   grepnavi_definitions: async (args) => {
-    const a = args as { words: string[]; file?: string; dir?: string };
+    const a = args as { words: string[] | string; file?: string; dir?: string };
+    // 単数の grepnavi_definition と1文字違いなので、文字列1つで呼ばれる。
+    // 意味は明らかなので受け取る（弾いても呼び直しに1往復かかるだけ）
+    if (typeof a.words === "string" && a.words.trim()) a.words = [a.words.trim()];
     if (!Array.isArray(a.words) || a.words.length === 0)
-      throw new Error("`words` must be a non-empty array");
+      throw new Error(
+        "`words` must be a non-empty array of symbol names, e.g. [\"ssl3_read_bytes\", \"tls1_enc\"]. " +
+          "For one symbol use grepnavi_definition instead.",
+      );
     if (a.words.length > 50)
       throw new Error(`\`words\` is limited to 50 symbols (got ${a.words.length})`);
     const opts = { file: normalizeInputPath(a.file), dir: normalizeInputPath(a.dir) };

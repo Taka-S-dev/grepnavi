@@ -62,7 +62,16 @@ export const definitions: ToolDef[] = [
 export const handlers: Record<string, ToolHandler> = {
   grepnavi_path: async (args) => {
     const a = args as { from: string; to: string; max_depth?: number; dir?: string };
-    if (!a.from || !a.to) throw new Error("`from` and `to` are both required");
+    // 名前が「ファイルパス」に見えるので、ディレクトリを渡して呼ばれる。
+    // 間違えた瞬間が、正しい道具を教えられる唯一の機会
+    if (!a.from || !a.to) {
+      throw new Error(
+        "grepnavi_path finds a CALL PATH between two FUNCTIONS: pass `from` and `to` as function names, " +
+          "e.g. {from: \"SSL_read\", to: \"ssl3_get_record\"}. " +
+          "For the layout of a directory use grepnavi_structure({focus: \"ssl/record\"}); " +
+          "to read a file use grepnavi_read_file.",
+      );
+    }
     const maxDepth = Math.min(Math.max(a.max_depth ?? DEFAULT_MAX_DEPTH, 1), MAX_MAX_DEPTH);
     const dir = normalizeInputPath(a.dir);
 
