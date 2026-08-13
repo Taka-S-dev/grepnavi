@@ -506,7 +506,33 @@ func preferDefinitionHits(hits []DefHit) []DefHit {
 		candidates = defs
 	}
 	// 定義の中に実装ファイル（.c/.cpp 等）があればヘッダを除外
-	return filterImplFiles(candidates)
+	return demoteNonSource(filterImplFiles(candidates))
+}
+
+// demoteNonSource は C/C++ のソースでないファイルの定義を後ろへ回す。
+//
+// doxygen 出力を索引に含んだツリーでは、生成 HTML が定義として先頭に来る
+// （実測: openssl で handshake_func が 359.html:4 に解決され、本物の
+// ssl_local.h:1092 が2番目になっていた）。HTML に C の定義は存在しないので
+// これは推測ではなく事実だが、消さずに下げるだけに留める — 索引に入っている
+// 以上、利用者が意図して入れた可能性を否定できないため。
+func demoteNonSource(hits []DefHit) []DefHit {
+	if len(hits) < 2 {
+		return hits
+	}
+	src := make([]DefHit, 0, len(hits))
+	var other []DefHit
+	for _, h := range hits {
+		if srcExts[strings.ToLower(filepath.Ext(h.File))] {
+			src = append(src, h)
+		} else {
+			other = append(other, h)
+		}
+	}
+	if len(src) == 0 || len(other) == 0 {
+		return hits
+	}
+	return append(src, other...)
 }
 
 // isDefinitionHit はヒットが「宣言」ではなく「定義（実態）」かを判定する。

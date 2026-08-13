@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -344,5 +345,34 @@ func TestFindDefinitionsSmartReturnsOnCancel(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("打ち切り済みの context で戻ってこない")
+	}
+}
+
+// doxygen 出力を索引に含んだツリーでは、生成 HTML が定義として先頭に来ていた
+// （実測: openssl の handshake_func が 359.html:4 に解決され、本物の
+// ssl_local.h:1092 が2番目だった）。ソースを先に、HTML は落とさず後ろへ。
+func TestPreferDefinitionHitsDemotesGeneratedHtml(t *testing.T) {
+	dir := t.TempDir()
+	html := filepath.Join(dir, "359.html")
+	hdr := filepath.Join(dir, "ssl_local.h")
+	if err := os.WriteFile(html, []byte("<div>int (*handshake_func) (SSL *);</div>\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hdr, []byte("int (*handshake_func) (SSL *);\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// 索引は HTML を先に返してくる
+	got := preferDefinitionHits([]DefHit{
+		{File: html, Line: 1, Kind: "member", Text: "int (*handshake_func) (SSL *);"},
+		{File: hdr, Line: 1, Kind: "member", Text: "int (*handshake_func) (SSL *);"},
+	})
+	if len(got) != 2 {
+		t.Fatalf("候補が減っている: %+v", got)
+	}
+	if !strings.HasSuffix(got[0].File, ".h") {
+		t.Errorf("先頭がソースでない: %s", got[0].File)
+	}
+	if !strings.HasSuffix(got[1].File, ".html") {
+		t.Errorf("HTML が落ちている: %+v", got)
 	}
 }
