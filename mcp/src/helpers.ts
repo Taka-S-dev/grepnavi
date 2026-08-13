@@ -642,7 +642,7 @@ export async function resolveAndEnrichCallees(args: {
     await attachBodyPreviews(flat, previewLines);
   }
 
-  return {
+  const base = {
     caller: { word: selfName || null, file, line },
     depth: maxDepth,
     total: top.raw.length,
@@ -651,9 +651,33 @@ export async function resolveAndEnrichCallees(args: {
       macros: top.excludedMacroNames,
       non_callable: top.excludedNonCallableNames,
     },
-    callees: args.compact ? toCompactCallees(top.enriched) : top.enriched,
+  };
+  if (args.compact !== undefined) {
+    return { ...base, callees: args.compact ? toCompactCallees(top.enriched) : top.enriched };
+  }
+  // 指定が無いときは、大きすぎる応答だけ自動で畳む。
+  // 実測: 38 件の呼び先で 12.5 KB、depth 2 で 40 KB になり、受け取った側は
+  // 読まずにファイルへ退避した（このプロジェクトでは参照一覧でも同じことが起きている）。
+  // 黙って削らないため、畳んだことと戻し方を応答に書く。
+  const full = { ...base, callees: top.enriched };
+  const bytes = JSON.stringify(full).length;
+  if (bytes <= calleeAutoCompactBytes) {
+    return full;
+  }
+  return {
+    ...base,
+    callees: toCompactCallees(top.enriched),
+    compacted: {
+      reason: `the full form was ${bytes} bytes, over the ${calleeAutoCompactBytes} byte budget`,
+      dropped: "engine, confidence, likely_macro, likely_non_callable, likely_trivial, in_caller_subtree, definitions[]",
+      how_to_get_it: "call again with compact: false, ideally with depth: 1 or a narrower caller",
+    },
   };
 }
+
+// calleeAutoCompactBytes は自動で畳む境界。実測で「読まれた」側（約 4 KB）と
+// 「退避された」側（19 KB 以上）の間に置いてある。
+const calleeAutoCompactBytes = 8000;
 
 // compact 形の callee。呼び出し先を「一覧して選ぶ」だけならこれで足り、
 // judge 用のフラグ一式（engine / confidence / likely_* / definitions[]）が丸ごと消える。
