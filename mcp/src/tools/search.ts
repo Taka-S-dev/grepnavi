@@ -323,8 +323,9 @@ export const definitions: ToolDef[] = [
   {
     name: "grepnavi_structure",
     description:
-      "Return a map of which parts of the tree reference which, computed from the gtags index. Use it when the question is about STRUCTURE — \"where should I start reading?\", \"which subsystems does this cross?\", \"what does this module depend on?\" — instead of grepping around to build a sense of the layout.\n\n" +
-      "Do NOT use it to locate a specific symbol: grepnavi_definition, grepnavi_references and grepnavi_callers answer those directly and the map adds nothing.\n\n" +
+      "CALL THIS FIRST when the question is about the shape of the codebase rather than one symbol: \"where do I start reading?\", \"which modules does X cross?\", \"what does this depend on?\". One call answers what would otherwise take a dozen searches, and it comes from the index, so it cannot name a file that does not exist.\n\n" +
+      "Skip it when you already have a symbol to chase — grepnavi_definition, grepnavi_references and grepnavi_callers answer that directly.\n\n" +
+      "It returns which parts of the tree reference which, folded from the gtags index.\n\n" +
       "Without `focus` you get the whole tree folded into parts, ordered by how much they are referenced — the top of that list is what everything else depends on, which is usually where reading starts. Large parts are split by weight, so a deep boundary like `drivers/net` appears beside a shallow one like `net`; a name that is also a prefix of others is the REMAINDER of its children, not their total.\n\n" +
       "With `focus: \"<path>\"` you get that part alone: `incoming` (which outside parts enter through which file — the concentration here is its public face), `internal` (its pieces referencing each other), `outgoing` (what it depends on). Every edge is \"from>to:count\", where count is (symbol, referencing file) pairs, not lines. A name ending in `/` is a folder, so its references spread over several files.\n\n" +
       "**`built: false` means the map does not exist yet.** Building reads the whole index (seconds on a small tree, about a minute on a kernel-sized one), so it never starts on its own — tell the user to open the map panel and press build, and answer the question another way for now.\n\n" +
