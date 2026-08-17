@@ -1716,6 +1716,10 @@ async function ensureEditor() {
   monacoEditor.addAction({
     id: 'grepnavi-insert-debug', label: 'デバッグ行を挿入',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyP],
+    // ナビゲーション項目と違い、これは Alt+A の一覧に載らない。メニューから
+    // 外すと入口が Alt+P だけになり、機能があること自体に気づけない
+    contextMenuGroupId: 'grepnavi-tool',
+    contextMenuOrder: 3,
     run: () => { if (typeof openInsertDialog === 'function') openInsertDialog(); }
   });
   // デバッグ行の上でだけ出る「書き換え / 撤去」(insertions.js)

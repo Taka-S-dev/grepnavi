@@ -301,6 +301,16 @@ test('右クリックメニュー - キーを持つ操作をキー無しの複�
   }
 });
 
+// Alt+A の一覧に載らない操作は、メニューから外すと入口がキーだけになる。
+// 実際に「デバッグ行を挿入」がメニューを外された状態で放置され、機能が
+// 見えなくなっていた。
+test('右クリックメニュー - ファイルを書き換える操作を隠さない', () => {
+  const item = contextMenuActions().find(i => i.label === 'デバッグ行を挿入');
+  assert.ok(item, '"デバッグ行を挿入" のアクションが見つからない');
+  assert.ok(item.group,
+    '"デバッグ行を挿入" が右クリックメニューに出ない。入口が Alt+P だけになる');
+});
+
 test('右クリックメニュー - 常時出る項目を12件までに抑える', () => {
   const always = contextMenuActions().filter(i => i.group && !i.precondition);
   assert.ok(always.length <= 12,
