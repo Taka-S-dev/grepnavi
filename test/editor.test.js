@@ -311,6 +311,30 @@ test('右クリックメニュー - ファイルを書き換える操作を隠�
     '"デバッグ行を挿入" が右クリックメニューに出ない。入口が Alt+P だけになる');
 });
 
+// ---- キーの二重取り ----
+// Monaco のアクションと document の keydown は別々に登録するので、同じキーを
+// 両方が持てる。エディタで押すと両方動く（実際に Alt+P が「デバッグ行を挿入」と
+// 「パス表示切り替え」を同時に起こしていた）。
+test('ショートカット - Monaco のキーを document 側が横取りしない', () => {
+  const dir = path.join(__dirname, '..', 'static', 'js');
+  const monacoAltKeys = new Set();
+  for (const f of fs.readdirSync(dir).filter(n => n.endsWith('.js'))) {
+    const src = fs.readFileSync(path.join(dir, f), 'utf8');
+    for (const m of src.matchAll(/keybindings:\s*\[([^\]]+)\]/g)) {
+      const b = m[1];
+      if (!b.includes('KeyMod.Alt') || b.includes('KeyMod.Shift') || b.includes('KeyMod.CtrlCmd')) continue;
+      const key = (b.match(/KeyCode\.Key([A-Z])/) || [])[1];
+      if (key) monacoAltKeys.add(key.toLowerCase());
+    }
+  }
+  const app = fs.readFileSync(path.join(dir, 'app.js'), 'utf8');
+  for (const m of app.matchAll(/e\.altKey\s*&&(?![^;{]*shiftKey)[^;{]*?e\.key(?:\.toLowerCase\(\))?\s*===\s*'([a-z])'/g)) {
+    assert.ok(!monacoAltKeys.has(m[1]),
+      `Alt+${m[1].toUpperCase()} を Monaco のアクションと document の両方が持っている。` +
+      'エディタで押すと2つとも動くので、どちらかのキーを変える');
+  }
+});
+
 test('右クリックメニュー - 常時出る項目を12件までに抑える', () => {
   const always = contextMenuActions().filter(i => i.group && !i.precondition);
   assert.ok(always.length <= 12,

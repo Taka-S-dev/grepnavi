@@ -306,8 +306,10 @@ addEventListener('DOMContentLoaded', async () => {
       btnNs.style.background = !hidden ? '#094771' : '';
     };
   }
+  // Alt+P はエディタの「デバッグ行を挿入」が持つ。document で拾うとエディタに
+  // フォーカスがあっても一緒に発火し、挿入ダイアログとパス表示が同時に動く
   document.addEventListener('keydown', e => {
-    if(e.altKey && e.key === 'p') { e.preventDefault(); id('btn-node-sub')?.click(); }
+    if(e.altKey && e.shiftKey && e.key.toLowerCase() === 'p') { e.preventDefault(); id('btn-node-sub')?.click(); }
   });
 
   const btnTm = id('btn-tree-memo');
@@ -320,7 +322,8 @@ addEventListener('DOMContentLoaded', async () => {
     };
   }
   document.addEventListener('keydown', e => {
-    if(e.altKey && e.key === 'n') { e.preventDefault(); id('btn-tree-memo')?.click(); }
+    // Alt+N はエディタの「メモを追加/編集」が持つ（Alt+P も同様に Shift 付きへ）
+    if(e.altKey && e.shiftKey && e.key.toLowerCase() === 'n') { e.preventDefault(); id('btn-tree-memo')?.click(); }
   });
 
   document.addEventListener('keydown', e => {
