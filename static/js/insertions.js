@@ -969,17 +969,17 @@ function registerInsertionEditorActions() {
   _insertionOffCtxKey = monacoEditor.createContextKey('grepnaviInsertionOff', false);
   monacoEditor.onDidChangeCursorPosition(_updateInsertionCtxKey);
 
-  // 挿入 (2.4, editor.js) と書き換え (2.5) の間: 選択があるときだけ出す。
+  // 挿入 (1, editor.js) の次: 選択があるときだけ出す。
   monacoEditor.addAction({
     id: 'grepnavi-insertion-wrap', label: '選択範囲を #if 0 で囲む',
-    contextMenuGroupId: 'grepnavi-mark', contextMenuOrder: 2.45,
+    contextMenuGroupId: '3_debug', contextMenuOrder: 2,
     precondition: 'editorHasSelection',
     run: () => wrapSelectionInIfZero(),
   });
 
   monacoEditor.addAction({
     id: 'grepnavi-insertion-rewrite', label: 'デバッグ行を書き換え',
-    contextMenuGroupId: 'grepnavi-mark', contextMenuOrder: 2.5,
+    contextMenuGroupId: '3_debug', contextMenuOrder: 3,
     precondition: 'grepnaviOnInsertionLine',
     run: () => {
       const hit = _insertionSiteAtCursor();
@@ -991,7 +991,7 @@ function registerInsertionEditorActions() {
   // 全 sites (囲みの #if 0 / #endif ペアを片方だけ OFF にすると壊れるため)。
   monacoEditor.addAction({
     id: 'grepnavi-insertion-off', label: 'デバッグ行を OFF (コメントアウト)',
-    contextMenuGroupId: 'grepnavi-mark', contextMenuOrder: 2.55,
+    contextMenuGroupId: '3_debug', contextMenuOrder: 4,
     precondition: 'grepnaviOnInsertionLine && !grepnaviInsertionOff',
     run: () => {
       const hit = _insertionSiteAtCursor();
@@ -1000,7 +1000,7 @@ function registerInsertionEditorActions() {
   });
   monacoEditor.addAction({
     id: 'grepnavi-insertion-on', label: 'デバッグ行を ON (コメント解除)',
-    contextMenuGroupId: 'grepnavi-mark', contextMenuOrder: 2.55,
+    contextMenuGroupId: '3_debug', contextMenuOrder: 4,
     precondition: 'grepnaviOnInsertionLine && grepnaviInsertionOff',
     run: () => {
       const hit = _insertionSiteAtCursor();
@@ -1011,7 +1011,7 @@ function registerInsertionEditorActions() {
   // 入口を置いて、一覧を開かずに付け替えられるようにする。
   monacoEditor.addAction({
     id: 'grepnavi-insertion-group', label: 'デバッグ行のグループを変更',
-    contextMenuGroupId: 'grepnavi-mark', contextMenuOrder: 2.57,
+    contextMenuGroupId: '3_debug', contextMenuOrder: 5,
     precondition: 'grepnaviOnInsertionLine',
     run: () => {
       const hit = _insertionSiteAtCursor();
@@ -1029,7 +1029,7 @@ function registerInsertionEditorActions() {
   });
   monacoEditor.addAction({
     id: 'grepnavi-insertion-delete', label: 'デバッグ行を撤去',
-    contextMenuGroupId: 'grepnavi-mark', contextMenuOrder: 2.6,
+    contextMenuGroupId: '3_debug', contextMenuOrder: 9,
     precondition: 'grepnaviOnInsertionLine',
     run: () => {
       const hit = _insertionSiteAtCursor();

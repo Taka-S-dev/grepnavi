@@ -311,6 +311,16 @@ test('右クリックメニュー - ファイルを書き換える操作を隠�
     '"デバッグ行を挿入" が右クリックメニューに出ない。入口が Alt+P だけになる');
 });
 
+// 挿入・書き換え・撤去は同じ機能の入口なので、区切り線をまたいで分かれていると
+// 「撤去はあるのに挿入が見当たらない」形になる（実際に挿入だけ別グループにいた）。
+test('右クリックメニュー - デバッグ行の操作を1つの区切りにまとめる', () => {
+  const debug = contextMenuActions().filter(i => i.group && i.label.includes('デバッグ行'));
+  assert.ok(debug.length >= 5, `デバッグ行の項目が ${debug.length} 件しか見つからない`);
+  const groups = [...new Set(debug.map(i => i.group))];
+  assert.equal(groups.length, 1,
+    `デバッグ行の操作が ${groups.join(' / ')} に分かれている。同じ区切りに置く`);
+});
+
 // ---- キーの二重取り ----
 // Monaco のアクションと document の keydown は別々に登録するので、同じキーを
 // 両方が持てる。エディタで押すと両方動く（実際に Alt+P が「デバッグ行を挿入」と

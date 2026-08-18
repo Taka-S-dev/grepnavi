@@ -1131,7 +1131,7 @@ async function ensureEditor() {
   monacoEditor.addAction({
     id: 'grepnavi.addToJumpMap',
     label: 'ジャンプマップに追加',
-    contextMenuGroupId: 'grepnavi-mark',
+    contextMenuGroupId: '2_mark',
     contextMenuOrder: 3,
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyJ],
     run(ed) {
@@ -1149,7 +1149,7 @@ async function ensureEditor() {
   monacoEditor.addAction({
     id: 'grepnavi.toggleBookmark',
     label: 'ブックマークを切り替え',
-    contextMenuGroupId: 'grepnavi-mark',
+    contextMenuGroupId: '2_mark',
     contextMenuOrder: 2,
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyB],
     run(ed) {
@@ -1450,7 +1450,7 @@ async function ensureEditor() {
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyD, monaco.KeyCode.F12],
     // 右クリックにもこの1つを出す。メニュー専用の複製を別に持つと、そちらには
     // キー割り当てが無いので、一番使う項目だけショートカットが表示されなかった
-    contextMenuGroupId: 'grepnavi-nav', contextMenuOrder: 1,
+    contextMenuGroupId: '1_nav', contextMenuOrder: 1,
     run: ed => {
       const word = ed.getModel()?.getWordAtPosition(ed.getPosition());
       if(word) jumpToDefinition(word.word, _tagContextAtPosition(ed.getModel(), ed.getPosition()));
@@ -1461,7 +1461,7 @@ async function ensureEditor() {
   monacoEditor.addAction({
     id: 'grepnavi-line-memo', label: 'メモを追加/編集',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyN],
-    contextMenuGroupId: 'grepnavi-mark',
+    contextMenuGroupId: '2_mark',
     contextMenuOrder: 4,
     run: ed => {
       const file = tabs[activeTabIdx]?.file;
@@ -1490,7 +1490,7 @@ async function ensureEditor() {
   // 右クリック → 基数変換電卓（選択中の式、無ければカーソル位置の数値を初期値に）
   monacoEditor.addAction({
     id: 'grepnavi-radix-calc', label: '基数変換電卓',
-    contextMenuGroupId: 'grepnavi-tool',
+    contextMenuGroupId: '4_tool',
     contextMenuOrder: 1,
     run: ed => {
       const sel = ed.getSelection();
@@ -1515,7 +1515,7 @@ async function ensureEditor() {
 
   monacoEditor.addAction({
     id: 'grepnavi-open-external', label: '外部エディタで開く',
-    contextMenuGroupId: 'grepnavi-tool',
+    contextMenuGroupId: '4_tool',
     contextMenuOrder: 2,
     // Alt+E は移動系（その場で定義を見る）に譲った
     keybindings: [monaco.KeyMod.Alt | monaco.KeyMod.Shift | monaco.KeyCode.KeyE],
@@ -1531,7 +1531,7 @@ async function ensureEditor() {
   // 字面を全部拾うので、精度が要るときと取りこぼしを避けたいときで使い分ける
   monacoEditor.addAction({
     id: 'grepnavi-references', label: '参照を検索',
-    contextMenuGroupId: 'grepnavi-nav',
+    contextMenuGroupId: '1_nav',
     contextMenuOrder: 2,
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyR, monaco.KeyMod.Shift | monaco.KeyCode.F12],
     run: ed => {
@@ -1573,7 +1573,7 @@ async function ensureEditor() {
 
   monacoEditor.addAction({
     id: 'grepnavi-word-actions', label: 'ジャンプ先を選ぶ…',
-    contextMenuGroupId: 'grepnavi-nav',
+    contextMenuGroupId: '1_nav',
     contextMenuOrder: 0.1,
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyA, monaco.KeyMod.Alt | monaco.KeyCode.Enter],
     run: ed => openJumpLauncher(ed)
@@ -1679,7 +1679,7 @@ async function ensureEditor() {
   monacoEditor.addAction({
     id: 'grepnavi-pin-highlight', label: '単語ハイライトを固定/解除',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyH],
-    contextMenuGroupId: 'grepnavi-mark',
+    contextMenuGroupId: '2_mark',
     contextMenuOrder: 1,
     run: ed => {
       const model = ed.getModel();
@@ -1697,7 +1697,7 @@ async function ensureEditor() {
   monacoEditor.addAction({
     id: 'grepnavi-add-node', label: 'ノードに追加',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyMod.Shift | monaco.KeyCode.KeyG],
-    contextMenuGroupId: 'grepnavi-mark',
+    contextMenuGroupId: '2_mark',
     contextMenuOrder: 6,
     run: ed => {
       const sel   = ed.getSelection();
@@ -1717,9 +1717,10 @@ async function ensureEditor() {
     id: 'grepnavi-insert-debug', label: 'デバッグ行を挿入',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyP],
     // ナビゲーション項目と違い、これは Alt+A の一覧に載らない。メニューから
-    // 外すと入口が Alt+P だけになり、機能があること自体に気づけない
-    contextMenuGroupId: 'grepnavi-tool',
-    contextMenuOrder: 3,
+    // 外すと入口が Alt+P だけになり、機能があること自体に気づけない。
+    // 撤去・書き換えと同じ 3_debug に置く（残りは行の上でだけ出る）
+    contextMenuGroupId: '3_debug',
+    contextMenuOrder: 1,
     run: () => { if (typeof openInsertDialog === 'function') openInsertDialog(); }
   });
   // デバッグ行の上でだけ出る「書き換え / 撤去」(insertions.js)
@@ -1731,7 +1732,7 @@ async function ensureEditor() {
     // 選択が無いと何も消せない項目。常時出していると「メモを追加/編集」の
     // 真隣に Delete の破壊操作が並ぶ
     precondition: 'editorHasSelection',
-    contextMenuGroupId: 'grepnavi-mark',
+    contextMenuGroupId: '2_mark',
     contextMenuOrder: 5,
     run: ed => {
       const sel = ed.getSelection();
@@ -1765,7 +1766,7 @@ async function ensureEditor() {
 
   monacoEditor.addAction({
     id: 'grepnavi-snapshot', label: 'コードスナップショットを開く',
-    contextMenuGroupId: 'grepnavi-tool',
+    contextMenuGroupId: '4_tool',
     contextMenuOrder: 4,
     run: ed => exportSelectionSnapshot(ed), // → editor-snapshot.js
   });
