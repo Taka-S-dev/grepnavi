@@ -240,6 +240,7 @@ func (h *Handler) deleteInsertionByID(w http.ResponseWriter, id string) {
 				return
 			}
 			h.lastRemoved = nil // 戻す先のファイルが無い
+			h.lastMoved = nil
 			jsonOK(w, map[string]any{"shifts": []graph.ShiftResult{}})
 			return
 		}
@@ -253,6 +254,7 @@ func (h *Handler) deleteInsertionByID(w http.ResponseWriter, id string) {
 		return
 	}
 	h.lastRemoved = undo
+	h.lastMoved = nil
 	jsonOK(w, map[string]any{"shifts": shifts})
 }
 
@@ -266,10 +268,10 @@ type removedInsertion struct {
 
 // --- POST /api/insertions/restore ---
 
-// handleInsertionsRestore は直前の1件撤去を戻す (ブラウザの Ctrl+Z)。撤去の逆操作に
-// 徹していて、同じ ID・同じ本文を消した行へ戻す。挿入 API で入れ直すのでは代わりに
-// ならない: 採番が変わり、本文に焼き込まれた {tag} 置換後の ID と食い違う。
-// 戻せるのは常に直前の1件だけで、履歴スタックは持たない。
+// handleInsertionsRestore は直前の1操作 (撤去または移動) を戻す (ブラウザの Ctrl+Z)。
+// 撤去の取り消しは逆操作に徹していて、同じ ID・同じ本文を消した行へ戻す。挿入 API で
+// 入れ直すのでは代わりにならない: 採番が変わり、本文に焼き込まれた {tag} 置換後の
+// ID と食い違う。戻せるのは常に直前の1操作だけで、履歴スタックは持たない。
 func (h *Handler) handleInsertionsRestore(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -283,9 +285,13 @@ func (h *Handler) handleInsertionsRestore(w http.ResponseWriter, r *http.Request
 	h.insMu.Lock()
 	defer h.insMu.Unlock()
 
+	if h.lastMoved != nil {
+		h.restoreMovedInsertion(w, h.lastMoved)
+		return
+	}
 	last := h.lastRemoved
 	if last == nil {
-		jsonErr(w, "no removal to restore", http.StatusNotFound)
+		jsonErr(w, "nothing to restore", http.StatusNotFound)
 		return
 	}
 	// 戻せなかった控えも捨てる。残しても次の Ctrl+Z が同じ理由で失敗するだけで、
@@ -343,7 +349,225 @@ func (h *Handler) handleInsertionsRestore(w http.ResponseWriter, r *http.Request
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	jsonOK(w, map[string]any{"insertion": restored, "shifts": shifts})
+	jsonOK(w, map[string]any{"kind": "remove", "insertion": restored, "shifts": shifts})
+}
+
+// restoreMovedInsertion は移動を元の場所へ戻す。戻し自体がもう一度の移動なので、
+// 撤去側のような専用の復元経路は要らない — 記録は今の場所にあり、消す側は
+// deleteInsertionSites が本文照合で守る。行数だけ、移動直後から変わっていないことを
+// 確かめる (変わっていれば控えた行番号はもう元の場所を指さない)。insMu 保持下で呼ぶこと。
+func (h *Handler) restoreMovedInsertion(w http.ResponseWriter, last *movedInsertion) {
+	// 戻せなかった控えは捨てる (撤去側と同じ規約)。
+	h.lastMoved = nil
+
+	ins, ok := h.findInsertion(last.id)
+	if !ok {
+		jsonErr(w, "insertion not found", http.StatusNotFound)
+		return
+	}
+	if _, ok := h.resolveWithinRoot(last.backFile); !ok {
+		jsonErr(w, "file outside root", http.StatusForbidden)
+		return
+	}
+	pf, err := patch.Load(last.backFile)
+	if err != nil {
+		patchErrStatus(w, err)
+		return
+	}
+	if pf.LineCount() != last.lines {
+		jsonErr(w, "file changed since the move", http.StatusConflict)
+		return
+	}
+	moved, shifts, _, err := h.moveInsertionSites(ins, last.backFile, last.backAfter)
+	if err != nil {
+		moveErrStatus(w, err)
+		return
+	}
+	jsonOK(w, map[string]any{"kind": "move", "insertion": moved, "shifts": shifts})
+}
+
+// movedInsertion は移動1件を元へ戻すための控え。backAfter は「戻し先ファイルの
+// この行の後ろ」で、移動後の座標で持つ。lines は移動直後の戻し先ファイルの行数で、
+// 撤去の控えと同じく、戻す前に一致を確かめるためだけに使う。
+type movedInsertion struct {
+	id        string
+	backFile  string
+	backAfter int
+	lines     int
+}
+
+var (
+	errMoveSamePlace  = errors.New("insertion: destination is where it already is")
+	errMoveOutOfRange = errors.New("insertion: destination line out of range")
+	errMoveWrapRecord = errors.New("insertion: wrap records cannot be moved")
+)
+
+// --- POST /api/insertions/move ---
+
+// handleInsertionsMove はデバッグ行を「指定した行の後ろ」へ移す。撤去して入れ直すのと
+// 違うのは ID を保つこと — ID は {tag} 置換で本文に焼き込まれ、そのまま実行時の出力に
+// 出るので、位置を直すたびに番号が変わると追っている側が混乱する。
+// line の意味は挿入 API と同じ「この行の後ろ」。file を変えれば別ファイルへも移せる。
+func (h *Handler) handleInsertionsMove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if !h.fileWrites {
+		jsonErr(w, "file writes disabled (bind to loopback to enable)", http.StatusForbidden)
+		return
+	}
+	var req struct {
+		ID   string `json:"id"`
+		File string `json:"file"`
+		Line int    `json:"line"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonErr(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	h.insMu.Lock()
+	defer h.insMu.Unlock()
+
+	ins, ok := h.findInsertion(req.ID)
+	if !ok {
+		jsonErr(w, "insertion not found", http.StatusNotFound)
+		return
+	}
+	dest, ok := h.resolveWithinRoot(req.File)
+	if !ok {
+		jsonErr(w, "file outside root", http.StatusForbidden)
+		return
+	}
+
+	moved, shifts, back, err := h.moveInsertionSites(ins, dest, req.Line)
+	if err != nil {
+		moveErrStatus(w, err)
+		return
+	}
+	// 直前の1操作しか戻せない。撤去の控えを残すと、Ctrl+Z が移動ではなく
+	// もっと前の撤去を戻し、押した側からはどちらが起きるのか分からない。
+	h.lastRemoved = nil
+	h.lastMoved = back
+	jsonOK(w, map[string]any{"insertion": moved, "shifts": shifts})
+}
+
+func moveErrStatus(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, errSitesNotContiguous), errors.Is(err, errMoveWrapRecord),
+		errors.Is(err, errMoveSamePlace), errors.Is(err, errMoveOutOfRange):
+		jsonErr(w, err.Error(), http.StatusBadRequest)
+	default:
+		patchErrStatus(w, err)
+	}
+}
+
+// moveInsertionSites は ins を destFile の destAfter 行の後ろへ移し、移動後の記録・
+// 適用順の ShiftResult・元へ戻すための控えを返す。insMu 保持下で呼ぶこと。
+//
+// 撤去と挿入の合成だが、行番号の付け替えが要る: destAfter は利用者が見ている
+// 「移動前の」座標なので、同じファイル内で下へ動かすときは、先に消した分だけ
+// 詰めてから入れる。
+func (h *Handler) moveInsertionSites(ins graph.Insertion, destFile string, destAfter int) (graph.Insertion, []graph.ShiftResult, *movedInsertion, error) {
+	if isWrapRecord(ins) {
+		// 囲みは対象コードを挟む構造で、2つの site の間に意味がある。
+		// 「まとめて別の場所へ」は囲みの意味を保てない。
+		return graph.Insertion{}, nil, nil, errMoveWrapRecord
+	}
+	pf, err := patch.Load(ins.File)
+	if err != nil {
+		return graph.Insertion{}, nil, nil, err
+	}
+	lines := make([]int, len(ins.Sites))
+	texts := make([]string, len(ins.Sites))
+	for i, site := range ins.Sites {
+		line, err := resolveSitePosition(pf, ins.File, site)
+		if err != nil {
+			return graph.Insertion{}, nil, nil, err
+		}
+		lines[i] = line
+	}
+	sort.Ints(lines)
+	for i, l := range lines {
+		if l != lines[0]+i {
+			// 離れた行をまとめて動かすと、間にある行との位置関係が変わる。
+			// 書き換え (replaceInsertionBlock) と同じ線で断る。
+			return graph.Insertion{}, nil, nil, errSitesNotContiguous
+		}
+		text, ok := pf.LineUTF8(l)
+		if !ok {
+			return graph.Insertion{}, nil, nil, patch.ErrMismatch
+		}
+		texts[i] = text
+	}
+	start, n := lines[0], len(lines)
+
+	sameFile := graph.SamePathLoose(destFile, ins.File)
+	destCount := pf.LineCount()
+	if !sameFile {
+		dpf, err := patch.Load(destFile)
+		if err != nil {
+			return graph.Insertion{}, nil, nil, err
+		}
+		destCount = dpf.LineCount()
+	}
+	if destAfter < 0 || destAfter > destCount {
+		return graph.Insertion{}, nil, nil, errMoveOutOfRange
+	}
+	// 自分の直前から自分の末尾までは、動かしても同じ場所に落ちる。
+	if sameFile && destAfter >= start-1 && destAfter <= start+n-1 {
+		return graph.Insertion{}, nil, nil, errMoveSamePlace
+	}
+
+	shifts, _, err := h.deleteInsertionSites(ins)
+	if err != nil {
+		return graph.Insertion{}, nil, nil, err
+	}
+	// 記録を先に外す: 残したまま挿入側の ShiftLines を呼ぶと、まだ古い行を指している
+	// この記録自身が押し下げられる (挿入 API が AddInsertion を後に回すのと同じ理由)。
+	if err := h.store.RemoveInsertion(ins.ID); err != nil {
+		return graph.Insertion{}, nil, nil, err
+	}
+
+	// 撤去後の座標へ直す。合わせて「元の場所」も撤去後の座標で押さえる:
+	// 下へ動かしたなら元の位置より上は動かず、上へ動かしたなら入れた分だけ下がる。
+	insertAfter, backAfter := destAfter, start-1
+	if sameFile {
+		if destAfter > start+n-1 {
+			insertAfter = destAfter - n
+		} else {
+			backAfter = start - 1 + n
+		}
+	}
+
+	dpf, err := patch.Load(destFile)
+	if err != nil {
+		return graph.Insertion{}, nil, nil, err
+	}
+	if err := dpf.InsertAfter(insertAfter, texts); err != nil {
+		return graph.Insertion{}, nil, nil, err
+	}
+	if err := h.saveFile(dpf); err != nil {
+		return graph.Insertion{}, nil, nil, err
+	}
+	shifts = append(shifts, h.store.ShiftLines(destFile, insertAfter+1, n))
+
+	moved := ins
+	moved.File = destFile
+	moved.Sites = make([]graph.InsertionSite, n)
+	for i, text := range texts {
+		moved.Sites[i] = graph.InsertionSite{Line: insertAfter + 1 + i, Text: text}
+	}
+	if err := h.store.AddInsertion(moved); err != nil {
+		return graph.Insertion{}, nil, nil, err
+	}
+
+	backLines := pf.LineCount() // 同一ファイル: n 行消して n 行入れたので元のまま
+	if !sameFile {
+		backLines = pf.LineCount() - n
+	}
+	return moved, shifts, &movedInsertion{id: ins.ID, backFile: ins.File, backAfter: backAfter, lines: backLines}, nil
 }
 
 func (h *Handler) putInsertionByID(w http.ResponseWriter, r *http.Request, id string) {
@@ -584,6 +808,7 @@ func (h *Handler) handleInsertionsRemoveAll(w http.ResponseWriter, r *http.Reque
 	// まとめ撤去の後に1件だけ戻せても中途半端で、しかも「今の Ctrl+Z が何を戻すのか」が
 	// 押す側から見えなくなる。確認ダイアログを通っている操作なので控えは捨てる。
 	h.lastRemoved = nil
+	h.lastMoved = nil
 
 	all := h.store.GetGraphResponse().Insertions
 	byFile := map[string][]string{} // file -> ids, ファイル毎にまとめて処理順を作る

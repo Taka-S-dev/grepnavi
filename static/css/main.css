@@ -301,6 +301,12 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 /* 入るのは「その行」ではなく「その行の下の境目」。行を塗ると、その行自体が
    対象だと読めてしまうので、下端に線を引いて境界そのものを示す。 */
 .insert-target-deco{box-shadow:inset 0 -2px 0 #4aa8d8}
+/* 移動モードの行き先。挿入先の目印と同じ「下辺の線 = この行の次」だが、色は
+   デバッグ行の紫にして、挿入ダイアログの目印 (青) と取り違えないようにする。 */
+.insmove-target-deco{box-shadow:inset 0 -2px 0 #b085e0;background:rgba(160,100,220,0.10)}
+.insmove-target-glyph{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M3 11h10M8 3v6M5.5 6.5L8 9l2.5-2.5' fill='none' stroke='%23b085e0' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/13px no-repeat}
+/* モード中はエディタ全体をクリック待ちだと分かる形にする。 */
+body.insmove-active .monaco-editor,body.insmove-active .monaco-editor .view-lines{cursor:crosshair!important}
 .insert-target-glyph{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M3 11h10M8 3v6M5.5 6.5L8 9l2.5-2.5' fill='none' stroke='%234aa8d8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/13px no-repeat}
 @keyframes insert-target-pulse{0%,100%{box-shadow:inset 0 -2px 0 #4aa8d8}50%{box-shadow:inset 0 -3px 0 #a5e4ff}}
 /* 交互に使う2つ。同じクラスを貼り直してもアニメーションは再生されないため。 */
@@ -1138,11 +1144,12 @@ body.search-mode #root-chip{min-width:0}
    エディタの挿入行装飾と同じ紫系でひと目で区別できるようにする。 */
 .memo-list-item-insertion:not(.memo-list-selected){background:rgba(160,100,220,0.07)}
 .memo-list-item-insertion:not(.memo-list-selected):hover{background:rgba(160,100,220,0.14)}
-/* デバッグ行は ON/OFF・書き換え・削除の3ボタンなので1列多い7列 grid。 */
-.memo-list-item-insertion{grid-template-columns:16px 16px auto 1fr 16px 16px 16px}
+/* デバッグ行は ON/OFF・移動・書き換え・削除の4ボタンなので2列多い8列 grid。 */
+.memo-list-item-insertion{grid-template-columns:16px 16px auto 1fr 16px 16px 16px 16px}
 .memo-list-item-insertion .memo-list-instoggle-btn{grid-column:5}
-.memo-list-item-insertion .memo-list-rewrite{grid-column:6}
-.memo-list-item-insertion .memo-list-del{grid-column:7}
+.memo-list-item-insertion .memo-list-move{grid-column:6}
+.memo-list-item-insertion .memo-list-rewrite{grid-column:7}
+.memo-list-item-insertion .memo-list-del{grid-column:8}
 /* ON/OFF ボタン。書き換えと同じホバー時だけ現れる。 */
 .memo-list-instoggle-btn{background:none;border:none;color:transparent;cursor:pointer;font-size:11px;padding:0 2px;border-radius:2px;line-height:1;flex-shrink:0}
 .memo-list-item:hover .memo-list-instoggle-btn{color:#555}
@@ -1187,6 +1194,10 @@ body.search-mode #root-chip{min-width:0}
 #memo-preview-save{font-size:11px;padding:2px 8px;background:#0e639c;color:#ccc;border:1px solid #555;border-radius:2px;cursor:pointer}
 #memo-preview-save kbd{font-size:9px;opacity:0.6;margin-left:4px}
 #memo-preview-del{font-size:11px;padding:2px 8px;background:#3c3c3c;color:#ccc;border:1px solid #555;border-radius:2px;cursor:pointer;margin-left:auto}
+/* デバッグ行のプレビュー操作。撤去と同じ見た目に揃える (撤去だけは margin-left:auto で
+   右端へ離し、隣を押し間違えても消えないようにしている)。 */
+#memo-preview-rewrite,#memo-preview-move{font-size:11px;padding:2px 8px;background:#3c3c3c;color:#ccc;border:1px solid #555;border-radius:2px;cursor:pointer}
+#memo-preview-rewrite:hover,#memo-preview-move:hover{background:#4a4a4a}
 #memo-preview-del:hover{background:#5a1d1d;color:#f88}
 .memo-list-item.memo-list-selected{background:#094771}
 .memo-list-item.memo-list-selected:hover{background:#0d5a8a}

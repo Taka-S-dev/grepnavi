@@ -494,10 +494,10 @@ function _disarmInsertionUndo() {
   clearTimeout(_insertionUndoTimer);
 }
 
-// 撤去の取り消し。サーバが控えている直前の1件を、同じ ID・同じ本文で元の行へ戻す。
-// 戻せない理由 (ファイルが変わった、ID が再採番された) はサーバが判定するので、
+// 直前の1操作 (撤去・移動) の取り消し。どちらを戻すかはサーバの控えが決める。
+// 戻せない理由 (ファイルが変わった、ID が再採番された) もサーバが判定するので、
 // ここでは結果をそのまま伝える — 黙って何も起きないのが一番困る。
-async function undoInsertionRemoval() {
+async function undoInsertionChange() {
   _disarmInsertionUndo();
   const r = await fetch('/api/insertions/restore', { method: 'POST' }).catch(() => null);
   if (!r || !r.ok) {
@@ -508,12 +508,14 @@ async function undoInsertionRemoval() {
   }
   const d = await r.json();
   for (const sh of d.shifts || []) applyShift(sh);
-  graph.insertions = (graph.insertions || []).concat([d.insertion]);
+  // 撤去戻しなら記録は消えている、移動戻しなら古い位置のまま残っている。
+  // 同じ ID を除いてから積み直せば、どちらでも1件になる。
+  graph.insertions = (graph.insertions || []).filter((i) => i.id !== d.insertion.id).concat([d.insertion]);
   await pollActiveFile();
   refreshInsertionDecorations();
   renderMemoList();
   updateInsertionBadge();
-  st(d.insertion.id + ' を戻しました');
+  st(d.insertion.id + (d.kind === 'move' ? ' を元の場所へ戻しました' : ' を戻しました'));
 }
 
 // Ctrl+Z を他所へ譲るか。撤去はエディタの右クリックからが主なので、直後はほぼ必ず
@@ -540,7 +542,7 @@ document.addEventListener('keydown', e => {
   if (_undoBelongsElsewhere()) return;
   e.preventDefault();
   e.stopImmediatePropagation();
-  undoInsertionRemoval();
+  undoInsertionChange();
 }, true);
 
 async function _deleteInsertion(item) {
@@ -560,6 +562,140 @@ async function _deleteInsertion(item) {
   updateInsertionBadge();
   _armInsertionUndo();
   st(item._insId + " を撤去しました (Ctrl+Z で戻せます)");
+}
+
+// デバッグ行を移動する。撤去して入れ直すのと違って ID を保つのが要点で、本文に
+// 焼き込まれた {tag} と実行時の出力が食い違わない。line の意味は挿入と同じ
+// 「この行の後ろ」。行メモの移動と違って別ファイルへも移せる — 記録がファイルを
+// 持っているので移せてしまい、禁じる理由もない（置き場所を間違えたときに効く）。
+async function moveInsertion(insId, file, line) {
+  const before = (graph?.insertions || []).find((i) => i.id === insId);
+  const r = await fetch('/api/insertions/move', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: insId, file, line }),
+  }).catch(() => null);
+  if (!r || !r.ok) { st(await _moveInsertionErrorMessage(r, insId)); return; }
+  const d = await r.json();
+  for (const sh of d.shifts || []) applyShift(sh);
+  graph.insertions = (graph.insertions || []).filter((i) => i.id !== d.insertion.id).concat([d.insertion]);
+  await pollActiveFile();
+  refreshInsertionDecorations();
+  renderMemoList();
+  updateInsertionBadge();
+  _armInsertionUndo();
+  const where = before && !_samePath(before.file, d.insertion.file)
+    ? `${shortPath(d.insertion.file)}:L${d.insertion.sites?.[0]?.line}`
+    : `L${d.insertion.sites?.[0]?.line}`;
+  st(`${d.insertion.id} を ${where} へ移しました (Ctrl+Z で戻せます)`);
+}
+
+// マーク一覧の ⇅ から。移動先はエディタのカーソル行で、対象は一覧で選んだ行。
+// 「移動先だけ決まっていて対象を選びたい」ときの入口 (移動モードはその逆)。
+async function moveInsertionToCursor(item) {
+  const cur = typeof monacoEditor !== 'undefined' && monacoEditor?.getPosition();
+  const file = tabs[activeTabIdx]?.file;
+  if (!cur || !file) { st('移動先の行をエディタで開き、カーソルを置いてから押してください'); return; }
+  await moveInsertion(item._insId, file, cur.lineNumber);
+}
+
+// 400 は移動できない形の説明が要る (押せてしまう操作なので、断る理由まで言う)。
+// それ以外は撤去・書き換えと同じ文言に寄せる。
+async function _moveInsertionErrorMessage(r, id) {
+  if (r && r.status === 400) {
+    let msg = '';
+    try { msg = (await r.json())?.error || ''; } catch { /* ignore */ }
+    if (/wrap/.test(msg)) return '囲みは移動できません（対象コードを挟む形が壊れます）';
+    if (/already is/.test(msg)) return 'すでにその場所です';
+    if (/out of range/.test(msg)) return 'そのファイルにはその行がありません';
+    if (/contiguous/.test(msg)) return 'この行はまとめて移動できません（行が連続していません）';
+    return '移動できません' + (msg ? ': ' + msg : '');
+  }
+  return _insertionWriteErrorMessage(r, id);
+}
+
+// ===== 移動モード (デバッグ行を右クリック → 移動先をクリック) =====
+// 対象を先に選び、移動先はマウスで指す。右クリックした時点でカーソルはその
+// デバッグ行の上にあるので、「カーソル行へ移動」では自分自身を指してしまう。
+// 別ファイルへも移せるので、モード中のタブ切り替えは取り消さない。
+let _insMoveState = null; // { insId }
+let _insMoveDecoIds = [];
+let _insMoveModel = null;
+let _insMoveDisposables = [];
+let _insMoveLine = 0;
+
+// 装飾は付けたモデルへ直接返して消す。タブごとにモデルが違い、エディタ経由の
+// deltaDecorations は今表示中のモデルしか対象にしない (挿入先の目印と同じ理由)。
+function _clearInsMoveDeco() {
+  if (_insMoveDecoIds.length && _insMoveModel && !_insMoveModel.isDisposed?.()) {
+    _insMoveModel.deltaDecorations(_insMoveDecoIds, []);
+  }
+  _insMoveDecoIds = [];
+  _insMoveModel = null;
+}
+
+function _paintInsMoveTarget(line) {
+  const model = monacoEditor?.getModel();
+  if (!model || !line) { _clearInsMoveDeco(); return; }
+  if (_insMoveModel === model && _insMoveDecoIds.length && _insMoveLine === line) return;
+  _clearInsMoveDeco();
+  _insMoveLine = line;
+  _insMoveModel = model;
+  _insMoveDecoIds = model.deltaDecorations([], [{
+    range: new monaco.Range(line, 1, line, 1),
+    options: {
+      isWholeLine: true,
+      className: 'insmove-target-deco',
+      glyphMarginClassName: 'insmove-target-glyph',
+      glyphMarginHoverMessage: { value: 'この行の次へ移します' },
+      overviewRuler: { color: 'rgba(160,100,220,0.9)', position: monaco.editor.OverviewRulerLane.Right },
+    },
+  }]);
+}
+
+function startInsertionMove(insId) {
+  if (!monacoEditor) return;
+  endInsertionMove();
+  _insMoveState = { insId };
+  document.body.classList.add('insmove-active');
+  // マウスは行の上を通るので、通った行をそのまま移動先の候補として描く。
+  _insMoveDisposables.push(monacoEditor.onMouseMove((e) => {
+    if (_insMoveState) _paintInsMoveTarget(e.target?.position?.lineNumber);
+  }));
+  _insMoveDisposables.push(monacoEditor.onMouseDown((e) => {
+    if (!_insMoveState) return;
+    // 右クリックはモードを抜けるだけ (メニューを出したいのに移動が起きると驚く)。
+    if (e.event?.rightButton) { endInsertionMove(); st('移動をやめました'); return; }
+    const line = e.target?.position?.lineNumber;
+    const file = tabs[activeTabIdx]?.file;
+    if (!line || !file) return;
+    const id = _insMoveState.insId;
+    endInsertionMove();
+    moveInsertion(id, file, line);
+  }));
+  document.addEventListener('keydown', _insMoveKey, true);
+  st(`${insId} の移動先をクリックしてください (Esc で取消)`);
+}
+
+// Esc は capture で受ける。Monaco 自身も Esc を持っているので、bubble で待つと
+// 届かないことがある (Ctrl+Z の1段目と同じ事情)。
+function _insMoveKey(e) {
+  if (e.key !== 'Escape' || !_insMoveState) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  endInsertionMove();
+  st('移動をやめました');
+}
+
+function endInsertionMove() {
+  if (!_insMoveState && !_insMoveDisposables.length) return;
+  _insMoveState = null;
+  _insMoveLine = 0;
+  _clearInsMoveDeco();
+  document.body.classList.remove('insmove-active');
+  document.removeEventListener('keydown', _insMoveKey, true);
+  for (const d of _insMoveDisposables) d.dispose?.();
+  _insMoveDisposables = [];
 }
 
 // まとめて（行を増減しつつ）書き換えてよいレコードか。サーバ側の判定と
@@ -1097,6 +1233,17 @@ function registerInsertionEditorActions() {
         : pos ? { left: box.left + pos.left, top: box.top + pos.top, bottom: box.top + pos.top + pos.height }
         : { left: box.left, top: box.top, bottom: box.top };
       showInsGroupPicker(rect ? { getBoundingClientRect: () => rect } : document.body, hit.ins.id);
+    },
+  });
+  // 移動は対象と行き先が別々の行なので、メニューだけでは完結しない。押した時点では
+  // 対象を選ぶだけにして、行き先はマウスで指してもらう (startInsertionMove)。
+  monacoEditor.addAction({
+    id: 'grepnavi-insertion-move', label: 'デバッグ行を移動 (移動先をクリック)',
+    contextMenuGroupId: '3_debug', contextMenuOrder: 6,
+    precondition: 'grepnaviOnInsertionLine',
+    run: () => {
+      const hit = _insertionSiteAtCursor();
+      if (hit) startInsertionMove(hit.ins.id);
     },
   });
   monacoEditor.addAction({

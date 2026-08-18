@@ -41,6 +41,8 @@ func doInsertionsReq(h *Handler, method, path, body string) *httptest.ResponseRe
 		h.handleInsertionsGroup(rec, req)
 	case path == "/api/insertions/restore":
 		h.handleInsertionsRestore(rec, req)
+	case path == "/api/insertions/move":
+		h.handleInsertionsMove(rec, req)
 	default:
 		h.handleInsertionByID(rec, req)
 	}
@@ -1251,5 +1253,227 @@ func TestRemoveAllDropsRestoreRecord(t *testing.T) {
 	}
 	if rec := doInsertionsReq(h, "POST", "/api/insertions/restore", ""); rec.Code != 404 {
 		t.Errorf("restore status = %d, want 404", rec.Code)
+	}
+}
+
+// 移動の下準備: a.c に1行仕込んで、その記録と挿入直後のファイル内容を返す。
+func insertOneLine(t *testing.T, h *Handler, src string, text string) graph.Insertion {
+	t.Helper()
+	body := `{"file":"` + jsonPath(src) + `","line":1,"lines":["` + text + `"]}`
+	rec := doInsertionsReq(h, "POST", "/api/insertions", body)
+	if rec.Code != 200 {
+		t.Fatalf("insert status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Insertion graph.Insertion `json:"insertion"`
+	}
+	decodeJSON(t, rec, &out)
+	return out.Insertion
+}
+
+// 同じファイルの下の行へ移す。利用者が指した行番号は移動前の座標なので、
+// 消した分を詰めた位置に落ちる (指した行の直後)。ID と本文は変わらない。
+func TestMoveInsertionDownSameFile(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo\nthree\nfour\n"), 0o644)
+	os.Chtimes(src, time.Unix(1000, 0), time.Unix(1000, 0))
+
+	ins := insertOneLine(t, h, src, "mark();")
+	// one / mark(); / two / three / four
+
+	body := `{"id":"` + ins.ID + `","file":"` + jsonPath(src) + `","line":4}`
+	rec := doInsertionsReq(h, "POST", "/api/insertions/move", body)
+	if rec.Code != 200 {
+		t.Fatalf("move status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	got, _ := os.ReadFile(src)
+	if want := "one\ntwo\nthree\nmark();\nfour\n"; string(got) != want {
+		t.Errorf("file after move = %q, want %q", got, want)
+	}
+	g := h.store.GetGraphResponse()
+	if len(g.Insertions) != 1 || g.Insertions[0].ID != ins.ID {
+		t.Fatalf("insertions after move = %+v, want one record with id %s", g.Insertions, ins.ID)
+	}
+	if s := g.Insertions[0].Sites; len(s) != 1 || s[0].Line != 4 || s[0].Text != "mark();" {
+		t.Errorf("sites after move = %+v, want line 4 with the same text", s)
+	}
+}
+
+// 上の行へ移す。撤去で座標が詰まらない側なので、指した行の直後にそのまま入る。
+func TestMoveInsertionUpSameFile(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo\nthree\nfour\n"), 0o644)
+	os.Chtimes(src, time.Unix(1000, 0), time.Unix(1000, 0))
+
+	ins := insertOneLine(t, h, src, "mark();")
+	// 先に下へ動かしてから、上へ戻す形で「上方向の移動」を作る
+	body := `{"id":"` + ins.ID + `","file":"` + jsonPath(src) + `","line":4}`
+	if rec := doInsertionsReq(h, "POST", "/api/insertions/move", body); rec.Code != 200 {
+		t.Fatalf("move down status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	// one / two / three / mark(); / four → 先頭の後ろへ
+	body = `{"id":"` + ins.ID + `","file":"` + jsonPath(src) + `","line":1}`
+	if rec := doInsertionsReq(h, "POST", "/api/insertions/move", body); rec.Code != 200 {
+		t.Fatalf("move up status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	got, _ := os.ReadFile(src)
+	if want := "one\nmark();\ntwo\nthree\nfour\n"; string(got) != want {
+		t.Errorf("file after move = %q, want %q", got, want)
+	}
+}
+
+// 複数行の塊は順序を保ったまま丸ごと動く。
+func TestMoveInsertionBlockKeepsOrder(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo\nthree\n"), 0o644)
+	os.Chtimes(src, time.Unix(1000, 0), time.Unix(1000, 0))
+
+	body := `{"file":"` + jsonPath(src) + `","line":1,"lines":["a();","b();"]}`
+	rec := doInsertionsReq(h, "POST", "/api/insertions", body)
+	if rec.Code != 200 {
+		t.Fatalf("insert status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Insertion graph.Insertion `json:"insertion"`
+	}
+	decodeJSON(t, rec, &out)
+	// one / a(); / b(); / two / three
+	body = `{"id":"` + out.Insertion.ID + `","file":"` + jsonPath(src) + `","line":5}`
+	if rec := doInsertionsReq(h, "POST", "/api/insertions/move", body); rec.Code != 200 {
+		t.Fatalf("move status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	got, _ := os.ReadFile(src)
+	if want := "one\ntwo\nthree\na();\nb();\n"; string(got) != want {
+		t.Errorf("file after move = %q, want %q", got, want)
+	}
+}
+
+// 別ファイルへも移せる (タグを保ったまま置き場所だけ変える)。
+func TestMoveInsertionAcrossFiles(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	dst := filepath.Join(dir, "b.c")
+	os.WriteFile(src, []byte("one\ntwo\nthree\n"), 0o644)
+	os.WriteFile(dst, []byte("b1\nb2\nb3\n"), 0o644)
+	os.Chtimes(src, time.Unix(1000, 0), time.Unix(1000, 0))
+	os.Chtimes(dst, time.Unix(1000, 0), time.Unix(1000, 0))
+
+	ins := insertOneLine(t, h, src, "mark();")
+	body := `{"id":"` + ins.ID + `","file":"` + jsonPath(dst) + `","line":2}`
+	if rec := doInsertionsReq(h, "POST", "/api/insertions/move", body); rec.Code != 200 {
+		t.Fatalf("move status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	gotSrc, _ := os.ReadFile(src)
+	if want := "one\ntwo\nthree\n"; string(gotSrc) != want {
+		t.Errorf("source file after move = %q, want %q", gotSrc, want)
+	}
+	gotDst, _ := os.ReadFile(dst)
+	if want := "b1\nb2\nmark();\nb3\n"; string(gotDst) != want {
+		t.Errorf("dest file after move = %q, want %q", gotDst, want)
+	}
+	g := h.store.GetGraphResponse()
+	if len(g.Insertions) != 1 || !graph.SamePathLoose(g.Insertions[0].File, dst) {
+		t.Errorf("record after move = %+v, want file %s", g.Insertions, dst)
+	}
+}
+
+// 移動は Ctrl+Z で元の場所へ戻る。別ファイルへ動かしていても両方のファイルが元通りになる。
+func TestUndoMoveAcrossFiles(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	dst := filepath.Join(dir, "b.c")
+	os.WriteFile(src, []byte("one\ntwo\nthree\n"), 0o644)
+	os.WriteFile(dst, []byte("b1\nb2\nb3\n"), 0o644)
+	os.Chtimes(src, time.Unix(1000, 0), time.Unix(1000, 0))
+	os.Chtimes(dst, time.Unix(1000, 0), time.Unix(1000, 0))
+
+	ins := insertOneLine(t, h, src, "mark();")
+	afterInsert, _ := os.ReadFile(src)
+
+	body := `{"id":"` + ins.ID + `","file":"` + jsonPath(dst) + `","line":2}`
+	if rec := doInsertionsReq(h, "POST", "/api/insertions/move", body); rec.Code != 200 {
+		t.Fatalf("move status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if rec := doInsertionsReq(h, "POST", "/api/insertions/restore", ""); rec.Code != 200 {
+		t.Fatalf("restore status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	gotSrc, _ := os.ReadFile(src)
+	if !bytes.Equal(gotSrc, afterInsert) {
+		t.Errorf("source file after undo = %q, want %q", gotSrc, afterInsert)
+	}
+	gotDst, _ := os.ReadFile(dst)
+	if want := "b1\nb2\nb3\n"; string(gotDst) != want {
+		t.Errorf("dest file after undo = %q, want %q", gotDst, want)
+	}
+	// 戻しは1回きり。押し続けても往復しない。
+	if rec := doInsertionsReq(h, "POST", "/api/insertions/restore", ""); rec.Code != 404 {
+		t.Errorf("second restore status = %d, want 404", rec.Code)
+	}
+}
+
+// 同じ場所への移動と、囲みの移動は断る。ファイルにもレコードにも触らない。
+func TestMoveRejectsSamePlaceAndWrap(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo\nthree\n"), 0o644)
+	os.Chtimes(src, time.Unix(1000, 0), time.Unix(1000, 0))
+
+	ins := insertOneLine(t, h, src, "mark();")
+	before, _ := os.ReadFile(src)
+	for _, line := range []int{1, 2} { // 自分の直前 / 自分自身
+		body := `{"id":"` + ins.ID + `","file":"` + jsonPath(src) + `","line":` + strconv.Itoa(line) + `}`
+		if rec := doInsertionsReq(h, "POST", "/api/insertions/move", body); rec.Code != 400 {
+			t.Errorf("move to L%d status = %d, want 400", line, rec.Code)
+		}
+	}
+	after, _ := os.ReadFile(src)
+	if !bytes.Equal(before, after) {
+		t.Errorf("file changed despite refusal: %q -> %q", before, after)
+	}
+
+	recWrap := doInsertionsReq(h, "POST", "/api/insertions/wrap", `{"file":"`+jsonPath(src)+`","start_line":3,"end_line":4}`)
+	if recWrap.Code != 200 {
+		t.Fatalf("wrap status = %d, body = %s", recWrap.Code, recWrap.Body.String())
+	}
+	var wrapped struct {
+		Insertion graph.Insertion `json:"insertion"`
+	}
+	decodeJSON(t, recWrap, &wrapped)
+	beforeWrapMove, _ := os.ReadFile(src)
+	body := `{"id":"` + wrapped.Insertion.ID + `","file":"` + jsonPath(src) + `","line":1}`
+	if rec := doInsertionsReq(h, "POST", "/api/insertions/move", body); rec.Code != 400 {
+		t.Errorf("wrap move status = %d, want 400", rec.Code)
+	}
+	afterWrapMove, _ := os.ReadFile(src)
+	if !bytes.Equal(beforeWrapMove, afterWrapMove) {
+		t.Errorf("file changed despite refusal: %q -> %q", beforeWrapMove, afterWrapMove)
+	}
+}
+
+// 移動の後は、その前の撤去ではなく移動が戻る (Ctrl+Z は直前の1操作だけ)。
+func TestMoveDropsRemovalUndo(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo\nthree\n"), 0o644)
+	os.Chtimes(src, time.Unix(1000, 0), time.Unix(1000, 0))
+
+	keep := insertOneLine(t, h, src, "keep();")
+	gone := insertOneLine(t, h, src, "gone();")
+	if rec := doInsertionsReq(h, "DELETE", "/api/insertions/"+gone.ID, ""); rec.Code != 200 {
+		t.Fatalf("delete status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	body := `{"id":"` + keep.ID + `","file":"` + jsonPath(src) + `","line":4}`
+	if rec := doInsertionsReq(h, "POST", "/api/insertions/move", body); rec.Code != 200 {
+		t.Fatalf("move status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if rec := doInsertionsReq(h, "POST", "/api/insertions/restore", ""); rec.Code != 200 {
+		t.Fatalf("restore status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	g := h.store.GetGraphResponse()
+	if len(g.Insertions) != 1 || g.Insertions[0].ID != keep.ID {
+		t.Fatalf("insertions after restore = %+v, want only %s (撤去は戻らない)", g.Insertions, keep.ID)
 	}
 }

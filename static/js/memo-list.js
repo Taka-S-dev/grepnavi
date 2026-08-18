@@ -510,11 +510,13 @@ function _showMemoPreview(item) {
       `<textarea id="memo-preview-ta" spellcheck="false" readonly></textarea>` +
       `<div id="memo-preview-actions">` +
         `<button id="memo-preview-rewrite">書き換え</button>` +
+        `<button id="memo-preview-move">カーソル行へ移動</button>` +
         `<button id="memo-preview-del" class="sec">撤去</button>` +
       `</div>`;
     id('memo-preview-ta').value = item.memo;
     id('memo-preview-jump').onclick = () => openPeek(item.file, item.line);
     id('memo-preview-rewrite').onclick = () => _rewriteInsertion(item);
+    id('memo-preview-move').onclick = () => moveInsertionToCursor(item);
     id('memo-preview-del').onclick = () => _deleteInsertion(item);
     return;
   }
@@ -634,10 +636,13 @@ function _makeMemoRow(item) {
   // 移動できる条件ではない。印が出ないメモ（記録が無い古いメモ）も直せる必要がある。
   // 移動は行メモ限定: 範囲メモ・ブックマークは moveLineMemo の対象外で、
   // ボタンを出しても必ず失敗する。
-  // 対象外: 範囲メモ・ブックマーク・デバッグ行は moveLineMemo の対象外なので出さない。
-  const moveBtn = item.kind === 'line'
+  // 対象外: 範囲メモ・ブックマークは moveLineMemo の対象外なのでボタンを出さない。
+  // デバッグ行の移動は別経路 (moveInsertionToCursor)。行メモと違ってファイルを跨げるが、
+  // 押し方は同じなのでボタンは共通にする。
+  const moveBtn = item.kind === 'line' || item.kind === 'insertion'
     ? `<button class="memo-list-move" title="エディタのカーソル行へ移動">⇅</button>`
-    : item.kind === 'insertion'
+    : '';
+  const rewriteBtn = item.kind === 'insertion'
     ? `<button class="memo-list-rewrite" title="挿入テキストを書き換え">✎</button>`
     : '';
   // ON/OFF ボタン (デバッグ行のみ)。電源アイコンは currentColor の SVG
@@ -679,7 +684,7 @@ function _makeMemoRow(item) {
     // （見えていない行があることが分からないと、書き換えで面食らう）。
     (item._siteCount > 1 ? `<span class="memo-list-insmore">+${item._siteCount - 1}行</span>` : '') +
     `</span>` +
-    toggleBtn + moveBtn + delBtn;
+    toggleBtn + moveBtn + rewriteBtn + delBtn;
   // 行内の操作部品はプレビュー表示・ジャンプの対象外にする。
   const _onCtl = e => e.target.closest(
     '.memo-list-drag, .memo-list-del, .memo-list-move, .memo-list-drift, ' +
@@ -692,7 +697,11 @@ function _makeMemoRow(item) {
     if (_onCtl(e)) return;
     openPeek(item.file, item.line).then(() => monacoEditor?.focus());
   });
-  const onMove = async e => { e.stopPropagation(); await _moveMemoToCursor(item); };
+  const onMove = async e => {
+    e.stopPropagation();
+    if (item.kind === 'insertion') await moveInsertionToCursor(item);
+    else await _moveMemoToCursor(item);
+  };
   row.querySelector('.memo-list-drift')?.addEventListener('click', onMove);
   row.querySelector('.memo-list-move')?.addEventListener('click', onMove);
   row.querySelector('.memo-list-rewrite')?.addEventListener('click', async e => {
