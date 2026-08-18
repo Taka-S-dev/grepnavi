@@ -405,6 +405,61 @@ func TestSameNameResolvedWithinDefiningFile(t *testing.T) {
 	}
 }
 
+// 直下の一覧は移動のためのものなので、地図の行に出ないまとまりも落とさない。
+// ルート直下ではディレクトリと、直に置かれた実装ファイルが並ぶ。
+func TestStructChildrenTopLevel(t *testing.T) {
+	got := childrenFrom(tablesForTest(), "")
+
+	byPath := map[string]StructChild{}
+	for _, c := range got {
+		byPath[c.Path] = c
+	}
+	for _, want := range []string{"core", "net", "util.c"} {
+		if _, ok := byPath[want]; !ok {
+			t.Fatalf("%q が直下の一覧に無い: %+v", want, got)
+		}
+	}
+	if c := byPath["util.c"]; !c.IsFile {
+		t.Errorf("ルート直下の実装ファイルが is_file になっていない: %+v", c)
+	}
+	if c := byPath["core"]; c.IsFile || c.Files != 2 {
+		t.Errorf("core = %+v, want ディレクトリで実装 2 ファイル", c)
+	}
+	// core は net から 3 参照。core 内部の相互参照は「外から」に数えない。
+	if c := byPath["core"]; c.Incoming != 3 {
+		t.Errorf("core の被参照 = %d, want 3 (内部の参照は数えない)", c.Incoming)
+	}
+	// 被参照の多い順。地図本体と同じ並びにする。
+	for i := 1; i < len(got); i++ {
+		if got[i-1].Incoming < got[i].Incoming {
+			t.Fatalf("被参照の降順になっていない: %+v", got)
+		}
+	}
+}
+
+// 深い階層でも直下 1 段だけを返す。net の下は tcp だけで、send.c までは降りない。
+func TestStructChildrenNested(t *testing.T) {
+	got := childrenFrom(tablesForTest(), "net")
+	if len(got) != 1 || got[0].Path != "net/tcp" {
+		t.Fatalf("net の直下 = %+v, want net/tcp のみ", got)
+	}
+	if got[0].IsFile {
+		t.Errorf("net/tcp をファイル扱いしている: %+v", got[0])
+	}
+
+	deeper := childrenFrom(tablesForTest(), "net/tcp")
+	if len(deeper) != 1 || deeper[0].Path != "net/tcp/send.c" || !deeper[0].IsFile {
+		t.Fatalf("net/tcp の直下 = %+v, want send.c (ファイル)", deeper)
+	}
+}
+
+// 実装を持たないパスは空を返す (存在しないパスと区別しない — どちらも地図には無い)。
+func TestStructChildrenUnknownPath(t *testing.T) {
+	if got := childrenFrom(tablesForTest(), "docs"); len(got) != 0 {
+		t.Errorf("docs の直下 = %+v, want 空", got)
+	}
+}
+
 // GTAGS の定義レコードから static / 関数を読み取る。圧縮辞書 (__.COMPRESS) を
 // 通してから見ないと、辞書に入った語で始まる定義を取り違える。
 func TestStructDefKind(t *testing.T) {

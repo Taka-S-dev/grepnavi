@@ -419,6 +419,96 @@ func finish(agg map[[2]string]*structEdgeAcc) []StructEdge {
 // structGroup は root 相対パスを第 depth 階層の見出しに畳む。
 // ルート直下のファイルは自分自身が見出しになる（ssl_err.c のような
 // 置き場のないファイルを「ルート」に混ぜると、そこが偽のハブになる）。
+// StructChild は1階層下のまとまり1件。地図の行が被参照順で 40 個に絞られ、
+// 重さで分割もされるのに対し、こちらは「そこに何があるか」を漏れなく出す
+// 移動用の一覧。名前さえ分かればどこへでも飛べるようにするのが目的なので、
+// 件数で打ち切らない。
+type StructChild struct {
+	Path     string `json:"path"`
+	Name     string `json:"name"`
+	IsFile   bool   `json:"is_file"`
+	Files    int    `json:"files"`    // 配下の実装ファイル数
+	Incoming int    `json:"incoming"` // そのまとまりの外から刺さる参照数
+}
+
+// StructChildren は parent の直下のまとまりを返す (parent="" ならツリー最上位)。
+// 地図と同じ表から数えるので、実装定義を持たないディレクトリ (ヘッダだけの
+// include/ など) は出てこない — 参照マップはそもそも実装の参照を集めた地図で、
+// そこへ移動しても空の面しか出せない。
+func StructChildren(ctx context.Context, root, parent string) ([]StructChild, error) {
+	t, err := structTablesFor(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	return childrenFrom(t, parent), nil
+}
+
+func childrenFrom(t *structTables, parent string) []StructChild {
+	parent = strings.Trim(filepath.ToSlash(parent), "/")
+	depth := 1
+	if parent != "" {
+		depth = len(strings.Split(parent, "/")) + 1
+	}
+	under := func(rel, dir string) bool {
+		return dir == "" || rel == dir || strings.HasPrefix(rel, dir+"/")
+	}
+	// 直下の名前。parent の外は "" を返す。
+	childOf := func(rel string) string {
+		if !under(rel, parent) {
+			return ""
+		}
+		return structGroup(rel, depth)
+	}
+
+	idx := map[string]*StructChild{}
+	get := func(p string) *StructChild {
+		c := idx[p]
+		if c == nil {
+			name := p
+			if i := strings.LastIndex(p, "/"); i >= 0 {
+				name = p[i+1:]
+			}
+			c = &StructChild{Path: p, Name: name}
+			idx[p] = c
+		}
+		return c
+	}
+
+	for _, f := range t.implFiles {
+		c := childOf(f)
+		if c == "" {
+			continue
+		}
+		e := get(c)
+		e.Files++
+		// structGroup は「これ以上畳めない」とき rel をそのまま返す。
+		// 直下に置かれたファイルはこれに当たる。
+		if c == f {
+			e.IsFile = true
+		}
+	}
+	for p, e := range t.edges {
+		c := childOf(p.def)
+		if c == "" || under(p.src, c) {
+			continue // 自分の中からの参照は「外から」ではない
+		}
+		get(c).Incoming += e.count
+	}
+
+	out := make([]StructChild, 0, len(idx))
+	for _, c := range idx {
+		out = append(out, *c)
+	}
+	// 地図本体と同じく被参照の多い順。同数はパスで安定させる。
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Incoming != out[j].Incoming {
+			return out[i].Incoming > out[j].Incoming
+		}
+		return out[i].Path < out[j].Path
+	})
+	return out
+}
+
 func structGroup(rel string, depth int) string {
 	segs := strings.Split(rel, "/")
 	if len(segs)-1 < depth {

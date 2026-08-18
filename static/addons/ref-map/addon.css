@@ -44,9 +44,51 @@
 }
 #rm-close:hover { color: #fff; }
 
+/* 移動の履歴。ツールバーの戻る/進むと同じ並びと同じキー（Alt+←/→）だが、
+   こちらはパネル内にフォーカスがあるときだけ効く。 */
+#rm-back, #rm-fwd {
+  background: none; border: none; color: #888;
+  font-size: 13px; cursor: pointer; padding: 0 3px; flex-shrink: 0;
+}
+#rm-back:hover:not(:disabled), #rm-fwd:hover:not(:disabled) { color: #fff; }
+#rm-back:disabled, #rm-fwd:disabled { color: #4a4a4a; cursor: default; }
+#rm-sidebar:focus { outline: none; }
+
 #rm-crumbs { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rm-crumb { color: #4fc1ff; cursor: pointer; }
 .rm-crumb:hover { text-decoration: underline; }
+
+/* パンくずの各段に付く「直下へ」。地図の行は被参照順に絞られるので、そこに
+   出ないディレクトリへはここからしか行けない。控えめに置いて hover で出す。 */
+.rm-crumb-caret { color: #666; cursor: pointer; padding: 0 2px; font-size: 10px; }
+.rm-crumb-caret:hover { color: #4fc1ff; }
+
+#rm-picker {
+  position: fixed;
+  z-index: var(--z-context-menu, 3000);
+  background: #2d2d2d;
+  border: 1px solid #555;
+  border-radius: 3px;
+  box-shadow: 0 4px 12px rgba(0,0,0,.5);
+  min-width: 220px;
+  max-width: 420px;
+  font-size: 12px;
+}
+#rm-picker-filter {
+  width: 100%;
+  box-sizing: border-box;
+  background: #1e1e1e; border: none; border-bottom: 1px solid #444;
+  color: #ccc; font-size: 12px; padding: 5px 8px; outline: none;
+}
+#rm-picker-list { max-height: min(420px, 60vh); overflow-y: auto; }
+.rm-picker-msg { padding: 8px; color: #888; }
+.rm-picker-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 3px 8px; cursor: pointer;
+}
+.rm-picker-row:hover { background: #094771; }
+.rm-picker-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rm-picker-num { color: #888; font-size: 11px; flex-shrink: 0; }
 
 /* スクロールしない帯: 公開面の事実・絞り込み・タブ。一覧が長くても消えない */
 #rm-bar {
@@ -138,8 +180,6 @@
   min-width: 0;
 }
 .rm-row:hover { background: #252526; }
-.rm-arrow { color: #666; flex-shrink: 0; }
-.rm-meta { margin-left: auto; color: #666; font-size: 11px; flex-shrink: 0; }
 
 .rm-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 絞り込みの一致箇所。ディレクトリ候補の .dir-hl と同じ強調色 */

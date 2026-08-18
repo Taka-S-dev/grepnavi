@@ -397,6 +397,11 @@ function showDirCtxMenu(absDir, relDir, x, y) {
     document.getElementById('tab-search')?.click();
     document.getElementById('q')?.focus();
   }));
+  // 参照マップは被参照順に絞った行しか出さないので、そこに載らない
+  // ディレクトリへはツリー側から指すのが早い。
+  if (typeof window.openRefMap === 'function') {
+    _ctxMenu.appendChild(ctxItem('参照マップで見る', () => window.openRefMap(relDir)));
+  }
   _ctxMenu.appendChild(ctxItem('パスをコピー', () => {
     navigator.clipboard.writeText(absDir.replace(/\//g, '\\'));
   }));

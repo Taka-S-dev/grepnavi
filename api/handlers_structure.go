@@ -80,6 +80,28 @@ func (h *Handler) handleStructure(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GET /api/structure/children?path=drivers … その直下のまとまり一覧。
+// 地図の行は被参照順に 40 個へ絞られ、重さでの分割も入るので、そこに出ない
+// ディレクトリはクリックだけでは辿り着けない。移動のための一覧なので、
+// こちらは絞らずに全部返す。
+func (h *Handler) handleStructureChildren(w http.ResponseWriter, r *http.Request) {
+	h.mu.RLock()
+	root := h.root
+	h.mu.RUnlock()
+
+	children, err := search.StructChildren(r.Context(), root, r.URL.Query().Get("path"))
+	if errors.Is(err, search.ErrRefMapNotBuilt) {
+		w.WriteHeader(http.StatusConflict)
+		jsonOK(w, map[string]any{"root": root, "status": search.RefMapStat(root)})
+		return
+	}
+	if err != nil {
+		jsonErr(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	jsonOK(w, map[string]any{"path": r.URL.Query().Get("path"), "children": children})
+}
+
 // GET /api/structure/status … 表があるか、無いなら生成にどれくらいかかるか
 func (h *Handler) handleStructureStatus(w http.ResponseWriter, r *http.Request) {
 	h.mu.RLock()

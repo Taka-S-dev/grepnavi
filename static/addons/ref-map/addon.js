@@ -17,6 +17,8 @@ document.addEventListener('DOMContentLoaded', () => {
     <div id="rm-sidebar" class="side-panel">
       <div id="rm-resizer"></div>
       <div id="rm-header">
+        <button id="rm-back" title="前に戻る (Alt+←)" disabled>&#8592;</button>
+        <button id="rm-fwd" title="次へ進む (Alt+→)" disabled>&#8594;</button>
         <span id="rm-crumbs"></span>
         <span id="rm-spacer"></span>
         <button id="rm-close" title="閉じる">×</button>
@@ -39,6 +41,24 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   document.getElementById('rm-close').onclick = () => closeRefMap();
+  document.getElementById('rm-back').onclick = () => rmHistGo(-1);
+  document.getElementById('rm-fwd').onclick = () => rmHistGo(1);
+
+  // Alt+←/→ はエディタの履歴に常時割り当てられている (app.js)。ここで
+  // document に足すと、パネルを開いている間ずっとエディタ側が動かなくなる。
+  // サイドバー内で押されたときだけ拾い、そこで伝播を止める。tabindex=-1 に
+  // しているので、行やパンくずをクリックした時点でフォーカスはこの中にある。
+  const rmPane = document.getElementById('rm-sidebar');
+  rmPane.tabIndex = -1;
+  rmPane.addEventListener('keydown', (e) => {
+    if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!rmHistGo(e.key === 'ArrowLeft' ? -1 : 1)) {
+      st(e.key === 'ArrowLeft' ? 'これより前の履歴はありません' : 'これより先の履歴はありません');
+    }
+  });
 
   const resizer = document.getElementById('rm-resizer');
   const sidebar = document.getElementById('rm-sidebar');
@@ -70,8 +90,68 @@ function closeRefMap() {
   document.getElementById('rm-sidebar').classList.remove('open');
 }
 
-async function rmLoad(focus) {
+// ===== 移動の履歴 =====
+
+// パンくずは祖先しか辿れない。`▾` の兄弟移動やファイルツリーからの直行が入って、
+
+// 「さっき見ていた場所」がパンくずの上に無いことが普通になったので、来た道を
+
+// 別に持つ。エディタ側の履歴 (editor.js の navHistory) と同じ規約で、履歴を
+
+// 辿っている間は積まない。
+
+let _rmHist = [];
+
+let _rmHistIdx = -1;
+
+
+
+function rmHistPush(focus) {
+
+  if (_rmHistIdx >= 0 && _rmHist[_rmHistIdx] === focus) return;
+
+  _rmHist = _rmHist.slice(0, _rmHistIdx + 1);
+
+  _rmHist.push(focus);
+
+  _rmHistIdx = _rmHist.length - 1;
+
+}
+
+
+
+function rmHistGo(delta) {
+
+  const i = _rmHistIdx + delta;
+
+  if (i < 0 || i >= _rmHist.length) return false;
+
+  _rmHistIdx = i;
+
+  rmLoad(_rmHist[i], { fromHistory: true });
+
+  return true;
+
+}
+
+
+
+function rmUpdateNavButtons() {
+
+  const b = document.getElementById('rm-back');
+
+  const f = document.getElementById('rm-fwd');
+
+  if (b) b.disabled = _rmHistIdx <= 0;
+
+  if (f) f.disabled = _rmHistIdx >= _rmHist.length - 1;
+
+}
+
+async function rmLoad(focus, opts) {
   _rmFocus = focus || '';
+  if (!opts || !opts.fromHistory) rmHistPush(_rmFocus);
+  rmUpdateNavButtons();
   _rmTab = 'in';
   _rmFilter = '';
   if (_rmAbort) _rmAbort.abort();
@@ -97,6 +177,13 @@ async function rmLoad(focus) {
       rmMsg(body, d.error || r.statusText);
       document.getElementById('rm-footer').textContent = '';
       return;
+    }
+    if (_rmRoot && d.root && d.root !== _rmRoot) {
+      // ルートを切り替えた。前の木のパスを履歴に残すと、戻った先が今の木に
+      // 無いことになる
+      _rmHist = [_rmFocus];
+      _rmHistIdx = 0;
+      rmUpdateNavButtons();
     }
     _rmRoot = d.root || '';
     _rmData = d;
@@ -575,6 +662,15 @@ function rmRenderCrumbs() {
       s.onclick = () => rmLoad(focus);
     }
     el.appendChild(s);
+    // どの段にも直下の一覧を出す。祖先の段では兄弟へ、末尾の段では今いる
+    // まとまりの中へ移れる。地図の行は被参照順に絞られていて、そこに出ない
+    // ディレクトリへはクリックだけでは辿り着けない。
+    const caret = document.createElement('span');
+    caret.className = 'rm-crumb-caret';
+    caret.textContent = '▾';
+    caret.title = (focus || 'ルート') + ' の直下へ移動';
+    caret.onclick = (e) => { e.stopPropagation(); rmOpenChildPicker(caret, focus); };
+    el.appendChild(caret);
   };
   add('参照マップ', '', _rmFocus !== '');
   if (_rmFocus) {
@@ -587,6 +683,86 @@ function rmRenderCrumbs() {
       add(seg, path, path !== _rmFocus);
     });
   }
+}
+
+// ===== 直下のまとまりを選ぶポップアップ =====
+// 地図の行と違って絞らずに全部出す（絞られていることが移動できない原因なので、
+// ここで同じことをすると意味が無い）。件数が多い場合のために絞り込みを付ける。
+
+let _rmPickerAbort = null;
+
+function rmClosePicker() {
+  document.getElementById('rm-picker')?.remove();
+  document.removeEventListener('mousedown', _rmPickerOutside, true);
+  document.removeEventListener('keydown', _rmPickerKey, true);
+  if (_rmPickerAbort) { _rmPickerAbort.abort(); _rmPickerAbort = null; }
+}
+
+function _rmPickerOutside(e) {
+  const p = document.getElementById('rm-picker');
+  if (p && !p.contains(e.target)) rmClosePicker();
+}
+
+function _rmPickerKey(e) {
+  if (e.key === 'Escape') { e.stopPropagation(); rmClosePicker(); }
+}
+
+async function rmOpenChildPicker(anchor, path) {
+  rmClosePicker();
+  const box = document.createElement('div');
+  box.id = 'rm-picker';
+  box.innerHTML =
+    `<input id="rm-picker-filter" type="text" spellcheck="false" placeholder="絞り込み">` +
+    `<div id="rm-picker-list" class="rm-picker-msg">読み込み中…</div>`;
+  document.body.appendChild(box);
+  const r = anchor.getBoundingClientRect();
+  box.style.left = Math.min(r.left, window.innerWidth - box.offsetWidth - 8) + 'px';
+  box.style.top = r.bottom + 2 + 'px';
+  document.addEventListener('mousedown', _rmPickerOutside, true);
+  document.addEventListener('keydown', _rmPickerKey, true);
+  document.getElementById('rm-picker-filter').focus();
+
+  _rmPickerAbort = new AbortController();
+  let children = [];
+  try {
+    const res = await fetch('/api/structure/children?' + new URLSearchParams({ path: path || '' }),
+                            { signal: _rmPickerAbort.signal });
+    const d = await res.json();
+    children = (d && d.children) || [];
+  } catch (e) {
+    if (e.name === 'AbortError') return;
+    children = null;
+  }
+  const list = document.getElementById('rm-picker-list');
+  if (!list) return;
+  if (children === null) { list.textContent = '読み込みに失敗しました'; return; }
+  if (!children.length) {
+    // 実装定義を持たないディレクトリ（ヘッダだけの include/ 等）はここに出ない。
+    list.textContent = 'この下に実装はありません';
+    return;
+  }
+  const draw = (q) => {
+    const terms = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const hit = children.filter((c) => terms.every((t) => c.path.toLowerCase().includes(t)));
+    list.className = hit.length ? '' : 'rm-picker-msg';
+    list.innerHTML = '';
+    if (!hit.length) { list.textContent = '一致なし'; return; }
+    for (const c of hit) {
+      const row = document.createElement('div');
+      row.className = 'rm-picker-row';
+      row.innerHTML =
+        `<span class="rm-picker-name">${rmEsc(c.name)}${c.is_file ? '' : '/'}</span>` +
+        `<span class="rm-picker-num" title="外から刺さる参照 / 実装ファイル数">${c.incoming} · ${c.files}f</span>`;
+      row.onclick = () => { rmClosePicker(); rmLoad(c.path); };
+      list.appendChild(row);
+    }
+  };
+  draw('');
+  document.getElementById('rm-picker-filter').oninput = (e) => draw(e.target.value);
+}
+
+function rmEsc(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
 function rmRenderFooter(d) {
