@@ -39,6 +39,8 @@ func doInsertionsReq(h *Handler, method, path, body string) *httptest.ResponseRe
 		h.handleInsertionsWrap(rec, req)
 	case path == "/api/insertions/group":
 		h.handleInsertionsGroup(rec, req)
+	case path == "/api/insertions/restore":
+		h.handleInsertionsRestore(rec, req)
 	default:
 		h.handleInsertionByID(rec, req)
 	}
@@ -1114,5 +1116,140 @@ func TestWrapRejectsInvalidRange(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(src); string(got) != "one\ntwo" {
 		t.Fatalf("不正入力でファイルが変わった: %q", got)
+	}
+}
+
+// 撤去 → restore で、ファイルもレコードも撤去前と同一に戻る (同じ ID・同じ本文・同じ行)。
+func TestRestoreAfterDelete(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo\nthree"), 0o644)
+	os.Chtimes(src, time.Unix(1000, 0), time.Unix(1000, 0))
+
+	rec := doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":1,"lines":["printf(\"[{tag}] hit\");"]}`)
+	if rec.Code != 200 {
+		t.Fatalf("insert status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var ins struct {
+		Insertion graph.Insertion `json:"insertion"`
+	}
+	decodeJSON(t, rec, &ins)
+	id := ins.Insertion.ID
+	afterInsert, _ := os.ReadFile(src)
+
+	if recDel := doInsertionsReq(h, "DELETE", "/api/insertions/"+id, ""); recDel.Code != 200 {
+		t.Fatalf("delete status = %d, body = %s", recDel.Code, recDel.Body.String())
+	}
+	recRes := doInsertionsReq(h, "POST", "/api/insertions/restore", "")
+	if recRes.Code != 200 {
+		t.Fatalf("restore status = %d, body = %s", recRes.Code, recRes.Body.String())
+	}
+
+	got, _ := os.ReadFile(src)
+	if !bytes.Equal(got, afterInsert) {
+		t.Errorf("file after restore = %q, want %q", got, afterInsert)
+	}
+	g := h.store.GetGraphResponse()
+	if len(g.Insertions) != 1 || g.Insertions[0].ID != id {
+		t.Fatalf("insertions after restore = %+v, want one record with id %s", g.Insertions, id)
+	}
+	if got, want := g.Insertions[0].Sites, ins.Insertion.Sites; len(got) != len(want) || got[0] != want[0] {
+		t.Errorf("sites after restore = %+v, want %+v", got, want)
+	}
+	// 控えは1回きり。二度目の Ctrl+Z で同じ行がもう一度生えてはいけない。
+	if rec2 := doInsertionsReq(h, "POST", "/api/insertions/restore", ""); rec2.Code != 404 {
+		t.Errorf("second restore status = %d, want 404", rec2.Code)
+	}
+}
+
+// 囲み (#if 0 / #endif) のように site が離れた記録でも、両方が元の行へ戻る。
+func TestRestoreWrapInsertion(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo\nthree\nfour\n"), 0o644)
+	os.Chtimes(src, time.Unix(1000, 0), time.Unix(1000, 0))
+
+	rec := doInsertionsReq(h, "POST", "/api/insertions/wrap", `{"file":"`+jsonPath(src)+`","start_line":2,"end_line":3}`)
+	if rec.Code != 200 {
+		t.Fatalf("wrap status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var ins struct {
+		Insertion graph.Insertion `json:"insertion"`
+	}
+	decodeJSON(t, rec, &ins)
+	afterWrap, _ := os.ReadFile(src)
+
+	if recDel := doInsertionsReq(h, "DELETE", "/api/insertions/"+ins.Insertion.ID, ""); recDel.Code != 200 {
+		t.Fatalf("delete status = %d, body = %s", recDel.Code, recDel.Body.String())
+	}
+	if recRes := doInsertionsReq(h, "POST", "/api/insertions/restore", ""); recRes.Code != 200 {
+		t.Fatalf("restore status = %d, body = %s", recRes.Code, recRes.Body.String())
+	}
+	got, _ := os.ReadFile(src)
+	if !bytes.Equal(got, afterWrap) {
+		t.Errorf("file after restore = %q, want %q", got, afterWrap)
+	}
+}
+
+// 撤去した後にファイルの行数が変わったら、控えている行番号はもう元の位置ではない。
+// 戻さずに断り、ファイルにもレコードにも触らない。
+func TestRestoreRefusedAfterFileGrew(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo\nthree\n"), 0o644)
+	os.Chtimes(src, time.Unix(1000, 0), time.Unix(1000, 0))
+
+	rec := doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+jsonPath(src)+`","line":1,"lines":["printf(\"hit\");"]}`)
+	if rec.Code != 200 {
+		t.Fatalf("insert status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var ins struct {
+		Insertion graph.Insertion `json:"insertion"`
+	}
+	decodeJSON(t, rec, &ins)
+	if recDel := doInsertionsReq(h, "DELETE", "/api/insertions/"+ins.Insertion.ID, ""); recDel.Code != 200 {
+		t.Fatalf("delete status = %d, body = %s", recDel.Code, recDel.Body.String())
+	}
+
+	// 外部エディタが1行足した
+	os.WriteFile(src, []byte("zero\none\ntwo\nthree\n"), 0o644)
+	os.Chtimes(src, time.Unix(2000, 0), time.Unix(2000, 0))
+	before, _ := os.ReadFile(src)
+
+	recRes := doInsertionsReq(h, "POST", "/api/insertions/restore", "")
+	if recRes.Code != 409 {
+		t.Fatalf("restore status = %d, want 409, body = %s", recRes.Code, recRes.Body.String())
+	}
+	after, _ := os.ReadFile(src)
+	if !bytes.Equal(before, after) {
+		t.Errorf("file changed despite refusal: %q -> %q", before, after)
+	}
+	if g := h.store.GetGraphResponse(); len(g.Insertions) != 0 {
+		t.Errorf("insertions = %+v, want none", g.Insertions)
+	}
+}
+
+// まとめ撤去は1件戻しの控えを捨てる (どれが戻るのか押す側から見えなくなるため)。
+func TestRemoveAllDropsRestoreRecord(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo\nthree\n"), 0o644)
+	os.Chtimes(src, time.Unix(1000, 0), time.Unix(1000, 0))
+
+	for i := 0; i < 2; i++ {
+		body := `{"file":"` + jsonPath(src) + `","line":1,"lines":["printf(\"hit` + strconv.Itoa(i) + `\");"]}`
+		if rec := doInsertionsReq(h, "POST", "/api/insertions", body); rec.Code != 200 {
+			t.Fatalf("insert status = %d, body = %s", rec.Code, rec.Body.String())
+		}
+	}
+	first := h.store.GetGraphResponse().Insertions[0]
+	if recDel := doInsertionsReq(h, "DELETE", "/api/insertions/"+first.ID, ""); recDel.Code != 200 {
+		t.Fatalf("delete status = %d, body = %s", recDel.Code, recDel.Body.String())
+	}
+	if rec := doInsertionsReq(h, "POST", "/api/insertions/removeall", "{}"); rec.Code != 200 {
+		t.Fatalf("removeall status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if rec := doInsertionsReq(h, "POST", "/api/insertions/restore", ""); rec.Code != 404 {
+		t.Errorf("restore status = %d, want 404", rec.Code)
 	}
 }

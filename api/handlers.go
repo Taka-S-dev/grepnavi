@@ -27,6 +27,9 @@ type Handler struct {
 	// では直列化できない（NextInsertionTag 採番から AddInsertion までの
 	// 間に別リクエストが割り込むとタグ重複や行番号の食い違いが起きる）。
 	insMu sync.Mutex
+	// lastRemoved は直前に撤去したデバッグ行1件の控え (insMu が守る)。
+	// Ctrl+Z の復元専用で、履歴スタックは持たない。
+	lastRemoved *removedInsertion
 }
 
 func NewHandler(store *graph.Store, root string) *Handler {
@@ -137,6 +140,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/insertions/toggle", h.notifyGraphChange(h.handleInsertionsToggle))
 	mux.HandleFunc("/api/insertions/wrap", h.notifyGraphChange(h.handleInsertionsWrap))
 	mux.HandleFunc("/api/insertions/group", h.notifyGraphChange(h.handleInsertionsGroup))
+	mux.HandleFunc("/api/insertions/restore", h.notifyGraphChange(h.handleInsertionsRestore))
 	mux.HandleFunc("/api/insertions/", h.notifyGraphChange(h.handleInsertionByID))
 }
 

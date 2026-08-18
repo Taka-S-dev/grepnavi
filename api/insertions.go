@@ -230,7 +230,7 @@ func (h *Handler) deleteInsertionByID(w http.ResponseWriter, id string) {
 		jsonErr(w, "insertion not found", http.StatusNotFound)
 		return
 	}
-	shifts, err := h.deleteInsertionSites(ins)
+	shifts, undo, err := h.deleteInsertionSites(ins)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			// ファイルごと消えている: ディスク側に splice する対象が無いので、
@@ -239,6 +239,7 @@ func (h *Handler) deleteInsertionByID(w http.ResponseWriter, id string) {
 				jsonErr(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
+			h.lastRemoved = nil // 戻す先のファイルが無い
 			jsonOK(w, map[string]any{"shifts": []graph.ShiftResult{}})
 			return
 		}
@@ -251,7 +252,98 @@ func (h *Handler) deleteInsertionByID(w http.ResponseWriter, id string) {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	h.lastRemoved = undo
 	jsonOK(w, map[string]any{"shifts": shifts})
+}
+
+// removedInsertion は撤去1件を戻すための控え。lines は撤去直後のファイル行数で、
+// 戻す前に一致を確かめる — 行数が変わっていれば sites の行番号はもう元の位置を
+// 指しておらず、戻すと関係ない場所へ紛れ込む。
+type removedInsertion struct {
+	ins   graph.Insertion
+	lines int
+}
+
+// --- POST /api/insertions/restore ---
+
+// handleInsertionsRestore は直前の1件撤去を戻す (ブラウザの Ctrl+Z)。撤去の逆操作に
+// 徹していて、同じ ID・同じ本文を消した行へ戻す。挿入 API で入れ直すのでは代わりに
+// ならない: 採番が変わり、本文に焼き込まれた {tag} 置換後の ID と食い違う。
+// 戻せるのは常に直前の1件だけで、履歴スタックは持たない。
+func (h *Handler) handleInsertionsRestore(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if !h.fileWrites {
+		jsonErr(w, "file writes disabled (bind to loopback to enable)", http.StatusForbidden)
+		return
+	}
+
+	h.insMu.Lock()
+	defer h.insMu.Unlock()
+
+	last := h.lastRemoved
+	if last == nil {
+		jsonErr(w, "no removal to restore", http.StatusNotFound)
+		return
+	}
+	// 戻せなかった控えも捨てる。残しても次の Ctrl+Z が同じ理由で失敗するだけで、
+	// その間ずっとグラフ側の undo を奪い続ける。
+	h.lastRemoved = nil
+
+	if _, ok := h.resolveWithinRoot(last.ins.File); !ok {
+		// プロジェクトを切り替えた後。戻す先がもう今の root の外にある。
+		jsonErr(w, "file outside root", http.StatusForbidden)
+		return
+	}
+	if _, exists := h.findInsertion(last.ins.ID); exists {
+		// 撤去した後に同じ ID が再採番された (NextInsertionTag は最大+1 なので、
+		// 末尾の1件を撤去した直後の挿入がこれに当たる)。
+		jsonErr(w, "id already in use", http.StatusConflict)
+		return
+	}
+
+	pf, err := patch.Load(last.ins.File)
+	if err != nil {
+		patchErrStatus(w, err)
+		return
+	}
+	if pf.LineCount() != last.lines {
+		jsonErr(w, "file changed since the removal", http.StatusConflict)
+		return
+	}
+
+	sites := append([]graph.InsertionSite(nil), last.ins.Sites...)
+	// 昇順に戻す: 上の行から順に入れれば、下の site の行番号は「自分より上が
+	// 戻り終わった後の位置」としてそのまま使える (撤去が降順なのの裏返し)。
+	sort.Slice(sites, func(a, b int) bool { return sites[a].Line < sites[b].Line })
+	hadFinalNewline := pf.EndsWithNewline()
+	for _, site := range sites {
+		if err := pf.InsertAfter(site.Line-1, []string{site.Text}); err != nil {
+			patchErrStatus(w, err)
+			return
+		}
+	}
+	pf.SetFinalNewline(hadFinalNewline)
+	if err := h.saveFile(pf); err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// ShiftLines は AddInsertion より先に (挿入 API と同じ理由: 後だと戻したばかりの
+	// この記録自身の sites まで押し下げてしまう)。
+	shifts := make([]graph.ShiftResult, 0, len(sites))
+	for _, site := range sites {
+		shifts = append(shifts, h.store.ShiftLines(last.ins.File, site.Line, 1))
+	}
+	restored := last.ins
+	restored.Sites = sites
+	if err := h.store.AddInsertion(restored); err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, map[string]any{"insertion": restored, "shifts": shifts})
 }
 
 func (h *Handler) putInsertionByID(w http.ResponseWriter, r *http.Request, id string) {
@@ -489,6 +581,10 @@ func (h *Handler) handleInsertionsRemoveAll(w http.ResponseWriter, r *http.Reque
 	h.insMu.Lock()
 	defer h.insMu.Unlock()
 
+	// まとめ撤去の後に1件だけ戻せても中途半端で、しかも「今の Ctrl+Z が何を戻すのか」が
+	// 押す側から見えなくなる。確認ダイアログを通っている操作なので控えは捨てる。
+	h.lastRemoved = nil
+
 	all := h.store.GetGraphResponse().Insertions
 	byFile := map[string][]string{} // file -> ids, ファイル毎にまとめて処理順を作る
 	for _, ins := range all {
@@ -515,7 +611,7 @@ func (h *Handler) handleInsertionsRemoveAll(w http.ResponseWriter, r *http.Reque
 			if !ok {
 				continue
 			}
-			siteShifts, err := h.deleteInsertionSites(ins)
+			siteShifts, _, err := h.deleteInsertionSites(ins)
 			if err != nil {
 				if errors.Is(err, fs.ErrNotExist) {
 					// ファイルごと消えている: 記録の削除だけを成功として扱う (DELETE と同じ規約)。
@@ -893,10 +989,13 @@ func (h *Handler) handleInsertionsWrap(w http.ResponseWriter, r *http.Request) {
 // （verify-then-apply）。1つに畳んだ ShiftResult は複数キーが同じ移動先へ
 // 収束した場合にクライアントが順序を知らないと再現できないため、
 // removeall と同じ「順序付きリスト」の形で返す（畳み込みはしない）。
-func (h *Handler) deleteInsertionSites(ins graph.Insertion) ([]graph.ShiftResult, error) {
+// 第2の戻り値は撤去を取り消すための控え。記録の行番号ではなく resolveSitePosition が
+// 見つけた実位置を写す — 記録がずれていた場合、戻すべき場所は実際に消した行であって
+// 記録の行ではない。
+func (h *Handler) deleteInsertionSites(ins graph.Insertion) ([]graph.ShiftResult, *removedInsertion, error) {
 	pf, err := patch.Load(ins.File)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	type sitePos struct {
@@ -907,7 +1006,7 @@ func (h *Handler) deleteInsertionSites(ins graph.Insertion) ([]graph.ShiftResult
 	for i, site := range ins.Sites {
 		line, err := resolveSitePosition(pf, ins.File, site)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		positions[i] = sitePos{line: line, text: site.Text}
 	}
@@ -919,17 +1018,23 @@ func (h *Handler) deleteInsertionSites(ins graph.Insertion) ([]graph.ShiftResult
 	hadFinalNewline := pf.EndsWithNewline()
 	for _, p := range positions {
 		if err := pf.DeleteLine(p.line, p.text); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	pf.SetFinalNewline(hadFinalNewline)
 	if err := h.saveFile(pf); err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+
+	undo := ins
+	undo.Sites = make([]graph.InsertionSite, len(positions))
+	for i, p := range positions {
+		undo.Sites[i] = graph.InsertionSite{Line: p.line, Text: p.text}
 	}
 
 	shifts := make([]graph.ShiftResult, 0, len(positions))
 	for _, p := range positions {
 		shifts = append(shifts, h.store.ShiftLines(ins.File, p.line+1, -1))
 	}
-	return shifts, nil
+	return shifts, &removedInsertion{ins: undo, lines: pf.LineCount()}, nil
 }

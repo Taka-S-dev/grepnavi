@@ -475,6 +475,74 @@ function _insertionWriteErrorMessage(r, id, body) {
   return '操作に失敗しました' + (r ? ` (${r.status})` : ' (通信エラー)');
 }
 
+// 撤去を Ctrl+Z で戻せる残り時間。控えはサーバが持っているので、ここが覚えるのは
+// 「今 Ctrl+Z を押したらデバッグ行の話になる」という窓だけ。窓を切らないと、忘れた頃の
+// Ctrl+Z が黙って撤去を戻し、押した本人はグラフ側が戻ると思っている。
+// メモ削除の undo (memo-list.js) と同じ 30 秒に揃える。
+const _INSERTION_UNDO_MS = 30000;
+let _insertionUndoTimer = null;
+let _insertionUndoPending = false;
+
+function _armInsertionUndo() {
+  _insertionUndoPending = true;
+  clearTimeout(_insertionUndoTimer);
+  _insertionUndoTimer = setTimeout(() => { _insertionUndoPending = false; }, _INSERTION_UNDO_MS);
+}
+
+function _disarmInsertionUndo() {
+  _insertionUndoPending = false;
+  clearTimeout(_insertionUndoTimer);
+}
+
+// 撤去の取り消し。サーバが控えている直前の1件を、同じ ID・同じ本文で元の行へ戻す。
+// 戻せない理由 (ファイルが変わった、ID が再採番された) はサーバが判定するので、
+// ここでは結果をそのまま伝える — 黙って何も起きないのが一番困る。
+async function undoInsertionRemoval() {
+  _disarmInsertionUndo();
+  const r = await fetch('/api/insertions/restore', { method: 'POST' }).catch(() => null);
+  if (!r || !r.ok) {
+    let reason = '';
+    try { reason = (await r.json()).error || ''; } catch { /* 応答なし・非 JSON */ }
+    st('デバッグ行を戻せません' + (reason ? ': ' + reason : ''));
+    return;
+  }
+  const d = await r.json();
+  for (const sh of d.shifts || []) applyShift(sh);
+  graph.insertions = (graph.insertions || []).concat([d.insertion]);
+  await pollActiveFile();
+  refreshInsertionDecorations();
+  renderMemoList();
+  updateInsertionBadge();
+  st(d.insertion.id + ' を戻しました');
+}
+
+// Ctrl+Z を他所へ譲るか。撤去はエディタの右クリックからが主なので、直後はほぼ必ず
+// Monaco がフォーカスを持っている。エディタは読み取り専用 (editor.js の readOnly) で
+// 戻すものが無く、ここで譲ると撤去の取り消しが永久に届かない。書き換え可能に
+// なったときだけ譲る。Monaco のフォーカスを先に判定するのは、その実体が隠し
+// textarea で、下の入力欄判定に引っかかってしまうため。
+function _undoBelongsElsewhere() {
+  if (typeof monacoEditor !== 'undefined' && monacoEditor?.hasTextFocus?.()) {
+    return !monacoEditor.getRawOptions?.().readOnly;
+  }
+  const tag = document.activeElement?.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || !!document.activeElement?.isContentEditable;
+}
+
+// グローバル Ctrl+Z の1段目。撤去直後の窓の中だけ発火し、それ以外は後続の
+// listener (memo-list.js のメモ復元 → app.js の graph undo) へ素通しする。
+// この listener が先に走るのは index.html の読み込み順による (insertions.js が上)。
+// capture で受けるのは Monaco 自身のキーバインドより先に出るため — Monaco は
+// 処理したキーの伝播を止めるので、bubble で待つと届かないことがある。
+document.addEventListener('keydown', e => {
+  if (e.key !== 'z' || !(e.ctrlKey || e.metaKey) || e.shiftKey) return;
+  if (!_insertionUndoPending) return;
+  if (_undoBelongsElsewhere()) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  undoInsertionRemoval();
+}, true);
+
 async function _deleteInsertion(item) {
   const r = await fetch("/api/insertions/" + encodeURIComponent(item._insId), { method: "DELETE" }).catch(() => null);
   if (!r || !r.ok) {
@@ -490,7 +558,8 @@ async function _deleteInsertion(item) {
   refreshInsertionDecorations();
   renderMemoList();
   updateInsertionBadge();
-  st(item._insId + " を撤去しました");
+  _armInsertionUndo();
+  st(item._insId + " を撤去しました (Ctrl+Z で戻せます)");
 }
 
 // まとめて（行を増減しつつ）書き換えてよいレコードか。サーバ側の判定と
@@ -718,6 +787,9 @@ async function removeAllInsertions(group) {
     return;
   }
   const d = await r.json();
+  // サーバはまとめ撤去で1件戻しの控えを捨てる。こちらの窓も閉じないと、
+  // Ctrl+Z がグラフ undo へ落ちずにエラーだけ出す。
+  _disarmInsertionUndo();
   for (const s of d.shifts || []) applyShift(s);
   const removed = new Set(d.removed || []);
   graph.insertions = (graph.insertions || []).filter((i) => !removed.has(i.id));
