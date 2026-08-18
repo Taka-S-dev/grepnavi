@@ -449,8 +449,8 @@ function rmRenderFocus(m) {
   if (m.files > 0) {
     const facts = document.createElement('div');
     facts.className = 'rm-facts';
-    facts.textContent = `外から触られる実装 ${m.files_open}/${m.files} ファイル · 公開シンボル ${m.syms_open}/${m.syms}`;
-    facts.title = '比が小さいほど公開面が狭い = 1つの単位として扱いやすい。\n分母は索引にある実装(.c系)の定義（同名で集計外のものは含まない）';
+    facts.textContent = `外から触られる実装 ${m.files_open}/${m.files} ファイル`;
+    facts.title = '比が小さいほど公開面が狭い = 1つの単位として扱いやすい。\n分母は索引で実装(.c系)に定義を持つファイル数（同名で集計外のものは含まない）';
     bar.appendChild(facts);
   }
 
