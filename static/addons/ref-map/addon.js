@@ -598,6 +598,13 @@ function rmRenderFooter(d) {
     // それによって出ていない参照の数も添える
     parts.push(`同名のため集計外: ${omitted.same_name} シンボル / ${omitted.same_name_refs} 参照`);
   }
+  // 落とした理由ごとに数を出す。黙って消すと「元から関係が無かった」と読めてしまう。
+  if (omitted && omitted.static_refs > 0) {
+    parts.push(`static 定義への他ファイル参照 ${omitted.static_refs} 件は除外（名前が一致しただけで、C の規則上ありえない）`);
+  }
+  if (omitted && omitted.header_refs > 0) {
+    parts.push(`ヘッダに現れた名前 ${omitted.header_refs} 件は不算入（プロトタイプ宣言は実装の利用ではない）`);
+  }
   if (d.stale) parts.push('⚠ 索引が古い（地図は前回の索引時点）');
   el.textContent = parts.join(' · ');
 }

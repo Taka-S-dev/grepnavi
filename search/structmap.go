@@ -47,6 +47,12 @@ type StructOmitted struct {
 	// SameNameRefs はそれによって地図に出ていない参照の数。シンボル数だけでは
 	// 地図全体のどれくらいが欠けているかが分からない
 	SameNameRefs int `json:"same_name_refs"`
+	// StaticRefs は static 定義を名前一致で指していた他ファイルからの参照。
+	// C の規則の上でありえない結び付きなので落としている
+	StaticRefs int `json:"static_refs"`
+	// HeaderRefs はヘッダに現れた名前。プロトタイプ宣言が大半で、実装を
+	// 使っている側ではないので数えていない
+	HeaderRefs int `json:"header_refs"`
 }
 
 // StructOverview は全域を第 depth 階層で畳んだ地図。
@@ -87,6 +93,8 @@ type structTables struct {
 	implFiles    []string
 	sameName     int
 	sameNameRefs int
+	staticRefs   int
+	headerRefs   int
 	edges        map[structPair]*structFileEdge
 }
 
@@ -131,7 +139,10 @@ const (
 )
 
 func (t *structTables) omitted() StructOmitted {
-	return StructOmitted{SameName: t.sameName, SameNameRefs: t.sameNameRefs}
+	return StructOmitted{
+		SameName: t.sameName, SameNameRefs: t.sameNameRefs,
+		StaticRefs: t.staticRefs, HeaderRefs: t.headerRefs,
+	}
 }
 
 func overviewAuto(t *structTables) *StructOverview {
@@ -553,19 +564,35 @@ func buildStructTables(ctx context.Context, root string) (*structTables, error) 
 	refMapNote("定義を読み込み中 (GTAGS)... ファイル %d 件", len(id2path))
 	t := &structTables{edges: map[structPair]*structFileEdge{}}
 	defFile := map[string]string{}
+	// 「見えている定義がすべて static」なシンボル。1つでも外から見える定義が
+	// あれば false に落とす（先に見えたほうで決めると、読む順で結果が変わる）。
+	// すべて static なら、定義していないファイルからの参照は C の規則の上で
+	// ありえないので落とす（structDefKind 参照）。
+	allStatic := map[string]bool{}
+	dict := map[byte]string{}
 	dup := map[string]bool{}
 	// 同名の実装が複数あるシンボルの、定義ファイル一覧。参照元が自分でも
 	// 定義しているなら、その参照はその定義を指す（C の規則。static は
 	// ファイルの外から見えない）。推測ではないので使ってよい
 	multi := map[string][]string{}
 	err = gtagsDump(ctx, root, "GTAGS", func(l string) {
-		sym, id, ok := structEntry(l)
+		if strings.HasPrefix(l, " __.COMPRESS") {
+			dict = structCompress(l)
+			return
+		}
+		sym, id, image, ok := structEntry(l)
 		if !ok {
 			return
 		}
 		f := id2path[id]
 		if f == "" || !isImplFile(f) {
 			return
+		}
+		isStatic, _ := structDefKind(image, dict)
+		if v, seen := allStatic[sym]; !seen {
+			allStatic[sym] = isStatic
+		} else if v && !isStatic {
+			allStatic[sym] = false
 		}
 		if prev, seen := defFile[sym]; seen {
 			if prev != f {
@@ -598,12 +625,27 @@ func buildStructTables(ctx context.Context, root string) (*structTables, error) 
 	refMapNote("参照を読み込み中 (GRTAGS)... 実装 %d ファイル", len(t.implFiles))
 	// GRTAGS: 参照。読みながらファイル対へ畳む（1件ずつは保持しない）
 	err = gtagsDump(ctx, root, "GRTAGS", func(l string) {
-		sym, id, ok := structEntry(l)
+		sym, id, _, ok := structEntry(l)
 		if !ok {
 			return
 		}
 		src := id2path[id]
 		if src == "" || !isSourceFile(src) {
+			return
+		}
+		if !isImplFile(src) {
+			// ヘッダに出てくる名前はプロトタイプ宣言が大半で、実装を使って
+			// いるわけではない（実測: openssl でヘッダ発のエッジ 1105 本は
+			// すべて、実装からの参照が1本も無い＝宣言だけで生まれた線）。
+			// マクロ本体からの本物の呼び出しも混ざるが、それを使っているのは
+			// マクロを展開した側であって、宣言しているヘッダではない。
+			t.headerRefs++
+			return
+		}
+		if allStatic[sym] && defFile[sym] != src && !slices.Contains(multi[sym], src) {
+			// static はファイルの外から見えない。名前が一致しただけの他人。
+			// 同名が複数あっても、全部 static なら同じことが言える。
+			t.staticRefs++
 			return
 		}
 		def := defFile[sym]
@@ -640,15 +682,82 @@ func buildStructTables(ctx context.Context, root string) (*structTables, error) 
 	return t, nil
 }
 
-func structEntry(line string) (sym, id string, ok bool) {
-	if strings.HasPrefix(line, " __.") {
-		return "", "", false // メタレコード
+// GTAGS の定義レコードは `シンボル<TAB>ファイル番号 @n 行番号 定義行のソース`
+// という形で、定義行そのものが入っている。@n は定義中のシンボル名、@x は
+// 圧縮辞書 (メタレコード __.COMPRESS) の語。ここを読めば、追加の入出力なしに
+// 「static か」「関数か」が分かる。
+var reStructDefImage = regexp.MustCompile(`^@n\s+\d+\s+(.*)$`)
+
+// structCompress は __.COMPRESS メタレコードの辞書 (文字 → 語)。
+// 実測した gtags 6 では define / typedef の2語だけだが、辞書は DB が持っている
+// ものなので読んで使う。読まずに前方一致で "static" を見ると、辞書に static が
+// 入った DB では判定が黙って 0 件になる。
+func structCompress(line string) map[byte]string {
+	fs := strings.Fields(line)
+	dict := map[byte]string{}
+	for _, f := range fs {
+		if len(f) > 1 && !strings.HasPrefix(f, "__.") {
+			dict[f[0]] = f[1:]
+		}
 	}
-	m := reStructEntry.FindStringSubmatch(line)
+	return dict
+}
+
+func expandImage(img string, dict map[byte]string) string {
+	if !strings.Contains(img, "@") {
+		return img
+	}
+	var b strings.Builder
+	for i := 0; i < len(img); i++ {
+		if img[i] != '@' || i+1 >= len(img) {
+			b.WriteByte(img[i])
+			continue
+		}
+		c := img[i+1]
+		if w, ok := dict[c]; ok {
+			b.WriteString(w)
+			i++
+			continue
+		}
+		b.WriteByte(img[i])
+	}
+	return b.String()
+}
+
+// structDefKind は定義行のソースから、ファイル外から参照されうるか (static で
+// ないか) と、関数かどうかを見る。
+//
+// static はそのファイルの外から参照できない (C のリンケージ規則)。にもかかわらず
+// 他ファイルからの参照が名前一致で結び付くのは、gtags が名前だけで突き合わせて
+// いるため — 他のファイルのローカル変数 `cnt` が `static int cnt;` への参照に
+// 化ける。規則の上でありえない結び付きなので、推測ではなく落としてよい。
+//
+// 型と名前が別の行に書かれた定義 (static が前の行にある) は取りこぼす。
+// 取りこぼしても偽のエッジが残るだけで、本物のエッジは消えない。
+func structDefKind(image string, dict map[byte]string) (isStatic, isFunc bool) {
+	m := reStructDefImage.FindStringSubmatch(image)
 	if m == nil {
-		return "", "", false
+		return false, false
 	}
-	return m[1], m[2], true
+	src := strings.TrimSpace(expandImage(m[1], dict))
+	isStatic = strings.HasPrefix(src, "static ") || strings.HasPrefix(src, "static\t")
+	// 定義行のシンボル直後が '(' なら関数。@n は定義中のシンボル名を指す。
+	isFunc = strings.Contains(strings.ReplaceAll(src, " ", ""), "@n(")
+	return isStatic, isFunc
+}
+
+// structEntry は1レコードを シンボル / ファイル番号 / 残り (行番号と、GTAGS なら
+// 定義行のソース) に割る。
+func structEntry(line string) (sym, id, image string, ok bool) {
+	if strings.HasPrefix(line, " __.") {
+		return "", "", "", false // メタレコード
+	}
+	m := reStructEntry.FindStringSubmatchIndex(line)
+	if m == nil {
+		return "", "", "", false
+	}
+	// m[1] は正規表現全体の終端。その先が行番号と（GTAGS なら）定義行のソース。
+	return line[m[2]:m[3]], line[m[4]:m[5]], strings.TrimLeft(line[m[1]:], " \t"), true
 }
 
 func isImplFile(rel string) bool {

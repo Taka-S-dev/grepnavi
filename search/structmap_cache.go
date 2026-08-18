@@ -25,7 +25,7 @@ import (
 // エッジをパス2本ずつで書くと数倍に膨らむ）。
 
 const (
-	refMapCacheMagic = "grepnavi-refmap\t3"
+	refMapCacheMagic = "grepnavi-refmap\t4"
 	refMapCacheFile  = ".grepnavi-refmap"
 )
 
@@ -77,17 +77,20 @@ func loadRefMapCache(root string, mtime time.Time, size int64, excl string) (*st
 		body := line[2:]
 		switch line[0] {
 		case 'n':
-			// sameName<TAB>sameNameRefs
-			fs := strings.SplitN(body, "\t", 2)
-			n, err := strconv.Atoi(fs[0])
-			if err != nil || len(fs) != 2 {
+			// sameName<TAB>sameNameRefs<TAB>staticRefs<TAB>headerRefs
+			fs := strings.Split(body, "\t")
+			if len(fs) != 4 {
 				return nil, false
 			}
-			nr, err2 := strconv.Atoi(fs[1])
-			if err2 != nil {
-				return nil, false
+			ns := make([]int, 4)
+			for i, f := range fs {
+				v, err := strconv.Atoi(f)
+				if err != nil {
+					return nil, false
+				}
+				ns[i] = v
 			}
-			t.sameName, t.sameNameRefs = n, nr
+			t.sameName, t.sameNameRefs, t.staticRefs, t.headerRefs = ns[0], ns[1], ns[2], ns[3]
 		case 'p':
 			paths = append(paths, body)
 		case 'i':
@@ -136,7 +139,7 @@ func saveRefMapCache(root string, mtime time.Time, size int64, excl string, t *s
 	}
 	w := bufio.NewWriterSize(f, 1<<20)
 	fmt.Fprintln(w, refMapHeader(mtime, size, excl))
-	fmt.Fprintf(w, "n\t%d\t%d\n", t.sameName, t.sameNameRefs)
+	fmt.Fprintf(w, "n\t%d\t%d\t%d\t%d\n", t.sameName, t.sameNameRefs, t.staticRefs, t.headerRefs)
 
 	id := make(map[string]int, len(t.edges))
 	put := func(path string) int {

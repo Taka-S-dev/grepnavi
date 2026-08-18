@@ -385,10 +385,14 @@ func TestSameNameResolvedWithinDefiningFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// a.c / b.c の中の cmp は解決済みなので「決められない参照」に数えない。
-	// c.c の1件だけが残る
-	if o.Omitted.SameNameRefs != 1 {
-		t.Errorf("決められない参照 = %d, want 1", o.Omitted.SameNameRefs)
+	// a.c / b.c の中の cmp は解決済み。c.c の参照は、どちらの cmp も static で
+	// ファイルの外から見えない以上「決められない」のではなく「ありえない」ので、
+	// 決められない参照ではなく static 参照として外れる
+	if o.Omitted.SameNameRefs != 0 {
+		t.Errorf("決められない参照 = %d, want 0", o.Omitted.SameNameRefs)
+	}
+	if o.Omitted.StaticRefs != 1 {
+		t.Errorf("static 定義への他ファイル参照 = %d, want 1", o.Omitted.StaticRefs)
 	}
 	if o.Omitted.SameName != 1 {
 		t.Errorf("同名シンボル = %d, want 1", o.Omitted.SameName)
@@ -398,5 +402,55 @@ func TestSameNameResolvedWithinDefiningFile(t *testing.T) {
 		if e.From == e.To {
 			t.Errorf("自己参照がエッジになっている: %+v", e)
 		}
+	}
+}
+
+// GTAGS の定義レコードから static / 関数を読み取る。圧縮辞書 (__.COMPRESS) を
+// 通してから見ないと、辞書に入った語で始まる定義を取り違える。
+func TestStructDefKind(t *testing.T) {
+	dict := structCompress(" __.COMPRESS\t __.COMPRESS ddefine ttypedef")
+	if dict['d'] != "define" || dict['t'] != "typedef" {
+		t.Fatalf("圧縮辞書 = %+v, want d=define t=typedef", dict)
+	}
+	cases := []struct {
+		image          string
+		static, isFunc bool
+	}{
+		{"@n 290 static int @n(SSL_DANE *dane,", true, true},
+		{"@n 104 int @n(SSL *s, size_t length)", false, true},
+		{"@n 42 static int @n = 0;", true, false},
+		{"@n 7 unsigned char @n[16];", false, false},
+		{"@n 12 #@d @n(x) ((x) + 1)", false, true}, // 圧縮された #define
+		{"@n 3", false, false},                     // ソースが無いレコード
+		{"", false, false},
+	}
+	for _, c := range cases {
+		gotStatic, gotFunc := structDefKind(c.image, dict)
+		if gotStatic != c.static || gotFunc != c.isFunc {
+			t.Errorf("structDefKind(%q) = (static=%v func=%v), want (%v %v)",
+				c.image, gotStatic, gotFunc, c.static, c.isFunc)
+		}
+	}
+}
+
+// 辞書に static が入っている DB でも判定が効く（gtags 6 の既定辞書には無いが、
+// 辞書は DB 側が持つものなので、読まずに前方一致すると黙って 0 件になる）。
+func TestStructDefKindCompressedStatic(t *testing.T) {
+	dict := structCompress(" __.COMPRESS\t __.COMPRESS sstatic ddefine")
+	if isStatic, isFunc := structDefKind("@n 10 @s int @n(void)", dict); !isStatic || !isFunc {
+		t.Errorf("圧縮された static を展開できていない (static=%v func=%v)", isStatic, isFunc)
+	}
+}
+
+func TestStructEntrySplitsImage(t *testing.T) {
+	sym, id, image, ok := structEntry("dane_tlsa_add\t2929 @n 290 static int @n(SSL_DANE *dane,")
+	if !ok || sym != "dane_tlsa_add" || id != "2929" {
+		t.Fatalf("structEntry = (%q %q %q %v)", sym, id, image, ok)
+	}
+	if image != "@n 290 static int @n(SSL_DANE *dane," {
+		t.Errorf("image = %q", image)
+	}
+	if _, _, _, ok := structEntry(" __.COMPRESS\t __.COMPRESS ddefine"); ok {
+		t.Error("メタレコードを通してしまっている")
 	}
 }
