@@ -37,6 +37,9 @@ type StructEdge struct {
 	// Symbols は見本（多い順・上限 structEdgeSymbolsMax）。エッジの中身へ
 	// 飛ぶ足がかりで、全列挙の欄ではない
 	Symbols []string `json:"symbols,omitempty"`
+	// SymsCapped は見本が打ち切られたこと。シンボル名で絞り込むとき、この行は
+	// 見本の範囲でしか判定できない（一致するのに落ちる可能性がある）
+	SymsCapped bool `json:"syms_capped,omitempty"`
 }
 
 // StructOmitted は集計から外れたものの数。黙って落とさず、外れた事実を返す。
@@ -374,7 +377,8 @@ func focusFrom(t *structTables, module string) *StructFocus {
 }
 
 type structEdgeAcc struct {
-	count int
+	count  int
+	capped bool // 見本を打ち切った（シンボル名での絞り込みが取りこぼしうる）
 	syms  []string
 }
 
@@ -386,8 +390,15 @@ func accumulate(agg map[[2]string]*structEdgeAcc, from, to string, e *structFile
 		agg[k] = a
 	}
 	a.count += e.count
+	// ファイル対のエッジでは count が「別々のシンボルの数」に等しい
+	// （GRTAGS は (シンボル, ファイル) ごとに1レコード）。見本より多ければ
+	// 元の時点で切れている
+	if len(e.syms) < e.count {
+		a.capped = true
+	}
 	for _, s := range e.syms {
 		if len(a.syms) >= structEdgeSymbolsMax {
+			a.capped = true
 			break
 		}
 		if !slices.Contains(a.syms, s) {
@@ -402,7 +413,7 @@ func finish(agg map[[2]string]*structEdgeAcc) []StructEdge {
 		// 見本は名前順（頻度は持っていない。全数を保持しないため）
 		syms := append([]string(nil), a.syms...)
 		sort.Strings(syms)
-		out = append(out, StructEdge{From: k[0], To: k[1], Count: a.count, Symbols: syms})
+		out = append(out, StructEdge{From: k[0], To: k[1], Count: a.count, Symbols: syms, SymsCapped: a.capped})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Count != out[j].Count {

@@ -150,6 +150,7 @@ function rmUpdateNavButtons() {
 
 async function rmLoad(focus, opts) {
   _rmFocus = focus || '';
+  _rmClosed = new Set(); // 畳み状態は今いる場所のもの。移ったら持ち越さない
   if (!opts || !opts.fromHistory) rmHistPush(_rmFocus);
   rmUpdateNavButtons();
   _rmTab = 'in';
@@ -318,7 +319,10 @@ function rmRenderOverview(m) {
       const low = n.toLowerCase();
       return must.every(t => low.includes(t)) && !not.some(t => low.includes(t));
     };
-    const hitEdge = e => hitName(e.from + ' ' + e.to);
+    const hitEdge = e => {
+      const hay = rmEdgeHaystack(e);
+      return must.every(t => hay.includes(t)) && !not.some(t => hay.includes(t));
+    };
     const filtering = must.length || not.length;
 
     const hint = document.createElement('div');
@@ -357,12 +361,14 @@ function rmRenderOverview(m) {
       secM.appendChild(row);
     });
 
-    // 全体図ではチップを出さない。方向感を掴む画面に見本を並べると壁になる
+    // 全体図では普段チップを出さない。方向感を掴む画面に見本を並べると壁になる。
+    // ただし絞り込み中は出す — 絞り込みはシンボル名にも当たるので、チップを
+    // 伏せたままだと「パスのどこにも無い語で行が残る」状態になり、理由が見えない
     const edges = filtering ? m.edges.filter(hitEdge) : m.edges;
     const secE = rmSection(body, filtering
       ? `太い参照（一致 ${edges.length} · 上位15まで）`
       : '太い参照（上位15）');
-    rmEdgeRows(secE, edges.slice(0, 15), e => `${e.count}`, { noChips: true, hl: must });
+    rmEdgeRows(secE, edges.slice(0, 15), e => `${e.count}`, { noChips: !filtering, hl: must });
   };
   document.getElementById('rm-filter').oninput = e => { _rmFilter = e.target.value; render(); };
   render();
@@ -377,8 +383,17 @@ function rmFilterInput() {
   filter.spellcheck = false;
   // 対象を名前に限るのは、シンボルは上位8件の見本しか手元に無いため。
   // 見本だけを検索して「0件」を出すと、実在する参照が無いように見える
-  filter.placeholder = '絞り込み: まとまり/ファイル名（スペース=AND、-で除外）';
+  filter.placeholder = '絞り込み: まとまり/ファイル/シンボル名（スペース=AND、-で除外）';
   return filter;
+}
+
+// 絞り込みの当たり判定。パス（from / to）だけでなく、行に付いているシンボルの
+// 見本も見る。「この関数が絡む行だけ」が地図の中でいちばん出る絞り方なのに、
+// パスしか見ていないと chip に名前が出ているのに落ちる。
+// 見本は上限 8 件で打ち切られることがあるので、判定できるのはその範囲まで
+// （e.syms_capped の行は取りこぼしうる。件数を出して知らせる）。
+function rmEdgeHaystack(e) {
+  return (e.from + ' ' + e.to + ' ' + (e.symbols || []).join(' ')).toLowerCase();
 }
 
 function rmFilterTerms() {
@@ -387,6 +402,26 @@ function rmFilterTerms() {
     must: terms.filter(t => !t.startsWith('-')),
     not: terms.filter(t => t.startsWith('-') && t.length > 1).map(t => t.slice(1)),
   };
+}
+
+// 方向のアイコン。四角が「今見ているまとまり」で、矢印がその境界をどう
+// またぐかを示す。向きは言葉より形のほうが速く読めるが、外から と 外へ は
+// 矢印だけだと取り違えるので、ラベルと件数は残して補助に徹する。
+// 色は currentColor（他のモノクロアイコンと同じく、選択中は明るくなる）。
+//
+// 内部は「構成要素どうし」なので、中に2つの縦棒を置いてその間を結ぶ。
+// 循環矢印にはしない — それは自己参照の記号だが、自分自身への参照は
+// 表に入れる前に落としてある（structmap.go の src == def と、フォーカスの
+// inside(a) != b）。中の別々のものの間の線であることを形で示す。
+function rmDirIcon(key) {
+  const box = {
+    in:  '<rect x="8.5" y="2.5" width="6" height="7"/><path d="M1 6h5"/><path d="M4.5 4.2 6.5 6 4.5 7.8"/>',
+    mid: '<rect x="1.5" y="2.5" width="13" height="7"/><path d="M4.5 4.6v2.8"/><path d="M5.3 6h4"/>' +
+         '<path d="M8.3 4.9 9.8 6 8.3 7.1"/><path d="M11.5 4.6v2.8"/>',
+    out: '<rect x="1.5" y="2.5" width="6" height="7"/><path d="M10 6h5"/><path d="M13 4.2 15 6 13 7.8"/>',
+  }[key];
+  return `<svg class="rm-dir" width="16" height="12" viewBox="0 0 16 12" fill="none"` +
+         ` stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">${box}</svg>`;
 }
 
 // ----- フォーカス: 外から / 内部 / 外へ -----
@@ -433,7 +468,7 @@ function rmRenderFocus(m) {
   const render = () => {
     const { must, not } = rmFilterTerms();
     const hit = e => {
-      const hay = (e.from + ' ' + e.to).toLowerCase();
+      const hay = rmEdgeHaystack(e);
       return must.every(t => hay.includes(t)) && !not.some(t => hay.includes(t));
     };
     const filtering = must.length || not.length;
@@ -445,14 +480,21 @@ function rmRenderFocus(m) {
     for (const [key, short, , edges, shown] of view) {
       const b = document.createElement('button');
       b.className = 'rm-tab' + (key === active[0] ? ' active' : '');
-      b.textContent = filtering ? `${short} ${shown.length}/${edges.length}` : `${short} ${edges.length}`;
+      const count = filtering ? `${shown.length}/${edges.length}` : `${edges.length}`;
+      b.innerHTML = rmDirIcon(key) + `${short} ${count}`;
       b.disabled = !edges.length;
       b.onclick = () => { _rmTab = key; render(); };
       tabsEl.appendChild(b);
     }
-    capEl.textContent = active[2];
+    // 見本が切れている行は、シンボル名での絞り込みが取りこぼしうる。
+    // 黙って落とすと「無い」と読まれるので、絞り込み中だけ件数で断る。
+    const capped = filtering ? active[3].filter(e => e.syms_capped && !hit(e)).length : 0;
+    capEl.textContent = active[2] +
+      (capped ? `　※ シンボル見本が 8 件で切れている行が ${capped} 件あり、名前での絞り込みは取りこぼしがありえます` : '');
     secEl.textContent = '';
-    if (active[4].length) rmEdgeRows(secEl, active[4], e => `${e.count}`, { hl: must });
+    // 絞り込み中は畳まない。一致した行が畳まれた中に隠れると、何件と言われても
+    // 見えないままになる
+    if (active[4].length) rmGroupedRows(secEl, active[4], { hl: must, forceOpen: !!filtering });
     else {
       const d = document.createElement('div');
       d.className = 'rm-msg';
@@ -466,18 +508,93 @@ function rmRenderFocus(m) {
 
 
 
+// ===== 行き先ごとに畳む =====
+// 外からの参照は「同じ入口に、外の別々のところが来る」形になりやすい
+// （openssl の crypto/bio では 30 行のうち大半が bio_lib.c 行き）。同じ行き先を
+// 何度も読ませるのは、太さの比較にも公開面の把握にも効かない。行き先で束ねて
+// 「どの入口が何本受けているか」を先に見せ、中身は開いたまま畳めるようにする。
+//
+// 畳んで得がないとき（束が全部1行）は束ねない。見出しだけ増えて行数が倍になる。
+let _rmClosed = new Set();
+
+function rmGroupKey(to) { return _rmFocus + '|' + _rmTab + '|' + to; }
+
+function rmGroupedRows(sec, edges, opts) {
+  const hl = (opts && opts.hl) || [];
+  const forceOpen = !!(opts && opts.forceOpen);
+  const groups = new Map();
+  for (const e of edges) {
+    if (!groups.has(e.to)) groups.set(e.to, []);
+    groups.get(e.to).push(e);
+  }
+  if (groups.size === edges.length) {
+    rmEdgeRows(sec, edges, e => `${e.count}`, { hl });
+    return;
+  }
+  const order = [...groups.entries()]
+    .map(([to, rows]) => [to, rows, rows.reduce((n, e) => n + e.count, 0)])
+    .sort((a, b) => b[2] - a[2] || a[0].localeCompare(b[0]));
+
+  for (const [to, rows, total] of order) {
+    const key = rmGroupKey(to);
+    const open = forceOpen || !_rmClosed.has(key);
+    const head = document.createElement('div');
+    head.className = 'rm-group' + (open ? ' open' : '');
+
+    const caret = document.createElement('span');
+    caret.className = 'rm-group-caret';
+    caret.textContent = open ? '▾' : '▸';
+    head.appendChild(caret);
+    // タブと同じ向きのアイコン。タブまで視線を戻さずに、この束がどちら向きの
+    // 面なのかが見出しの位置で分かる
+    const dir = document.createElement('span');
+    dir.className = 'rm-group-dir';
+    dir.innerHTML = rmDirIcon(_rmTab);
+    dir.title = _rmTab === 'in' ? '外から中への参照' : _rmTab === 'out' ? '中から外への参照' : '中どうしの参照';
+    head.appendChild(dir);
+    head.appendChild(rmName(to, hl));
+    const meta = document.createElement('span');
+    meta.className = 'rm-meta';
+    // 束の向きは見出しで1回だけ言う（「statem.c ← 13 元」）。行ごとに矢印を
+    // 置く案は駄目だった: 行き先は上（見出し）にあるので、行頭の ← は
+    // 何も指せない。束は常に行き先で作る（外へ タブは from が自分自身で
+    // 束が全部1行になりフラットへ落ちる）ので、← は常に正しい向き
+    meta.textContent = `← ${rows.length} 元 · ${total} 参照`;
+    meta.title = '元 = この行き先を参照している側の数\n参照 = 参照の組数の合計';
+    head.appendChild(meta);
+    // 見出しの余白を押すと開閉。名前は元どおり（まとまりなら降りる、
+    // ファイルなら開く）なので、そちらのクリックは奪わない
+    head.onclick = (ev) => {
+      if (ev.target.closest('.rm-name')) return;
+      if (_rmClosed.has(key)) _rmClosed.delete(key);
+      else _rmClosed.add(key);
+      rmRerender();
+    };
+    sec.appendChild(head);
+
+    if (!open) continue;
+    const inner = document.createElement('div');
+    inner.className = 'rm-group-body';
+    sec.appendChild(inner);
+    rmEdgeRows(inner, rows, e => `${e.count}`, { hl, hideTo: true });
+  }
+}
+
 function rmEdgeRows(sec, edges, countOf, opts) {
   const noChips = opts && opts.noChips;
+  const hideTo = opts && opts.hideTo; // 行き先は見出しに出ているので繰り返さない
   const hl = (opts && opts.hl) || [];
   for (const e of edges) {
     const row = document.createElement('div');
     row.className = 'rm-row';
     row.appendChild(rmName(e.from, hl));
-    const arrow = document.createElement('span');
-    arrow.className = 'rm-arrow';
-    arrow.textContent = '→';
-    row.appendChild(arrow);
-    row.appendChild(rmName(e.to, hl));
+    if (!hideTo) {
+      const arrow = document.createElement('span');
+      arrow.className = 'rm-arrow';
+      arrow.textContent = '→';
+      row.appendChild(arrow);
+      row.appendChild(rmName(e.to, hl));
+    }
     const cnt = document.createElement('span');
     cnt.className = 'rm-meta';
     cnt.textContent = countOf(e);
@@ -487,13 +604,18 @@ function rmEdgeRows(sec, edges, countOf, opts) {
     if (!noChips && e.symbols && e.symbols.length) {
       const chips = document.createElement('div');
       chips.className = 'rm-chips';
-      // `a` のような短い名前は見本として情報が無いので、他があれば後ろに回す
-      const named = e.symbols.filter(x => x.length >= 3);
+      // `a` のような短い名前は見本として情報が無いので、他があれば落とす。
+      // ただし絞り込みに一致した名前は必ず残す — 一致したから出ている行なのに
+      // その名前が見えないと、なぜ出ているのか分からない
+      const matched = x => hl.length && hl.some(t => x.toLowerCase().includes(t));
+      const named = e.symbols.filter(x => x.length >= 3 || matched(x));
       const syms = named.length ? named : e.symbols;
       for (const s of syms) {
         const chip = document.createElement('span');
         chip.className = 'rm-chip';
-        chip.textContent = s;
+        // 絞り込みはシンボル名にも当たる。当たった箇所を光らせないと、
+        // パスに一致が無い行が「なぜ出ているのか」分からないまま並ぶ
+        rmHighlight(chip, s, hl);
         chip.title = s + '\nクリック: 定義へ（' + e.to + '）'
           + '\nAlt+クリック: 参照している行（' + e.from + ' 内）';
         chip.onclick = ev => {
@@ -505,6 +627,15 @@ function rmEdgeRows(sec, edges, countOf, opts) {
           else rmJumpToSymbol(s);
         };
         chips.appendChild(chip);
+      }
+      if (e.syms_capped) {
+        // 見本であることは README にも書いてあるが、切れている行はその場で
+        // 分かるほうがいい（名前で絞り込んだときの取りこぼしがここに出る）
+        const more = document.createElement('span');
+        more.className = 'rm-chip rm-chip-more';
+        more.textContent = '…';
+        more.title = 'シンボルの見本はここまで（上限 8 件）。この行には他にもある';
+        chips.appendChild(more);
       }
       sec.appendChild(chips);
     }
@@ -782,7 +913,21 @@ function rmRenderFooter(d) {
     parts.push(`ヘッダに現れた名前 ${omitted.header_refs} 件は不算入（プロトタイプ宣言は実装の利用ではない）`);
   }
   if (d.stale) parts.push('⚠ 索引が古い（地図は前回の索引時点）');
-  el.textContent = parts.join(' · ');
+  // 色の意味を常に出しておく。行の色は粒度（まとまり / ファイル）と、
+  // クリックで何が起きるか（地図を降りる / エディタで開く）を兼ねていて、
+  // 凡例が無いと「なんとなく色分けされている」に見える。
+  el.innerHTML =
+    `<span class="rm-legend">` +
+      `<span class="rm-mod" title="まとまり（フォルダ）。クリックでその中の地図へ降ります">まとまり/</span>` +
+      `<span class="rm-legend-sep">·</span>` +
+      `<span class="rm-file" title="ファイル。クリックでエディタに開きます">file.c</span>` +
+    `</span>`;
+  if (parts.length) {
+    const rest = document.createElement('span');
+    rest.textContent = parts.join(' · ');
+    el.appendChild(document.createTextNode(' · '));
+    el.appendChild(rest);
+  }
 }
 
 function rmMsg(body, text) {

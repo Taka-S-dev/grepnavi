@@ -153,6 +153,7 @@
 .rm-tab:hover { color: #ccc; }
 .rm-tab.active { color: #fff; border-bottom-color: #007acc; }
 .rm-tab:disabled { color: #555; cursor: default; }
+.rm-dir { vertical-align: -1px; margin-right: 4px; }
 
 .rm-sec-title {
   color: #9aa0a6;
@@ -181,6 +182,26 @@
 }
 .rm-row:hover { background: #252526; }
 
+/* 行き先ごとの見出し。畳めることが分かるよう ▾/▸ を左に出し、行より一段強い
+   地の色で境目を作る。中身は左に寄せず、見出しの下に少しだけ字下げする。 */
+.rm-group {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 2px;
+  margin-top: 6px;
+  border-top: 1px solid #2c2c2c;
+  cursor: pointer;
+  min-width: 0;
+}
+.rm-group:first-child { margin-top: 0; border-top: none; }
+.rm-group:hover { background: #252526; }
+.rm-group-caret { color: #777; font-size: 10px; width: 10px; flex-shrink: 0; }
+.rm-group-body { padding-left: 10px; border-left: 1px solid #2c2c2c; margin-left: 5px; }
+.rm-group-dir { color: #777; display: inline-flex; align-items: center; flex-shrink: 0; }
+.rm-arrow { color: #666; flex-shrink: 0; }
+.rm-meta { margin-left: auto; color: #666; font-size: 11px; flex-shrink: 0; }
+
 .rm-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 絞り込みの一致箇所。ディレクトリ候補の .dir-hl と同じ強調色 */
 .rm-hl { color: #4ec9b0; font-weight: bold; }
@@ -205,6 +226,7 @@
   cursor: pointer;
   font-family: Consolas, 'Courier New', monospace;
 }
+.rm-chip-more { color: #666; cursor: default; border-style: dashed; }
 .rm-chip:hover { background: #37373d; }
 
 #rm-footer {
@@ -215,6 +237,11 @@
   color: #777;
 }
 #rm-footer:empty { display: none; }
+/* 凡例。行の色は装飾ではなく粒度とクリックの動作を表すので、常に出す。
+   カーソルは変えない（footer の見本は押せない）。 */
+.rm-legend .rm-mod, .rm-legend .rm-file { cursor: default; }
+.rm-legend .rm-mod:hover, .rm-legend .rm-file:hover { text-decoration: none; }
+.rm-legend-sep { color: #444; margin: 0 4px; }
 
 /* 未生成のときの案内と生成ボタン（gtags 索引の生成と同じ流儀） */
 .rm-build { padding: 8px 2px; }
