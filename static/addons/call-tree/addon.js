@@ -19,7 +19,7 @@ let _ctSelKey = '';  // 最後にジャンプした行（再描画をまたい�
 document.addEventListener('DOMContentLoaded', () => {
   // HTML injection - 右端からスライドインするサイドバー
   document.body.insertAdjacentHTML('beforeend', `
-    <div id="ct-sidebar">
+    <div id="ct-sidebar" class="side-panel">
       <div id="ct-resizer"></div>
       <div id="ct-header">
         <span>Call Tree</span>

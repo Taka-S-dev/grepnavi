@@ -57,7 +57,7 @@ function _stripPrefix(names) {
 
 document.addEventListener('DOMContentLoaded', () => {
   document.body.insertAdjacentHTML('beforeend', `
-    <div id="sm-panel">
+    <div id="sm-panel" class="side-panel">
       <div id="sm-resizer"></div>
       <div id="sm-header">
         <span id="sm-title">状態遷移</span>

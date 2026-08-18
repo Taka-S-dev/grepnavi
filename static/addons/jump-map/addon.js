@@ -809,7 +809,7 @@ function _jmExportDrawio() {
 // ----- init -----
 document.addEventListener('DOMContentLoaded', () => {
   document.body.insertAdjacentHTML('beforeend', `
-    <div id="jm-panel">
+    <div id="jm-panel" class="side-panel">
       <div id="jm-resizer"></div>
       <div id="jm-header">
         <span>Jump Map</span>

@@ -14,7 +14,7 @@ let _rmAbort = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   document.body.insertAdjacentHTML('beforeend', `
-    <div id="rm-sidebar">
+    <div id="rm-sidebar" class="side-panel">
       <div id="rm-resizer"></div>
       <div id="rm-header">
         <span id="rm-crumbs"></span>

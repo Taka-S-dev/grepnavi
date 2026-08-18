@@ -6,6 +6,48 @@ window.addEventListener('unhandledrejection', e => {
   if(e.reason && e.reason.message === 'Canceled') e.preventDefault();
 });
 
+// ===== アドオンパネルのぶん本体を狭める =====
+// 右から出るパネル (.side-panel) は position:fixed のかぶせなので、そのままだと
+// エディタの縦スクロールバーとミニマップがパネルの下に入って掴めなくなる。
+// 開いている中で一番広いものの幅を CSS 変数に出し、#workspace をその分狭める。
+// パネル側は幅をリサイザーで変えるので、class だけでなく寸法の変化も見る。
+// Monaco は automaticLayout なので、コンテナが狭まれば自分で追従する。
+function sidePanelWidth(doc = document) {
+  let w = 0;
+  for (const p of doc.querySelectorAll('.side-panel.open')) {
+    w = Math.max(w, p.getBoundingClientRect().width);
+  }
+  return w;
+}
+
+function syncSidePanelWidth() {
+  const w = sidePanelWidth();
+  document.documentElement.style.setProperty('--side-panel-w', w ? w + 'px' : '0px');
+}
+
+function initSidePanelLayout() {
+  let pending = false;
+  const schedule = () => {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(() => { pending = false; syncSidePanelWidth(); });
+  };
+  const sizeObserver = new ResizeObserver(schedule);
+  const observed = new WeakSet();
+  const attach = () => {
+    for (const p of document.querySelectorAll('.side-panel')) {
+      if (observed.has(p)) continue;
+      observed.add(p);
+      sizeObserver.observe(p);
+    }
+  };
+  // アドオンはそれぞれ自分のタイミングで DOM を作るので、後から現れる分も拾う。
+  new MutationObserver(() => { attach(); schedule(); })
+    .observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] });
+  attach();
+  schedule();
+}
+
 // ===== 起動オーバーレイ =====
 // 起動時の準備ステップを一覧表示し、全部完了したら閉じる。何を待っているか・何が
 // 遅いか（スピナー中の行＝ボトルネック、完了行＝所要秒数）をユーザが目視できる。
@@ -60,6 +102,8 @@ setTimeout(hideBootOverlay, 12000);
 
 // ===== BOOT =====
 addEventListener('DOMContentLoaded', async () => {
+  initSidePanelLayout();
+
   id('tree').addEventListener('wheel', e => {
     e.preventDefault();
     id('tree').scrollTop += e.deltaY * 0.4;

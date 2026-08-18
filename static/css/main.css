@@ -159,7 +159,11 @@ label{color:#999;font-size:12px;white-space:nowrap}
 input[type=checkbox]{cursor:pointer;margin-right:2px}
 
 /* 左右分割レイアウト */
-#workspace{display:flex;flex-direction:row;flex:1;overflow:hidden}
+/* --side-panel-w は開いているアドオンパネル (.side-panel) の幅。かぶせにすると
+   エディタの縦スクロールバーとミニマップがパネルの下に隠れて掴めなくなるので、
+   本体側を同じ幅だけ狭める。値は app.js が開閉とリサイズに合わせて書き換える。 */
+#workspace{display:flex;flex-direction:row;flex:1;overflow:hidden;
+  margin-right:var(--side-panel-w,0);transition:margin-right .2s ease}
 #pane-left{width:340px;display:flex;flex-direction:row;flex-shrink:0;overflow:hidden}
 #col-resizer{width:4px;background:#2a2a2a;cursor:ew-resize;flex-shrink:0;border-left:1px solid #333;border-right:1px solid #333}
 #col-resizer:hover,#col-resizer.active{background:#007acc}
