@@ -1544,7 +1544,8 @@ async function ensureEditor() {
     }
   });
 
-  // Alt+A → カーソル位置の語のジャンプ先を一覧で出す。
+  // Alt+A → カーソル位置の語に対する操作を一覧で出す。移動だけでなく、
+  // その場で見る・grep・戻る/進むまで入るので「ジャンプ先」とは呼べない。
   // 移動系のキーを個別に覚えなくても、この1つを覚えれば全部にたどり着ける
   // （出たメニューは1文字・↑↓+Enter で選べる）。左手だけで完結するよう
   // 起動キーも項目キーも左手側に寄せてある
@@ -1572,7 +1573,7 @@ async function ensureEditor() {
   }
 
   monacoEditor.addAction({
-    id: 'grepnavi-word-actions', label: 'ジャンプ先を選ぶ…',
+    id: 'grepnavi-word-actions', label: 'カーソル位置のアクション…',
     contextMenuGroupId: '1_nav',
     contextMenuOrder: 0.1,
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyA, monaco.KeyMod.Alt | monaco.KeyCode.Enter],
