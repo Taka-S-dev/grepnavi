@@ -116,6 +116,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/structure/status", h.handleStructureStatus)
 	mux.HandleFunc("/api/structure/build", h.handleStructureBuild)
 	mux.HandleFunc("/api/structure/children", h.handleStructureChildren)
+	mux.HandleFunc("/api/structure/edge-symbols", h.handleStructureEdgeSymbols)
 	// [GNU Global] 以下の4行を削除し、definition/hover/callersの分岐を除去で取り外し可能
 	mux.HandleFunc("/api/gtags/status", h.handleGtagsStatus)
 	mux.HandleFunc("/api/gtags/index", h.handleGtagsIndex)

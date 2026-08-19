@@ -3,6 +3,7 @@ package search
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -507,5 +508,80 @@ func TestStructEntrySplitsImage(t *testing.T) {
 	}
 	if _, _, _, ok := structEntry(" __.COMPRESS\t __.COMPRESS ddefine"); ok {
 		t.Error("メタレコードを通してしまっている")
+	}
+}
+
+// 表示中の1エッジの全シンボル。応答の見本 8 件と違い、こちらは打ち切らない。
+// ラベルの畳み方は面ごとに違うので、3面それぞれで引けることを確かめる。
+func TestStructEdgeSymbolsFocusFaces(t *testing.T) {
+	tb := tablesForTest()
+	member := func(focus, from, to string) []string {
+		t.Helper()
+		got := edgeSymbolsFrom(tb, focus, from, to)
+		return got
+	}
+	// 外から: net → core/init.c（core フォーカス、入口は1段深い）
+	if got := member("core", "net", "core/init.c"); !slices.Equal(got, []string{"core_init", "core_step"}) {
+		t.Errorf("incoming = %v, want [core_init core_step]", got)
+	}
+	// 内部: core/init.c → core/other.c
+	if got := member("core", "core/init.c", "core/other.c"); !slices.Equal(got, []string{"core_other"}) {
+		t.Errorf("internal = %v, want [core_other]", got)
+	}
+	// 外へ: core → util.c（from はモジュール自身）
+	if got := member("core", "core", "util.c"); !slices.Equal(got, []string{"util_log"}) {
+		t.Errorf("outgoing = %v, want [util_log]", got)
+	}
+	// 別のエッジのシンボルが混ざらない
+	if got := member("core", "net", "core/other.c"); len(got) != 0 {
+		t.Errorf("net → core/other.c = %v, want empty", got)
+	}
+}
+
+// 全体図（自動畳み）のエッジも同じ口で引ける。小さな木では自動畳みが
+// ファイル粒度まで割るので、ラベルは overviewAuto の実物に合わせる。
+func TestStructEdgeSymbolsOverview(t *testing.T) {
+	tb := tablesForTest()
+	got := edgeSymbolsFrom(tb, "", "net/tcp/send.c", "core/init.c")
+	if !slices.Equal(got, []string{"core_init", "core_step"}) {
+		t.Errorf("net/tcp/send.c → core/init.c = %v, want [core_init core_step]", got)
+	}
+}
+
+// 見本の上限を超えるエッジでも、全シンボルが表に残っている（build で切らない）。
+func TestBuildKeepsAllEdgeSymbols(t *testing.T) {
+	if !GtagsInPath() {
+		t.Skip("gtags なし")
+	}
+	dir := t.TempDir()
+	var defs, calls strings.Builder
+	for i := 0; i < 12; i++ {
+		fmt.Fprintf(&defs, "int fn_%02d(void) { return %d; }\n", i, i)
+		fmt.Fprintf(&calls, "  fn_%02d();\n", i)
+	}
+	mustWrite(t, filepath.Join(dir, "def.c"), defs.String())
+	mustWrite(t, filepath.Join(dir, "use.c"), "void use(void) {\n"+calls.String()+"}\n")
+	if err := GtagsBuildIndex(context.Background(), dir); err != nil {
+		t.Fatalf("gtags: %v", err)
+	}
+	InvalidateStructCache()
+	defer InvalidateStructCache()
+	if err := BuildRefMap(context.Background(), dir, nil); err != nil {
+		t.Fatal(err)
+	}
+	syms, err := StructEdgeSymbols(context.Background(), dir, "", "use.c", "def.c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(syms) != 12 {
+		t.Fatalf("edge symbols = %d 件 %v, want 12 (見本上限の 8 で切れている)", len(syms), syms)
+	}
+	// 応答の見本は 8 件のままで、切れていることが伝わる
+	f, err := StructMapFocus(context.Background(), dir, "def.c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Incoming) != 1 || len(f.Incoming[0].Symbols) != structEdgeSymbolsMax || !f.Incoming[0].SymsCapped {
+		t.Errorf("incoming = %+v, want 見本 %d 件 + syms_capped", f.Incoming, structEdgeSymbolsMax)
 	}
 }

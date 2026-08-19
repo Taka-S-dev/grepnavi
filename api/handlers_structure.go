@@ -102,6 +102,28 @@ func (h *Handler) handleStructureChildren(w http.ResponseWriter, r *http.Request
 	jsonOK(w, map[string]any{"path": r.URL.Query().Get("path"), "children": children})
 }
 
+// GET /api/structure/edge-symbols?from=A&to=B&focus=X … 表示中の1エッジの全シンボル。
+// 応答のエッジには見本 8 件しか付かない（全量を常に送ると linux の全体図で
+// 応答が 10MB 級になる）ので、「残り」はここで1エッジずつ引く。
+func (h *Handler) handleStructureEdgeSymbols(w http.ResponseWriter, r *http.Request) {
+	h.mu.RLock()
+	root := h.root
+	h.mu.RUnlock()
+
+	q := r.URL.Query()
+	syms, err := search.StructEdgeSymbols(r.Context(), root, q.Get("focus"), q.Get("from"), q.Get("to"))
+	if errors.Is(err, search.ErrRefMapNotBuilt) {
+		w.WriteHeader(http.StatusConflict)
+		jsonOK(w, map[string]any{"root": root, "status": search.RefMapStat(root)})
+		return
+	}
+	if err != nil {
+		jsonErr(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	jsonOK(w, map[string]any{"symbols": syms})
+}
+
 // GET /api/structure/status … 表があるか、無いなら生成にどれくらいかかるか
 func (h *Handler) handleStructureStatus(w http.ResponseWriter, r *http.Request) {
 	h.mu.RLock()

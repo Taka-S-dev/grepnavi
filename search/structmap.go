@@ -83,7 +83,10 @@ type StructFocus struct {
 	FilesOpen int `json:"files_open"` // うち外から参照されるもの
 }
 
-// structEdgeSymbolsMax は1つのエッジに添える見本シンボルの数。
+// structEdgeSymbolsMax は応答の1エッジに添える見本シンボルの数。表は全数を
+// 持っている（build 側参照）が、全数を常に送ると linux の全体図で応答が
+// 10MB 級になるため、配送だけ絞る。残りは /api/structure/edge-symbols で
+// 1エッジずつ引ける。
 const structEdgeSymbolsMax = 8
 
 // structTables は dump を1回読んで作る基礎表。集計はこの上で行う。
@@ -380,7 +383,7 @@ func focusFrom(t *structTables, module string) *StructFocus {
 type structEdgeAcc struct {
 	count  int
 	capped bool // 見本を打ち切った（シンボル名での絞り込みが取りこぼしうる）
-	syms  []string
+	syms   []string
 }
 
 func accumulate(agg map[[2]string]*structEdgeAcc, from, to string, e *structFileEdge) {
@@ -391,20 +394,15 @@ func accumulate(agg map[[2]string]*structEdgeAcc, from, to string, e *structFile
 		agg[k] = a
 	}
 	a.count += e.count
-	// ファイル対のエッジでは count が「別々のシンボルの数」に等しい
-	// （GRTAGS は (シンボル, ファイル) ごとに1レコード）。見本より多ければ
-	// 元の時点で切れている
-	if len(e.syms) < e.count {
-		a.capped = true
-	}
 	for _, s := range e.syms {
+		if slices.Contains(a.syms, s) {
+			continue // 重複は上限の判定に入れない（残りが全部重複なら切れていない）
+		}
 		if len(a.syms) >= structEdgeSymbolsMax {
 			a.capped = true
 			break
 		}
-		if !slices.Contains(a.syms, s) {
-			a.syms = append(a.syms, s)
-		}
+		a.syms = append(a.syms, s)
 	}
 }
 
@@ -431,6 +429,69 @@ func finish(agg map[[2]string]*structEdgeAcc) []StructEdge {
 // structGroup は root 相対パスを第 depth 階層の見出しに畳む。
 // ルート直下のファイルは自分自身が見出しになる（ssl_err.c のような
 // 置き場のないファイルを「ルート」に混ぜると、そこが偽のハブになる）。
+// StructEdgeSymbols は表示中の1エッジ (from → to) をまたぐ全シンボル名を返す。
+// 応答のエッジには見本しか付かない（structEdgeSymbolsMax）ので、「残りを見たい」
+// はここで引く。表が全数を持っているため索引には触らず、メモリ内の畳み直しだけで
+// 済む。focus はエッジを表示していた画面と同じ値を渡す（畳み方が画面ごとに違い、
+// 同じラベルでも中身のファイル対が変わるため）。
+func StructEdgeSymbols(ctx context.Context, root, focus, from, to string) ([]string, error) {
+	t, err := structTablesFor(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	return edgeSymbolsFrom(t, focus, from, to), nil
+}
+
+func edgeSymbolsFrom(t *structTables, focus, from, to string) []string {
+	var member func(src, def string) bool
+	if focus == "" {
+		// 全体図と同じ自動畳み。
+		lookup := memoGroupLookup(adaptiveGroups(t, structSplitShare, structMaxGroups))
+		member = func(src, def string) bool {
+			return lookup(src) == from && lookup(def) == to
+		}
+	} else {
+		// フォーカスの3面。ラベルの形が面ごとに違う（外は depth 段、中は
+		// depth+1 段、外へ の from はモジュール自身）ので、3面の畳み方を
+		// 全部当てて、どれかで一致すればそのエッジの一部とみなす。
+		// 面をまたいで同じ (from, to) になる組はない: 中のラベルは必ず
+		// モジュール接頭辞を持ち、外のラベルは持たない。
+		module := strings.Trim(filepath.ToSlash(focus), "/")
+		depth := len(strings.Split(module, "/"))
+		inMod := func(rel string) bool {
+			return rel == module || strings.HasPrefix(rel, module+"/")
+		}
+		inside := func(rel string) string { return structGroup(rel, depth+1) }
+		member = func(src, def string) bool {
+			sin, din := inMod(src), inMod(def)
+			switch {
+			case sin && din:
+				return inside(src) == from && inside(def) == to
+			case din:
+				return structGroup(src, depth) == from && inside(def) == to
+			case sin:
+				return from == module && structGroup(def, depth) == to
+			}
+			return false
+		}
+	}
+	set := map[string]bool{}
+	for p, e := range t.edges {
+		if !member(p.src, p.def) {
+			continue
+		}
+		for _, s := range e.syms {
+			set[s] = true
+		}
+	}
+	syms := make([]string, 0, len(set))
+	for s := range set {
+		syms = append(syms, s)
+	}
+	sort.Strings(syms)
+	return syms
+}
+
 // StructChild は1階層下のまとまり1件。地図の行が被参照順で 40 個に絞られ、
 // 重さで分割もされるのに対し、こちらは「そこに何があるか」を漏れなく出す
 // 移動用の一覧。名前さえ分かればどこへでも飛べるようにするのが目的なので、
@@ -774,9 +835,11 @@ func buildStructTables(ctx context.Context, root string) (*structTables, error) 
 			t.edges[k] = e
 		}
 		e.count++
-		if len(e.syms) < structEdgeSymbolsMax && !slices.Contains(e.syms, sym) {
-			e.syms = append(e.syms, sym)
-		}
+		// 全シンボルを持つ。かつては見本 8 件で打ち切っていたが、実測すると
+		// 全数でも openssl +0.0MB / linux +0.7MB (72.7万シンボル、最大 234/エッジ)
+		// で、上限が守っていたものはほぼ無かった。GRTAGS は (シンボル, ファイル)
+		// ごとに1レコードなので、1つのファイル対に同じ名前は二度来ない。
+		e.syms = append(e.syms, sym)
 	})
 	if err != nil {
 		return nil, err

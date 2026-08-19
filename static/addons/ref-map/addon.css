@@ -226,7 +226,7 @@
   cursor: pointer;
   font-family: Consolas, 'Courier New', monospace;
 }
-.rm-chip-more { color: #666; cursor: default; border-style: dashed; }
+.rm-chip-more { color: #888; cursor: pointer; border-style: dashed; }
 .rm-chip:hover { background: #37373d; }
 
 #rm-footer {

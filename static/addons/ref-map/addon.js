@@ -490,7 +490,7 @@ function rmRenderFocus(m) {
     // 黙って落とすと「無い」と読まれるので、絞り込み中だけ件数で断る。
     const capped = filtering ? active[3].filter(e => e.syms_capped && !hit(e)).length : 0;
     capEl.textContent = active[2] +
-      (capped ? `　※ シンボル見本が 8 件で切れている行が ${capped} 件あり、名前での絞り込みは取りこぼしがありえます` : '');
+      (capped ? `　※ シンボル見本が 8 件で切れている行が ${capped} 件あり、名前での絞り込みは取りこぼしがありえます（… で全量を開けます）` : '');
     secEl.textContent = '';
     // 絞り込み中は畳まない。一致した行が畳まれた中に隠れると、何件と言われても
     // 見えないままになる
@@ -610,36 +610,67 @@ function rmEdgeRows(sec, edges, countOf, opts) {
       const matched = x => hl.length && hl.some(t => x.toLowerCase().includes(t));
       const named = e.symbols.filter(x => x.length >= 3 || matched(x));
       const syms = named.length ? named : e.symbols;
-      for (const s of syms) {
-        const chip = document.createElement('span');
-        chip.className = 'rm-chip';
-        // 絞り込みはシンボル名にも当たる。当たった箇所を光らせないと、
-        // パスに一致が無い行が「なぜ出ているのか」分からないまま並ぶ
-        rmHighlight(chip, s, hl);
-        chip.title = s + '\nクリック: 定義へ（' + e.to + '）'
-          + '\nAlt+クリック: 参照している行（' + e.from + ' 内）';
-        chip.onclick = ev => {
-          // 主動作は定義へ、Alt はそこから広げる探索 — エディタの
-          // Ctrl+クリック（定義ジャンプ）/ Alt+クリック（ジャンプランチャー）と
-          // 同じ割り当てにする。参照行の行番号は表に持っていない
-          // （linux 対応でファイル対まで畳んだ）ので、押されたときに参照 API で解決する
-          if (ev.altKey) rmToggleSites(chips, chip, s, e.from);
-          else rmJumpToSymbol(s);
-        };
-        chips.appendChild(chip);
-      }
-      if (e.syms_capped) {
-        // 見本であることは README にも書いてあるが、切れている行はその場で
-        // 分かるほうがいい（名前で絞り込んだときの取りこぼしがここに出る）
-        const more = document.createElement('span');
-        more.className = 'rm-chip rm-chip-more';
-        more.textContent = '…';
-        more.title = 'シンボルの見本はここまで（上限 8 件）。この行には他にもある';
-        chips.appendChild(more);
-      }
+      for (const s of syms) rmSymChip(chips, e, s, hl);
+      if (e.syms_capped) rmMoreChip(chips, e, syms, hl);
       sec.appendChild(chips);
     }
   }
+}
+
+function rmSymChip(chips, e, s, hl) {
+  const chip = document.createElement('span');
+  chip.className = 'rm-chip';
+  // 絞り込みはシンボル名にも当たる。当たった箇所を光らせないと、
+  // パスに一致が無い行が「なぜ出ているのか」分からないまま並ぶ
+  rmHighlight(chip, s, hl);
+  chip.title = s + '\nクリック: 定義へ（' + e.to + '）'
+    + '\nAlt+クリック: 参照している行（' + e.from + ' 内）';
+  chip.onclick = ev => {
+    // 主動作は定義へ、Alt はそこから広げる探索 — エディタの
+    // Ctrl+クリック（定義ジャンプ）/ Alt+クリック（ジャンプランチャー）と
+    // 同じ割り当てにする。参照行の行番号は表に持っていない
+    // （linux 対応でファイル対まで畳んだ）ので、押されたときに参照 API で解決する
+    if (ev.altKey) rmToggleSites(chips, chip, s, e.from);
+    else rmJumpToSymbol(s);
+  };
+  chips.appendChild(chip);
+  return chip;
+}
+
+// 「…」= 残り全部を開く。応答には見本 8 件しか付かない（linux の全体図で全量を
+// 送ると応答が 10MB 級になる）が、表は全数を持っているので、この1エッジ分だけ
+// 引き直す。開いた行は e.symbols を全量へ差し替えるので、以後の絞り込みは
+// この行に限り全シンボルへ当たる。
+function rmMoreChip(chips, e, shown, hl) {
+  const more = document.createElement('span');
+  more.className = 'rm-chip rm-chip-more';
+  // 残り件数は出さない: count は (シンボル, 参照元) の組数で、束ねた行では
+  // 参照元をまたいで同じ名前が重なるため、別名シンボルの残数にならない
+  more.textContent = '…';
+  more.title = 'クリックで残りのシンボルを全部表示';
+  more.onclick = async () => {
+    more.onclick = null;
+    more.textContent = '…読込中';
+    const params = { from: e.from, to: e.to };
+    if (_rmFocus) params.focus = _rmFocus;
+    try {
+      const r = await fetch('/api/structure/edge-symbols?' + new URLSearchParams(params));
+      const d = await r.json();
+      if (!r.ok || !Array.isArray(d.symbols)) throw new Error(d.error || r.statusText);
+      const have = new Set(shown);
+      more.remove();
+      for (const s of d.symbols) {
+        if (!have.has(s)) rmSymChip(chips, e, s, hl);
+      }
+      e.symbols = d.symbols;
+      e.syms_capped = false;
+    } catch (err) {
+      st('シンボルの取得に失敗: ' + err.message);
+      more.textContent = '…';
+      more.onclick = null;
+    }
+  };
+  chips.appendChild(more);
 }
 
 // 名前がファイル（拡張子つき）ならエディタで開き、モジュールならフォーカスする
