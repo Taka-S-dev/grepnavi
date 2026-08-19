@@ -107,15 +107,6 @@
 }
 
 .rm-msg { color: #888; padding: 12px 4px; }
-.rm-facts {
-  color: #9aa0a6;
-  font-size: 11px;
-  margin: 2px 0 6px;
-  padding: 3px 6px;
-  background: #252526;
-  border-left: 2px solid #4ec9b0;
-  border-radius: 2px;
-}
 .rm-hint { color: #777; font-size: 11px; margin: 2px 0 4px; line-height: 1.5; }
 .rm-clickable { cursor: pointer; }
 
@@ -198,7 +189,8 @@
 .rm-group:hover { background: #252526; }
 .rm-group-caret { color: #777; font-size: 10px; width: 10px; flex-shrink: 0; }
 .rm-group-body { padding-left: 10px; border-left: 1px solid #2c2c2c; margin-left: 5px; }
-.rm-group-dir { color: #777; display: inline-flex; align-items: center; flex-shrink: 0; }
+/* 見出しの文の部分（「を使っている N か所」）。名前より一段引く。 */
+.rm-group-phrase { color: #9aa0a6; flex-shrink: 0; }
 .rm-arrow { color: #666; flex-shrink: 0; }
 .rm-meta { margin-left: auto; color: #666; font-size: 11px; flex-shrink: 0; }
 

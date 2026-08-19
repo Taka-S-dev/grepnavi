@@ -433,10 +433,13 @@ function rmRenderFocus(m) {
   // Call Tree の Callers/Callees と同じ、方向のタブ。件数を常にラベルに
   // 出すので、開いていない面も「あるのに見えない」にはならない。
   // アクティブな面は全行出す（既定で隠さない）
+  // 3列目はタブのホバー説明。見出しが文になった（「X を使っている N か所」）ので
+  // 帯の常時説明はやめた — 一覧の上でもう一度言い直す文は読まれず、
+  // 「刺さる」のような比喩は読めなかった。語彙は見出しと同じ「使う」に揃える。
   const secs = [
-    ['in', '外から', '外からの参照 — 外のどこが、中のどこに刺さるか', m.incoming],
-    ['mid', '内部', '内部の参照 — 構成要素の間', m.internal],
-    ['out', '外へ', '外への参照 — 何に依存するか', m.outgoing],
+    ['in', '外から', '外のどこが、この中の実装を使っているか', m.incoming],
+    ['mid', '内部', 'この中どうしで、どこがどこを使っているか', m.internal],
+    ['out', '外へ', 'この中のコードが使っている、外の実装（関数・グローバル変数）', m.outgoing],
   ];
   if (!m.incoming.length && !m.internal.length && !m.outgoing.length) {
     rmMsg(body, 'このまとまりをまたぐ参照は索引にありません');
@@ -444,16 +447,6 @@ function rmRenderFocus(m) {
   }
   // 事実・絞り込み・タブはスクロールしない帯（#rm-bar）に置く。
   // 一覧と一緒に流れて消えると、絞り込み中であることも今どの面かも見えなくなる
-  // 公開面の事実。「モジュールかどうか」は判定できないが、外からの参照が
-  // 中の少数に集中しているかどうかは事実として見せられる
-  if (m.files > 0) {
-    const facts = document.createElement('div');
-    facts.className = 'rm-facts';
-    facts.textContent = `外から触られる実装 ${m.files_open}/${m.files} ファイル`;
-    facts.title = '比が小さいほど公開面が狭い = 1つの単位として扱いやすい。\n分母は索引で実装(.c系)に定義を持つファイル数（同名で集計外のものは含まない）';
-    bar.appendChild(facts);
-  }
-
   bar.appendChild(rmFilterInput());
   const tabsEl = document.createElement('div');
   tabsEl.className = 'rm-tabs';
@@ -477,25 +470,59 @@ function rmRenderFocus(m) {
 
     const active = view.find(x => x[0] === _rmTab) || view[0];
     tabsEl.textContent = '';
-    for (const [key, short, , edges, shown] of view) {
+    for (const [key, short, title, edges, shown] of view) {
       const b = document.createElement('button');
       b.className = 'rm-tab' + (key === active[0] ? ' active' : '');
       const count = filtering ? `${shown.length}/${edges.length}` : `${edges.length}`;
       b.innerHTML = rmDirIcon(key) + `${short} ${count}`;
+      b.title = title;
       b.disabled = !edges.length;
       b.onclick = () => { _rmTab = key; render(); };
       tabsEl.appendChild(b);
     }
-    // 見本が切れている行は、シンボル名での絞り込みが取りこぼしうる。
-    // 黙って落とすと「無い」と読まれるので、絞り込み中だけ件数で断る。
-    const capped = filtering ? active[3].filter(e => e.syms_capped && !hit(e)).length : 0;
-    capEl.textContent = active[2] +
-      (capped ? `　※ シンボル見本が 8 件で切れている行が ${capped} 件あり、名前での絞り込みは取りこぼしがありえます（… で全量を開けます）` : '');
     secEl.textContent = '';
     // 絞り込み中は畳まない。一致した行が畳まれた中に隠れると、何件と言われても
     // 見えないままになる
-    if (active[4].length) rmGroupedRows(secEl, active[4], { hl: must, forceOpen: !!filtering });
-    else {
+    if (active[0] === 'out' && active[4].length) {
+      // 外へ は from が全行このまとまり自身。行ごとに自分の名前を繰り返さず、
+      // 他の面と同じ文の形にする（「X を使っている」の逆で「X が使っている」）。
+      const total = active[4].reduce((n, e) => n + e.count, 0);
+      const head = document.createElement('div');
+      head.className = 'rm-group';
+      const nm = document.createElement('span');
+      nm.className = 'rm-name rm-mod';
+      nm.textContent = _rmFocus + '/';
+      nm.style.cursor = 'default'; // 今いる場所なので押しても行き先が無い
+      head.appendChild(nm);
+      const phrase = document.createElement('span');
+      phrase.className = 'rm-group-phrase';
+      phrase.textContent = ` が使っている ${active[4].length} か所（参照 ${total}）`;
+      phrase.title = '参照 = 参照の組数（シンボル × 参照元ファイル）';
+      head.appendChild(phrase);
+      secEl.appendChild(head);
+      const inner = document.createElement('div');
+      inner.className = 'rm-group-body';
+      secEl.appendChild(inner);
+      rmEdgeRows(inner, active[4], e => `${e.count}`, { hl: must, hideFrom: true });
+    } else if (active[4].length) rmGroupedRows(secEl, active[4], { hl: must, forceOpen: !!filtering });
+    // 見本が切れている行は、シンボル名での絞り込みが取りこぼしうる。
+    // 黙って落とすと「無い」と読まれるので、絞り込み中だけ件数で断る。
+    const capped = filtering ? active[3].filter(e => e.syms_capped && !hit(e)).length : 0;
+    // 公開面の事実（入口がどれだけ絞られているか）は「外から」の面の要約
+    // なので、そのタブでだけ出す。全タブに常時出すと、内部・外へ の一覧を
+    // 見ながら「外から使われるのは…」を読むことになり、繋がらない。
+    const parts = [];
+    if (active[0] === 'in' && m.files > 0) {
+      parts.push(`実装 ${m.files} ファイル中、外から使われるのは ${m.files_open}`);
+    }
+    if (capped) {
+      parts.push(`※ シンボル見本が 8 件で切れている行が ${capped} 件あり、名前での絞り込みは取りこぼしがありえます（… で全量を開けます）`);
+    }
+    capEl.title = parts.length && active[0] === 'in'
+      ? '外の入口になっているファイルの数。少ないほど公開面が狭く、1つの部品として扱いやすい。\n分母は索引で実装(.c系)に定義を持つファイル数（同名で集計外のものは含まない）' : '';
+    capEl.textContent = parts.join('　');
+    capEl.style.display = parts.length ? '' : 'none';
+    if (!active[4].length) {
       const d = document.createElement('div');
       d.className = 'rm-msg';
       d.textContent = filtering ? 'この面に絞り込みへの一致はありません' : 'この面に参照はありません';
@@ -545,23 +572,17 @@ function rmGroupedRows(sec, edges, opts) {
     caret.className = 'rm-group-caret';
     caret.textContent = open ? '▾' : '▸';
     head.appendChild(caret);
-    // タブと同じ向きのアイコン。タブまで視線を戻さずに、この束がどちら向きの
-    // 面なのかが見出しの位置で分かる
-    const dir = document.createElement('span');
-    dir.className = 'rm-group-dir';
-    dir.innerHTML = rmDirIcon(_rmTab);
-    dir.title = _rmTab === 'in' ? '外から中への参照' : _rmTab === 'out' ? '中から外への参照' : '中どうしの参照';
-    head.appendChild(dir);
     head.appendChild(rmName(to, hl));
-    const meta = document.createElement('span');
-    meta.className = 'rm-meta';
-    // 束の向きは見出しで1回だけ言う（「statem.c ← 13 元」）。行ごとに矢印を
-    // 置く案は駄目だった: 行き先は上（見出し）にあるので、行頭の ← は
-    // 何も指せない。束は常に行き先で作る（外へ タブは from が自分自身で
-    // 束が全部1行になりフラットへ落ちる）ので、← は常に正しい向き
-    meta.textContent = `← ${rows.length} 元 · ${total} 参照`;
-    meta.title = '元 = この行き先を参照している側の数\n参照 = 参照の組数の合計';
-    head.appendChild(meta);
+    // 見出しは文で完結させる（「X を使っている 15 か所」）。この木は呼び出し
+    // ツリーの習慣（親が呼ぶ側）と逆に、親が参照される側なので、矢印 →
+    // 見出しの ← → 説明文と3回注釈を試してどれも逆に読まれた。注釈が要る
+    // 見せ方をやめ、一方向にしか読めない語順にする。束は常に行き先で作る
+    //（外へ タブは from が自分自身で束が全部1行になり、フラットへ落ちる）。
+    const phrase = document.createElement('span');
+    phrase.className = 'rm-group-phrase';
+    phrase.textContent = ` を使っている ${rows.length} か所（参照 ${total}）`;
+    phrase.title = '参照 = 参照の組数（シンボル × 参照元ファイル）';
+    head.appendChild(phrase);
     // 見出しの余白を押すと開閉。名前は元どおり（まとまりなら降りる、
     // ファイルなら開く）なので、そちらのクリックは奪わない
     head.onclick = (ev) => {
@@ -582,17 +603,20 @@ function rmGroupedRows(sec, edges, opts) {
 
 function rmEdgeRows(sec, edges, countOf, opts) {
   const noChips = opts && opts.noChips;
-  const hideTo = opts && opts.hideTo; // 行き先は見出しに出ているので繰り返さない
+  const hideTo = opts && opts.hideTo;     // 行き先は見出しに出ているので繰り返さない
+  const hideFrom = opts && opts.hideFrom; // 参照元が見出し（外へ タブ）のときの逆版
   const hl = (opts && opts.hl) || [];
   for (const e of edges) {
     const row = document.createElement('div');
     row.className = 'rm-row';
-    row.appendChild(rmName(e.from, hl));
-    if (!hideTo) {
+    if (!hideFrom) row.appendChild(rmName(e.from, hl));
+    if (!hideTo && !hideFrom) {
       const arrow = document.createElement('span');
       arrow.className = 'rm-arrow';
       arrow.textContent = '→';
       row.appendChild(arrow);
+    }
+    if (!hideTo) {
       row.appendChild(rmName(e.to, hl));
     }
     const cnt = document.createElement('span');
