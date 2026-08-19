@@ -66,9 +66,17 @@ func FindRefSites(ctx context.Context, q RefQuery) ([]CallSite, string, bool, er
 			if len(hits) > budget {
 				hits, cut = hits[:budget], true
 			}
-			sites := ResolveRefSites(hits, q.Word)
+			var sites []CallSite
 			if q.CallersOnly {
-				sites = keepCallers(sites, q.Word)
+				// 解決（ファイル読み + 関数範囲の走査）が一覧の主コスト。
+				// 全ヒットを解決してから上限で切ると、上限の 20 倍を先に
+				// 払うことになる（実測: linux の kfree で 3.9s、畳みながら
+				// 止めれば参照一覧と同等まで落ちる）。
+				var full bool
+				sites, full = resolveCallerSites(hits, q.Word, q.Limit)
+				cut = cut || full
+			} else {
+				sites = ResolveRefSites(hits, q.Word)
 			}
 			MarkIndirectCalls(sites, q.Word)
 			MarkAssignments(sites, q.Word)
@@ -126,33 +134,79 @@ func keepAssignRaw(hits []DefHit, word string) []DefHit {
 // rg が返したのは doxygen 生成 HTML を誤パースした偽の呼び出し元だった）。
 // 登録箇所こそが「誰が呼ぶのか」への答えで、索引はそれを最初から持っている。
 func keepCallers(sites []CallSite, word string) []CallSite {
-	// 宣言らしさは「語の直後に ( 」で見る。テーブルの登録は `ssl3_read_bytes,`
-	// のように ( を伴わないので、この判定で宣言だけが落ちる。
-	reDecl := regexp.MustCompile(`\b` + regexp.QuoteMeta(word) + `\s*\(`)
+	reDecl := callerDeclPattern(word)
 	out := sites[:0:0]
 	seen := map[string]bool{}
 	for _, s := range sites {
-		if s.Func == word {
-			continue
-		}
-		key := s.File + ":" + s.Func
-		if s.Func == "" {
-			if reDecl.MatchString(s.Text) {
-				continue // 関数の外で 語( の形 = プロトタイプ宣言・定義行
-			}
-			// 登録箇所は場所そのものが情報なので、行ごとに残す
-			// （同じファイルに別のテーブルが並ぶことがある）
-			key = s.File + ":" + strconv.Itoa(s.CallLine)
-			// ジャンプ先は登録の行。関数の開始行は無い
-			s.Line = s.CallLine
-		}
-		if seen[key] {
+		key, ok := callerKey(&s, word, reDecl)
+		if !ok || seen[key] {
 			continue
 		}
 		seen[key] = true
 		out = append(out, s)
 	}
 	return out
+}
+
+// callerDeclPattern は「語の直後に ( 」= 宣言・定義行らしさの判定。テーブルの
+// 登録は `ssl3_read_bytes,` のように ( を伴わないので、宣言だけが落ちる。
+func callerDeclPattern(word string) *regexp.Regexp {
+	return regexp.MustCompile(`\b` + regexp.QuoteMeta(word) + `\s*\(`)
+}
+
+// callerKey は1件を呼び出し元一覧に残すか、残すなら重複排除のキーを返す。
+// keepCallers と逐次版 resolveCallerSites の両方がここを通る（規則が2か所に
+// あると必ずずれる）。ファイルスコープの登録箇所は行ごとに残し、ジャンプ先を
+// 登録の行にする副作用も持つ。
+func callerKey(s *CallSite, word string, reDecl *regexp.Regexp) (string, bool) {
+	if s.Func == word {
+		return "", false
+	}
+	if s.Func == "" {
+		if reDecl.MatchString(s.Text) {
+			return "", false // 関数の外で 語( の形 = プロトタイプ宣言・定義行
+		}
+		// 登録箇所は場所そのものが情報なので、行ごとに残す
+		// （同じファイルに別のテーブルが並ぶことがある）
+		s.Line = s.CallLine
+		return s.File + ":" + strconv.Itoa(s.CallLine), true
+	}
+	return s.File + ":" + s.Func, true
+}
+
+// resolveCallerSites は生ヒットを畳みながら解決し、呼び出し元が limit 件
+// そろった時点で止める。第2戻り値は「生ヒットを使い切る前に止めた」。
+// 解決はファイル読み + コメント除去 + 関数範囲の走査で、一覧の主コストなので、
+// 使わない解決はやらない。
+func resolveCallerSites(hits []DefHit, word string, limit int) ([]CallSite, bool) {
+	reDecl := callerDeclPattern(word)
+	code := codeOnlyCache{}
+	seen := map[string]bool{}
+	var out []CallSite
+	for i, h := range hits {
+		if len(out) >= limit {
+			_ = hits[i] // まだ残っている = 打ち切り
+			return out, true
+		}
+		lines, err := CachedLines(h.File)
+		if err != nil {
+			continue
+		}
+		// 索引はコメント内の識別子も拾うので、コード部分に無い出現は落とす
+		if !code.mentionsInCode(h.File, lines, h.Line, word) {
+			continue
+		}
+		funcName, defLine := code.containingFunc(h.File, lines, h.Line)
+		s := CallSite{Func: funcName, File: h.File, Line: defLine,
+			CallLine: h.Line, Text: callSiteText(lines, h.Line)}
+		key, ok := callerKey(&s, word, reDecl)
+		if !ok || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, s)
+	}
+	return out, false
 }
 
 // refTerm は絞り込み条件1つぶん。
