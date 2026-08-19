@@ -17,16 +17,23 @@ func TestKeepCallersDropsWhatOnlyCallersDrop(t *testing.T) {
 	sites := []CallSite{
 		{Func: "caller_a", File: "a.c", CallLine: 10},
 		{Func: "caller_a", File: "a.c", CallLine: 20}, // 同じ関数からの2件目
-		{Func: "", File: "a.c", CallLine: 5},          // プロトタイプ宣言など
+		// プロトタイプ宣言（ファイルスコープ + 語( の形）は落とす
+		{Func: "", File: "a.c", CallLine: 5, Text: "int target(int x);"},
 		{Func: "target", File: "a.c", CallLine: 30},   // 自分自身
 		{Func: "caller_a", File: "b.c", CallLine: 40}, // 別ファイルの同名関数は別物
 		{Func: "caller_b", File: "b.c", CallLine: 50},
+		// 関数ポインタテーブルへの登録（ファイルスコープだが ( を伴わない）は
+		// 残す。これを落とすと ripgrep の全木走査へ降格し、実測 40 倍遅い上に
+		// doxygen 生成 HTML の誤パースが混ざった
+		{Func: "", File: "ops.c", CallLine: 7, Text: "    target, /* read */"},
+		{Func: "", File: "ops.c", CallLine: 9, Text: "    target, /* peek */"}, // 別のテーブル: 行ごとに残す
 	}
 	got := keepCallers(sites, "target")
 	want := []struct {
 		fn, file string
 	}{
 		{"caller_a", "a.c"}, {"caller_a", "b.c"}, {"caller_b", "b.c"},
+		{"", "ops.c"}, {"", "ops.c"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("件数 got=%d want=%d (%+v)", len(got), len(want), got)
@@ -39,7 +46,7 @@ func TestKeepCallersDropsWhatOnlyCallersDrop(t *testing.T) {
 
 	// 参照一覧はどれも落とさない。囲む関数が無い箇所（宣言・マクロ定義）こそ
 	// 「誰が触っているか」を知りたい対象になる
-	if len(sites) != 6 {
+	if len(sites) != 8 {
 		t.Errorf("元の一覧を書き換えている: %d", len(sites))
 	}
 }

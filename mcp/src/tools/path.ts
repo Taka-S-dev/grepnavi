@@ -138,7 +138,7 @@ export const handlers: Record<string, ToolHandler> = {
           }
           if (sites.length > FANOUT_CAP) state.truncated = true;
           for (const s of sites.slice(0, FANOUT_CAP)) {
-            if (seenUp.has(s.func)) continue;
+            if (!s.func || seenUp.has(s.func)) continue; // 空 = ファイルスコープの登録行
             seenUp.add(s.func);
             up.set(s.func, {
               peer: name,

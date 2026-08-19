@@ -410,7 +410,12 @@ function makeNodeEl(node, depth, isCycle = false) {
   // func name
   const fn = document.createElement('span');
   fn.className = _ctMode === 'callers' ? 'ct-func' : 'ct-callee-name';
-  fn.textContent = node.func;
+  // func が空 = ファイルスコープの登録行（メソッドテーブル・ops 構造体）。
+  // 関数ポインタで登録される関数は、これが「誰が呼ぶのか」への答えになる。
+  // 場所をそのまま名前にする（basename:行）。
+  fn.textContent = node.func ||
+    ((node.file || '').replace(/\\/g, '/').split('/').pop() + ':' + (node.callLine || node.line));
+  if (!node.func) fn.title = '関数の外での登録（テーブル初期化子など）。クリックでその行へ';
   if (isIndirect) {
     fn.style.opacity = '0.6';
     const badge = document.createElement('span');

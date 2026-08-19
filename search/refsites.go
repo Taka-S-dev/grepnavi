@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -72,15 +73,20 @@ func FindRefSites(ctx context.Context, q RefQuery) ([]CallSite, string, bool, er
 			MarkIndirectCalls(sites, q.Word)
 			MarkAssignments(sites, q.Word)
 
-			if len(sites) > 0 {
+			// 呼び出し元は 0 件でも索引の答えとして返す（0 件 = 呼び出し元
+			// なし）。参照一覧は従来どおり rg へ落ちる — 索引対象外の
+			// ファイル種別からの参照がありえるのは、任意の行を拾う参照の側。
+			if len(sites) > 0 || q.CallersOnly {
 				sites, truncated := capSites(sites, q.Limit)
 				return sites, "gtags", truncated || cut, nil
 			}
 		}
 	}
 
-	// 索引が無い・答えられない場合。索引が拾わないファイル種別からの参照も
-	// あり得るので、0 件でもここまで来る
+	// 索引が無い・引けない場合だけ ripgrep へ降格する。「索引は参照を返したが
+	// 呼び出し元の形に整えると 0 件」は降格しない — 索引の参照は全量なので、
+	// rg の再走査が足せるのは索引対象外ファイルの分だけで、実測ではそこに
+	// 生成 HTML の誤パースが混ざった。0 件は「呼び出し元なし」という答え。
 	if q.CallersOnly {
 		sites, truncated, err := FindCallers(ctx, q.Word, q.Scope, q.Glob)
 		return sites, "rg", truncated, err
@@ -110,16 +116,36 @@ func keepAssignRaw(hits []DefHit, word string) []DefHit {
 	return out
 }
 
-// keepCallers は呼び出し元一覧の形に整える。囲む関数が分からない箇所を落とし、
-// 同じ関数からの複数の参照を1件にまとめ、自分自身への参照を除く。
+// keepCallers は呼び出し元一覧の形に整える。同じ関数からの複数の参照を1件に
+// まとめ、自分自身への参照とプロトタイプ宣言を除く。
+//
+// 囲む関数が無い（ファイルスコープの）参照は、宣言でなければ「登録箇所」として
+// 残す。関数ポインタのテーブルで登録される関数（メソッドテーブル・ops 構造体）は
+// 参照がテーブルの初期化子と宣言しか無く、以前はここで全滅して ripgrep の全木
+// 走査へ降格していた（実測: openssl の ssl3_read_bytes で 46ms → 1.85s、しかも
+// rg が返したのは doxygen 生成 HTML を誤パースした偽の呼び出し元だった）。
+// 登録箇所こそが「誰が呼ぶのか」への答えで、索引はそれを最初から持っている。
 func keepCallers(sites []CallSite, word string) []CallSite {
+	// 宣言らしさは「語の直後に ( 」で見る。テーブルの登録は `ssl3_read_bytes,`
+	// のように ( を伴わないので、この判定で宣言だけが落ちる。
+	reDecl := regexp.MustCompile(`\b` + regexp.QuoteMeta(word) + `\s*\(`)
 	out := sites[:0:0]
 	seen := map[string]bool{}
 	for _, s := range sites {
-		if s.Func == "" || s.Func == word {
+		if s.Func == word {
 			continue
 		}
 		key := s.File + ":" + s.Func
+		if s.Func == "" {
+			if reDecl.MatchString(s.Text) {
+				continue // 関数の外で 語( の形 = プロトタイプ宣言・定義行
+			}
+			// 登録箇所は場所そのものが情報なので、行ごとに残す
+			// （同じファイルに別のテーブルが並ぶことがある）
+			key = s.File + ":" + strconv.Itoa(s.CallLine)
+			// ジャンプ先は登録の行。関数の開始行は無い
+			s.Line = s.CallLine
+		}
 		if seen[key] {
 			continue
 		}
