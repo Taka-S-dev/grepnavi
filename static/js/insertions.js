@@ -1273,9 +1273,15 @@ function registerInsertionEditorActions() {
       if (hit) startInsertionMove(hit.ins.id);
     },
   });
+  // Delete キーでも撤去できる。読み取り専用エディタで Delete は元々何も
+  // しないので取り合いにならず、デバッグ行の上に限る（Tab の字下げと同じ
+  // keybindingContext）。誤爆は Ctrl+Z で同じ ID・同じ本文のまま戻るので、
+  // 確認ダイアログは挟まない。メニューにはキーが併記される。
   monacoEditor.addAction({
     id: 'grepnavi-insertion-delete', label: 'デバッグ行を撤去',
     contextMenuGroupId: '3_debug', contextMenuOrder: 9,
+    keybindings: [monaco.KeyCode.Delete],
+    keybindingContext: 'grepnaviOnInsertionLine',
     precondition: 'grepnaviOnInsertionLine',
     run: () => {
       const hit = _insertionSiteAtCursor();
