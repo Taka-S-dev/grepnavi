@@ -548,7 +548,20 @@ document.addEventListener('keydown', e => {
 async function _deleteInsertion(item) {
   const r = await fetch("/api/insertions/" + encodeURIComponent(item._insId), { method: "DELETE" }).catch(() => null);
   if (!r || !r.ok) {
-    if (r && r.status === 409) { _insertionManualChangeIds.add(item._insId); renderMemoList(); }
+    if (r && r.status === 409) {
+      _insertionManualChangeIds.add(item._insId);
+      renderMemoList();
+      // 手動で行を消された・書き換えられた記録はここで詰みになる（409 が
+      // 出続ける）。ファイルに触らない後始末を、その場で明示の確認つきで出す。
+      const proceed = typeof showConfirm === 'function'
+        ? await showConfirm('記録した行がファイルで見つかりません（手動で削除・変更された可能性）。' + String.fromCharCode(10) +
+            '記録だけ削除しますか？ ファイルの行には触りません。' + String.fromCharCode(10) +
+            '複数行の記録では、まだ残っている行もファイルに残ります。', { danger: true })
+        : false;
+      if (proceed) await _deleteInsertionRecordOnly(item._insId);
+      else st(_insertionWriteErrorMessage(r, item._insId));
+      return;
+    }
     st(_insertionWriteErrorMessage(r, item._insId));
     return;
   }
@@ -696,6 +709,20 @@ function endInsertionMove() {
   document.removeEventListener('keydown', _insMoveKey, true);
   for (const d of _insMoveDisposables) d.dispose?.();
   _insMoveDisposables = [];
+}
+
+// 記録だけの削除。サーバ側は「行が照合できないとき」しか通さないので、
+// 生きているデバッグ行を管理外に残す事故にはならない。
+async function _deleteInsertionRecordOnly(insId) {
+  const r = await fetch('/api/insertions/' + encodeURIComponent(insId) + '?record_only=1',
+                        { method: 'DELETE' }).catch(() => null);
+  if (!r || !r.ok) { st(_insertionWriteErrorMessage(r, insId)); return; }
+  _insertionManualChangeIds.delete(insId);
+  graph.insertions = (graph.insertions || []).filter((i) => i.id !== insId);
+  refreshInsertionDecorations();
+  renderMemoList();
+  updateInsertionBadge();
+  st(insId + ' の記録を削除しました（ファイルは変更していません）');
 }
 
 // まとめて（行を増減しつつ）書き換えてよいレコードか。サーバ側の判定と

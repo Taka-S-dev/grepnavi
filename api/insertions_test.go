@@ -1477,3 +1477,55 @@ func TestMoveDropsRemovalUndo(t *testing.T) {
 		t.Fatalf("insertions after restore = %+v, want only %s (撤去は戻らない)", g.Insertions, keep.ID)
 	}
 }
+
+// 手動で行を消された記録は撤去が 409 で詰みになるので、record_only で
+// 記録だけを削除できる。ファイルには触らない。
+func TestRecordOnlyDeleteAfterManualLineRemoval(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo\nthree\n"), 0o644)
+	os.Chtimes(src, time.Unix(1000, 0), time.Unix(1000, 0))
+
+	ins := insertOneLine(t, h, src, "mark();")
+	// 挿入した行を手動削除に見立てて、元の内容へ戻す
+	os.WriteFile(src, []byte("one\ntwo\nthree\n"), 0o644)
+	os.Chtimes(src, time.Unix(2000, 0), time.Unix(2000, 0))
+
+	if rec := doInsertionsReq(h, "DELETE", "/api/insertions/"+ins.ID, ""); rec.Code != 409 {
+		t.Fatalf("normal delete status = %d, want 409", rec.Code)
+	}
+	before, _ := os.ReadFile(src)
+	rec := doInsertionsReq(h, "DELETE", "/api/insertions/"+ins.ID+"?record_only=1", "")
+	if rec.Code != 200 {
+		t.Fatalf("record-only delete status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	after, _ := os.ReadFile(src)
+	if !bytes.Equal(before, after) {
+		t.Errorf("record-only delete touched the file: %q -> %q", before, after)
+	}
+	if g := h.store.GetGraphResponse(); len(g.Insertions) != 0 {
+		t.Errorf("insertions = %+v, want none", g.Insertions)
+	}
+	// ファイルに何も入れていないので、Ctrl+Z で戻るものも無い
+	if rec := doInsertionsReq(h, "POST", "/api/insertions/restore", ""); rec.Code != 404 {
+		t.Errorf("restore status = %d, want 404", rec.Code)
+	}
+}
+
+// 行がそろっているのに record_only を要求したら断る。生きているデバッグ行を
+// 管理外に残さない。
+func TestRecordOnlyRejectedWhenLineIntact(t *testing.T) {
+	h, dir := newInsertionsTestHandler(t)
+	src := filepath.Join(dir, "a.c")
+	os.WriteFile(src, []byte("one\ntwo\n"), 0o644)
+	os.Chtimes(src, time.Unix(1000, 0), time.Unix(1000, 0))
+
+	ins := insertOneLine(t, h, src, "mark();")
+	rec := doInsertionsReq(h, "DELETE", "/api/insertions/"+ins.ID+"?record_only=1", "")
+	if rec.Code != 400 {
+		t.Fatalf("record-only status = %d, want 400, body = %s", rec.Code, rec.Body.String())
+	}
+	if g := h.store.GetGraphResponse(); len(g.Insertions) != 1 {
+		t.Errorf("record disappeared despite refusal: %+v", g.Insertions)
+	}
+}

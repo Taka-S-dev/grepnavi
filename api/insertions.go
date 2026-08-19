@@ -211,7 +211,7 @@ func (h *Handler) handleInsertionByID(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodDelete:
-		h.deleteInsertionByID(w, id)
+		h.deleteInsertionByID(w, r, id)
 	case http.MethodPut:
 		h.putInsertionByID(w, r, id)
 	default:
@@ -219,7 +219,7 @@ func (h *Handler) handleInsertionByID(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *Handler) deleteInsertionByID(w http.ResponseWriter, id string) {
+func (h *Handler) deleteInsertionByID(w http.ResponseWriter, r *http.Request, id string) {
 	// findInsertion の読み出しから RemoveInsertion までを1つの臨界区間として
 	// 直列化する（ファイルの read-modify-write と store 更新をまたぐため）。
 	h.insMu.Lock()
@@ -228,6 +228,28 @@ func (h *Handler) deleteInsertionByID(w http.ResponseWriter, id string) {
 	ins, ok := h.findInsertion(id)
 	if !ok {
 		jsonErr(w, "insertion not found", http.StatusNotFound)
+		return
+	}
+	if r.URL.Query().Get("record_only") == "1" {
+		// 手動で行を消された・書き換えられた記録の後始末。撤去は照合で 409 に
+		// なり続け、記録が詰みになる（照合せず splice するとユーザのコードを
+		// 食うので、409 自体は正しい）。ファイルに触らない削除だけを通す。
+		// 行が全部そろっているのに record_only が来たら断る — 生きている
+		// デバッグ行を管理外に残すのは、明示要求でも事故のもと。
+		if err := h.unresolvableSite(ins); err == nil {
+			jsonErr(w, "recorded lines are intact; use normal removal", http.StatusBadRequest)
+			return
+		}
+		if err := h.store.RemoveInsertion(id); err != nil {
+			jsonErr(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// ファイルは触っていないので、この操作に戻す対象は無い。古い控えを
+		// 残すと Ctrl+Z が「いまの操作より前」を戻して混乱する（ErrNotExist
+		// の経路と同じ規約）。
+		h.lastRemoved = nil
+		h.lastMoved = nil
+		jsonOK(w, map[string]any{"shifts": []graph.ShiftResult{}, "record_only": true})
 		return
 	}
 	shifts, undo, err := h.deleteInsertionSites(ins)
@@ -256,6 +278,22 @@ func (h *Handler) deleteInsertionByID(w http.ResponseWriter, id string) {
 	h.lastRemoved = undo
 	h.lastMoved = nil
 	jsonOK(w, map[string]any{"shifts": shifts})
+}
+
+// unresolvableSite は ins のどれかの site が現在のファイルで照合できないとき
+// そのエラーを返す（全部そろっていれば nil）。record_only の許可判定用で、
+// 「splice が不可能なときだけ、記録だけの削除を許す」の裏付けになる。
+func (h *Handler) unresolvableSite(ins graph.Insertion) error {
+	pf, err := patch.Load(ins.File)
+	if err != nil {
+		return err // ファイルごと無い・読めない: splice のしようがない
+	}
+	for _, site := range ins.Sites {
+		if _, err := resolveSitePosition(pf, ins.File, site); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // removedInsertion は撤去1件を戻すための控え。lines は撤去直後のファイル行数で、
