@@ -213,7 +213,7 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
    真偽を反転するたびエディタのグレーアウトが変わるのを見る機能だから）。
    ヘッダに残るのはこのボタン1個で、幅の剛体だった 200px 入力欄は消えた。 */
 #ifdef-btn.on{color:#c8a84b}
-#ifdef-popover{position:absolute;top:calc(100% + 4px);right:0;z-index:var(--z-popover-low);background:#252526;border:1px solid #454545;border-radius:4px;padding:8px;min-width:230px;box-shadow:0 4px 12px rgba(0,0,0,0.4)}
+#ifdef-popover{position:absolute;top:calc(100% + 4px);right:0;z-index:var(--z-popover-low);background:#252526;border:1px solid #454545;border-radius:4px;padding:8px;width:max-content;min-width:240px;max-width:min(360px,80vw);box-shadow:0 4px 12px rgba(0,0,0,0.4)}
 .ifdef-pop-title{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .ifdef-pop-close{background:none;border:none;color:#666;cursor:pointer;font-size:11px;padding:0 2px}
 .ifdef-pop-close:hover{color:#ccc}
@@ -998,7 +998,10 @@ body.search-mode #root-chip{min-width:0}
 #gtags-engine-label{padding:2px 6px;border-radius:3px}
 #gtags-engine-label:hover{background:#333;color:#ccc !important}
 /* ===== GNU Global ポップオーバー ===== */
-#gtags-popover{position:absolute;top:calc(100% + 4px);right:0;z-index:var(--z-popover-low);background:#252526;border:1px solid #454545;border-radius:4px;padding:8px;min-width:200px;box-shadow:0 4px 12px rgba(0,0,0,0.4)}
+/* 絶対配置の shrink-to-fit は基準ブロック（小さなラベルの箱）を利用可能幅と
+   みなすので、指定が無いと min-width まで潰れて全文が細切れに折り返される。
+   中身に合わせて広がり、上限で折り返す。 */
+#gtags-popover{position:absolute;top:calc(100% + 4px);right:0;z-index:var(--z-popover-low);background:#252526;border:1px solid #454545;border-radius:4px;padding:8px;width:max-content;min-width:240px;max-width:min(360px,80vw);box-shadow:0 4px 12px rgba(0,0,0,0.4)}
 .gtags-pop-title{font-size:11px;color:#888;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #333}
 .gtags-pop-row{display:flex;align-items:center;gap:6px;padding:4px 2px;cursor:pointer;color:#ccc;font-size:12px}
 .gtags-pop-row:hover{color:#fff}
