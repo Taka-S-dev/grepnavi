@@ -231,6 +231,9 @@ async function smAnalyze() {
   document.getElementById('sm-states').innerHTML = '';
   smBusyStart();
   try {
+    // glob はメインの検索バーの欄を引き継ぐ。専用欄が無いので、ここに何かが
+    // 残っていると黙って適用されて「0 ファイルを走査」になりがち。せめて
+    // 失敗メッセージで名指しできるよう、送った絞りを結果に控える。
     const glob = document.getElementById('glob')?.value.trim() || '';
     const scope = document.getElementById('sm-scope').value.trim();
     const url = '/api/state-machine?var=' + encodeURIComponent(name) +
@@ -246,6 +249,8 @@ async function smAnalyze() {
     // Go の空スライスは null で届く。以降は配列であることを前提に組み立てる
     d.transitions = d.transitions || [];
     d.states = d.states || [];
+    d._sentGlob = glob;
+    d._sentScope = scope;
     _smData = d;
     smRender();
   } catch (e) {
@@ -282,7 +287,14 @@ function smRender() {
   const known = d.transitions.filter(t => t.from && t.from.length).length;
   const familyLabel = { enum: 'enum 定義', prefix: '#define 群', observed: '遷移に現れた名前のみ' }[d.family] || d.family;
   if (!total) {
-    _smStatus(`${d.var} への代入が見つかりませんでした（${d.files} ファイルを走査）`, true);
+    // 「変数はあるのに見つからない」の切り分け材料を全部出す。0 ファイルなら
+    // 絞り（検索バーから引き継いだ glob・範囲）が犯人、N ファイルなら
+    // 代入の形（マクロ経由・同名メンバとの衝突）が犯人、と読み分けられる。
+    const why = [`${d.files} ファイルを走査`];
+    if (d._sentGlob) why.push(`glob「${d._sentGlob}」を適用（検索バーから引き継ぎ）`);
+    if (d._sentScope) why.push(`範囲 ${d._sentScope}`);
+    if (d.engine) why.push(d.engine);
+    _smStatus(`${d.var} への代入が見つかりませんでした（${why.join(' · ')}）`, true);
   } else if (!smLooksLikeStateMachine(d)) {
     // 状態でない変数に「状態 1」などと出すと解析できたように見える
     _smStatus(`${total} 代入 · ${d.files} ファイル · 状態変数ではなさそう`, true);
