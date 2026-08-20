@@ -334,9 +334,7 @@ addEventListener('DOMContentLoaded', async () => {
   updateProjectUI();
 
   id('q').onkeydown = e => { if(e.key==='Enter') doSearch(); };
-  id('ifdef-apply').onclick = applyIfdefHighlight;
-  id('ifdef-clear').onclick = clearIfdefHighlight;
-  id('ifdef-cond').onkeydown = e => { if(e.key==='Enter') applyIfdefHighlight(); };
+  initIfdefPopover();
 
   const btnLmt = id('btn-line-memo-toggle');
   if(btnLmt) {

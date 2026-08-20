@@ -2870,8 +2870,11 @@ async function switchTab(idx) {
   pinnedHighlights.forEach(ph => applyPinnedHighlightToModel(ph, tab.model));
   updatePinnedCounts();
   const isC = /\.(c|h|cpp|cc|cxx|hpp)$/i.test(tab.file);
-  id('ifdef-ui').style.display = isC ? 'flex' : 'none';
+  id('ifdef-ui').style.display = isC ? 'inline-flex' : 'none';
   if(!isC) clearIfdefHighlight();
+  // 条件が残っていれば移った先にも効かせる（装飾はモデルごとなので、
+  // 以前はファイルを移るたび適用を押し直す必要があった）
+  else if (typeof _ifdefConds !== 'undefined' && _ifdefConds.length) applyIfdefHighlight();
   renderTabs();
   // エクスプローラパネルが表示中なら連動してファイルを選択
   if(document.getElementById('explorer-panel')?.classList.contains('visible')) {
@@ -3214,11 +3217,11 @@ async function jumpToDefinition(word, tagCtx = '') {
 
 // ===== #ifdef ハイライト =====
 async function applyIfdefHighlight() {
-  const condStr = id('ifdef-cond').value.trim();
-  if (!condStr) { st('条件を入力: 例 WIN32=1 DEBUG=0'); return; }
-  if (!monacoEditor) { st('先にファイルを開いてください'); return; }
+  if (!monacoEditor) return;
   const file = tabs[activeTabIdx]?.file;
-  if (!file) { st('ファイルを開いてください'); return; }
+  if (!file) return;
+  const condStr = ifdefCondString();
+  if (!condStr) { clearIfdefHighlight(); return; }
   try {
     const r = await fetch('/api/ifdef?' + new URLSearchParams({file, defines: condStr}));
     const d = await r.json();
@@ -3246,7 +3249,170 @@ async function applyIfdefHighlight() {
 function clearIfdefHighlight() {
   if (!monacoEditor) return;
   ifdefDecoIds = monacoEditor.deltaDecorations(ifdefDecoIds, []);
-  st('#ifdef ハイライト解除');
+}
+
+// ===== #if 条件のリスト =====
+// かつては1行のテキスト入力（WIN32=1 DEBUG=0）だったが、条件は「名前 + 真偽」の
+// 構造データで、切り替えが主操作なのに毎回テキストを書き換えるのはつらい。
+// リスト + 即適用にして、エディタのグレーアウトを見ながら真偽を反転できるようにする。
+// 器をダイアログでなくポップオーバーにしたのも同じ理由（エディタを覆わない）。
+
+let _ifdefConds = []; // [{name, val}] val は 1/0
+try { _ifdefConds = JSON.parse(localStorage.getItem('grepnavi-ifdef-conds') || '[]'); } catch { /* 壊れた保存値 */ }
+
+function ifdefCondString() {
+  return _ifdefConds.map(c => `${c.name}=${c.val}`).join(' ');
+}
+
+function _ifdefSave() {
+  try { localStorage.setItem('grepnavi-ifdef-conds', JSON.stringify(_ifdefConds)); } catch { /* ignore */ }
+}
+
+function _ifdefChanged() {
+  _ifdefSave();
+  renderIfdefButton();
+  renderIfdefPopover();
+  applyIfdefHighlight();
+}
+
+function renderIfdefButton() {
+  const btn = id('ifdef-btn');
+  if (!btn) return;
+  const n = _ifdefConds.length;
+  btn.textContent = n ? `#if ${n}` : '#if';
+  btn.classList.toggle('on', n > 0);
+}
+
+// いま開いているファイルの #if / #ifdef / #elif が実際に見ている名前。
+// 候補として出す（名前を思い出して打つ代わりに、拾って押す）。
+function _ifdefCandidates() {
+  const model = monacoEditor?.getModel();
+  if (!model) return [];
+  const have = new Set(_ifdefConds.map(c => c.name));
+  const found = [];
+  const seen = new Set();
+  const lineCount = Math.min(model.getLineCount(), 20000);
+  for (let i = 1; i <= lineCount; i++) {
+    const line = model.getLineContent(i);
+    const m = line.match(/^\s*#\s*(?:if|ifdef|ifndef|elif)\b(.*)/);
+    if (!m) continue;
+    for (const w of m[1].matchAll(/[A-Za-z_]\w*/g)) {
+      const name = w[0];
+      if (name === 'defined' || seen.has(name) || have.has(name)) continue;
+      seen.add(name);
+      found.push(name);
+    }
+  }
+  return found.slice(0, 12);
+}
+
+function renderIfdefPopover() {
+  const pop = id('ifdef-popover');
+  if (!pop || pop.style.display === 'none') return;
+  pop.innerHTML = '';
+
+  const title = document.createElement('div');
+  title.className = 'gtags-pop-title ifdef-pop-title';
+  const cap = document.createElement('span');
+  cap.textContent = '#if の色分け — 偽になるブロックをグレーアウト';
+  title.appendChild(cap);
+  const close = document.createElement('button');
+  close.className = 'ifdef-pop-close';
+  close.textContent = '✕';
+  close.title = '閉じる (Esc)';
+  close.onclick = () => { pop.style.display = 'none'; };
+  title.appendChild(close);
+  pop.appendChild(title);
+
+  for (const c of _ifdefConds) {
+    const row = document.createElement('div');
+    row.className = 'ifdef-row';
+    const name = document.createElement('span');
+    name.className = 'ifdef-row-name';
+    name.textContent = c.name;
+    row.appendChild(name);
+    const tog = document.createElement('button');
+    tog.className = 'ifdef-row-toggle' + (c.val ? ' truthy' : '');
+    tog.textContent = c.val ? '真' : '偽';
+    tog.title = 'クリックで反転（' + c.name + '=' + (c.val ? '0' : '1') + ' にする）';
+    tog.onclick = () => { c.val = c.val ? 0 : 1; _ifdefChanged(); };
+    row.appendChild(tog);
+    const del = document.createElement('button');
+    del.className = 'ifdef-row-del';
+    del.textContent = '✕';
+    del.title = 'この条件を外す';
+    del.onclick = () => { _ifdefConds = _ifdefConds.filter(x => x !== c); _ifdefChanged(); };
+    row.appendChild(del);
+    pop.appendChild(row);
+  }
+
+  const addWrap = document.createElement('div');
+  addWrap.className = 'ifdef-add';
+  const input = document.createElement('input');
+  input.placeholder = '名前を追加（Enter で真として追加）';
+  input.spellcheck = false;
+  input.onkeydown = (e) => {
+    if (e.key !== 'Enter') return;
+    const name = input.value.trim();
+    if (!/^[A-Za-z_]\w*$/.test(name)) { st('識別子を入力してください'); return; }
+    if (!_ifdefConds.some(c => c.name === name)) _ifdefConds.push({ name, val: 1 });
+    input.value = '';
+    _ifdefChanged();
+  };
+  addWrap.appendChild(input);
+  pop.appendChild(addWrap);
+
+  const cands = _ifdefCandidates();
+  if (cands.length) {
+    const cap = document.createElement('div');
+    cap.className = 'ifdef-cand-cap';
+    cap.textContent = 'このファイルの #if が見ている名前:';
+    pop.appendChild(cap);
+    const box = document.createElement('div');
+    box.className = 'ifdef-cands';
+    for (const name of cands) {
+      const chip = document.createElement('button');
+      chip.className = 'ifdef-cand';
+      chip.textContent = name;
+      chip.title = name + '=1 として追加（追加後に反転できます）';
+      chip.onclick = () => { _ifdefConds.push({ name, val: 1 }); _ifdefChanged(); };
+      box.appendChild(chip);
+    }
+    pop.appendChild(box);
+  }
+
+  if (_ifdefConds.length) {
+    const clear = document.createElement('button');
+    clear.className = 'ifdef-clear-all';
+    clear.textContent = 'すべて解除';
+    clear.onclick = () => { _ifdefConds = []; _ifdefChanged(); };
+    pop.appendChild(clear);
+  }
+}
+
+function initIfdefPopover() {
+  const btn = id('ifdef-btn');
+  const pop = id('ifdef-popover');
+  if (!btn || !pop) return;
+  renderIfdefButton();
+  btn.onclick = (e) => {
+    e.stopPropagation();
+    const open = pop.style.display !== 'none';
+    pop.style.display = open ? 'none' : 'block';
+    if (!open) renderIfdefPopover();
+  };
+  // 外側クリックでは閉じない。使い方が「反転 → エディタをスクロールして
+  // 別のブロックを確認 → また反転」なので、エディタを触るたび閉じると
+  // 毎回開き直しになる（挿入ダイアログの「外したクリック1つで失わない」と
+  // 同じ規約）。閉じるのは ボタン再押下・✕・Esc の明示操作だけ。
+  // Esc は capture で受ける（Monaco も Esc を持つため。他の capture Esc と
+  // 同じ事情）。ピーク等の Esc 連鎖より先に、開いているときだけ消費する。
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || pop.style.display === 'none') return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    pop.style.display = 'none';
+  }, true);
 }
 
 // ===== 外部エディタで開く =====

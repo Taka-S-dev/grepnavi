@@ -196,12 +196,10 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 #btn-nav-back,#btn-nav-fwd{font-size:13px;padding:0 5px}
 #btn-nav-back:disabled,#btn-nav-fwd:disabled{color:#444;cursor:default;background:none}
 #peek-open{font-size:13px;padding:0 4px}
-#btn-fzf-open,#btn-line-memo-toggle,#ifdef-apply,#ifdef-clear{border:none;background:none;color:#888;padding:1px 6px}
-#btn-fzf-open:hover,#btn-line-memo-toggle:hover,#ifdef-apply:hover,#ifdef-clear:hover{color:#ccc;background:#3c3c3c}
+#btn-fzf-open,#btn-line-memo-toggle,#ifdef-btn{border:none;background:none;color:#888;padding:1px 6px}
+#btn-fzf-open:hover,#btn-line-memo-toggle:hover,#ifdef-btn:hover{color:#ccc;background:#3c3c3c}
 #btn-line-memo-toggle.on{color:#4ec9b0;border-radius:2px}
 #btn-pinned-hl-toggle.on{color:#fff;background:#094771;border-radius:2px}
-#ifdef-apply{color:#7ec87e}
-#ifdef-clear{color:#888}
 /* 仕込み残数バッジ。挿入デコレーション (overviewRuler の紫) と色を揃える。 */
 #insertion-badge{font-size:10px;color:#c9a0dc;background:rgba(160,100,220,0.15);border:1px solid #6a4a80;border-radius:8px;padding:1px 8px;cursor:pointer;flex-shrink:0}
 #insertion-badge:hover{background:rgba(160,100,220,0.28)}
@@ -210,7 +208,28 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .memo-removeall-btn{background:rgba(160,100,220,0.10);border:1px solid #6a4a80;color:#c9a0dc;cursor:pointer;font-size:10px;padding:1px 8px;border-radius:3px;font-family:inherit}
 .memo-removeall-btn:hover{background:rgba(160,100,220,0.22);border-color:#8a5aa8}
 #ifdef-ui{border-left:1px solid #3c3c3c;border-right:1px solid #3c3c3c;padding:0 4px;margin:0 2px}
-#ifdef-cond{flex:0 0 200px;background:#1a1a1a;border:1px solid #444;color:#ccc;padding:1px 5px;border-radius:2px;font:11px Consolas,monospace}
+/* 条件はヘッダの1行入力からポップオーバーのリストへ移した（切り替えが主操作
+   なのに、毎回テキストを書き換えるのはつらい。器をダイアログにしないのは、
+   真偽を反転するたびエディタのグレーアウトが変わるのを見る機能だから）。
+   ヘッダに残るのはこのボタン1個で、幅の剛体だった 200px 入力欄は消えた。 */
+#ifdef-btn.on{color:#c8a84b}
+#ifdef-popover{position:absolute;top:calc(100% + 4px);right:0;z-index:var(--z-popover-low);background:#252526;border:1px solid #454545;border-radius:4px;padding:8px;min-width:230px;box-shadow:0 4px 12px rgba(0,0,0,0.4)}
+.ifdef-pop-title{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.ifdef-pop-close{background:none;border:none;color:#666;cursor:pointer;font-size:11px;padding:0 2px}
+.ifdef-pop-close:hover{color:#ccc}
+.ifdef-row{display:flex;align-items:center;gap:6px;padding:2px 0;font-size:12px;color:#ccc}
+.ifdef-row-name{flex:1;font-family:Consolas,monospace}
+.ifdef-row-toggle{background:#3c3c3c;border:1px solid #555;color:#999;border-radius:2px;font-size:11px;padding:0 8px;cursor:pointer}
+.ifdef-row-toggle.truthy{background:#2d4a2d;border-color:#4a7a4a;color:#9fd89f}
+.ifdef-row-del{background:none;border:none;color:#666;cursor:pointer;font-size:12px;padding:0 2px}
+.ifdef-row-del:hover{color:#f44}
+.ifdef-add input{width:100%;box-sizing:border-box;background:#1a1a1a;border:1px solid #444;color:#ccc;padding:2px 6px;border-radius:2px;font:11px Consolas,monospace;margin:6px 0 2px}
+.ifdef-cand-cap{font-size:10px;color:#777;margin-top:6px}
+.ifdef-cands{display:flex;flex-wrap:wrap;gap:3px;margin-top:3px;max-width:280px}
+.ifdef-cand{background:none;border:1px solid #3a3a3a;border-radius:2px;color:#9cdcfe;font:11px Consolas,monospace;padding:0 5px;cursor:pointer}
+.ifdef-cand:hover{background:#37373d}
+.ifdef-clear-all{display:block;margin-top:8px;background:#3c3c3c;border:1px solid #555;color:#ccc;border-radius:2px;font-size:11px;padding:2px 8px;cursor:pointer}
+.ifdef-clear-all:hover{background:#5a1d1d;color:#f88}
 #peek-hint{color:#3a3a3a;font-size:10px;white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis}
 /* 幅が足りないときは重要度の低い順に落とす: ヒント文 → エンジン表示 →
    ボタンの文字ラベル（アイコンとバッジの件数は最後まで残す）。 */
