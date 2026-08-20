@@ -255,27 +255,48 @@ async function fetchStatus() {
   }
 }
 
+// バイナリの出所の表示名。ラベルではなくポップオーバーで使う（出所は診断情報で、
+// 常時掲示する状態ではない）。
+function gtagsSourceLabel() {
+  return { bin: 'bin/', scoop: 'Scoop', msys: 'MSYS2', path: 'PATH' }[_binSource] || '';
+}
+
 function renderGear() {
   const label = document.getElementById('gtags-engine-label');
   if (!label) return;
   label.style.display = '';
+  // 商品名ではなく状態を出す。以前は「優先順の先頭が gtags でも索引が無ければ
+  // 黙って ripgrep」と表示していて、優先順を無視したように見えた。
+  // 正常なら沈黙（灰の「索引」）、劣化しているときだけ理由つきで目立たせる。
   const engines = window.getDefEngines();
-  const eng = engines[0] || 'rg';
-  const srcLabel = { bin: 'bin/', scoop: 'Scoop', msys: 'MSYS2', path: 'PATH' }[_binSource] || '';
-  const gnuLabel = 'GNU Global' + (srcLabel ? ' (' + srcLabel + ')' : '');
-  if (eng === 'gtags' && _installed && _indexed) {
-    label.textContent = _stale ? gnuLabel + ' ⚠' : gnuLabel;
-    label.style.color = _stale ? '#c8a84b' : '#999';
-  } else if (eng === 'ctags') {
-    label.textContent = 'ctags';
+  const ready = (e) =>
+    e === 'rg' ? true :
+    e === 'gtags' ? (_installed && _indexed) :
+    (typeof window._ctagsInstalled === 'function' && window._ctagsInstalled() &&
+     typeof window._ctagsIndexed === 'function' && window._ctagsIndexed());
+  const first = engines.find(ready) || 'rg';
+  const wantedIndex = engines.indexOf('rg') !== 0 && engines.some(e => e !== 'rg');
+
+  const chainNames = { gtags: 'GNU Global', ctags: 'ctags', rg: 'ripgrep' };
+  let extra = '';
+  if (first === 'rg' && wantedIndex) {
+    // 索引エンジンを使いたいのに使えない。理由を言わないと
+    // 「設定と違うものが動いている」ように見える
+    label.textContent = '索引なし (grep で代用)';
+    label.style.color = '#c8a84b';
+    extra = '\n\n索引エンジンが未導入か索引が未生成のため、テキスト検索で代用中です。クリックして生成できます。';
+  } else if (first === 'rg') {
+    label.textContent = 'grep'; // 本人が grep を選んでいる。警告しない
     label.style.color = '#999';
+  } else if (first === 'gtags' && _stale) {
+    label.textContent = '索引が古い ⚠';
+    label.style.color = '#c8a84b';
+    extra = '\n\n⚠ 索引がソースより古いです。行の内容が一致する場所へ着地点を調整していますが、絞り込めない箇所は索引の位置のままです。クリックして「更新」を実行してください。';
   } else {
-    label.textContent = 'ripgrep';
+    label.textContent = '索引';
     label.style.color = '#999';
   }
-  const chainNames = { gtags: 'GNU Global', ctags: 'ctags', rg: 'ripgrep' };
-  label.title = '定義ジャンプエンジン設定\n試行順: ' + engines.map(e => chainNames[e]).join(' → ')
-    + (_stale && eng === 'gtags' && _installed && _indexed ? '\n\n⚠ 索引がソースより古いです。行の内容が一致する場所へ着地点を調整していますが、絞り込めない箇所は索引の位置のままです。クリックして「更新」を実行してください。' : '');
+  label.title = '定義ジャンプエンジン設定\n試行順: ' + engines.map(e => chainNames[e]).join(' → ') + extra;
 }
 
 function renderPopover() {
@@ -292,8 +313,11 @@ function renderPopover() {
   let html = `<div class="gtags-pop-title">定義ジャンプエンジン <span class="gtags-pop-hint">上から順に試行</span></div>`;
 
   // エンジン優先順リスト（チェック=使用する、▲▼=順序変更）
+  const src = gtagsSourceLabel();
   const engineLabels = {
-    gtags: `GNU Global${gtagsBadge}`,
+    // バイナリの出所（bin/・Scoop・MSYS2・PATH）はここで見せる。どの global が
+    // 使われているかは shim 問題の切り分けに効くが、常時掲示する情報ではない
+    gtags: `GNU Global${src ? ' <span class="gtags-pop-hint">(' + src + ')</span>' : ''}${gtagsBadge}`,
     ctags: `ctags${ctagsBadge}`,
     rg:    'ripgrep',
   };
@@ -323,7 +347,7 @@ function renderPopover() {
 
   if (showCtagsSection) {
     html += `<div class="gtags-pop-divider"></div>`;
-    html += `<div class="gtags-pop-section">ctags インデックス</div>`;
+    html += `<div class="gtags-pop-section">ctags の索引</div>`;
     if (ctagsIndexed) {
       html += `<button class="gtags-pop-btn" id="ctags-pop-rebuild-main" style="width:100%">再生成</button>`;
     } else {
@@ -333,7 +357,7 @@ function renderPopover() {
 
   if (showGtagsSection) {
     html += `<div class="gtags-pop-divider"></div>`;
-    html += `<div class="gtags-pop-section">GNU Global インデックス</div>`;
+    html += `<div class="gtags-pop-section">GNU Global の索引</div>`;
     // 索引が古いことは歯車の ⚠ だけでは伝わらない。着地点の調整では拾い切れない
     // ずれが残るので、何が起きているかと直し方をここに出す。
     if (_stale && _indexed && !_opRunning) {

@@ -59,7 +59,7 @@ function renderPopover() {
   const pop = document.getElementById('ctags-popover');
   if (!pop) return;
 
-  let html = `<div class="gtags-pop-title">ctags インデックス</div>`;
+  let html = `<div class="gtags-pop-title">ctags の索引</div>`;
   if (!_installed) {
     html += `<div style="color:#f88;font-size:11px;padding:4px 0">ctags がインストールされていません</div>`;
     html += `<div style="font-size:11px;color:#888;padding:2px 0">scoop install universal-ctags</div>`;
