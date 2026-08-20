@@ -847,6 +847,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const isOpen = panel.classList.contains('open');
       panel.classList.toggle('open', !isOpen);
       if(!isOpen) {
+        window.closeOtherSidePanels?.(panel);
         await _jmInitCy();
         // 蓄積済みのデータを再投入
         if(_cy && _jmElements.nodes.length && _cy.nodes().length === 0) {

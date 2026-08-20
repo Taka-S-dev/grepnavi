@@ -271,7 +271,7 @@ function toggleMemoList() {
   // .side-panel.open の幅ぶんエディタを狭めるので、これでスクロールバーが
   // パネルの下に隠れない（474926a でアドオン側だけ直り、本体組み込みの
   // このパネルが漏れていた）。
-  if (_memoListOpen) { renderMemoList(); panel.classList.add('open'); }
+  if (_memoListOpen) { renderMemoList(); panel.classList.add('open'); window.closeOtherSidePanels?.(panel); }
   else { panel.classList.remove('open'); }
   id('btn-memo-list')?.classList.toggle('active', _memoListOpen);
 }

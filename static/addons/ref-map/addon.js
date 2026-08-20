@@ -37,7 +37,11 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.textContent = 'map';
     btn.title = 'map — 参照マップ (どこがどこを参照しているか)';
     addonBar.appendChild(btn);
-    btn.onclick = () => openRefMap();
+    btn.onclick = () => {
+      const p = document.getElementById('rm-sidebar');
+      if (p.classList.contains('open')) closeRefMap();
+      else openRefMap();
+    };
   }
 
   document.getElementById('rm-close').onclick = () => closeRefMap();
@@ -81,7 +85,9 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function openRefMap(focus) {
-  document.getElementById('rm-sidebar').classList.add('open');
+  const panel = document.getElementById('rm-sidebar');
+  panel.classList.add('open');
+  window.closeOtherSidePanels?.(panel);
   rmLoad(focus !== undefined ? focus : _rmFocus);
 }
 window.openRefMap = openRefMap;

@@ -25,6 +25,18 @@ function syncSidePanelWidth() {
   document.documentElement.style.setProperty('--side-panel-w', w ? w + 'px' : '0px');
 }
 
+// 右端のサイドパネルは同時に1枚だけ開く。position:fixed の重なりなので、
+// 2枚目を開くと下の1枚は「開いているのに見えない」状態になり、
+// どのボタンが効いているのか分からなくなる。開く側がこれを呼ぶ。
+window.closeOtherSidePanels = function(except) {
+  for (const p of document.querySelectorAll('.side-panel.open')) {
+    if (p === except) continue;
+    // マーク一覧は開閉フラグを持つので、クラスだけ剥がすと表示と状態がずれる
+    if (p.id === 'memo-list-panel' && typeof closeMemoList === 'function') closeMemoList();
+    else p.classList.remove('open');
+  }
+};
+
 function initSidePanelLayout() {
   let pending = false;
   const schedule = () => {

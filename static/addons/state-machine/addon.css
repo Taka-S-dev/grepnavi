@@ -25,11 +25,12 @@
 
 #sm-header {
   display: flex; align-items: center; gap: 8px;
-  padding: 7px 10px;
+  padding: 7px 26px 7px 10px; /* 右は ✕ の分を確保 */
   border-bottom: 1px solid #444;
   background: #252526;
   flex-shrink: 0;
   flex-wrap: wrap;
+  position: relative;
 }
 #sm-title { font-size: 12px; color: #ccc; font-weight: 600; white-space: nowrap; }
 #sm-input {
@@ -47,9 +48,12 @@
 /* 件数表示はヘッダの2行目へ回す（狭い幅でボタンを押し出さない） */
 #sm-status { font-size: 11px; color: #8a8a8a; flex-basis: 100%; order: 1; }
 #sm-status.sm-err { color: #d7a35c; }
+/* ✕ は折り返しの流れから外して右上に固定する。wrap の中に置くと、
+   2行目の末尾に落ちたり見えない位置へ流れたりして「閉じれない」に見える。 */
 #sm-close {
   background: transparent; border: none; color: #999; font-size: 16px;
   cursor: pointer; padding: 0 4px; line-height: 1;
+  position: absolute; top: 6px; right: 6px;
 }
 #sm-close:hover { color: #fff; }
 

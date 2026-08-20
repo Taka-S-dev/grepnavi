@@ -50,7 +50,12 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.textContent = 'ct';
     btn.title = 'ct — Call Tree (関数の callers / callees をツリー表示)  Ctrl+Shift+T';
     addonBar.appendChild(btn);
-    btn.onclick = () => openCallTree();
+    // もう一度押したら閉じる（開くだけのボタンは、閉じ方を探させる）
+    btn.onclick = () => {
+      const p = document.getElementById('ct-sidebar');
+      if (p.classList.contains('open')) closeCallTree();
+      else openCallTree();
+    };
   }
 
   // リサイズハンドル
@@ -172,7 +177,9 @@ function ctUpdateCount() {
 
 // ----- open / close -----
 function openCallTree(funcName) {
-  document.getElementById('ct-sidebar').classList.add('open');
+  const panel = document.getElementById('ct-sidebar');
+  panel.classList.add('open');
+  window.closeOtherSidePanels?.(panel);
   if (funcName) {
     document.getElementById('ct-input').value = funcName;
     _ctRootFunc = funcName;

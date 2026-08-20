@@ -102,7 +102,11 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.textContent = 'sm';
     btn.title = 'sm — 状態遷移ビュー（状態変数の代入から遷移図を作る）';
     addonBar.appendChild(btn);
-    btn.onclick = () => openStateMachine();
+    btn.onclick = () => {
+      const p = document.getElementById('sm-panel');
+      if (p.classList.contains('open')) closeStateMachine();
+      else openStateMachine();
+    };
   }
 
   // 幅はドラッグで変えられ、次回も同じ幅で開く。図はサイズ変更に追従させる
@@ -154,6 +158,7 @@ window.openStateMachine = function(word) {
   const panel = document.getElementById('sm-panel');
   if (!panel) return;
   panel.classList.add('open');
+  window.closeOtherSidePanels?.(panel);
   // 閉じている間のサイズで組まれた図をドックの実寸に合わせ直す
   setTimeout(() => { _cy?.resize(); _cy?.fit(undefined, 20); }, 220);
   const input = document.getElementById('sm-input');
