@@ -149,6 +149,45 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+// 応答の実測をラベルへ。予測（gtagsAvailable）だけだと、rg へ降格した・
+// 索引呼び出しに何秒かかった、が現地で見えず「遅い」以上の報告ができない。
+// EDR 入りの社用機やネットワークドライブは手元で再現できないので、
+// 1クリックがそのまま計測になるようにしておく。
+// 生の内訳（index=..ms resolve=..ms）を読ませるのではなく、比較と判定は
+// こちらでやって日本語の一文にする。数字はその下に残す（報告用）。
+function ctTimingVerdict(eng, totalMs, t) {
+  const ms = (k) => parseInt((t.match(new RegExp(k + '=([0-9]+)')) || [])[1] || '0', 10);
+  const index = ms('index'), resolve = ms('resolve'), scan = ms('scan'), files = ms('files');
+  if (totalMs < 1500) return 'この検索は遅くありません';
+  if (eng !== 'gtags') {
+    return 'この語は索引で答えられず、rg でツリー全体を走査しました (' + scan + 'ms)。' +
+      '毎回こうなるなら、索引が無い・古い・プロジェクトルート直下に無い、のどれかです';
+  }
+  if (index > 1000 && index >= resolve * 2) {
+    return '時間の大半は global の呼び出しです (' + index + 'ms)。プロセス起動が遅い環境' +
+      '（ウイルス対策/EDR がプロセスを検査している）の典型です。2回目も遅いままか見てください';
+  }
+  if (resolve > 1000) {
+    return '時間の大半はファイル読みです (' + resolve + 'ms / ' + files + ' ファイル)。' +
+      '遅いディスクかネットワークドライブ上のプロジェクトが典型です';
+  }
+  return 'サーバ側はどの段階も速いのに合計が遅い場合、通信か描画側です';
+}
+
+function ctShowTiming(res, totalMs) {
+  const label = document.getElementById('ct-engine-label');
+  if (!label || !res) return;
+  const eng = res.headers.get('X-Engine');
+  if (!eng) return;
+  const name = eng === 'gtags' ? 'GNU Global' : 'ripgrep';
+  const sec = (totalMs / 1000).toFixed(totalMs >= 9500 ? 0 : 1);
+  label.textContent = `${name} · ${sec}s`;
+  const t = res.headers.get('X-Timing') || '';
+  label.title = ctTimingVerdict(eng, totalMs, t) +
+    String.fromCharCode(10) + String.fromCharCode(10) + t +
+    String.fromCharCode(10) + 'build: ' + (res.headers.get('X-Build') || '?');
+}
+
 function updateCtEngineLabel(mode) {
   const label = document.getElementById('ct-engine-label');
   if (!label) return;
@@ -234,7 +273,9 @@ async function ctSearch() {
       // 見る一覧なので、別のパネルの設定で黙って件数が減るほうが危ない
       const params = new URLSearchParams({ word });
       if (!useGtags) params.set('gtags', '0');
+      const t0 = performance.now();
       const res = await fetch('/api/callers?' + params, { signal });
+      ctShowTiming(res, performance.now() - t0);
       if (!res.ok) { body.innerHTML = '<div class="ct-empty">エラー</div>'; return; }
       const hits = await res.json();
 
@@ -512,7 +553,9 @@ async function ctToggle(node, el) {
   if (_ctMode === 'callers') {
     const params = new URLSearchParams({ word: node.func });
     if (typeof gtagsAvailable === 'function' && !gtagsAvailable()) params.set('gtags', '0');
+    const t0 = performance.now();
     const res = await fetch('/api/callers?' + params).catch(() => null);
+    ctShowTiming(res, performance.now() - t0);
     if (res && res.ok) {
       const hits = await res.json();
       node.truncated = res.headers.get('X-Truncated') === 'true';

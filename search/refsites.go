@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // RefQuery は「word はどこで使われているか」の問い合わせ。
@@ -32,6 +33,19 @@ type RefQuery struct {
 	AssignOnly bool
 	// NoIndex は索引を使わず ripgrep だけで引く（利用者が明示的に指定したとき）。
 	NoIndex bool
+	// Timing を渡すと、どの段階に時間を使ったかを書き込む。遅い環境
+	// （EDR 入りの社用機・ネットワークドライブ等）は手元で再現できないので、
+	// 現地の1クリックで原因を切り分けられる数字を応答に載せるためにある。
+	Timing *RefTiming
+}
+
+// RefTiming は参照検索1回の内訳。
+type RefTiming struct {
+	IndexMS   int64 // global の呼び出し（初回はプロセス起動経路の検出込み）
+	ResolveMS int64 // ファイルを読んで囲む関数を解決した時間
+	ScanMS    int64 // ripgrep 降格時の全木走査
+	RawHits   int   // 索引が返した生ヒット数
+	FilesRead int   // 解決で開いたファイル数
 }
 
 // FindRefSites は索引で引き、答えられなければ ripgrep に落ちる。
@@ -44,7 +58,12 @@ func FindRefSites(ctx context.Context, q RefQuery) ([]CallSite, string, bool, er
 		q.Scope = q.Root
 	}
 	if !q.NoIndex && GtagsAvailable(q.Root) {
+		t0 := time.Now()
 		hits, err := gtagsRawRefs(ctx, q.Word, q.Root)
+		if q.Timing != nil {
+			q.Timing.IndexMS = time.Since(t0).Milliseconds()
+			q.Timing.RawHits = len(hits)
+		}
 		if err == nil && len(hits) > 0 {
 			// 絞り込みと上限は解決の前に掛ける。解決はヒットのあるファイルを
 			// 読む処理なので、後ろに置くと索引が返した全件ぶん働いてしまう。
@@ -67,16 +86,24 @@ func FindRefSites(ctx context.Context, q RefQuery) ([]CallSite, string, bool, er
 				hits, cut = hits[:budget], true
 			}
 			var sites []CallSite
+			t1 := time.Now()
 			if q.CallersOnly {
 				// 解決（ファイル読み + 関数範囲の走査）が一覧の主コスト。
 				// 全ヒットを解決してから上限で切ると、上限の 20 倍を先に
 				// 払うことになる（実測: linux の kfree で 3.9s、畳みながら
 				// 止めれば参照一覧と同等まで落ちる）。
 				var full bool
-				sites, full = resolveCallerSites(hits, q.Word, q.Limit)
+				var files int
+				sites, full, files = resolveCallerSites(hits, q.Word, q.Limit)
 				cut = cut || full
+				if q.Timing != nil {
+					q.Timing.FilesRead = files
+				}
 			} else {
 				sites = ResolveRefSites(hits, q.Word)
+			}
+			if q.Timing != nil {
+				q.Timing.ResolveMS = time.Since(t1).Milliseconds()
 			}
 			MarkIndirectCalls(sites, q.Word)
 			MarkAssignments(sites, q.Word)
@@ -95,12 +122,19 @@ func FindRefSites(ctx context.Context, q RefQuery) ([]CallSite, string, bool, er
 	// 呼び出し元の形に整えると 0 件」は降格しない — 索引の参照は全量なので、
 	// rg の再走査が足せるのは索引対象外ファイルの分だけで、実測ではそこに
 	// 生成 HTML の誤パースが混ざった。0 件は「呼び出し元なし」という答え。
+	t2 := time.Now()
 	if q.CallersOnly {
 		sites, truncated, err := FindCallers(ctx, q.Word, q.Scope, q.Glob)
+		if q.Timing != nil {
+			q.Timing.ScanMS = time.Since(t2).Milliseconds()
+		}
 		return sites, "rg", truncated, err
 	}
 	sites, truncated, err := rgRefSites(ctx, q.Word, q.Scope, q.Glob, q.Limit,
 		parseRefFilter(q.Filter), q.AssignOnly)
+	if q.Timing != nil {
+		q.Timing.ScanMS = time.Since(t2).Milliseconds()
+	}
 	return sites, "rg", truncated, err
 }
 
@@ -178,7 +212,9 @@ func callerKey(s *CallSite, word string, reDecl *regexp.Regexp) (string, bool) {
 // そろった時点で止める。第2戻り値は「生ヒットを使い切る前に止めた」。
 // 解決はファイル読み + コメント除去 + 関数範囲の走査で、一覧の主コストなので、
 // 使わない解決はやらない。
-func resolveCallerSites(hits []DefHit, word string, limit int) ([]CallSite, bool) {
+// 第3戻り値は開いたファイル数（遅い環境の切り分け用: 解決が遅いのか、
+// ファイルが多いのか、1ファイルが重いのかを分ける材料になる）。
+func resolveCallerSites(hits []DefHit, word string, limit int) ([]CallSite, bool, int) {
 	reDecl := callerDeclPattern(word)
 	code := codeOnlyCache{}
 	seen := map[string]bool{}
@@ -186,7 +222,7 @@ func resolveCallerSites(hits []DefHit, word string, limit int) ([]CallSite, bool
 	for i, h := range hits {
 		if len(out) >= limit {
 			_ = hits[i] // まだ残っている = 打ち切り
-			return out, true
+			return out, true, len(code)
 		}
 		lines, err := CachedLines(h.File)
 		if err != nil {
@@ -206,7 +242,7 @@ func resolveCallerSites(hits []DefHit, word string, limit int) ([]CallSite, bool
 		seen[key] = true
 		out = append(out, s)
 	}
-	return out, false
+	return out, false, len(code)
 }
 
 // refTerm は絞り込み条件1つぶん。

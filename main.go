@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"grepnavi/api"
 	"grepnavi/desktop"
 	"grepnavi/proc"
 )
@@ -125,7 +126,7 @@ func main() {
 
 	srv := newServer(absRoot, rootExplicit, *graphFile, graphExplicit, addr, *debug, *mcp, *tray)
 
-	slog.Info("grepnavi started", "root", absRoot, "graph", *graphFile)
+	slog.Info("grepnavi started", "root", absRoot, "graph", *graphFile, "build", api.BuildStamp())
 	if *mcp {
 		slog.Warn("--mcp enabled: non-browser (Origin-less) API access is allowed")
 	}

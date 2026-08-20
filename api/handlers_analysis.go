@@ -731,6 +731,7 @@ func (h *Handler) handleCallers(w http.ResponseWriter, r *http.Request) {
 	} else if !filepath.IsAbs(dir) {
 		dir = filepath.Join(hroot, dir)
 	}
+	timing := &search.RefTiming{}
 	hits, engine, truncated, err := search.FindRefSites(r.Context(), search.RefQuery{
 		Word:        word,
 		Root:        hroot,
@@ -740,7 +741,8 @@ func (h *Handler) handleCallers(w http.ResponseWriter, r *http.Request) {
 		NoIndex:     q.Get("gtags") == "0",
 		// 呼び出し元は「これで全部か」を見る一覧なので上限は高く取り、
 		// 触れたときは X-Truncated で伝える
-		Limit: 1000,
+		Limit:  1000,
+		Timing: timing,
 	})
 	if err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
@@ -752,6 +754,12 @@ func (h *Handler) handleCallers(w http.ResponseWriter, r *http.Request) {
 	// 呼び出し元が上限で切られたかを伝える。黙って切ると「これで全部」と誤解される。
 	// gtags は全件返すので、打ち切りが起きるのは rg 経路だけ。
 	w.Header().Set("X-Engine", engine)
+	// どこで時間を使ったかを応答に載せる。遅い環境（EDR 入りの社用機・
+	// ネットワークドライブ）は手元で再現できないので、現地の1クリックが
+	// そのまま計測になる形にしておく。
+	w.Header().Set("X-Timing", fmt.Sprintf("index=%dms resolve=%dms scan=%dms raw=%d files=%d",
+		timing.IndexMS, timing.ResolveMS, timing.ScanMS, timing.RawHits, timing.FilesRead))
+	w.Header().Set("X-Build", headerSafe(BuildStamp()))
 	if truncated {
 		w.Header().Set("X-Truncated", "true")
 	}
