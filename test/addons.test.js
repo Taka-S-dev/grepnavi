@@ -31,3 +31,24 @@ test('アドオンパネル - 右端に固定するパネルは side-panel を�
   }
   assert.ok(checked >= 4, `右端パネルが ${checked} 件しか見つからない（検出側が壊れている疑い）`);
 });
+
+// 同じ症状は本体組み込みのパネルでも起きる。マーク一覧がまさにこれで、
+// アドオンだけ走査していた上のテストをすり抜けて1枚だけ残った。
+// main.css で右端固定のパネルを拾い、index.html 側の要素に目印を要求する。
+test('本体パネル - 右端に固定するパネルも side-panel を名乗る', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'static', 'css', 'main.css'), 'utf8');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'static', 'index.html'), 'utf8');
+  let checked = 0;
+  for (const m of css.matchAll(/#([\w-]+)\s*\{([^}]*)\}/g)) {
+    const body = m[2].replace(/\s+/g, '');
+    if (!body.includes('position:fixed') || !/right:0[;}]/.test(body)) continue;
+    const id = m[1];
+    const tag = html.match(new RegExp(`id="${id}"[^>]*`));
+    if (!tag) continue; // アドオン側の要素は上のテストが見る
+    assert.ok(/class="[^"]*\bside-panel\b/.test(tag[0]),
+      `#${id} に class="side-panel" が無い。開いてもエディタが狭まらず、` +
+      '縦スクロールバーがパネルの下に隠れる');
+    checked++;
+  }
+  assert.ok(checked >= 1, `右端固定の本体パネルが ${checked} 件しか見つからない（検出側が壊れている疑い）`);
+});

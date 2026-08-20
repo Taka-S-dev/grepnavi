@@ -267,14 +267,18 @@ function toggleMemoList() {
   const panel = id('memo-list-panel');
   if (!panel) return;
   _memoListOpen = !_memoListOpen;
-  if (_memoListOpen) { renderMemoList(); panel.classList.add('visible'); }
-  else { panel.classList.remove('visible'); }
+  // 'open' はアドオンのサイドパネルと同じ目印。app.js の initSidePanelLayout が
+  // .side-panel.open の幅ぶんエディタを狭めるので、これでスクロールバーが
+  // パネルの下に隠れない（474926a でアドオン側だけ直り、本体組み込みの
+  // このパネルが漏れていた）。
+  if (_memoListOpen) { renderMemoList(); panel.classList.add('open'); }
+  else { panel.classList.remove('open'); }
   id('btn-memo-list')?.classList.toggle('active', _memoListOpen);
 }
 
 function closeMemoList() {
   _memoListOpen = false;
-  id('memo-list-panel')?.classList.remove('visible');
+  id('memo-list-panel')?.classList.remove('open');
   id('btn-memo-list')?.classList.remove('active');
 }
 
