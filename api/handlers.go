@@ -27,6 +27,10 @@ type Handler struct {
 	// では直列化できない（NextInsertionTag 採番から AddInsertion までの
 	// 間に別リクエストが割り込むとタグ重複や行番号の食い違いが起きる）。
 	insMu sync.Mutex
+	// desktopWindows が true のとき、新しいウィンドウは子プロセス自身が
+	// WebView2 の枠なし窓を開く（-tray 経由）。false（ブラウザ利用）では
+	// クライアントが window.open で新しいタブを開く。
+	desktopWindows bool
 	// lastRemoved / lastMoved は直前の撤去・移動1件の控え (insMu が守る)。
 	// Ctrl+Z の復元専用で、履歴スタックは持たない。戻せるのは常に直前の1操作
 	// だけなので、片方を立てるときにもう片方は捨てる。

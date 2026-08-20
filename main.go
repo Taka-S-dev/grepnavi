@@ -123,7 +123,7 @@ func main() {
 		fmt.Fprintln(os.Stderr)
 	}
 
-	srv := newServer(absRoot, rootExplicit, *graphFile, graphExplicit, addr, *debug, *mcp)
+	srv := newServer(absRoot, rootExplicit, *graphFile, graphExplicit, addr, *debug, *mcp, *tray)
 
 	slog.Info("grepnavi started", "root", absRoot, "graph", *graphFile)
 	if *mcp {

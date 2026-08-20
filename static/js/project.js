@@ -3,9 +3,14 @@ async function openNewWindow() {
   st('新しいウィンドウを起動中...');
   const res = await fetch('/api/new-window', {method: 'POST'}).catch(() => null);
   if(!res || !res.ok) { st('起動に失敗しました'); return; }
-  const {url} = await res.json();
+  const {url, own_window} = await res.json();
 
-  // サーバーが起動するまで待ってから開く
+  // デスクトップモードでは子プロセスが自分で枠なしの窓を開く。ここで
+  // window.open すると WebView2 の外（既定ブラウザ）に URL 欄つきの窓が
+  // もう1枚出るだけなので、何もしない。
+  if (own_window) { st('新しいウィンドウを開きました'); return; }
+
+  // ブラウザ利用時: サーバーが起動するまで待ってから新しいタブで開く
   for(let i = 0; i < 20; i++) {
     await new Promise(r => setTimeout(r, 300));
     try {

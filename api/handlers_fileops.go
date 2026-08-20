@@ -658,7 +658,15 @@ func (h *Handler) handleNewWindow(w http.ResponseWriter, r *http.Request) {
 
 	graphPath := filepath.Join(filepath.Dir(exe), fmt.Sprintf("graph-%d.json", port))
 	// 新しいウィンドウは常に空のグラフで開く（前回分は復元ファイルへ退避される）
-	cmd := proc.Command(exe, "-port", strconv.Itoa(port), "-root", root, "-graph", graphPath, "-reset-graph", "-no-browser")
+	args := []string{"-port", strconv.Itoa(port), "-root", root, "-graph", graphPath, "-reset-graph", "-no-browser"}
+	if h.desktopWindows {
+		// デスクトップモードでは子プロセス自身が枠なしの WebView2 窓を開く
+		// （トレイ起動時の1枚目と同じ経路）。ここでクライアントにも
+		// window.open させると、WebView2 の外＝既定ブラウザに投げられて
+		// URL 欄つきの窓がもう1枚出る。窓は子に任せ、応答でそれを伝える。
+		args = append(args, "-tray")
+	}
+	cmd := proc.Command(exe, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
@@ -666,7 +674,11 @@ func (h *Handler) handleNewWindow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jsonOK(w, map[string]string{"url": fmt.Sprintf("http://localhost:%d", port)})
+	jsonOK(w, map[string]any{
+		"url": fmt.Sprintf("http://localhost:%d", port),
+		// true = 子が自分で窓を開く。クライアントは window.open しない
+		"own_window": h.desktopWindows,
+	})
 }
 
 func findFreePort(start int) (int, error) {

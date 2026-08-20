@@ -24,6 +24,10 @@ import (
 // loopback バインド時にのみ server.go から呼ばれる想定。
 func (h *Handler) EnableFileWrites() { h.fileWrites = true }
 
+// EnableDesktopWindows はトレイ常駐（デスクトップ）モードを伝える。
+// 新しいウィンドウの開き方がブラウザ利用と変わる（handleNewWindow 参照）。
+func (h *Handler) EnableDesktopWindows() { h.desktopWindows = true }
+
 // saveFile は書き換えたソースを保存し、書き換えに伴う後始末をする。
 // 挿入系の保存は必ずここを通す（保存経路が増えても後始末を忘れないため）。
 //
