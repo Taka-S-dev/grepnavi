@@ -177,6 +177,10 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
   display:none;
   flex-direction:column;
   height:35vh;min-height:120px;max-height:70vh;
+  /* ヘッダの段階的な畳み（下の @container）をパネルの実幅で判定する。
+     ウィンドウ幅ではなくパネル幅なのは、サイドパネルを開いて狭くなった
+     場合にも効かせるため。 */
+  container-type:inline-size;
 }
 #peek.visible{display:flex}
 #peek-hdr{
@@ -185,7 +189,9 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
   font-size:11px;color:#999;flex-shrink:0;cursor:ns-resize;user-select:none;
 }
 #peek-hdr .peek-file{color:#569cd6;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:transparent;border:none;outline:none;font:inherit;cursor:text;min-width:0}
-#peek-hdr button{background:none;border:none;color:#777;cursor:pointer;font-size:11px;padding:1px 6px;line-height:1.4;border-radius:2px}
+/* ボタンとバッジは潰さない。flex の子は既定で縮んでよい扱いなので、指定が
+   無いと幅が足りないときにラベルが1文字ずつ折り返されて縦書きに見える。 */
+#peek-hdr button{background:none;border:none;color:#777;cursor:pointer;font-size:11px;padding:1px 6px;line-height:1.4;border-radius:2px;flex-shrink:0;white-space:nowrap}
 #peek-hdr button:hover{color:#ccc;background:#3c3c3c}
 #btn-nav-back,#btn-nav-fwd{font-size:13px;padding:0 5px}
 #btn-nav-back:disabled,#btn-nav-fwd:disabled{color:#444;cursor:default;background:none}
@@ -205,7 +211,17 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .memo-removeall-btn:hover{background:rgba(160,100,220,0.22);border-color:#8a5aa8}
 #ifdef-ui{border-left:1px solid #3c3c3c;border-right:1px solid #3c3c3c;padding:0 4px;margin:0 2px}
 #ifdef-cond{flex:0 0 200px;background:#1a1a1a;border:1px solid #444;color:#ccc;padding:1px 5px;border-radius:2px;font:11px Consolas,monospace}
-#peek-hint{color:#3a3a3a;font-size:10px;white-space:nowrap}
+#peek-hint{color:#3a3a3a;font-size:10px;white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis}
+/* 幅が足りないときは重要度の低い順に落とす: ヒント文 → エンジン表示 →
+   ボタンの文字ラベル（アイコンとバッジの件数は最後まで残す）。 */
+@container (max-width: 760px){
+  #peek-hint{display:none}
+}
+@container (max-width: 600px){
+  #peek-hdr .pk-label{display:none}
+  /* エンジン表示は JS が style.display を直接切り替えるので !important で勝つ */
+  #gtags-engine-label{display:none !important}
+}
 #peek-tabs{
   display:flex;flex-wrap:nowrap;overflow-x:auto;flex-shrink:0;
   background:#252526;border-bottom:1px solid #333;
