@@ -4,11 +4,11 @@
 [![Release](https://img.shields.io/github/v/release/Taka-S-dev/grepnavi)](https://github.com/Taka-S-dev/grepnavi/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-コードベース調査ツール。ripgrep の高速検索 + Monaco エディタ + 調査グラフで、**「どこを調べたか」を記録しながらコードを読み解く**ためのツールです。
+*A lightweight code-reading tool for large C codebases — ripgrep search, a Monaco-based source viewer, call trees and reference maps on top of GNU Global. No language server required.*
 
-大きなコードベース（Linux カーネル、OpenSSL、curl など）を読む際に、検索結果をグラフに積み上げながら構造を把握していくことを想定しています。
+C の大規模コードベース（Linux カーネル、OpenSSL、curl など）を読むためのコードリーディング（調査）ツール。ripgrep の高速検索 + VSCode と同じエディタ（Monaco）+ 調査グラフで、**「どこを調べたか」を記録しながら**構造を把握していきます。
 
-ビルドシステムが複雑で `compile_commands.json` を生成しにくいプロジェクトや、clangd のセットアップが難しい環境でも、インクルード依存グラフや定義ジャンプが動作します。
+clangd のような言語サーバを使える環境なら、精度はそちらのほうが上です。grepnavi が想定するのは**それが使えない・重すぎる環境**です — ビルドシステムが複雑で `compile_commands.json` を生成できない、PC のスペックが足りない、常駐のセキュリティソフトの下でインデックス作成がいつまでも終わらずエディタごと重くなる。そうした場面でも、検索・定義ジャンプ・呼び出し元の追跡が待たされずに動くことを優先しています。
 
 > **ローカル専用ツールです**
 > 自分の PC で起動して、同じ PC のブラウザからアクセスして使います。
@@ -28,7 +28,7 @@
 
 ### エディタ
 
-- **Monaco ビューア** — VSCode と同じエディタで該当行へジャンプ。複数タブ
+- **ソースコードビューア（Monaco）** — VSCode と同じエディタで該当行へジャンプ。複数タブ
 - **定義ジャンプ・参照・ホバー** — GNU Global の索引を優先し ripgrep へフォールバック。ホバーはマクロ展開と定数式の計算値つき
 - **追跡ハイライト** — 単語を最大 8 色で、別ファイルを開いても追い続ける
 - **#ifdef 可視化** — 条件コンパイルで死ぬブロックをグレーアウト。条件はリストで管理
