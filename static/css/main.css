@@ -202,8 +202,11 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 #btn-line-memo-toggle.on{color:#4ec9b0;border-radius:2px}
 #btn-pinned-hl-toggle.on{color:#fff;background:#094771;border-radius:2px}
 /* 仕込み残数バッジ。挿入デコレーション (overviewRuler の紫) と色を揃える。 */
-#insertion-badge{font-size:10px;color:#c9a0dc;background:rgba(160,100,220,0.15);border:1px solid #6a4a80;border-radius:8px;padding:1px 8px;cursor:pointer;flex-shrink:0}
-#insertion-badge:hover{background:rgba(160,100,220,0.28)}
+/* ヘッダの状態チップ共通の型。色は意味の分だけ文字に乗せる
+   （紫=デバッグ行カテゴリ、黄=索引の警告、灰=平常）。ホバーの面が「押せる」の合図 */
+.pk-state{font-size:11px;color:#999;padding:2px 6px;border-radius:3px;cursor:pointer;white-space:nowrap;flex-shrink:0}
+.pk-state:hover{background:#333}
+#insertion-badge{color:#c9a0dc}
 /* マーク一覧ヘッダの「全部撤去」。破壊的操作なので memo-bulk-btn の赤ではなく
    仕込み色 (紫) にして「別カテゴリの一括操作」だと分かるようにする。 */
 .memo-removeall-btn{background:rgba(160,100,220,0.10);border:1px solid #6a4a80;color:#c9a0dc;cursor:pointer;font-size:10px;padding:1px 8px;border-radius:3px;font-family:inherit}
@@ -1006,8 +1009,6 @@ body.search-mode #root-chip{min-width:0}
 @keyframes gtags-spin{to{transform:rotate(360deg)}}
 .gtags-spinner{display:inline-block;width:10px;height:10px;border:2px solid #555;border-top-color:#9ab;border-radius:50%;animation:gtags-spin 0.7s linear infinite;margin-right:5px;vertical-align:middle}
 /* ===== GNU Global エンジンラベル ===== */
-#gtags-engine-label{padding:2px 6px;border-radius:3px}
-#gtags-engine-label:hover{background:#333;color:#ccc !important}
 /* ===== GNU Global ポップオーバー ===== */
 /* 絶対配置の shrink-to-fit は基準ブロック（小さなラベルの箱）を利用可能幅と
    みなすので、指定が無いと min-width まで潰れて全文が細切れに折り返される。
