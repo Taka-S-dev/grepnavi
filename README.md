@@ -6,6 +6,8 @@
 
 *A lightweight code-reading tool for large C codebases — ripgrep search, a Monaco-based source viewer, call trees and reference maps on top of GNU Global. No language server required.*
 
+![grepnavi のメイン画面 — 検索・コメント付き調査ツリー・エディタの3ペイン](docs/images/main.png)
+
 C の大規模コードベース（Linux カーネル、OpenSSL、curl など）を読むためのコードリーディング（調査）ツール。ripgrep の高速検索 + VSCode と同じエディタ（Monaco）+ 調査グラフで、**「どこを調べたか」を記録しながら**構造を把握していきます。
 
 clangd のような言語サーバを使える環境なら、精度はそちらのほうが上です。grepnavi が想定するのは**それが使えない・重すぎる環境**です — ビルドシステムが複雑で `compile_commands.json` を生成できない、PC のスペックが足りない、常駐のセキュリティソフトの下でインデックス作成がいつまでも終わらずエディタごと重くなる。そうした場面でも、検索・定義ジャンプ・呼び出し元の追跡が待たされずに動くことを優先しています。
