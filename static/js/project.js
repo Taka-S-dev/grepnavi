@@ -187,6 +187,7 @@ async function setRoot(newRoot) {
   const parts = data.root.replace(/\\/g,'/').split('/');
   id('root-label').textContent = parts[parts.length-1] || data.root;
   id('root-label').title = data.root + ' (クリックで変更)';
+  if (window._gtagsRefreshStatus) window._gtagsRefreshStatus(); // 索引の有無はルート依存
   dirList = null;
   fzfFiles = null;
   if(typeof explorerInvalidate === 'function') explorerInvalidate();
@@ -218,6 +219,7 @@ async function setRoot(newRoot) {
       updateRootChip();
       // サーバー側の root も戻す
       await fetch('/api/root', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({root: data.root})}).catch(()=>{});
+      if (window._gtagsRefreshStatus) window._gtagsRefreshStatus(); // 索引の有無はルート依存
       updateProjectUI();
       return true;
     }
@@ -781,6 +783,10 @@ async function openProject(path) {
   // サーバーがrootを切り替えた場合はUIに反映
   if (d.root) {
     projectRoot = d.root;
+    // 起動時のグラフ復元はこの経路で root が変わる（setRoot を通らない）。
+    // 索引 status はルート依存なので、ここでも取り直さないとラベルが
+    // 起動ディレクトリ基準の「索引なし」のまま残る
+    if (window._gtagsRefreshStatus) window._gtagsRefreshStatus();
     const parts = d.root.replace(/\\/g, '/').split('/');
     id('root-label').textContent = parts[parts.length - 1] || d.root;
     id('root-label').title = d.root + ' (クリックで変更)';

@@ -227,12 +227,18 @@ let _opTimer   = null;
 let _opLastMsg = '';
 let _opCancel  = null;
 
+let _statusSeq = 0;
+
 async function fetchStatus() {
+  const seq = ++_statusSeq;
   try {
     const [r1, r2] = await Promise.all([
       fetch('/api/gtags/status'),
       fetch('/api/ctags/status'),
     ]);
+    // ルート切り替え直後の取り直しと起動時の取得が並走したとき、
+    // 遅れて返った古いルートの status が新しい結果を上書きしないように
+    if (seq !== _statusSeq) return;
     if (r1.ok) {
       const d = await r1.json();
       _installed = !!d.installed;
@@ -508,6 +514,10 @@ function renderPopover() {
 }
 
 window._gtagsRenderPopover = renderPopover;
+// ルート切り替え後に呼ぶ。status はルート依存（GTAGS の有無・鮮度）なので、
+// 起動時の復元やチップからの変更でルートが動いたら取り直さないと、
+// 起動ディレクトリ基準の「索引なし」を掲げ続ける。
+window._gtagsRefreshStatus = fetchStatus;
 
 document.addEventListener('DOMContentLoaded', () => {
   fetchStatus();
