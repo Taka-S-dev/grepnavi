@@ -121,10 +121,10 @@ body{font:13px/1.4 'Consolas','Courier New',monospace;background:#1e1e1e;color:#
 #root-chip-text .chip-subdir{font-size:10px;color:#777;opacity:0.85;margin-left:1px}
 #btn-s{padding:4px 10px;font-size:12px;min-width:52px;text-align:center}
 #btn-stop{padding:3px 8px;font-size:12px}
-#enc-btn{background:none;border:none;color:rgba(255,255,255,0.4);font-size:11px;padding:0 6px;cursor:pointer;font-family:inherit;flex-shrink:0}
-#enc-btn:hover{color:#fff}
-#sb-help{margin-left:auto;background:none;border:none;color:rgba(255,255,255,0.75);font-size:11px;padding:0 6px;cursor:pointer;font-family:inherit;flex-shrink:0}
-#sb-help:hover{color:#fff;background:rgba(255,255,255,0.15);border-radius:2px}
+#enc-btn{background:none;border:none;color:#777;font-size:11px;padding:0 6px;cursor:pointer;font-family:inherit;flex-shrink:0}
+#enc-btn:hover{color:#ddd}
+#sb-help{margin-left:auto;background:none;border:none;color:#999;font-size:11px;padding:0 6px;cursor:pointer;font-family:inherit;flex-shrink:0}
+#sb-help:hover{color:#ddd;background:rgba(255,255,255,0.1);border-radius:2px}
 #enc-btn.active{color:#fff;background:rgba(255,200,0,0.25);border-radius:2px}
 .bar-field{display:flex;flex-direction:column;gap:2px}
 .bar-field-label{font-size:10px;color:#858585;padding-left:2px}
@@ -979,7 +979,8 @@ body.search-mode #root-chip{min-width:0}
 
 
 /* statusbar */
-#sb{height:20px;background:#007acc;display:flex;align-items:center;padding:0 8px;font-size:11px;color:#fff;flex-shrink:0}
+/* VSCode の現行テーマ (Dark Modern) に合わせた黒系。青ベタは旧テーマの意匠 */
+#sb{height:20px;background:#181818;border-top:1px solid #333;display:flex;align-items:center;padding:0 8px;font-size:11px;color:#999;flex-shrink:0}
 
 /* ショートカットヘルプ */
 #help-overlay{display:none;position:fixed;inset:0;z-index:var(--z-modal-high);background:rgba(0,0,0,0.5);align-items:center;justify-content:center}
@@ -1333,8 +1334,8 @@ body.frameless #titlebar{display:flex;height:var(--titlebar-h);flex-shrink:0;bac
 #tb-center{display:flex;align-items:center;height:100%;font-size:11px;color:#999;min-width:0}
 body.frameless #tree-hdr-center{height:100%}
 body.frameless #btn-project-menu .codicon{display:none}
-body.frameless #sb #project-name{display:inline-block;margin-left:12px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:rgba(255,255,255,0.85)}
-body.frameless #sb #project-name.project-unsaved{color:#ffd28a}
+body.frameless #sb #project-name{display:inline-block;margin-left:12px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#ccc}
+body.frameless #sb #project-name.project-unsaved{color:#d7a35c}
 body.frameless #btn-project-menu,#btn-view-menu{background:transparent;border:none;border-radius:0;height:100%;padding:0 12px;color:#ccc;font-size:13px}
 body.frameless #btn-project-menu:hover,#btn-view-menu:hover{background:rgba(255,255,255,.1)}
 /* デスクトップ窓ではヘッダの中身がタイトルバーへ移るので、行ごと畳んで1行ぶん返す */
