@@ -11,6 +11,7 @@ package desktop
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"syscall"
 	"unsafe"
 
@@ -28,7 +29,7 @@ const appIconResourceID = 1
 // OpenWindow は url を埋め込み WebView2 で開き、閉じられるまでブロックする。
 // WebView2 はメインスレッドでメッセージループを回すため、メインスレッドから呼ぶこと。
 func OpenWindow(url string) error {
-	w := webview.NewWithOptions(webview.WebViewOptions{
+	opts := webview.WebViewOptions{
 		Debug: false,
 		WindowOptions: webview.WindowOptions{
 			Title:  windowTitle,
@@ -37,7 +38,13 @@ func OpenWindow(url string) error {
 			Center: true,
 			IconId: appIconResourceID,
 		},
-	})
+	}
+	// DataPath 未指定だとライブラリが %APPDATA%\<exe名そのまま> (grepnaviw.exe\ 等) を
+	// 掘る。製品名のフォルダへ固定する。
+	if appData := os.Getenv("APPDATA"); appData != "" {
+		opts.DataPath = filepath.Join(appData, "grepnavi")
+	}
+	w := webview.NewWithOptions(opts)
 	if w == nil {
 		return errors.New("failed to create WebView2 window (is the WebView2 runtime installed?)")
 	}
