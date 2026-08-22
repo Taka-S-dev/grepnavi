@@ -308,13 +308,48 @@ async function _updateTopMenuGraphs() {
   const anchor = id('pmenu-new');
   if (!anchor) return;
 
-  const section = document.createElement('div');
-  section.className = 'pmenu-graph-section pmenu-graph-sep';
-  menu.insertBefore(section, anchor);
+  // インラインで並べると本体メニューが伸びるうえ、無札のリストは履歴に見える。
+  // VSCode の「最近使用した項目を開く ＞」と同じ、ホバーで右に開く子メニューにする。
+  const parentItem = document.createElement('div');
+  parentItem.className = 'pmenu-item pmenu-sub-parent pmenu-graph-sep';
+  parentItem.innerHTML = '<span>調査 JSON の切り替え</span><i class="codicon codicon-chevron-right pmenu-sub-arrow"></i>';
+  menu.insertBefore(parentItem, anchor);
 
   const sep = document.createElement('div');
   sep.className = 'pmenu-separator pmenu-graph-sep';
   menu.insertBefore(sep, anchor);
+
+  // #project-menu の子に置く: fixed なので overflow に切られず、メニューが
+  // 閉じれば（display:none）一緒に消えるため後始末が要らない
+  const sub = document.createElement('div');
+  sub.className = 'pmenu-submenu pmenu-graph-sep';
+  menu.appendChild(sub);
+
+  let subHideTimer = null;
+  const showSub = () => {
+    clearTimeout(subHideTimer);
+    sub.style.display = 'block';
+    const mr = menu.getBoundingClientRect();
+    const ir = parentItem.getBoundingClientRect();
+    // 右へ出す。窓の右端で切れるときはメニューの左側へ反転（ブラウザ表示では
+    // ボタンが右端に居るので、こちらの経路が普通に踏まれる）
+    let left = mr.right;
+    if (left + sub.offsetWidth > window.innerWidth - 4) {
+      left = Math.max(4, mr.left - sub.offsetWidth);
+    }
+    let top = ir.top - 4;
+    if (top + sub.offsetHeight > window.innerHeight - 4) {
+      top = Math.max(4, window.innerHeight - 4 - sub.offsetHeight);
+    }
+    sub.style.left = left + 'px';
+    sub.style.top = top + 'px';
+  };
+  const hideSubSoon = () => { subHideTimer = setTimeout(() => { sub.style.display = 'none'; }, 150); };
+  parentItem.onmouseenter = showSub;
+  parentItem.onmouseleave = hideSubSoon;
+  sub.onmouseenter = () => clearTimeout(subHideTimer);
+  sub.onmouseleave = hideSubSoon;
+  parentItem.onclick = e => { e.stopPropagation(); showSub(); };
 
   graphs.forEach(gPath => {
     const gNorm = gPath.replace(/\\/g, '/');
@@ -358,6 +393,6 @@ async function _updateTopMenuGraphs() {
       id('project-menu').classList.remove('open');
       if (typeof openProject === 'function') openProject(gPath);
     };
-    section.appendChild(item);
+    sub.appendChild(item);
   });
 }
