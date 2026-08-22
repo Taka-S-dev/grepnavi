@@ -841,6 +841,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const btn = document.createElement('button');
     btn.id = 'btn-jump-map'; btn.className = 'sec';
     btn.textContent = 'jm'; btn.title = 'jm — Jump Map (定義ジャンプの履歴をグラフで可視化)';
+    btn.dataset.menuLabel = 'ジャンプマップ';
     addonBar.appendChild(btn);
     btn.onclick = async () => {
       const panel = document.getElementById('jm-panel');

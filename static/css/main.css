@@ -643,7 +643,11 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
   min-width:180px;box-shadow:0 4px 12px rgba(0,0,0,0.5);
   max-height:calc(100vh - 56px);overflow-y:auto;
 }
-#project-menu.open{display:block}
+.pmenu-tick{display:inline-block;width:16px;color:#4fc1ff}
+/* デスクトップ窓ではツリー描画の切り替えは「表示」メニュー、消去はタブ右クリックへ */
+body.frameless #tree-tab-actions,body.frameless #tree-toolbar{display:none}
+#view-menu{display:none;position:fixed;z-index:var(--z-dropdown);background:#2d2d2d;border:1px solid #555;border-radius:3px;min-width:200px;box-shadow:0 4px 12px rgba(0,0,0,0.5);padding:3px 0}
+#project-menu.open,#view-menu.open{display:block}
 /* ホバーで右に開く子メニュー（VSCode の「最近使用した項目を開く」型） */
 .pmenu-sub-parent{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .pmenu-sub-arrow{font-size:10px;opacity:.55}
@@ -1321,7 +1325,7 @@ body.search-mode #root-chip{min-width:0}
 /* 掴む場所を最大化するため文字も装飾も置かない: 左の全面がドラッグ、右端に窓ボタン3個。
    .frameless は titlebar.js が Go のバインド有無で付ける。 */
 #titlebar{display:none}
-body.frameless{--titlebar-h:28px}
+body.frameless{--titlebar-h:30px}
 body.frameless #titlebar{display:flex;height:var(--titlebar-h);flex-shrink:0;background:#1e1e1e;border-bottom:1px solid #333;user-select:none}
 .tb-drag{flex:1;height:100%;min-width:24px}
 /* 左端: プロジェクト選択 + ノード数。VSCode のメニューバーの位置づけなので、
@@ -1331,12 +1335,8 @@ body.frameless #tree-hdr-center{height:100%}
 body.frameless #btn-project-menu .codicon{display:none}
 body.frameless #sb #project-name{display:inline-block;margin-left:12px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:rgba(255,255,255,0.85)}
 body.frameless #sb #project-name.project-unsaved{color:#ffd28a}
-body.frameless #btn-project-menu{border:none;border-radius:0;height:100%;padding:0 10px;color:#ccc}
-body.frameless #btn-project-menu:hover{background:rgba(255,255,255,.1)}
-#tb-addons{display:flex;align-items:center;height:100%}
-body.frameless #addon-buttons{height:100%;gap:0;margin-left:0;padding-left:0;border-left:none}
-body.frameless #addon-buttons button{background:transparent;border:none;border-radius:0;height:100%;padding:0 9px;color:#bbb}
-body.frameless #addon-buttons button:hover{background:rgba(255,255,255,.1)}
+body.frameless #btn-project-menu,#btn-view-menu{background:transparent;border:none;border-radius:0;height:100%;padding:0 12px;color:#ccc;font-size:13px}
+body.frameless #btn-project-menu:hover,#btn-view-menu:hover{background:rgba(255,255,255,.1)}
 /* デスクトップ窓ではヘッダの中身がタイトルバーへ移るので、行ごと畳んで1行ぶん返す */
 body.frameless #tree-hdr{display:none}
 .tb-btns{display:flex;height:100%}

@@ -48,6 +48,8 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.id = 'btn-call-tree';
     btn.className = 'sec';
     btn.textContent = 'ct';
+    btn.dataset.menuLabel = 'コールツリー';
+    btn.dataset.menuHint = 'Ctrl+Shift+T';
     btn.title = 'ct — Call Tree (関数の callers / callees をツリー表示)  Ctrl+Shift+T';
     addonBar.appendChild(btn);
     // もう一度押したら閉じる（開くだけのボタンは、閉じ方を探させる）

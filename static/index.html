@@ -32,7 +32,6 @@
 <div id="titlebar">
   <div id="tb-center"></div>
   <div class="tb-drag"></div>
-  <div id="tb-addons"></div>
   <div class="tb-btns">
     <button id="tb-min" title="最小化" tabindex="-1"><svg width="10" height="10" viewBox="0 0 10 10"><line x1="0" y1="5" x2="10" y2="5" stroke="currentColor"/></svg></button>
     <button id="tb-max" title="最大化 / 元に戻す" tabindex="-1"><svg class="tb-ico-max" width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor"/></svg><svg class="tb-ico-restore" width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="2.5" width="7" height="7" fill="none" stroke="currentColor"/><path d="M2.5 2.5 v-2 h7 v7 h-2" fill="none" stroke="currentColor"/></svg></button>
@@ -301,6 +300,8 @@
   <div class="tab-ctx-sep"></div>
   <div class="tab-ctx-item" id="node-ctx-expand" title="パターンを検索して、ヒットをこのノードの子として追加する">展開</div>
   <div class="tab-ctx-item" id="node-ctx-sync" title="呼び出し↔実態の自動解決が誤った場所を指すときの手動上書き">Sync 上書き</div>
+  <div class="tab-ctx-sep" id="node-ctx-clear-sep" style="display:none"></div>
+  <div class="tab-ctx-item" id="node-ctx-clear-tree" style="display:none" title="このタブのツリーのノードを全削除（確認ダイアログあり）">このツリーを消去</div>
   <div class="tab-ctx-sep"></div>
   <div class="tab-ctx-item" id="node-ctx-duplicate">複製</div>
 </div>

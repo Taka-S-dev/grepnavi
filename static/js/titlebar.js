@@ -13,7 +13,6 @@
   // OS バーを外して得た帯を「死んだ余白」でなくツールバーとして使う。
   // 各要素の動作は getElementById で配線されているため、移動しても生きている。
   document.getElementById('tb-center').appendChild(document.getElementById('tree-hdr-center'));
-  document.getElementById('tb-addons').appendChild(document.getElementById('addon-buttons'));
 
   // メニューボタンは VSCode 同様の固定ラベル「ファイル」にする（保存アイコンと
   // シェブロンは CSS が隠す）。開いているファイル名はタイトルバーではなく
@@ -22,6 +21,80 @@
   btn.insertBefore(document.createTextNode('ファイル'), btn.firstChild);
   document.getElementById('sb').insertBefore(
     document.getElementById('project-name'), document.getElementById('enc-btn'));
+
+  // 「表示」メニュー: アドオンのチップ列 (#inc / ct / jm / map / sm) は略号で
+  // 読めないので、デスクトップバーでは正式名のドロップダウンに畳む。チップは
+  // #tree-hdr ごと隠れたままボタンとして生きているので、項目のクリックを転送する。
+  // 項目は開くたびに #addon-buttons から作り直す（アドオンの読み込みはこの後）。
+  const viewBtn = document.createElement('button');
+  viewBtn.id = 'btn-view-menu';
+  viewBtn.textContent = '表示';
+  document.getElementById('tb-center').appendChild(viewBtn);
+  const viewMenu = document.createElement('div');
+  viewMenu.id = 'view-menu';
+  document.body.appendChild(viewMenu);
+  viewBtn.onclick = (e) => {
+    e.stopPropagation();
+    // メニューバーは排他: 表示を開いたらファイルを閉じる（逆も下で）
+    document.getElementById('project-menu').classList.remove('open');
+    if (viewMenu.classList.toggle('open')) {
+      viewMenu.innerHTML = '';
+      // ツリーの描き方の切り替え。チェックは隠したボタンの現在状態から毎回読む
+      // （btn-view のラベルは「切り替え先」を出すので、'ツリー' 表示中 = グラフ表示中）
+      const toggles = [
+        { id: 'btn-node-sub', label: 'パス表示', hint: 'Alt+Shift+P', on: b => b.classList.contains('on') },
+        { id: 'btn-tree-memo', label: 'メモ表示', hint: 'Alt+Shift+N', on: b => b.classList.contains('on') },
+        { id: 'btn-view', label: 'グラフ表示 (D3)', hint: '', on: b => b.textContent === 'ツリー' },
+      ];
+      for (const t of toggles) {
+        const b = document.getElementById(t.id);
+        if (!b) continue;
+        const item = document.createElement('div');
+        item.className = 'pmenu-item';
+        const left = document.createElement('span');
+        const tick = document.createElement('span');
+        tick.className = 'pmenu-tick';
+        tick.textContent = t.on(b) ? '✓' : '';
+        left.appendChild(tick);
+        left.appendChild(document.createTextNode(t.label));
+        item.appendChild(left);
+        if (t.hint) {
+          const hint = document.createElement('span');
+          hint.className = 'pmenu-hint';
+          hint.textContent = t.hint;
+          item.appendChild(hint);
+        }
+        item.onclick = () => { viewMenu.classList.remove('open'); b.click(); };
+        viewMenu.appendChild(item);
+      }
+      const sep = document.createElement('div');
+      sep.className = 'pmenu-separator';
+      viewMenu.appendChild(sep);
+      for (const b of document.querySelectorAll('#addon-buttons button')) {
+        const item = document.createElement('div');
+        item.className = 'pmenu-item';
+        const label = document.createElement('span');
+        label.textContent = b.dataset.menuLabel || b.textContent;
+        item.appendChild(label);
+        if (b.dataset.menuHint) {
+          const hint = document.createElement('span');
+          hint.className = 'pmenu-hint';
+          hint.textContent = b.dataset.menuHint;
+          item.appendChild(hint);
+        }
+        item.onclick = () => { viewMenu.classList.remove('open'); b.click(); };
+        viewMenu.appendChild(item);
+      }
+      const r = viewBtn.getBoundingClientRect();
+      viewMenu.style.top = (r.bottom + 2) + 'px';
+      viewMenu.style.left = r.left + 'px';
+    }
+  };
+  document.addEventListener('click', () => viewMenu.classList.remove('open'));
+  // ファイル側のハンドラ (app.js) は stopPropagation するので、同じボタンに
+  // もう1本リスナを足して表示メニューを閉じる（stopPropagation は同一要素の
+  // 他リスナまでは止めない）
+  document.getElementById('btn-project-menu').addEventListener('click', () => viewMenu.classList.remove('open'));
 
   let lastDown = 0;
   const onDragDown = (e) => {

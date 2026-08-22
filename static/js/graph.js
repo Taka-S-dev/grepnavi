@@ -201,7 +201,18 @@ let _treeTabCtxTarget = null;
 function showTreeTabCtxMenu(tab, treeId, currentName, x, y) {
   _treeTabCtxTarget = { tab, treeId, currentName };
   _nodeCtxTarget = null;
+  _setCtxClearTreeVisible(true);
   _openNodeCtxMenuAt(x, y);
+}
+
+// 「このツリーを消去」はタブ右クリック限定の項目。ノード右クリックと同じメニューを
+// 共有しているため、対象に応じて出し分ける。
+function _setCtxClearTreeVisible(show) {
+  const d = show ? "" : "none";
+  const sep = document.getElementById("node-ctx-clear-sep");
+  const item = document.getElementById("node-ctx-clear-tree");
+  if (sep) sep.style.display = d;
+  if (item) item.style.display = d;
 }
 
 function startTabRename(tab, treeId, currentName) {
@@ -1432,6 +1443,7 @@ let _nodeCtxTarget = null;
 function showNodeLabelCtxMenu(lbl, node, m, x, y) {
   _nodeCtxTarget = { lbl, node, m };
   _treeTabCtxTarget = null;
+  _setCtxClearTreeVisible(false);
   // メモ項目のラベルをノード状態に応じて切替（追加 / 編集）
   const memoItem = document.getElementById("node-ctx-memo");
   if (memoItem) memoItem.textContent = (node.memo && node.memo.trim()) ? "メモを編集" : "メモを追加";
@@ -1455,6 +1467,14 @@ function initNodeCtxMenu() {
       hideNodeCtxMenu();
       startTabRename(tab, treeId, currentName);
     }
+  };
+  document.getElementById("node-ctx-clear-tree").onclick = async () => {
+    if (!_treeTabCtxTarget) return;
+    const { treeId } = _treeTabCtxTarget;
+    hideNodeCtxMenu();
+    // 消去は「今のツリー」に効くので、別タブを右クリックしていたら先に切り替える
+    await switchTree(treeId);
+    clearGraph();
   };
   document.getElementById("node-ctx-memo").onclick = () => {
     if (!_nodeCtxTarget) return;

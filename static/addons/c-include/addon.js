@@ -37,6 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.id = 'btn-include-graph';
     btn.title = '#inc — インクルード依存グラフ (#include の依存関係を D3.js で可視化)';
     btn.textContent = '#inc';
+    btn.dataset.menuLabel = 'インクルード依存グラフ';
     addonBar.appendChild(btn);
   }
 

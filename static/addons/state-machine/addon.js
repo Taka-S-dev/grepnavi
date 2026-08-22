@@ -100,6 +100,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.id = 'btn-state-machine';
     btn.className = 'sec';
     btn.textContent = 'sm';
+    btn.dataset.menuLabel = '状態遷移ビュー';
     btn.title = 'sm — 状態遷移ビュー（状態変数の代入から遷移図を作る）';
     addonBar.appendChild(btn);
     btn.onclick = () => {
