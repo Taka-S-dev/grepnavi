@@ -42,6 +42,7 @@ func OpenWindow(url string) error {
 		return errors.New("failed to create WebView2 window (is the WebView2 runtime installed?)")
 	}
 	defer w.Destroy()
+	fitToWorkArea(w)
 	if os.Getenv("GREPNAVI_NATIVE_TITLEBAR") == "" {
 		enableCustomTitlebar(w)
 	}
@@ -59,7 +60,10 @@ var (
 	procPostMessageW      = user32.NewProc("PostMessageW")
 	procShowWindow        = user32.NewProc("ShowWindow")
 	procIsZoomed          = user32.NewProc("IsZoomed")
-	procCallWindowProcW   = user32.NewProc("CallWindowProcW")
+
+	procGetWindowRect         = user32.NewProc("GetWindowRect")
+	procSystemParametersInfoW = user32.NewProc("SystemParametersInfoW")
+	procCallWindowProcW       = user32.NewProc("CallWindowProcW")
 )
 
 const (
@@ -107,6 +111,37 @@ func framelessWndProc(hwnd, msg, wp uintptr, r *winRect) uintptr {
 	}
 	ret, _, _ := procCallWindowProcW.Call(framelessOrigProc, hwnd, msg, wp, lp)
 	return ret
+}
+
+// fitToWorkArea は既定サイズ 1400x900 がモニタの作業領域（タスクバーを除く）から
+// はみ出すとき、収まるサイズへ縮めて中央へ置き直す。スケーリングの効いたノート
+// （125〜200% 表示、実効幅 1280〜1368px）では既定サイズのほうが画面より大きい。
+func fitToWorkArea(w webview.WebView) {
+	const spiGetWorkArea = 0x0030
+	const swpNoZOrder = 0x0004
+	var wa winRect
+	if r, _, _ := procSystemParametersInfoW.Call(spiGetWorkArea, 0, uintptr(unsafe.Pointer(&wa)), 0); r == 0 {
+		return
+	}
+	hwnd := uintptr(w.Window())
+	var wr winRect
+	if r, _, _ := procGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&wr))); r == 0 {
+		return
+	}
+	waW, waH := wa.right-wa.left, wa.bottom-wa.top
+	width, height := wr.right-wr.left, wr.bottom-wr.top
+	if width <= waW && height <= waH {
+		return
+	}
+	if width > waW {
+		width = waW
+	}
+	if height > waH {
+		height = waH
+	}
+	x := wa.left + (waW-width)/2
+	y := wa.top + (waH-height)/2
+	procSetWindowPos.Call(hwnd, 0, uintptr(x), uintptr(y), uintptr(width), uintptr(height), swpNoZOrder)
 }
 
 // enableCustomTitlebar は OS のタイトルバーを外し、ページ側の自前バー（index.html の
