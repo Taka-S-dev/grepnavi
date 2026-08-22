@@ -1312,3 +1312,27 @@ body.search-mode #root-chip{min-width:0}
   margin-left:6px;font-family:sans-serif;font-size:9.5px;color:#999;
   border:1px solid #4a4a4a;border-radius:2px;padding:0 3px;
 }
+
+/* ===== 自前タイトルバー（枠なしデスクトップ窓のときだけ表示） ===== */
+/* 掴む場所を最大化するため文字も装飾も置かない: 左の全面がドラッグ、右端に窓ボタン3個。
+   .frameless は titlebar.js が Go のバインド有無で付ける。 */
+#titlebar{display:none}
+body.frameless{--titlebar-h:28px}
+body.frameless #titlebar{display:flex;height:var(--titlebar-h);flex-shrink:0;background:#1e1e1e;border-bottom:1px solid #333;user-select:none}
+#titlebar-drag{flex:1;height:100%}
+.tb-btns{display:flex;height:100%}
+.tb-btns button{width:46px;height:100%;background:transparent;border:none;border-radius:0;color:#ccc;display:flex;align-items:center;justify-content:center;padding:0}
+.tb-btns button:hover{background:rgba(255,255,255,.1)}
+.tb-btns button svg{display:block}
+/* 閉じるだけ Windows 標準の赤。押し間違いに気づけるように他と色を分ける */
+#tb-close:hover{background:#e81123;color:#fff}
+/* 最大化中はグリフを「元に戻す」に差し替える */
+#titlebar .tb-ico-restore{display:none}
+#titlebar.maximized .tb-ico-max{display:none}
+#titlebar.maximized .tb-ico-restore{display:block}
+/* 全画面かぶせ (top:0/inset:0 の fixed) は自前バーの下から始める。
+   モーダル系は意図的に対象外（OS のダイアログ同様、窓操作ごと覆ってよい） */
+body.frameless #boot-overlay{top:var(--titlebar-h)}
+body.frameless #ct-sidebar,body.frameless #rm-sidebar,body.frameless #sm-panel,
+body.frameless #jm-panel{top:var(--titlebar-h)}
+body.frameless #memo-list-panel{top:var(--titlebar-h);height:auto;bottom:0}

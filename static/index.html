@@ -25,6 +25,18 @@
 </script>
 </head>
 <body>
+<!-- 枠なしデスクトップ窓（desktop.OpenWindow）の自前タイトルバー。OS のバーを外した分の
+     ドラッグ領域と最小化/最大化/閉じるをページ側で持つ。表示スイッチは Go がバインドする
+     window.grepnaviWinDrag の有無（titlebar.js）で、ブラウザで開いたときは出ない。
+     文字を出さないのは desktop/window_windows.go の windowTitle と同じ理由。 -->
+<div id="titlebar">
+  <div id="titlebar-drag"></div>
+  <div class="tb-btns">
+    <button id="tb-min" title="最小化" tabindex="-1"><svg width="10" height="10" viewBox="0 0 10 10"><line x1="0" y1="5" x2="10" y2="5" stroke="currentColor"/></svg></button>
+    <button id="tb-max" title="最大化 / 元に戻す" tabindex="-1"><svg class="tb-ico-max" width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor"/></svg><svg class="tb-ico-restore" width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="2.5" width="7" height="7" fill="none" stroke="currentColor"/><path d="M2.5 2.5 v-2 h7 v7 h-2" fill="none" stroke="currentColor"/></svg></button>
+    <button id="tb-close" title="閉じる" tabindex="-1"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 0 L10 10 M10 0 L0 10" stroke="currentColor"/></svg></button>
+  </div>
+</div>
 <!-- 起動オーバーレイ: JS 実行前から表示され、準備完了 (Monaco ロード + グラフ復元) で閉じる。
      低スペック機で UI が断片的に組み上がる様子を隠す。app.js の hideBootOverlay() で除去。 -->
 <div id="boot-overlay">
@@ -619,6 +631,7 @@
 <script src="/js/graph.js"></script>
 <script src="/js/floating-peek.js"></script>
 <script src="/js/numlit.js"></script>
+<script src="/js/titlebar.js"></script>
 <script src="/js/radix-calc.js"></script>
 <script src="/js/editor-c.js"></script>
 <script src="/js/editor-snapshot.js"></script>
