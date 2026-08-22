@@ -69,7 +69,7 @@ clangd のような言語サーバを使える環境なら、精度はそちら�
 |------|------|------|
 | [Go](https://golang.org/) 1.25 以上 | — | ソースからビルドする場合のみ。バイナリ配布版は不要 |
 | [ripgrep](https://github.com/BurntSushi/ripgrep) | ✅ | `rg` コマンドが PATH にあること |
-| [GNU Global](https://www.gnu.org/software/global/) | 推奨 | 検索・エディタ・調査グラフは無くても動くが、**参照マップは Global の索引が必須**。定義ジャンプ・ホバー・Callers は ripgrep の全ファイル走査で代用され、精度も速度も落ちる（実測: openssl の callers が索引 0.05 秒 / 代用 1.85 秒） |
+| [GNU Global](https://www.gnu.org/software/global/) | 推奨 | **参照マップは Global の索引が必須**。定義ジャンプ・ホバー・Callers は索引で引くようになり、速く正確になる（実測: openssl の callers が 1.85 秒 → 0.05 秒）。無い場合は ripgrep の全ファイル走査で代用する |
 | [Universal Ctags](https://github.com/universal-ctags/ctags) | 推奨 | **シンボル検索（ƒ パネル / Alt+Shift+T）と定数・マクロのハイライトは ctags の索引が必須**。定義ジャンプの精度も向上。索引の対象は C / C++ のみ |
 
 ---
