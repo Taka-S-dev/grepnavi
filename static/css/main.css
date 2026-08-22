@@ -230,11 +230,12 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .ifdef-cand:hover{background:#37373d}
 .ifdef-clear-all{display:block;margin-top:8px;background:#3c3c3c;border:1px solid #555;color:#ccc;border-radius:2px;font-size:11px;padding:2px 8px;cursor:pointer}
 .ifdef-clear-all:hover{background:#5a1d1d;color:#f88}
-#peek-hint{color:#3a3a3a;font-size:10px;white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis}
+/* ヘッダ内の群の区切り（ナビ+パス / 操作 / 状態） */
+.pk-sep{width:1px;height:14px;background:#3c3c3c;flex-shrink:0}
 /* 幅が足りないときは重要度の低い順に落とす: ヒント文 → エンジン表示 →
    ボタンの文字ラベル（アイコンとバッジの件数は最後まで残す）。 */
 @container (max-width: 760px){
-  #peek-hint{display:none}
+  .pk-sep{display:none}
 }
 @container (max-width: 600px){
   #peek-hdr .pk-label{display:none}
