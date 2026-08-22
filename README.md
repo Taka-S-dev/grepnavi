@@ -137,6 +137,7 @@ go build -ldflags "-H=windowsgui -X main.defaultTray=1" -o grepnaviw.exe .
 システムトレイに常駐し、専用ウィンドウ（埋め込み WebView2）で開く。ブラウザ拡張機能の影響を受けない。ウィンドウは VSCode 風の一列バー（ファイル / 表示 メニュー + 窓ボタン）で、OS のタイトルバーを持たない。
 
 起動フラグの一覧・デスクトップモードの操作詳細・別マシンからの SSH ポートフォワード利用は [docs/setup.md](docs/setup.md) を参照。
+
 ---
 
 ## 索引エンジン（オプション）
@@ -144,6 +145,7 @@ go build -ldflags "-H=windowsgui -X main.defaultTray=1" -o grepnaviw.exe .
 [GNU Global](https://www.gnu.org/software/global/) / [Universal Ctags](https://github.com/universal-ctags/ctags) を入れると、定義ジャンプ・ホバー・Callers・シンボル検索の精度が上がります（**どちらも無くても ripgrep で動作します**）。
 
 エディタのファイルヘッダ右端の「索引」ラベルから生成・更新でき、状態（索引が古い / 索引なし）も同じ場所に表示されます。インストール手順（Scoop / `bin/` への直接配置）は [docs/setup.md](docs/setup.md) を参照。
+
 ---
 
 ## AI エージェント連携（オプション）
@@ -246,6 +248,7 @@ grepnavi/
 ```
 
 API エンドポイントの一覧は [docs/api.md](docs/api.md) を参照。
+
 ---
 
 ## ライセンス
