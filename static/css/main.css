@@ -172,7 +172,7 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 /* Peek パネル */
 #peek{
   flex-shrink:0;
-  /* 分割線は 1px の低音に。青の常時発声はステータスバーを黒にした時点で浮いた */
+  /* 分割線は無彩色の 1px。ステータスバーを黒へ変えた後は、この青だけが常時目立つ色として残っていた */
   border-top:1px solid #3c3c3c;
   background:#1e1e1e;
   display:none;
