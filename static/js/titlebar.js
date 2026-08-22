@@ -8,8 +8,23 @@
   const bar = document.getElementById('titlebar');
   const syncMax = (z) => bar.classList.toggle('maximized', !!z);
 
+  // グラフヘッダ (#tree-hdr) の中身をタイトルバーへ移し、ヘッダ行ごと畳む
+  // （body.frameless の CSS が #tree-hdr を消す）。VSCode の一列型と同じ発想で、
+  // OS バーを外して得た帯を「死んだ余白」でなくツールバーとして使う。
+  // 各要素の動作は getElementById で配線されているため、移動しても生きている。
+  document.getElementById('tb-center').appendChild(document.getElementById('tree-hdr-center'));
+  document.getElementById('tb-addons').appendChild(document.getElementById('addon-buttons'));
+
+  // メニューボタンは VSCode 同様の固定ラベル「ファイル」にする（保存アイコンと
+  // シェブロンは CSS が隠す）。開いているファイル名はタイトルバーではなく
+  // ステータスバーの左側に出す——バーはメニューとボタンだけの純粋な列に保つ。
+  const btn = document.getElementById('btn-project-menu');
+  btn.insertBefore(document.createTextNode('ファイル'), btn.firstChild);
+  document.getElementById('sb').insertBefore(
+    document.getElementById('project-name'), document.getElementById('enc-btn'));
+
   let lastDown = 0;
-  document.getElementById('titlebar-drag').addEventListener('mousedown', (e) => {
+  const onDragDown = (e) => {
     if (e.button !== 0) return;
     // ドラッグは OS の掴みループ（WM_NCLBUTTONDOWN）に渡すが、そのループが
     // mouseup を飲むため dblclick イベントが発火しない。時刻の自前判定で
@@ -22,7 +37,10 @@
     }
     lastDown = now;
     window.grepnaviWinDrag();
-  });
+  };
+  for (const z of document.querySelectorAll('#titlebar .tb-drag')) {
+    z.addEventListener('mousedown', onDragDown);
+  }
 
   document.getElementById('tb-min').onclick = () => window.grepnaviWinMin();
   document.getElementById('tb-max').onclick = () => window.grepnaviWinMax().then(syncMax);

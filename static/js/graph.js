@@ -354,7 +354,6 @@ function renderTree() {
       el.appendChild(makeNodeEl(n, 0));
   });
 
-  id("tree-count").textContent = Object.keys(graph.nodes).length + " ノード";
 }
 
 // ===== VIEW TOGGLE =====

@@ -30,7 +30,9 @@
      window.grepnaviWinDrag の有無（titlebar.js）で、ブラウザで開いたときは出ない。
      文字を出さないのは desktop/window_windows.go の windowTitle と同じ理由。 -->
 <div id="titlebar">
-  <div id="titlebar-drag"></div>
+  <div id="tb-center"></div>
+  <div class="tb-drag"></div>
+  <div id="tb-addons"></div>
   <div class="tb-btns">
     <button id="tb-min" title="最小化" tabindex="-1"><svg width="10" height="10" viewBox="0 0 10 10"><line x1="0" y1="5" x2="10" y2="5" stroke="currentColor"/></svg></button>
     <button id="tb-max" title="最大化 / 元に戻す" tabindex="-1"><svg class="tb-ico-max" width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor"/></svg><svg class="tb-ico-restore" width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="2.5" width="7" height="7" fill="none" stroke="currentColor"/><path d="M2.5 2.5 v-2 h7 v7 h-2" fill="none" stroke="currentColor"/></svg></button>
@@ -195,8 +197,7 @@
     <div id="pane-tree">
       <div id="tree-hdr">
         <span id="tree-title">グラフ</span>
-        <span style="display:flex;gap:4px;align-items:center">
-          <span id="tree-count"></span>
+        <span id="tree-hdr-center" style="display:flex;gap:4px;align-items:center">
           <div id="project-menu-wrap">
             <button id="btn-project-menu"><i class="codicon codicon-save"></i><span id="project-name">無題</span><i class="codicon codicon-chevron-down"></i></button>
             <div id="project-menu">

@@ -274,8 +274,15 @@ addEventListener('DOMContentLoaded', async () => {
       // クリップされず、エディタペインに被せて全体を表示できる）。
       const r = id('btn-project-menu').getBoundingClientRect();
       menu.style.top = (r.bottom + 2) + 'px';
-      menu.style.right = (window.innerWidth - r.right) + 'px';
-      menu.style.left = 'auto';
+      // ボタンが画面の左半分ならメニューを左端合わせにする（タイトルバー統合で
+      // ボタンが左端に移った。右端合わせのままだと左へはみ出して見切れる）
+      if (r.left < window.innerWidth / 2) {
+        menu.style.left = r.left + 'px';
+        menu.style.right = 'auto';
+      } else {
+        menu.style.right = (window.innerWidth - r.right) + 'px';
+        menu.style.left = 'auto';
+      }
       updateProjectUI(); // 開くたびにノード数・保存状態を取り直す
       refreshRecoverItem();
       _updateTopMenuGraphs();
