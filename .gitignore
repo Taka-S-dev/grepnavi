@@ -28,6 +28,13 @@
 !patch/
 !patch/**
 
+# 公開ドキュメント（docs/ 直下の他ファイルは作業メモなので許可しない）
+!docs/
+!docs/setup.md
+!docs/usage.md
+!docs/api.md
+!docs/features.md
+
 # アプリアイコン（tools/icongen が生成）と exe 埋め込み用リソース
 !static/favicon.ico
 !rsrc_windows_amd64.syso
