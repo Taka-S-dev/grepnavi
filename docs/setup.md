@@ -13,6 +13,8 @@
 | `-no-browser` | `false` | 起動時のブラウザ自動オープンを抑制する |
 | `-tray` | `false` | UI をブラウザではなくシステムトレイ常駐 + 専用ウィンドウ（埋め込み WebView2）で開く。ブラウザ拡張機能の影響を受けない。Windows 専用 |
 | `-mcp` | `false` | 外部プロセス（grepnavi-mcp ブリッジ等、`Origin` ヘッダー無しのクライアント）からの API 利用を許可する。デフォルトはブラウザのみ |
+| `-log-level` | `info` | ログレベル（debug / info / warn / error） |
+| `-debug` | `false` | `/debug/pprof` エンドポイントを有効化（プロファイル取得用） |
 
 ## デスクトップ（トレイ常駐）モード ※Windows のみ
 
