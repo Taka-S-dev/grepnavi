@@ -14,6 +14,7 @@
 | `-tray` | `false` | UI をブラウザではなくシステムトレイ常駐 + 専用ウィンドウ（埋め込み WebView2）で開く。ブラウザ拡張機能の影響を受けない。Windows 専用 |
 | `-mcp` | `false` | 外部プロセス（grepnavi-mcp ブリッジ等、`Origin` ヘッダー無しのクライアント）からの API 利用を許可する。デフォルトはブラウザのみ |
 | `-mcp-insert` | `false` | 外部プロセス（AI エージェント）にデバッグ行の挿入・撤去・移動・ON/OFF を許可する（`-mcp` も自動で有効）。既定では読み取りのみ。操作できるのは**そのクライアント自身が挿入した行だけ**で、GUI で入れた行には触れない。挿入した行は記録に出所が残り、一覧で `AI` 印が付く。既存コードを `#if 0` で囲む操作と巻き戻し (Ctrl+Z) は、このフラグを付けても外部クライアントには開かない |
+| `-lsp` | `false` | GUI ではなく Language Server（stdio）として起動する。下記「エディタ連携」参照 |
 | `-log-level` | `info` | ログレベル（debug / info / warn / error） |
 | `-debug` | `false` | `/debug/pprof` エンドポイントを有効化（プロファイル取得用） |
 
@@ -56,6 +57,27 @@ ssh -L 8080:localhost:8080 user@desktop-ip
 - `desktop-ip` → デスクトップの IP アドレス
 
 通信は SSH で暗号化されるため、grepnavi 自体に認証がなくても SSH の認証強度がそのままセキュリティ強度になります。
+
+## エディタ連携（LSP・実験的）
+
+`grepnavi -lsp` は Language Server Protocol の stdio サーバとして起動し、定義ジャンプ・参照検索・ホバー（定義スニペットとマクロの計算値）・呼び出し階層・マクロ使用箇所の色付け（ctags 索引ベースのセマンティックトークン）をエディタに提供する（GUI も HTTP サーバも起動しない）。索引の扱いは GUI と同じで、GNU Global があれば索引で引き、無ければ ripgrep に落ちる。補完・診断は名乗らない。
+
+Neovim は追加プラグインなしで接続できる:
+
+```lua
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = { "c", "cpp" },
+  callback = function()
+    vim.lsp.start({
+      name = "grepnavi",
+      cmd = { "path/to/grepnavi", "-lsp" },
+      root_dir = vim.fs.root(0, { "GTAGS", ".git" }),
+    })
+  end,
+})
+```
+
+VSCode で使うには接続用の拡張（`vscode-languageclient` で exe を起動するだけの定型）が必要で、まだ同梱していない。
 
 ## アイコンの再生成
 

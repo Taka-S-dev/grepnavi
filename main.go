@@ -16,6 +16,7 @@ import (
 
 	"grepnavi/api"
 	"grepnavi/desktop"
+	"grepnavi/lsp"
 	"grepnavi/proc"
 )
 
@@ -40,6 +41,11 @@ func main() {
 	mcpInsert := flag.Bool("mcp-insert", false, "let external clients (AI agents) insert and remove debug lines; implies -mcp. Off by default: the bridge is read-only on source without it")
 	tray := flag.Bool("tray", defaultTray == "1", "run resident in the system tray; open windows on demand (Windows only)")
 	resetGraph := flag.Bool("reset-graph", false, "internal: start from an empty graph even when -graph is given (used when spawning a new window)")
+	lspMode := flag.Bool("lsp", false, "run as a Language Server (stdio) instead of the GUI: definition / references / call hierarchy for editors")
+	// LSP クライアント（vscode-languageclient 等）は慣習で --stdio を付けてくる。
+	// 受けて無視しないと flag パーサが未知フラグとして即終了し、エディタ側は
+	// EPIPE だけを見ることになる。
+	_ = flag.Bool("stdio", false, "accepted for LSP clients that pass --stdio; the server always uses stdio")
 	view := flag.String("view", "", "internal: open a WebView2 viewer at this URL without starting a server (used by -tray)")
 	flag.Parse()
 
@@ -70,6 +76,17 @@ func main() {
 		return
 	}
 
+	// -lsp: エディタ向け Language Server。stdio がプロトコル専用になる以外は
+	// 何も起動しない（HTTP サーバ・グラフ・トレイに触れない）。lsp パッケージと
+	// この分岐を消せば取り外せる。
+	if *lspMode {
+		if err := lsp.Serve(mustAbs(*root)); err != nil {
+			slog.Error("lsp server failed", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	rootExplicit := *root != "."
 	// -graph を明示したときは利用者がファイルを指定した = 名前を付けたのと同じなので
 	// そのまま読み込む。既定の作業ファイルは毎回空から始める（前回分は退避される）。
@@ -82,11 +99,7 @@ func main() {
 	if *resetGraph {
 		graphExplicit = false // 新しいウィンドウは常に空から始める
 	}
-	absRoot, err := absPath(*root)
-	if err != nil {
-		slog.Error("invalid root", "err", err)
-		os.Exit(1)
-	}
+	absRoot := mustAbs(*root)
 
 	addr := fmt.Sprintf("%s:%d", *host, *port)
 	url := fmt.Sprintf("http://localhost:%d", *port)
@@ -195,6 +208,16 @@ func grepnaviRunningAt(url string) bool {
 		Root string `json:"root"`
 	}
 	return json.NewDecoder(resp.Body).Decode(&body) == nil && body.Root != ""
+}
+
+// mustAbs は root を絶対パスにする。失敗はどの動作モードでも続行不能なので即終了。
+func mustAbs(root string) string {
+	p, err := absPath(root)
+	if err != nil {
+		slog.Error("invalid root", "err", err)
+		os.Exit(1)
+	}
+	return p
 }
 
 func openBrowser(url string) {
