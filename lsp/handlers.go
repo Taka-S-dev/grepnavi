@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -46,6 +45,8 @@ func (s *server) handleInitialize(raw json.RawMessage) any {
 	search.CtagsMacroWarmup(s.root)
 	return map[string]any{
 		"capabilities": map[string]any{
+			"textDocumentSync":      1, // Full: 変更のたびに全文が届く。補完が未保存バッファを見るため
+			"completionProvider":    map[string]any{"triggerCharacters": []string{".", ">"}},
 			"definitionProvider":    true,
 			"referencesProvider":    true,
 			"hoverProvider":         true,
@@ -59,14 +60,15 @@ func (s *server) handleInitialize(raw json.RawMessage) any {
 	}
 }
 
-// wordAt は URI と位置からカーソル下の識別子を切り出す。
+// wordAt は URI と位置からカーソル下の識別子を切り出す。開いている文書なら
+// バッファ（未保存の編集込み）を見る。
 func (s *server) wordAt(uri string, pos position) (word, path string) {
 	path = uriToPath(uri)
-	content, err := os.ReadFile(path)
-	if err != nil {
+	content, ok := s.documentText(uri)
+	if !ok {
 		return "", path
 	}
-	return wordAtPosition(string(content), pos), path
+	return wordAtPosition(content, pos), path
 }
 
 func (s *server) findDefinitions(word, currentFile string) []search.DefHit {

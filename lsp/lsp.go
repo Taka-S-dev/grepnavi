@@ -28,7 +28,7 @@ import (
 // initialize の rootUri があればそちらを優先する（エディタが開いている
 // ワークスペースこそが調査対象なので）。
 func Serve(root string) error {
-	s := &server{root: root, in: bufio.NewReader(os.Stdin), out: os.Stdout}
+	s := &server{root: root, in: bufio.NewReader(os.Stdin), out: os.Stdout, docs: map[string]string{}}
 	return s.run()
 }
 
@@ -37,6 +37,7 @@ type server struct {
 	in       *bufio.Reader
 	out      io.Writer
 	shutdown bool
+	docs     map[string]string // 開いている文書の内容（URI → 全文）。補完が未保存バッファを見るため
 }
 
 type request struct {
@@ -68,10 +69,17 @@ func (s *server) run() error {
 		if req.Method == "exit" {
 			return nil
 		}
-		// 通知（ID なし）は応答してはいけない。didOpen/didChange 等は
-		// 意図的に無視する: grepnavi はディスク上の保存済み状態を索引で
-		// 引く道具なので、未保存バッファは追わない。
+		// 通知（ID なし）には応答しない。文書の開閉・変更だけは追う（補完が
+		// 未保存バッファを見るため）。他の通知は無視してよい。
 		if req.ID == nil {
+			switch req.Method {
+			case "textDocument/didOpen":
+				s.handleDidOpen(req.Params)
+			case "textDocument/didChange":
+				s.handleDidChange(req.Params)
+			case "textDocument/didClose":
+				s.handleDidClose(req.Params)
+			}
 			continue
 		}
 		result, rerr := s.dispatch(req)
@@ -97,6 +105,8 @@ func (s *server) dispatch(req *request) (any, *responseError) {
 		return s.handleReferences(req.Params)
 	case "textDocument/hover":
 		return s.handleHover(req.Params)
+	case "textDocument/completion":
+		return s.handleCompletion(req.Params)
 	case "textDocument/semanticTokens/full":
 		return s.handleSemanticTokensFull(req.Params)
 	case "textDocument/prepareCallHierarchy":
