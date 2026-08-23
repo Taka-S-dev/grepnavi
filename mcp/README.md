@@ -41,6 +41,7 @@ flowchart TD
 | `grepnavi_path` | 関数 A から関数 B への**呼び出し経路を 1 本だけ**返す (callers を全部辿らずに繋がりを確かめる) |
 | `grepnavi_callers` | 関数を呼んでいる箇所一覧 (call tree を上に辿る、`depth` で再帰) |
 | `grepnavi_callees` | 関数内から呼ばれている識別子一覧 + 各定義解決 (call_line, kind, engine, **`confidence`** (high/medium/low — low は silent failure 警告), likely_macro / likely_non_callable, self 自動除外、`depth` で再帰)。**`exclude_macros` / `exclude_non_callable` はデフォルト true** (ノイズ除去)。`excluded.macros` / `excluded.non_callable` は**名前リスト** で返す → 再 query 無しで「捨てたもの」を確認可能。definitions は path proximity で **top 1** のみ surface、`definitions_total` で件数通知 |
+| `grepnavi_list_insertions` | **記録済みデバッグ行の一覧**（読み取りのみ。ブリッジは挿入も撤去もしない）。`id` はソースに焼き込まれた `{tag}` そのものなので、実機やプログラムが吐いた `[GN9]` から file:line と行の中身を引ける (`tag: "GN9"`)。`group` / `file` で絞り込み。**出力に出なかった = その経路を通らなかった**の判断は `enabled: true` かつバイナリが挿入後にビルドされている場合にのみ成立する |
 | `grepnavi_graph_list` | 既存ノード一覧 (id / label / file:line / memo / children) |
 
 ### グラフ編集系 (write)

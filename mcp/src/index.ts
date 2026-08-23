@@ -12,6 +12,7 @@ import * as search from "./tools/search.js";
 import * as path from "./tools/path.js";
 import * as graph from "./tools/graph.js";
 import * as memo from "./tools/memo.js";
+import * as insertions from "./tools/insertions.js";
 
 const server = new Server(
   { name: "grepnavi-mcp", version: BRIDGE_VERSION },
@@ -24,6 +25,7 @@ const tools: ToolDef[] = [
   ...path.definitions,
   ...graph.definitions,
   ...memo.definitions,
+  ...insertions.definitions,
 ];
 
 const handlers: Record<string, ToolHandler> = {
@@ -32,6 +34,7 @@ const handlers: Record<string, ToolHandler> = {
   ...path.handlers,
   ...graph.handlers,
   ...memo.handlers,
+  ...insertions.handlers,
 };
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));

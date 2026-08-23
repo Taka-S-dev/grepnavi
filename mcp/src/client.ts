@@ -116,6 +116,20 @@ export interface GraphResponse {
   line_memo_sources?: Record<string, string>;
   range_memos?: RangeMemo[];
   bookmarks?: Record<string, string>;
+  insertions?: Insertion[];
+}
+
+// Insertion はデバッグ行1件。id ("GN9") はテンプレの {tag} としてソースに
+// 焼き込まれるので、プログラムや実機が吐いた出力に出てきた id から、
+// それがどのファイルの何行目かをこの記録で引ける。
+export interface Insertion {
+  id: string;
+  file: string;
+  sites: Array<{ line: number; text: string }>;
+  group?: string;
+  kind?: string;
+  enabled: boolean;
+  created_at: string;
 }
 
 // referenceParams は /api/references のクエリを組む。
