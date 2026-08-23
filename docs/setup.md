@@ -60,7 +60,7 @@ ssh -L 8080:localhost:8080 user@desktop-ip
 
 ## エディタ連携（LSP・実験的）
 
-`grepnavi -lsp` は Language Server Protocol の stdio サーバとして起動し、定義ジャンプ・参照検索・ホバー（定義スニペットとマクロの計算値）・呼び出し階層・マクロ使用箇所の色付け（ctags 索引ベースのセマンティックトークン）をエディタに提供する（GUI も HTTP サーバも起動しない）。索引の扱いは GUI と同じで、GNU Global があれば索引で引き、無ければ ripgrep に落ちる。補完・診断は名乗らない。
+`grepnavi -lsp` は Language Server Protocol の stdio サーバとして起動し、定義ジャンプ・参照検索・ホバー（定義スニペットとマクロの計算値）・呼び出し階層・マクロ・型名の使用箇所の色付け（ctags 索引ベースのセマンティックトークン）をエディタに提供する（GUI も HTTP サーバも起動しない）。索引の扱いは GUI と同じで、GNU Global があれば索引で引き、無ければ ripgrep に落ちる。補完・診断は名乗らない。
 
 Neovim は追加プラグインなしで接続できる:
 
@@ -77,7 +77,16 @@ vim.api.nvim_create_autocmd("FileType", {
 })
 ```
 
-VSCode で使うには接続用の拡張（`vscode-languageclient` で exe を起動するだけの定型）が必要で、まだ同梱していない。
+VSCode は同梱の接続拡張を使う（`editors/vscode/`）。ビルドとインストール:
+
+```bash
+cd editors/vscode
+npm install
+npx @vscode/vsce package --allow-missing-repository --skip-license
+code --install-extension grepnavi-lsp-0.1.3.vsix
+```
+
+インストール後、設定 `grepnavi.serverPath` に grepnavi 実行ファイルのパスを指定する（PATH に置いてあれば不要）。C/C++ ファイルを開くと自動で接続され、F12 / Shift+F12 / 呼び出し階層（Shift+Alt+H）が grepnavi の索引で動く。拡張名を出したくない環境では `package.json` の `displayName` を変えてからパッケージし直す。
 
 ## アイコンの再生成
 

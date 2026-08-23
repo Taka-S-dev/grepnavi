@@ -30,6 +30,14 @@
 !lsp/
 !lsp/**
 
+# VSCode 接続拡張（ソースのみ。node_modules と .vsix はビルド生成物なので追跡しない）
+!editors/
+!editors/vscode/
+!editors/vscode/package.json
+!editors/vscode/package-lock.json
+!editors/vscode/extension.js
+!editors/vscode/.vscodeignore
+
 # 公開ドキュメント（docs/ 直下の他ファイルは作業メモなので許可しない）
 !docs/
 !docs/setup.md
