@@ -1378,3 +1378,8 @@ body.frameless #memo-list-panel{top:var(--titlebar-h);height:auto;bottom:0}
 .cmpl-item.sel,.cmpl-item:hover{background:#04395e}
 .cmpl-label{color:#d4d4d4}
 .cmpl-detail{color:#888;font-size:11px;overflow:hidden;text-overflow:ellipsis;max-width:55%}
+
+/* 挿入結果のゴースト（view zone に置く先出し表示）。まだ書き込まれていない
+   ことが一目で分かるよう薄字・イタリックにし、デバッグ行の色（紫）の縦線を添える。 */
+.insert-ghost{opacity:.55;font-style:italic;color:#c9a0dc;pointer-events:none;white-space:pre;background:rgba(160,100,220,.07);box-shadow:inset 2px 0 0 rgba(160,100,220,.55)}
+.insert-ghost-line{white-space:pre;overflow:hidden;text-overflow:ellipsis}

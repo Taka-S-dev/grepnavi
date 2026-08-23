@@ -87,3 +87,26 @@ test('ファイル再読込 - カーソルとスクロールを保つ', () => {
   assert.match(indent.slice(0, 900), /setPosition\(\{ lineNumber: pos\.lineNumber/,
     '字下げ後にカーソルを戻していない。1回ごとに行をクリックし直すことになる');
 });
+
+// 書いている内容を挿入先へ薄字で先出しする（view zone）。開いている間だけの
+// 表示なので、ダイアログを閉じたときと対象ファイル以外を見ているときは消す。
+// 消し忘れると、別のファイルの無関係な行にゴーストが残る（zone はモデルでは
+// なくエディタに付くため、タブを切り替えても勝手には消えない）。
+test('挿入ダイアログ - ゴーストは目印と同じ寿命で消える', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const js = fs.readFileSync(path.join(__dirname, '..', 'static', 'js', 'insertions.js'), 'utf8');
+  const clear = js.slice(js.indexOf('function _clearInsertTargetDeco'));
+  assert.match(clear.slice(0, 400), /_clearInsertGhost\(\)/,
+    '目印を消すときにゴーストも消していない（タブを切り替えても残る）');
+  const ghost = js.slice(js.indexOf('function _updateInsertGhost'));
+  assert.match(ghost.slice(0, 700), /_samePath\(file, state\.file\)/,
+    '対象ファイルを見ているかを確かめていない');
+  assert.match(ghost, /addZone\(\{[\s\S]*afterLineNumber: line/,
+    '挿入先の行の直後に置いていない');
+  // 打っている内容に追従しなければ、開いた瞬間のテンプレートを映すだけの飾りになる
+  const create = js.slice(js.indexOf('function _ensureInsertEditor'));
+  const onChange = create.slice(create.indexOf('onDidChangeModelContent'));
+  assert.match(onChange.slice(0, 200), /_scheduleInsertGhost\(\)/,
+    '内容の変更をゴーストに繋いでいない（テンプレのまま止まる）');
+});

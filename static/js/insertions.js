@@ -132,7 +132,10 @@ function _ensureInsertEditor() {
     fixedOverflowWidgets: true,  // 補完ウィジェットがダイアログの枠で切れないように
     scrollbar: { vertical: 'auto', horizontal: 'auto' },
   });
-  _insertEditor.onDidChangeModelContent(() => _syncInsertPresetBtn());
+  _insertEditor.onDidChangeModelContent(() => {
+    _syncInsertPresetBtn();
+    _scheduleInsertGhost(); // 打っている内容を挿入先へ先出しする
+  });
   // Ctrl+Enter で挿入、Esc で閉じる。Monaco がキーを全部持つので明示的に登録する
   // （Esc は補完ウィジェットが開いているときはそちらが優先。'!suggestWidgetVisible'）。
   _insertEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => _insertDialogSubmit());
@@ -576,6 +579,68 @@ function _clearInsertTargetDeco() {
   }
   _insertTargetDecoIds = [];
   _insertTargetModel = null;
+  _clearInsertGhost();
+}
+
+// ===== 挿入結果のゴースト表示 =====
+//
+// ダイアログで書いている内容を、実際に入る位置へ薄字で先出しする。
+// 「L1301 の次に挿入」という文字を頭の中で位置に変換する作業が要らなくなり、
+// 字下げが周りと揃っているかも、隣の行と並べて目で確かめられる。
+// Monaco の view zone（行間に作る空間）に置くので、挿入後と同じだけ下の行が
+// 下がる = 結果の予告にもなる。ダイアログを閉じたら消える。
+let _insertGhostZoneId = null;
+let _insertGhostTimer = null;
+
+function _clearInsertGhost() {
+  if (_insertGhostZoneId === null || !monacoEditor) return;
+  const id = _insertGhostZoneId;
+  _insertGhostZoneId = null;
+  monacoEditor.changeViewZones((acc) => acc.removeZone(id));
+}
+
+// 打鍵のたびに view zone を作り直すとレイアウトが走るので少し間引く。
+function _scheduleInsertGhost() {
+  clearTimeout(_insertGhostTimer);
+  _insertGhostTimer = setTimeout(_updateInsertGhost, 80);
+}
+
+function _updateInsertGhost() {
+  if (!monacoEditor) return;
+  const state = _insertDialogState;
+  const open = document.getElementById('insert-dialog-modal')?.classList.contains('open');
+  const file = tabs[activeTabIdx]?.file;
+  if (!open || !state || !file || !_samePath(file, state.file)) { _clearInsertGhost(); return; }
+  const text = _insertEd()?.value ?? '';
+  const lines = text.split('\n');
+  while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
+  if (!lines.length) { _clearInsertGhost(); return; }
+
+  // 本文と同じ字送りで並べる（ずれると「揃っているか」の確認に使えない）
+  const fi = monacoEditor.getOption(monaco.editor.EditorOption.fontInfo);
+  const node = document.createElement('div');
+  node.className = 'insert-ghost';
+  node.style.fontFamily = fi.fontFamily;
+  node.style.fontSize = fi.fontSize + 'px';
+  node.style.lineHeight = fi.lineHeight + 'px';
+  // 左に余白を足さない。view zone の DOM は行番号欄の右（コード領域の左端）から
+  // 始まるので、ここで contentLeft を足すと桁ぶん右へずれ、字下げの確認に使えない。
+  for (const l of lines) {
+    const row = document.createElement('div');
+    row.className = 'insert-ghost-line';
+    row.textContent = l;
+    node.appendChild(row);
+  }
+  const line = _resolveInsertLine(state);
+  _clearInsertGhost();
+  monacoEditor.changeViewZones((acc) => {
+    _insertGhostZoneId = acc.addZone({
+      afterLineNumber: line,
+      heightInLines: lines.length,
+      domNode: node,
+      suppressMouseDown: true,
+    });
+  });
 }
 
 function refreshInsertTargetDecoration(pulse = false) {
@@ -607,6 +672,7 @@ function refreshInsertTargetDecoration(pulse = false) {
       overviewRuler: { color: 'rgba(80,200,255,0.9)', position: monaco.editor.OverviewRulerLane.Right },
     },
   }]);
+  _updateInsertGhost(); // 挿入先が動いたらゴーストも同じ行へ
   if (pulse) {
     // 数回だけ脈打たせて静かなハイライトへ落とす。点滅し続けると、書いている間
     // ずっと視界の端で動くことになる。
