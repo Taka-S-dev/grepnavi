@@ -69,6 +69,8 @@ var (
 	procIsZoomed          = user32.NewProc("IsZoomed")
 
 	procGetWindowRect         = user32.NewProc("GetWindowRect")
+	procMonitorFromWindow     = user32.NewProc("MonitorFromWindow")
+	procGetMonitorInfoW       = user32.NewProc("GetMonitorInfoW")
 	procSystemParametersInfoW = user32.NewProc("SystemParametersInfoW")
 	procCallWindowProcW       = user32.NewProc("CallWindowProcW")
 )
@@ -98,26 +100,77 @@ type winRect struct{ left, top, right, bottom int32 }
 // 子プロセス）なのでグローバルでよい。
 var framelessOrigProc uintptr
 
-// framelessWndProc は WM_NCCALCSIZE で上辺の枠をクライアント領域に取り込む。
-// WS_CAPTION を外しても WS_THICKFRAME の上辺は非クライアントのまま残り、
-// Win11 がアクセント色で塗るため、窓の天辺に細い色帯が出る。既定の計算を
-// 呼んだあと上辺だけ元に戻すと、帯はページ側（自前タイトルバー）の下に消える。
-// 最大化中は枠が画面外へ張り出す設計なので触らない（触ると天辺が画面外に出る）。
-// lp は NCCALCSIZE_PARAMS だが、先頭メンバが rgrc[0] (RECT) なので *winRect で
-// 直接受ける（uintptr からの変換を書くと go vet の unsafeptr に当たる）。
+type winPoint struct{ x, y int32 }
+
+// minMaxInfo は WM_GETMINMAXINFO の MINMAXINFO。
+type minMaxInfo struct {
+	ptReserved     winPoint
+	ptMaxSize      winPoint
+	ptMaxPosition  winPoint
+	ptMinTrackSize winPoint
+	ptMaxTrackSize winPoint
+}
+
+type monitorInfo struct {
+	cbSize    uint32
+	rcMonitor winRect
+	rcWork    winRect
+	dwFlags   uint32
+}
+
+// framelessWndProc は枠を外した窓の2点を補正する。
+//
+//  1. WM_NCCALCSIZE: 枠をクライアント領域に取り込む。WS_CAPTION を外しても
+//     WS_THICKFRAME の上辺は非クライアントのまま残り、Win11 がアクセント色で
+//     塗るため天辺に細い色帯が出る。通常時は上辺だけ、最大化中は四辺すべてを
+//     取り込む（下の 2 で窓が作業領域ぴったりになるので、枠を残すと縁に隙間が出る）。
+//  2. WM_GETMINMAXINFO: 最大化サイズを作業領域に収める。既定ではモニタ全面を
+//     覆う大きさになり、シェルがフルスクリーンのアプリとみなしてタスクバーを
+//     引っ込めてしまう。
+//
+// lp は NCCALCSIZE_PARAMS / MINMAXINFO だが、どちらも先頭が扱いたい構造体なので
+// *winRect で受けて読み替える（uintptr からの変換を書くと go vet の unsafeptr に当たる）。
 func framelessWndProc(hwnd, msg, wp uintptr, r *winRect) uintptr {
-	const wmNCCalcSize = 0x0083
+	const (
+		wmNCCalcSize    = 0x0083
+		wmGetMinMaxInfo = 0x0024
+	)
 	lp := uintptr(unsafe.Pointer(r))
-	if msg == wmNCCalcSize && wp != 0 && r != nil {
-		if z, _, _ := procIsZoomed.Call(hwnd); z == 0 {
-			top := r.top
-			ret, _, _ := procCallWindowProcW.Call(framelessOrigProc, hwnd, msg, wp, lp)
-			r.top = top
-			return ret
+	switch {
+	case msg == wmNCCalcSize && wp != 0 && r != nil:
+		if z, _, _ := procIsZoomed.Call(hwnd); z != 0 {
+			return 0 // 最大化中: 窓全体をクライアントにする（枠の分の隙間を作らない）
+		}
+		top := r.top
+		ret, _, _ := procCallWindowProcW.Call(framelessOrigProc, hwnd, msg, wp, lp)
+		r.top = top
+		return ret
+	case msg == wmGetMinMaxInfo && r != nil:
+		if wa, mon, ok := workAreaOf(hwnd); ok {
+			mmi := (*minMaxInfo)(unsafe.Pointer(r))
+			mmi.ptMaxPosition = winPoint{wa.left - mon.left, wa.top - mon.top}
+			mmi.ptMaxSize = winPoint{wa.right - wa.left, wa.bottom - wa.top}
+			return 0
 		}
 	}
 	ret, _, _ := procCallWindowProcW.Call(framelessOrigProc, hwnd, msg, wp, lp)
 	return ret
+}
+
+// workAreaOf は窓が乗っているモニタの作業領域（タスクバーを除く）と、
+// モニタ全体の矩形を返す。
+func workAreaOf(hwnd uintptr) (work, monitor winRect, ok bool) {
+	const monitorDefaultToNearest = 2
+	hmon, _, _ := procMonitorFromWindow.Call(hwnd, monitorDefaultToNearest)
+	if hmon == 0 {
+		return winRect{}, winRect{}, false
+	}
+	var mi monitorInfo
+	mi.cbSize = uint32(unsafe.Sizeof(mi))
+	if r, _, _ := procGetMonitorInfoW.Call(hmon, uintptr(unsafe.Pointer(&mi))); r == 0 {
+		return winRect{}, winRect{}, false
+	}
+	return mi.rcWork, mi.rcMonitor, true
 }
 
 // fitToWorkArea は既定サイズ 1400x900 がモニタの作業領域（タスクバーを除く）から
