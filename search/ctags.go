@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log/slog"
 	"os"
@@ -46,6 +47,24 @@ func CtagsIndexed(dir string) bool {
 // SymbolsByKind はkind別のシンボル名セット。
 type SymbolsByKind struct {
 	Macros []string // define + enum_member
+	// Types は typedef / struct / union / enum の名前。エディタ向け（LSP の
+	// セマンティックトークン）で型名の使用箇所を塗るために持つ。ソート済み。
+	Types []string
+	// 以下は補完用。ctags が既定で付ける scope / typeref フィールドから拾う。
+	// Members は struct/union 名 → メンバー一覧、Typedefs は typedef 名 → 実体の
+	// 型文字列（"struct ssl_st" / "uint32_t" 等）、Globals はグローバル変数名 → 型。
+	Members  map[string][]Member
+	Typedefs map[string]string
+	Globals  map[string]string
+	// Functions は関数名（定義 f とプロトタイプ p）。補完の候補用。ソート済み。
+	Functions []string
+}
+
+// Member は構造体メンバー1つ。Type は ctags の typeref から取った型文字列で、
+// ポインタなら末尾に * を含む（"SSL3_RECORD *" 等）。
+type Member struct {
+	Name string
+	Type string
 }
 
 // macroCache はCtagsMacroNamesの結果をメモリにキャッシュする。
@@ -128,12 +147,28 @@ func CtagsMacroTrim() {
 // 現在の tags と一致するときだけ使う。root 配下に置くのは、シンボル名が既に
 // tags として同じ場所にあるものだけを書くため（%TEMP% 等へ複製しない）。
 
-const macroSidecarMagic = "grepnavi-macros v1"
+// v2 で Types を追加。v1 のファイルはヘッダ不一致で読み飛ばされ、次回の
+// フルパースで v2 に書き直される（派生キャッシュなので取りこぼしは無い）。
+const macroSidecarMagic = "grepnavi-macros v4"
+
+// サイドカーのセクション区切り行。シンボル名にタブは入らないので、タブ始まりの
+// 行は名前と衝突しない。v3 で members / typedefs / globals を追加。
+const (
+	macroSidecarTypesMarker    = "\ttypes"
+	macroSidecarMembersMarker  = "\tmembers"  // 以降の行: struct<TAB>name<TAB>type
+	macroSidecarTypedefsMarker = "\ttypedefs" // 以降の行: name<TAB>type
+	macroSidecarGlobalsMarker  = "\tglobals"  // 以降の行: name<TAB>type
+	macroSidecarFuncsMarker    = "\tfunctions"
+)
 
 func macroSidecarPath(dir string) string { return filepath.Join(dir, ".grepnavi-macros") }
 
+// ヘッダには除外設定の指紋も入れる。キャッシュは除外済みの表なので、
+// 「対象から外すもの」を変えたら tags が同じでも作り直す必要がある。
 func macroSidecarHeader(mtime time.Time, size int64) string {
-	return fmt.Sprintf("%s\t%d\t%d", macroSidecarMagic, mtime.UnixNano(), size)
+	h := fnv.New64a()
+	h.Write([]byte(excludeFingerprint())) // 規則は複数行なので1行のヘッダに収まる形に畳む
+	return fmt.Sprintf("%s\t%d\t%d\t%x", macroSidecarMagic, mtime.UnixNano(), size, h.Sum64())
 }
 
 func loadMacroSidecar(dir string, mtime time.Time, size int64) (SymbolsByKind, bool) {
@@ -147,9 +182,48 @@ func loadMacroSidecar(dir string, mtime time.Time, size int64) (SymbolsByKind, b
 	if !sc.Scan() || sc.Text() != macroSidecarHeader(mtime, size) {
 		return SymbolsByKind{}, false
 	}
-	var syms SymbolsByKind
+	syms := SymbolsByKind{Members: map[string][]Member{}, Typedefs: map[string]string{}, Globals: map[string]string{}}
+	section := "macros"
 	for sc.Scan() {
-		syms.Macros = append(syms.Macros, sc.Text())
+		t := sc.Text()
+		switch t {
+		case macroSidecarTypesMarker:
+			section = "types"
+			continue
+		case macroSidecarMembersMarker:
+			section = "members"
+			continue
+		case macroSidecarTypedefsMarker:
+			section = "typedefs"
+			continue
+		case macroSidecarGlobalsMarker:
+			section = "globals"
+			continue
+		case macroSidecarFuncsMarker:
+			section = "functions"
+			continue
+		}
+		switch section {
+		case "macros":
+			syms.Macros = append(syms.Macros, t)
+		case "types":
+			syms.Types = append(syms.Types, t)
+		case "members":
+			f := strings.SplitN(t, "\t", 3)
+			if len(f) == 3 {
+				syms.Members[f[0]] = append(syms.Members[f[0]], Member{Name: f[1], Type: f[2]})
+			}
+		case "typedefs":
+			if f := strings.SplitN(t, "\t", 2); len(f) == 2 {
+				syms.Typedefs[f[0]] = f[1]
+			}
+		case "globals":
+			if f := strings.SplitN(t, "\t", 2); len(f) == 2 {
+				syms.Globals[f[0]] = f[1]
+			}
+		case "functions":
+			syms.Functions = append(syms.Functions, t)
+		}
 	}
 	if sc.Err() != nil {
 		return SymbolsByKind{}, false
@@ -168,6 +242,30 @@ func saveMacroSidecar(dir string, mtime time.Time, size int64, syms SymbolsByKin
 	fmt.Fprintln(w, macroSidecarHeader(mtime, size))
 	for _, m := range syms.Macros {
 		w.WriteString(m)
+		w.WriteByte('\n')
+	}
+	fmt.Fprintln(w, macroSidecarTypesMarker)
+	for _, t := range syms.Types {
+		w.WriteString(t)
+		w.WriteByte('\n')
+	}
+	fmt.Fprintln(w, macroSidecarMembersMarker)
+	for st, ms := range syms.Members {
+		for _, m := range ms {
+			fmt.Fprintf(w, "%s\t%s\t%s\n", st, m.Name, m.Type)
+		}
+	}
+	fmt.Fprintln(w, macroSidecarTypedefsMarker)
+	for name, ty := range syms.Typedefs {
+		fmt.Fprintf(w, "%s\t%s\n", name, ty)
+	}
+	fmt.Fprintln(w, macroSidecarGlobalsMarker)
+	for name, ty := range syms.Globals {
+		fmt.Fprintf(w, "%s\t%s\n", name, ty)
+	}
+	fmt.Fprintln(w, macroSidecarFuncsMarker)
+	for _, f := range syms.Functions {
+		w.WriteString(f)
 		w.WriteByte('\n')
 	}
 	err = w.Flush()
@@ -258,8 +356,11 @@ func ctagsParseSymbols(tagsPath string) (SymbolsByKind, error) {
 	}
 	defer f.Close()
 
+	tagsDir := filepath.Dir(tagsPath)
 	seenMacro := make(map[string]bool)
-	var result SymbolsByKind
+	seenType := make(map[string]bool)
+	seenFunc := make(map[string]bool)
+	result := SymbolsByKind{Members: map[string][]Member{}, Typedefs: map[string]string{}, Globals: map[string]string{}}
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 256*1024), 256*1024)
 	for scanner.Scan() {
@@ -282,6 +383,15 @@ func ctagsParseSymbols(tagsPath string) (SymbolsByKind, error) {
 			continue
 		}
 		rest := line[tab1:]
+		// ファイル欄（2列目）で C/C++ 以外と除外パスを落とす。tags が古い設定で
+		// 作られていると生成物（doxygen の html/js など）の名前が混ざり、補完で
+		// cryptlib_8c.html のようなゴミが出る
+		if tab2 := bytes.IndexByte(rest[1:], '\t'); tab2 >= 0 {
+			file := string(rest[1 : 1+tab2])
+			if !ctagsIsCFile(file) || IsExcluded(filepath.Join(tagsDir, strings.TrimPrefix(file, "./"))) {
+				continue
+			}
+		}
 		hasKind := func(k byte) bool {
 			needle := []byte{'\t', k, '\t'}
 			suffix := []byte{'\t', k}
@@ -304,9 +414,99 @@ func ctagsParseSymbols(tagsPath string) (SymbolsByKind, error) {
 				result.Macros = append(result.Macros, name)
 			}
 		}
+		// 型名は大文字規則を掛けない（size_t や ssl_st のような小文字の型が普通）。
+		if (hasKind('t') || hasKind('s') || hasKind('u') || hasKind('g')) && !seenType[string(nameBytes)] {
+			name := string(nameBytes)
+			seenType[name] = true
+			result.Types = append(result.Types, name)
+		}
+		// 補完用: メンバー（所属 struct/union と型）、typedef の実体、グローバル変数の型。
+		// 拡張フィールドは ;" の後にタブ区切りで並ぶ（kind, line:, struct:, typeref: ...）。
+		if hasKind('m') || hasKind('t') || hasKind('v') {
+			ctagsCollectCompletionFields(&result, string(nameBytes), rest, hasKind)
+		}
+		if (hasKind('f') || hasKind('p')) && !seenFunc[string(nameBytes)] {
+			name := string(nameBytes)
+			seenFunc[name] = true
+			result.Functions = append(result.Functions, name)
+		}
 	}
 	sort.Strings(result.Macros)
+	sort.Strings(result.Types)
+	sort.Strings(result.Functions)
 	return result, nil
+}
+
+// ctagsIsCFile は tags のファイル欄が C/C++ のソース・ヘッダかを拡張子で見る。
+func ctagsIsCFile(file string) bool {
+	switch strings.ToLower(filepath.Ext(file)) {
+	case ".c", ".h", ".cc", ".cpp", ".cxx", ".c++", ".hh", ".hpp", ".hxx", ".h++", ".inl", ".ipp", ".tcc":
+		return true
+	}
+	return false
+}
+
+// ctagsCollectCompletionFields は1行の拡張フィールドから補完用の表を埋める。
+//   - m: struct:X / union:X と typeref:typename:T → Members[X]
+//   - t: typeref:struct:X（"struct X"）または typeref:typename:T → Typedefs[name]
+//   - v: typeref:typename:T → Globals[name]
+//
+// typeref が無い行（古い ctags）は黙って飛ばす。補完の欠けは安全側。
+func ctagsCollectCompletionFields(result *SymbolsByKind, name string, rest []byte, hasKind func(byte) bool) {
+	var owner, typ string
+	for _, f := range bytes.Split(rest, []byte{'\t'}) {
+		s := string(f)
+		switch {
+		case strings.HasPrefix(s, "struct:"):
+			owner = strings.TrimPrefix(s, "struct:")
+		case strings.HasPrefix(s, "union:"):
+			owner = strings.TrimPrefix(s, "union:")
+		case strings.HasPrefix(s, "typeref:typename:"):
+			typ = strings.TrimPrefix(s, "typeref:typename:")
+		case strings.HasPrefix(s, "typeref:struct:"):
+			typ = "struct " + strings.TrimPrefix(s, "typeref:struct:")
+		case strings.HasPrefix(s, "typeref:union:"):
+			typ = "union " + strings.TrimPrefix(s, "typeref:union:")
+		case strings.HasPrefix(s, "typeref:enum:"):
+			typ = "enum " + strings.TrimPrefix(s, "typeref:enum:")
+		}
+	}
+	typ = readableAnonType(typ)
+	switch {
+	case hasKind('m') && owner != "":
+		// 入れ子の struct:outer::inner のようなスコープは末尾だけ使う
+		if i := strings.LastIndex(owner, "::"); i >= 0 {
+			owner = owner[i+2:]
+		}
+		result.Members[owner] = append(result.Members[owner], Member{Name: name, Type: typ})
+	case hasKind('t') && typ != "":
+		if _, dup := result.Typedefs[name]; !dup {
+			result.Typedefs[name] = typ
+		}
+	case hasKind('v') && typ != "":
+		if _, dup := result.Globals[name]; !dup {
+			result.Globals[name] = typ
+		}
+	}
+}
+
+// readableAnonType は匿名 struct/union/enum の内部名を読める形に直す。
+// ctags は名前のない型に __anon<16進> という名前を付けるので、そのまま出すと
+// 補完の型欄に "struct ssl_st::__anon95e14df50808" のような文字列が並ぶ。
+// 名前で辿れる型ではない（メンバーも引けない）ので、形だけ見せる。
+func readableAnonType(typ string) string {
+	kind, rest, ok := strings.Cut(typ, " ")
+	if !ok {
+		return typ
+	}
+	last := rest
+	if i := strings.LastIndex(last, "::"); i >= 0 {
+		last = last[i+2:]
+	}
+	if !strings.HasPrefix(last, "__anon") {
+		return typ
+	}
+	return kind + " {...}"
 }
 
 // ctagsReadSortedFlag は tags ファイルの先頭ヘッダから !_TAG_FILE_SORTED の値を返す。

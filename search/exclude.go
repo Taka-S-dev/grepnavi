@@ -1,6 +1,7 @@
 package search
 
 import (
+	"encoding/json"
 	"os"
 	"path"
 	"path/filepath"
@@ -31,9 +32,9 @@ var (
 
 // excludeRule は1行のパターン。
 type excludeRule struct {
-	neg      bool     // `!` 先頭。直前までの判定を打ち消す
-	dirOnly  bool     // `/` 終わり。ディレクトリにだけ当たる
-	anchored bool     // ルート起点に固定（先頭 `/` か、区切りを含む）
+	neg      bool // `!` 先頭。直前までの判定を打ち消す
+	dirOnly  bool // `/` 終わり。ディレクトリにだけ当たる
+	anchored bool // ルート起点に固定（先頭 `/` か、区切りを含む）
 	segs     []string
 }
 
@@ -75,6 +76,10 @@ func SetExcludes(root string, pats []string) {
 	}
 	excludeMu.Unlock()
 
+	// ctags のシンボル表は除外済みで作られるので、規則が変わったら捨てる
+	// （次の要求でサイドカーの指紋不一致から作り直される）
+	CtagsMacroTrim()
+
 	// 実行中の rg が掴んでいると Windows では消せない。放置しても一時ディレクトリ
 	// ごと消えるので、失敗は無視してよい
 	if old != "" {
@@ -83,6 +88,20 @@ func SetExcludes(root string, pats []string) {
 }
 
 // Excludes は現在の除外パターンを返す。
+// LoadExcludesFromRoot は root 直下の .grepnavi から除外規則だけを読んで適用する。
+// ファイル全体（graphs 等）の読み書きは api 側が持つが、除外は HTTP サーバを
+// 起動しない LSP モードでも同じに効かせる必要があるため、読み口をここにも置く。
+// ファイルが無い・読めないときは除外なしにする（api の applyProjectSettings と同じ）。
+func LoadExcludesFromRoot(root string) {
+	var cfg struct {
+		Exclude []string `json:"exclude"`
+	}
+	if data, err := os.ReadFile(filepath.Join(root, ".grepnavi")); err == nil {
+		_ = json.Unmarshal(data, &cfg)
+	}
+	SetExcludes(root, cfg.Exclude)
+}
+
 func Excludes() []string {
 	excludeMu.RLock()
 	defer excludeMu.RUnlock()
