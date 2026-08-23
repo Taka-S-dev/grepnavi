@@ -1016,7 +1016,15 @@ async function _indentInsertionAtCursor(delta) {
     text = text.replace(/^ {1,4}/, '');
   }
   if (text === site.text) return; // 既に行頭
-  await _putInsertionText(hit.ins.id, hit.siteIdx, text);
+  // 字下げは連打する操作なので、書き換えたあともカーソルを同じ行に残す。
+  // 行の頭が伸び縮みした分だけ桁をずらすと、見た目のカーソル位置も動かない。
+  const pos = monacoEditor?.getPosition();
+  const shift = text.length - site.text.length;
+  if (!await _putInsertionText(hit.ins.id, hit.siteIdx, text)) return;
+  if (pos && monacoEditor) {
+    monacoEditor.setPosition({ lineNumber: pos.lineNumber, column: Math.max(1, pos.column + shift) });
+    _updateInsertionCtxKey(); // 位置が同じだと変更イベントが出ないので自分で合わせる
+  }
 }
 
 // デバッグ行の一時 OFF (行頭 // でコメントアウト) / ON (コメント解除)。

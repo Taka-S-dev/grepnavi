@@ -2762,7 +2762,21 @@ async function pollActiveFile() {
     if(!r.ok) return;
     const text = await r.text();
     tab.mtime = mtime;
+    // setValue はカーソルを先頭へ、スクロールを 0 へ戻す。外部の変更（自分の
+    // デバッグ行の書き換えを含む）のたびに読んでいた場所を見失うので、
+    // 位置と選択とスクロールを取っておいて戻す。
+    const isActive = tab === tabs[activeTabIdx];
+    const keep = isActive && monacoEditor ? {
+      selections: monacoEditor.getSelections(),
+      scrollTop: monacoEditor.getScrollTop(),
+      scrollLeft: monacoEditor.getScrollLeft(),
+    } : null;
     tab.model.setValue(text);
+    if (keep?.selections?.length) {
+      monacoEditor.setSelections(keep.selections);
+      monacoEditor.setScrollTop(keep.scrollTop);
+      monacoEditor.setScrollLeft(keep.scrollLeft);
+    }
     // setValue は Monaco の全デコレーションを破棄する。heal の成否と無関係に
     // ガター印を必ず戻す。
     refreshLineMemoDecorations();

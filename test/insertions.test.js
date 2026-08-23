@@ -63,3 +63,27 @@ test('挿入ダイアログ - エディタを作ってからテンプレを展�
   assert.ok(ensure > 0 && rebuild > 0, '呼び出しが見つからない');
   assert.ok(ensure < rebuild, '_ensureInsertEditor は _insertDialogRebuildTextarea より前に呼ぶ');
 });
+
+// Monaco の setValue はカーソルを先頭へ、スクロールを 0 へ戻す。外部変更で
+// ファイルを読み直すたびに読んでいた場所を失い、デバッグ行の Tab 字下げは
+// 1 回ごとに行から外れて（キーの前提が崩れて）効かなくなる。
+test('ファイル再読込 - カーソルとスクロールを保つ', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const root = path.join(__dirname, '..', 'static', 'js');
+  const ed = fs.readFileSync(path.join(root, 'editor.js'), 'utf8');
+  const poll = ed.slice(ed.indexOf('async function pollActiveFile'));
+  const end = poll.search(/\r?\n\}\r?\n/); // 関数の終わり（CRLF のファイルもある）
+  const body = poll.slice(0, end < 0 ? poll.length : end);
+  assert.match(body, /getSelections\(\)/, '再読込前に選択を控えていない');
+  // 比べるのは実際の呼び出し同士（コメント中の setValue に引っかからないように）
+  assert.ok(body.indexOf('getSelections()') < body.indexOf('.setValue(text)'),
+    '控えるのは setValue より前でなければ意味がない');
+  assert.match(body, /setSelections\(keep\.selections\)/, '再読込後に戻していない');
+
+  // 字下げは連打する操作なので、書き換え後もカーソルを同じ行に残す
+  const ins = fs.readFileSync(path.join(root, 'insertions.js'), 'utf8');
+  const indent = ins.slice(ins.indexOf('async function _indentInsertionAtCursor'));
+  assert.match(indent.slice(0, 900), /setPosition\(\{ lineNumber: pos\.lineNumber/,
+    '字下げ後にカーソルを戻していない。1回ごとに行をクリックし直すことになる');
+});
