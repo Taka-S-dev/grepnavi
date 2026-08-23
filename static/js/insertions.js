@@ -72,6 +72,139 @@ let _insertDialogState = null; // {file, line, indent}
 let _insertDialogGenerated = null;
 
 // force=false のときは、利用者が textarea に手を入れていたら組み直さない。
+// ===== コード欄（Monaco） =====
+//
+// 素の textarea だと字下げが何段目か見えない（タブは不可視で、ガイドも引けない）。
+// 本体と同じ Monaco を小さく置くことで、インデントガイド・タブ幅・色付け・補完が
+// エディタ本体とそろう。value / focus だけの薄い口を被せて、呼び出し側は
+// textarea だった頃と同じ書き方のままにする。
+let _insertEditor = null;
+
+function _insertEd() {
+  if (!_insertEditor) return null;
+  const ed = _insertEditor;
+  return {
+    get value() { return ed.getValue(); },
+    set value(v) { ed.setValue(v); },
+    focus() { ed.focus(); },
+    // 文字数の位置（textarea 時代の API）を Monaco の範囲に直して選ぶ
+    select(start, end) {
+      const m = ed.getModel();
+      const a = m.getPositionAt(start), b = m.getPositionAt(end);
+      ed.setSelection(new monaco.Range(a.lineNumber, a.column, b.lineNumber, b.column));
+      ed.revealPositionInCenterIfOutsideViewport(b);
+    },
+  };
+}
+
+// _ensureInsertEditor はダイアログのコード欄を作る（初回だけ）。Monaco は
+// 起動時に読み込み済みで、ダイアログを開くのは必ずその後。
+function _ensureInsertEditor() {
+  if (_insertEditor || typeof monaco === 'undefined') return _insertEditor;
+  const host = document.getElementById('insert-dialog-ed');
+  if (!host) return null;
+  // 挿入先のファイルがタブで字下げしていればタブを、空白なら空白を使う。
+  // ここが本体とずれると、挿入した行だけ段の付き方が変わる。
+  const indent = _insertDialogState?.indent || '';
+  _insertEditor = monaco.editor.create(host, {
+    value: '',
+    language: 'c',
+    theme: 'grepnavi-dark',
+    automaticLayout: true, // ダイアログはリサイズできる
+    minimap: { enabled: false },
+    lineNumbers: 'off',
+    glyphMargin: false,
+    folding: false,
+    lineDecorationsWidth: 6,
+    lineNumbersMinChars: 0,
+    scrollBeyondLastLine: false,
+    fontSize: parseInt(localStorage.getItem('grepnavi-font-size')) || 12,
+    // 字下げを見えるようにするのがこの置き換えの主目的
+    guides: { indentation: true, bracketPairs: true },
+    renderWhitespace: 'boundary',
+    detectIndentation: false,
+    insertSpaces: !indent.includes('\t'),
+    tabSize: 4,
+    contextmenu: false,
+    quickSuggestions: { other: true, comments: false, strings: false },
+    suggestOnTriggerCharacters: true,
+    wordBasedSuggestions: 'off', // 候補は grepnavi の索引だけ（語の寄せ集めは混ぜない）
+    fixedOverflowWidgets: true,  // 補完ウィジェットがダイアログの枠で切れないように
+    scrollbar: { vertical: 'auto', horizontal: 'auto' },
+  });
+  _insertEditor.onDidChangeModelContent(() => _syncInsertPresetBtn());
+  // Ctrl+Enter で挿入、Esc で閉じる。Monaco がキーを全部持つので明示的に登録する
+  // （Esc は補完ウィジェットが開いているときはそちらが優先。'!suggestWidgetVisible'）。
+  _insertEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => _insertDialogSubmit());
+  _insertEditor.addCommand(monaco.KeyCode.Escape, () => closeInsertDialog(), '!suggestWidgetVisible');
+  _registerInsertCompletion();
+  return _insertEditor;
+}
+
+// 補完は /api/complete（LSP と同じエンジン）。Monaco の補完ウィジェットを使うので、
+// 見た目もキー操作も本体エディタの補完とそろう。プロバイダは言語単位で効くため、
+// このダイアログのモデルだけを相手にする（本体は読み取り専用だが混ぜない）。
+let _insertCompletionRegistered = false;
+
+function _registerInsertCompletion() {
+  if (_insertCompletionRegistered || typeof monaco === 'undefined') return;
+  _insertCompletionRegistered = true;
+  const kindOf = (k) => ({
+    field: monaco.languages.CompletionItemKind.Field,
+    local: monaco.languages.CompletionItemKind.Variable,
+    global: monaco.languages.CompletionItemKind.Variable,
+    function: monaco.languages.CompletionItemKind.Function,
+    macro: monaco.languages.CompletionItemKind.Constant,
+  }[k] || monaco.languages.CompletionItemKind.Text);
+
+  monaco.languages.registerCompletionItemProvider('c', {
+    triggerCharacters: ['.', '>'],
+    async provideCompletionItems(model, position) {
+      if (!_insertEditor || model !== _insertEditor.getModel()) return { suggestions: [] };
+      const ctx = _insertDialogState;
+      if (!ctx?.file || !ctx.line) return { suggestions: [] };
+      const before = model.getValueInRange({
+        startLineNumber: position.lineNumber, startColumn: 1,
+        endLineNumber: position.lineNumber, endColumn: position.column,
+      });
+      let res;
+      try {
+        const r = await fetch('/api/complete?' + new URLSearchParams({
+          file: ctx.file, line: String(ctx.line), before,
+        }));
+        res = await r.json();
+      } catch { return { suggestions: [] }; }
+      if (!res?.items?.length) return { suggestions: [] };
+
+      const prefixLen = (res.prefix || '').length;
+      const range = new monaco.Range(position.lineNumber, position.column - prefixLen,
+        position.lineNumber, position.column);
+      // ポインタに "." を打っていたら、候補を確定した瞬間に "->" へ直す
+      // （clangd と同じ方式）。
+      let extra;
+      if (res.member_access && res.base_pointer && before.slice(0, before.length - prefixLen).endsWith('.')) {
+        const dot = position.column - prefixLen - 1;
+        extra = [{
+          range: new monaco.Range(position.lineNumber, dot, position.lineNumber, dot + 1),
+          text: '->',
+        }];
+      }
+      return {
+        incomplete: !!res.incomplete, // 打鍵が進んだら取り直させる
+        suggestions: res.items.map((it, i) => ({
+          label: it.label,
+          kind: kindOf(it.kind),
+          detail: it.detail,
+          insertText: it.label,
+          range,
+          sortText: String(i).padStart(4, '0'), // エンジンの順位をそのまま守らせる
+          additionalTextEdits: extra,
+        })),
+      };
+    },
+  });
+}
+
 // 書きかけを消さないため、手を入れた後は組み直さない（value 代入は Ctrl+Z でも
 // 戻らない）。テンプレートを選び直したときは「その内容が欲しい」という意思表示
 // なので組み直す。
@@ -79,7 +212,7 @@ const _INSERT_COND_PLACEHOLDER = 'cond';
 
 function _insertDialogRebuildTextarea(force = false) {
   const sel = document.getElementById('insert-dialog-template');
-  const ta = document.getElementById('insert-dialog-ta');
+  const ta = _insertEd();
   if (!sel || !ta) return;
   const templates = _insertTemplates();
   const tpl = templates.find(t => t.id === sel.value) || templates[0];
@@ -96,8 +229,8 @@ function _insertDialogRebuildTextarea(force = false) {
   // プレースホルダを選択して開く。そのまま打てば条件式に置き換わり、
   // 書き忘れれば選択が残るので、cond のまま挿入する事故に気づける。
   const at = tpl.template.includes('{cond}') ? ta.value.indexOf(_INSERT_COND_PLACEHOLDER) : -1;
-  if (at >= 0) ta.setSelectionRange(at, at + _INSERT_COND_PLACEHOLDER.length);
-  else ta.setSelectionRange(ta.value.length, ta.value.length);
+  if (at >= 0) ta.select(at, at + _INSERT_COND_PLACEHOLDER.length);
+  else ta.select(ta.value.length, ta.value.length);
 }
 
 // テンプレ select の再構築。selectId を渡すとそれを選択状態にする
@@ -120,7 +253,7 @@ function _rebuildTemplateSelect(selectId) {
 // その場のインデントが前置されるので、保存時のインデントを含めると二重になる。
 // {tag} {cond} {group} は文字列のまま保存され、次回の挿入時に展開される。
 async function _saveInsertPreset() {
-  const ta = document.getElementById('insert-dialog-ta');
+  const ta = _insertEd();
   const indent = _insertDialogState?.indent || '';
   const lines = (ta?.value || '').split('\n').map(l =>
     indent && l.startsWith(indent) ? l.slice(indent.length) : l);
@@ -172,7 +305,7 @@ function _setInsertDialogTarget(file, line) {
 // 押せる見た目のままだと、保存しないと挿入できないのかと読める。
 function _syncInsertPresetBtn() {
   const btn = document.getElementById('insert-dialog-save-preset');
-  const ta = document.getElementById('insert-dialog-ta');
+  const ta = _insertEd();
   if (btn && ta) btn.disabled = !ta.value.trim();
 }
 
@@ -197,7 +330,7 @@ function openInsertDialog() {
   // 開いたままエディタを触れるようになったので、Alt+P を二度押しできてしまう。
   // 開き直すと入力欄がテンプレートで上書きされ、書きかけが消える。
   if (document.getElementById('insert-dialog-modal')?.classList.contains('open')) {
-    document.getElementById('insert-dialog-ta')?.focus();
+    _insertEd()?.focus();
     st('挿入ダイアログは開いています');
     return;
   }
@@ -223,6 +356,9 @@ function openInsertDialog() {
   // 前回の値が残っているなら畳まずに開く。見えない欄の値で撤去の単位が
   // 決まると、後から「なぜこのグループに入ったのか」が分からなくなる。
   _setInsertGroupOpen(!!groupInput?.value);
+  // コード欄は本体と同じ Monaco。補完は登録済みのプロバイダが受け持つ。
+  // テンプレ展開より先に作る（無いと展開先が無く、初回だけ本文が空になる）。
+  _ensureInsertEditor();
   _insertDialogGenerated = null; // 開き直しは前回の内容を引き継がない
   _insertDialogRebuildTextarea(true);
 
@@ -233,7 +369,7 @@ function openInsertDialog() {
   restorePanel(document.getElementById('insert-dialog-modal-box'), 'insert-dialog');
   refreshInsertTargetDecoration(true);
   monacoEditor.revealLineInCenterIfOutsideViewport(line);
-  setTimeout(() => document.getElementById('insert-dialog-ta')?.focus(), 0);
+  setTimeout(() => _insertEd()?.focus(), 0);
 }
 
 function closeInsertDialog() {
@@ -268,7 +404,7 @@ async function _insertDialogSubmit() {
   if (!_insertDialogState) { closeInsertDialog(); return; }
   const { file } = _insertDialogState;
   const line = _resolveInsertLine(_insertDialogState);
-  const ta = document.getElementById('insert-dialog-ta');
+  const ta = _insertEd();
   // textarea の内容は改行区切りが仕様なので、送信直前に \n で分割し \r を落とす。
   // サーバは要素内の改行混入を 400 で弾く (記録行数と実際の行数がずれると
   // 以後の照合が壊れるため) — ここで確実に満たす。
@@ -1340,16 +1476,15 @@ function registerInsertionEditorActions() {
 function _initInsertDialog() {
   const modal = document.getElementById('insert-dialog-modal');
   const sel = document.getElementById('insert-dialog-template');
-  const ta = document.getElementById('insert-dialog-ta');
   const btnOk = document.getElementById('insert-dialog-ok');
   const btnCancel = document.getElementById('insert-dialog-cancel');
-  if (!modal || !sel || !ta || !btnOk || !btnCancel) return;
+  if (!modal || !sel || !btnOk || !btnCancel) return;
 
   // テンプレートの選び直しは明示的な指定なので、書きかけがあっても上書きする。
   sel.addEventListener('change', () => {
     _rememberTemplate(sel);
     _insertDialogRebuildTextarea(true);
-    ta.focus(); // プレースホルダが選ばれているので、そのまま打てば置き換わる
+    _insertEd()?.focus(); // プレースホルダが選ばれているので、そのまま打てば置き換わる
   });
   const fileLabel = document.getElementById('insert-dialog-file');
   if (fileLabel) {
@@ -1378,7 +1513,6 @@ function _initInsertDialog() {
   }
   const btnSavePreset = document.getElementById('insert-dialog-save-preset');
   const btnDelPreset = document.getElementById('insert-dialog-del-preset');
-  ta.addEventListener('input', _syncInsertPresetBtn);
   _syncInsertPresetBtn();
   if (btnSavePreset) btnSavePreset.onclick = _saveInsertPreset;
   if (btnDelPreset) btnDelPreset.onclick = _deleteInsertPreset;
@@ -1387,11 +1521,6 @@ function _initInsertDialog() {
   // 背景クリックで閉じる仕掛けは置かない。オーバーレイは pointer-events:none で
   // 素通しになっており、そこへのクリックは背面のエディタが受ける
   // (書きかけの内容を、外したクリック1つで失わない)。
-  ta.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { e.stopPropagation(); closeInsertDialog(); }
-    else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); _insertDialogSubmit(); }
-    else if (e.key === 'Tab') { e.preventDefault(); _taIndent(ta, e.shiftKey); }
-  });
 }
 
 if (typeof document !== 'undefined') {

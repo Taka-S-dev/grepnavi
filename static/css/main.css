@@ -752,7 +752,9 @@ body.frameless #tree-tab-actions,body.frameless #tree-toolbar{display:none}
 #insert-dialog-modal.open{pointer-events:none;background:none}
 #insert-dialog-modal-box{pointer-events:auto;resize:both;overflow:auto;box-shadow:0 8px 32px rgba(0,0,0,.7);max-height:calc(100vh - 24px);min-height:260px}
 /* 枠を広げた分は入力欄が受け取る (枠だけ大きくなっても意味がない)。 */
-#insert-dialog-modal-box .node-modal-textarea{flex:1;resize:none}
+/* コード欄は本体と同じ Monaco。字下げの段が見える（インデントガイド）のと、
+   補完・タブ幅・色付けが本体と揃うのが理由。 */
+.insert-dialog-editor{flex:1;min-height:120px;border:1px solid #3c3c3c;border-radius:2px;overflow:hidden}
 
 /* プロジェクトモーダル */
 #project-modal{
