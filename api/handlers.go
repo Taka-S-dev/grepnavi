@@ -116,6 +116,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/callers", h.handleCallers)
 	mux.HandleFunc("/api/callees", h.handleCallees)
 	mux.HandleFunc("/api/references", h.handleReferences)
+	mux.HandleFunc("/api/complete", h.handleComplete)
 	mux.HandleFunc("/api/structure", h.handleStructure)
 	mux.HandleFunc("/api/structure/status", h.handleStructureStatus)
 	mux.HandleFunc("/api/structure/build", h.handleStructureBuild)

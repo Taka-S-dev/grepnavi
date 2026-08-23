@@ -12,6 +12,7 @@
 | `/api/symbols` | 指定ファイル内のシンボル一覧 |
 | `/api/definition` | 定義ジャンプ先の解決 |
 | `/api/references` | 参照一覧（参照ピッカー / MCP） |
+| `/api/complete` | 補完候補（デバッグ行ダイアログ用。メンバー / ローカル変数 / マクロ） |
 | `/api/callers` / `/api/callees` | 関数の呼び出し元 / 呼び出し先 |
 | `/api/func-body` | 関数本体の取得 |
 | `/api/hover` | ホバープレビュー用スニペット |

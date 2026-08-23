@@ -801,6 +801,33 @@ func (h *Handler) handleCallees(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, hits)
 }
 
+// --- /api/complete ---
+
+// handleComplete は補完候補を返す（LSP の補完と同じエンジン）。file の line 行の
+// 文脈（囲む関数のローカル変数・引数）で、行頭からカーソルまでの before を見る。
+// デバッグ行ダイアログが使う: 挿入先の行の文脈で printf の中身を書けるように。
+func (h *Handler) handleComplete(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	file := q.Get("file")
+	line, _ := strconv.Atoi(q.Get("line"))
+	if file == "" || line <= 0 {
+		jsonErr(w, "file and line required", http.StatusBadRequest)
+		return
+	}
+	// 補完は文脈を取るためにこのファイルを読む。読む対象はルート配下に限る
+	// （この口はパスをそのまま受け取るので、絞らないと任意のファイルを
+	// 読み出す経路になる）。
+	abs, ok := h.resolveWithinRoot(file)
+	if !ok {
+		jsonErr(w, "file is outside the project root", http.StatusBadRequest)
+		return
+	}
+	h.mu.RLock()
+	root := h.root
+	h.mu.RUnlock()
+	jsonOK(w, search.Complete(root, abs, line, q.Get("before")))
+}
+
 // --- /api/references ---
 
 // handleReferences は word が使われている箇所を返す。

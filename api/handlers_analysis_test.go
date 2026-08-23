@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -164,5 +166,25 @@ func TestResolveDir(t *testing.T) {
 	}
 	if _, hint := resolveDir(root, "a.c"); !strings.Contains(hint, "not a directory") {
 		t.Errorf("ファイルを渡したときの理由が違う: %q", hint)
+	}
+}
+
+// 補完はカーソル行の文脈を取るために対象ファイルを読む。パスをそのまま受ける口
+// なので、ルート外を渡されたら読まずに断る（任意ファイル読み出しの経路にしない）。
+func TestCompleteRejectsPathOutsideRoot(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.c")
+	os.WriteFile(outside, []byte("int secret_value;\n"), 0o644)
+	h := &Handler{root: dir}
+
+	for _, file := range []string{outside, filepath.Join("..", "..", "secret.c")} {
+		req := httptest.NewRequest("GET", "/api/complete?"+url.Values{
+			"file": {file}, "line": {"1"}, "before": {"sec"},
+		}.Encode(), nil)
+		rec := httptest.NewRecorder()
+		h.handleComplete(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("file=%q: status = %d, want 400 (body %s)", file, rec.Code, rec.Body.String())
+		}
 	}
 }
