@@ -160,7 +160,7 @@
         </span>
       </div>
       <div id="filter-bar">
-        <input id="filter-input" type="text" placeholder="絞り込み: word  file:foo  -file:test  a|b" spellcheck="false">
+        <input id="filter-input" type="text" placeholder="絞り込み: word  file:foo  -file:test  a|b" spellcheck="false" autocomplete="off">
 
         <button id="btn-group-view" title="ファイル単位表示 — クリックでフォルダ単位に切り替え">☰</button>
         <button id="btn-fn-sep" title="関数セパレータ — ヒットを関数ごとに区切る (C系ファイル)">ƒ</button>
@@ -391,7 +391,7 @@
     <div style="font-size:11px;color:#888;margin-bottom:6px">パターンを検索して、ヒットをこのノードの子として追加する。</div>
     <input id="expand-q" class="node-modal-input" type="text" placeholder="パターン" spellcheck="false" autocomplete="off">
     <div style="display:flex;gap:4px">
-      <input id="expand-lbl" class="node-modal-input" type="text" placeholder="ラベル" value="ref" style="flex:1;margin:0">
+      <input id="expand-lbl" class="node-modal-input" type="text" placeholder="ラベル" value="ref" style="flex:1;margin:0" autocomplete="off">
       <input id="expand-glob" class="node-modal-input" type="text" placeholder="glob" spellcheck="false" autocomplete="off" style="flex:1;margin:0">
     </div>
     <div class="node-modal-btns">
@@ -417,12 +417,12 @@
             aria-expanded="false" aria-controls="insert-dialog-group-row"
             title="まとめて撤去する単位。テンプレの {group} にも埋め込まれる">グループを付ける</button>
     <div id="insert-dialog-group-row" style="display:none">
-      <input id="insert-dialog-group" class="node-modal-input" type="text" placeholder="例: path-A" title="撤去の単位になるグループ名。テンプレの {group} にも埋め込まれる">
+      <input id="insert-dialog-group" class="node-modal-input" type="text" placeholder="例: path-A" title="撤去の単位になるグループ名。テンプレの {group} にも埋め込まれる" autocomplete="off">
     </div>
     <div id="insert-dialog-ed" class="insert-dialog-editor" title="挿入するコード"></div>
     <div class="node-modal-btns">
-      <button id="insert-dialog-ok" title="この内容を挿入する">挿入 <span class="btn-key">Ctrl+Enter</span></button>
-      <button class="sec" id="insert-dialog-cancel" title="閉じる（入力は破棄）">キャンセル <span class="btn-key">Esc</span></button>
+      <button id="insert-dialog-ok" title="この内容を挿入する">挿入 <kbd class="btn-key">Ctrl+Enter</kbd></button>
+      <button class="sec" id="insert-dialog-cancel" title="閉じる（入力は破棄）— Esc">キャンセル</button>
     </div>
   </div>
 </div>
@@ -431,7 +431,7 @@
 <div id="input-modal">
   <div id="input-modal-box">
     <div id="input-modal-title"></div>
-    <input id="input-modal-input" type="text" spellcheck="false">
+    <input id="input-modal-input" type="text" spellcheck="false" autocomplete="off">
     <textarea id="input-modal-ta" rows="5" spellcheck="false" placeholder="1行ずつ挿入されます"></textarea>
     <div id="input-modal-hint">Ctrl+Enter で確定 / Tab で字下げ</div>
     <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:12px">
@@ -494,11 +494,11 @@
     <div id="settings-custom-fields">
       <div class="set-row">
         <span class="set-fixed">名前</span>
-        <input id="settings-custom-name" type="text" placeholder="例: Vim" spellcheck="false">
+        <input id="settings-custom-name" type="text" placeholder="例: Vim" spellcheck="false" autocomplete="off">
       </div>
       <div class="set-row">
         <span class="set-fixed">コマンド</span>
-        <input id="settings-custom-cmd" type="text" placeholder="例: vim +{line} {file}" spellcheck="false">
+        <input id="settings-custom-cmd" type="text" placeholder="例: vim +{line} {file}" spellcheck="false" autocomplete="off">
       </div>
       <div class="set-help"><code>{file}</code> = ファイルパス　<code>{line}</code> = 行番号</div>
     </div>
@@ -514,7 +514,7 @@
 <div id="project-modal">
   <div id="project-modal-box">
     <div id="project-modal-title"></div>
-    <input id="project-modal-input" type="text" placeholder="ファイルパス (例: C:\work\myproject.json)" spellcheck="false">
+    <input id="project-modal-input" type="text" placeholder="ファイルパス (例: C:\work\myproject.json)" spellcheck="false" autocomplete="off">
     <div id="project-history"></div>
     <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:8px">
       <button id="project-modal-ok">OK</button>
@@ -536,14 +536,14 @@
       <button id="fb-up"    class="sec" title="上の階層へ">↑</button>
       <div id="fb-breadcrumb"></div>
       <button id="fb-path-edit" class="sec" title="パスを直接入力"><i class="codicon codicon-edit"></i></button>
-      <input id="fb-path-input" type="text" spellcheck="false" style="display:none">
+      <input id="fb-path-input" type="text" spellcheck="false" style="display:none" autocomplete="off">
     </div>
     <div id="fb-list"></div>
     <div id="fb-recent-section"></div>
     <div id="fb-current-dir"></div>
     <div id="fb-filename-row">
       <label>ファイル名</label>
-      <input id="fb-filename" type="text" spellcheck="false">
+      <input id="fb-filename" type="text" spellcheck="false" autocomplete="off">
     </div>
     <div id="fb-actions">
       <button id="fb-ok">OK</button>

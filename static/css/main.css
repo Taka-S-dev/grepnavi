@@ -1215,8 +1215,11 @@ body.search-mode #root-chip{min-width:0}
 .insert-dialog-disclosure:hover{background:none;color:#ccc}
 .insert-dialog-disclosure::before{content:"▸ ";font-size:9px}
 .insert-dialog-disclosure.open::before{content:"▾ "}
-/* ボタンに添えるキー。押せる文字と見分けるため一段落とす */
-.btn-key{font-size:10px;opacity:.6;margin-left:4px}
+/* ボタンに添えるキー。ヘルプの kbd と同じキーキャップにして、ラベルの一部ではなく
+   記号として読めるようにする（出すのは推測できないキーだけ。Esc のような
+   作法どおりのものは書かない）。 */
+kbd.btn-key{background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.22);border-radius:3px;
+  padding:0 4px;margin-left:6px;font-size:10px;font-family:Consolas,monospace;opacity:.85;vertical-align:1px}
 button:disabled{opacity:.45;cursor:default}
 button:disabled:hover{background:#3c3c3c}
 /* デバッグ行のグループチップ。挿入行装飾と同じ紫系で「デバッグ行の属性」だと分かるようにする。 */

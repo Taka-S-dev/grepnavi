@@ -110,3 +110,18 @@ test('挿入ダイアログ - ゴーストは目印と同じ寿命で消える',
   assert.match(onChange.slice(0, 200), /_scheduleInsertGhost\(\)/,
     '内容の変更をゴーストに繋いでいない（テンプレのまま止まる）');
 });
+
+// 手で打つテキスト欄はブラウザのオートフィル（Edge の「保存された情報」）が
+// かぶさる。アプリ側の候補リストと二重に出て読めなくなるので、全部止める。
+test('入力欄 - ブラウザのオートフィルを止めている', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'static', 'index.html'), 'utf8');
+  const bad = [];
+  for (const tag of html.match(/<input\b[^>]*>/g) || []) {
+    if (/type="(checkbox|radio|range|color|number)"/.test(tag)) continue;
+    if (/\breadonly\b/.test(tag)) continue;
+    if (!/autocomplete="off"/.test(tag)) bad.push((tag.match(/id="([^"]+)"/) || [, tag.slice(0, 40)])[1]);
+  }
+  assert.deepEqual(bad, [], 'autocomplete="off" が無い入力欄: ' + bad.join(', '));
+});
