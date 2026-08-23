@@ -19,7 +19,7 @@
 | `/api/snippet` | 行周辺のスニペット取得 |
 | `/api/macro-values` | マクロ・enum メンバ名の整数値解決（基数変換電卓用） |
 | `/api/include-graph` / `/api/include-file` / `/api/include-by` | インクルード依存の取得 |
-| `/api/ifdef` | 条件を与えて #if で死ぬ行を判定（グレーアウト用） |
+| `/api/ifdef` | 条件を与えて #if で無効になる行を判定（グレーアウト用） |
 | `/api/ifdef-stack` | 行を囲んでいる #if 条件のスタック |
 | `/api/state-machine` | 状態変数への代入を集めて遷移を返す |
 | `/api/structure` | 参照マップ（全体図 / フォーカスの3面） |
