@@ -28,6 +28,10 @@ func newInsertionsTestHandler(t *testing.T) (*Handler, string) {
 func doInsertionsReq(h *Handler, method, path, body string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+	// これらのテストは GUI からの操作を再現している。ブラウザは必ず Origin を
+	// 付けるので、付けないと isAgentRequest が外部クライアントと判定する
+	// （エージェント経由の書き込みは -mcp-insert 無しでは 403）。
+	req.Header.Set("Origin", "http://localhost:8080")
 	switch {
 	case path == "/api/insertions":
 		h.handleInsertions(rec, req)

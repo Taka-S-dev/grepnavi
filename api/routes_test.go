@@ -34,6 +34,8 @@ func TestInsertionRoutesReachTheirHandlers(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			req := httptest.NewRequest(c.method, c.path, bytes.NewBufferString(c.body))
+			// GUI からの操作として送る（ブラウザは必ず Origin を付ける）。
+			req.Header.Set("Origin", "http://localhost:8080")
 			rec := httptest.NewRecorder()
 			mux.ServeHTTP(rec, req)
 			if rec.Code != c.want {

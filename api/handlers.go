@@ -21,6 +21,11 @@ type Handler struct {
 	// fileWrites がfalseの間は挿入系APIを全て403にする。-host でLAN公開した
 	// 場合は EnableFileWrites が呼ばれず、任意ファイル書き込みの口を開かない。
 	fileWrites bool
+	// mcpWrites は AI エージェント（ブラウザ以外のクライアント）からの
+	// 挿入・撤去を許すか。-mcp とは別の opt-in にしてある: -mcp だけで
+	// 書けてしまうと「ブリッジはソース read-only」という既存の約束が
+	// 黙って変わる。既定 false のとき、エージェントからの書き込みは 403。
+	mcpWrites bool
 	// insMu は挿入系API (POST/PUT/DELETE/removeall) の
 	// load-modify-save + store 更新をまたいで直列化する。ファイルの
 	// read-modify-write と store 更新をまたぐため、store 自体のロックだけ

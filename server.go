@@ -12,7 +12,7 @@ import (
 	"grepnavi/graph"
 )
 
-func newServer(root string, rootExplicit bool, graphFile string, graphExplicit bool, addr string, debug, mcpEnabled, tray bool) *http.Server {
+func newServer(root string, rootExplicit bool, graphFile string, graphExplicit bool, addr string, debug, mcpEnabled, mcpInsert, tray bool) *http.Server {
 	var store *graph.Store
 	if graphExplicit {
 		store = graph.NewStore(graphFile, root)
@@ -36,6 +36,11 @@ func newServer(root string, rootExplicit bool, graphFile string, graphExplicit b
 		// loopback バインドのときだけデバッグ仕込みAPI（ファイル書き換え）を許可する。
 		// -host でLAN公開した場合は任意ファイル書き込みの口を開かない。
 		h.EnableFileWrites()
+		if mcpInsert {
+			// 書き込みはファイル書き換えが前提。loopback でないときは
+			// そもそも仕込み API 自体が無効なので、ここでだけ許す。
+			h.EnableMCPWrites()
+		}
 	}
 	if tray {
 		h.EnableDesktopWindows()

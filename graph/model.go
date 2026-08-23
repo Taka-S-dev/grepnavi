@@ -137,11 +137,18 @@ type Insertion struct {
 	Sites []InsertionSite `json:"sites"`
 	// Group は撤去の単位となる任意の名前（例: "path-A"）。空は無グループ。
 	// 仮説ごとに撒き分けて片方だけ畳む、という使い方のためにある。
-	Group     string    `json:"group,omitempty"`
-	Kind      string    `json:"kind,omitempty"`
+	Group string `json:"group,omitempty"`
+	Kind  string `json:"kind,omitempty"`
+	// Source は誰が入れたか ("" = GUI、"mcp" = AI エージェント)。消し忘れの
+	// 最大の原因は「これ誰が入れたんだっけ」なので、撒いた主体を残す。
+	// クライアントの申告ではなくサーバ側でリクエストを見て決める。
+	Source    string    `json:"source,omitempty"`
 	Enabled   bool      `json:"enabled"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+// InsertionSourceMCP は MCP ブリッジ経由（AI エージェント）で入った印。
+const InsertionSourceMCP = "mcp"
 
 // ProjectFile はプロジェクトファイルのトップレベル構造（複数ツリー対応）。
 type ProjectFile struct {

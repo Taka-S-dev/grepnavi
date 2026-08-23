@@ -1225,6 +1225,9 @@ button:disabled:hover{background:#3c3c3c}
 /* デバッグ行のグループチップ。挿入行装飾と同じ紫系で「デバッグ行の属性」だと分かるようにする。 */
 .memo-list-insgroup{margin-left:4px;padding:0 4px;border:none;border-radius:2px;background:#3d2a52;color:#c9a0e8;font:inherit;font-size:9px;line-height:1.6;cursor:pointer;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;max-width:90px;white-space:nowrap}
 .memo-list-insgroup:hover{background:#523570;color:#e0c0f8}
+/* AI が撒いた行の印。グループチップと並ぶので同じ寸法にし、色だけ変えて
+   「誰が入れたか」と「撤去の単位」が別の情報だと分かるようにする。 */
+.memo-list-inssource{margin-left:4px;padding:0 4px;border-radius:2px;background:#0e4429;color:#7ee2b8;font-size:9px;line-height:1.6;flex-shrink:0;white-space:nowrap;letter-spacing:.04em}
 /* 無グループ行の「+ グループ」。常時出すと一覧が賑やかになるので、他の行内
    ボタンと同じくホバー時だけ見えるようにする。透明にするだけでは幅を取り続け、
    ファイル名の列を押し出してしまうので、畳んで幅ごと消す。 */

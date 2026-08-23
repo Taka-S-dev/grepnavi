@@ -24,6 +24,51 @@ import (
 // loopback バインド時にのみ server.go から呼ばれる想定。
 func (h *Handler) EnableFileWrites() { h.fileWrites = true }
 
+// EnableMCPWrites は AI エージェントからの挿入・撤去を許可する。
+// -mcp-insert でのみ呼ばれる。
+func (h *Handler) EnableMCPWrites() { h.mcpWrites = true }
+
+const (
+	// mcpMaxLinesPerInsert は1回の挿入で書ける行数の上限。エージェント経由
+	// のみに掛ける。人は目で見ながら足すが、ループに入った側は止まらない。
+	mcpMaxLinesPerInsert = 20
+	// mcpMaxInsertions はエージェントが同時に置ける仕込みの総数。ここを
+	// 超えたら撤去してからにさせる。撒きっぱなしを構造的に防ぐ。
+	mcpMaxInsertions = 100
+)
+
+// countInsertionsBySource は指定の出所で入った仕込みの件数を数える。
+func (h *Handler) countInsertionsBySource(src string) int {
+	n := 0
+	for _, ins := range h.store.GetGraphResponse().Insertions {
+		if ins.Source == src {
+			n++
+		}
+	}
+	return n
+}
+
+// isAgentRequest はブラウザ以外のクライアント（MCP ブリッジ等）からの要求か。
+// csrfMiddleware と同じ判定材料を使う: ブラウザは Origin か Sec-Fetch-Site の
+// どちらかを必ず付ける。なりすませないという意味の認証ではなく、出所の記録と
+// 事故防止のための区別（ローカルの悪意あるプロセスは Origin を騙れる）。
+func isAgentRequest(r *http.Request) bool {
+	return r.Header.Get("Origin") == "" && r.Header.Get("Sec-Fetch-Site") == ""
+}
+
+// guardAgentWrite はエージェントからの書き込みを検査する。許すときは記録に
+// 残す Source を返す（GUI からなら空）。false を返したときは応答済み。
+func (h *Handler) guardAgentWrite(w http.ResponseWriter, r *http.Request) (string, bool) {
+	if !isAgentRequest(r) {
+		return "", true
+	}
+	if !h.mcpWrites {
+		jsonErr(w, "debug-line writes from external clients are disabled (start grepnavi with -mcp-insert to allow)", http.StatusForbidden)
+		return "", false
+	}
+	return graph.InsertionSourceMCP, true
+}
+
 // EnableDesktopWindows はトレイ常駐（デスクトップ）モードを伝える。
 // 新しいウィンドウの開き方がブラウザ利用と変わる（handleNewWindow 参照）。
 func (h *Handler) EnableDesktopWindows() { h.desktopWindows = true }
@@ -136,6 +181,26 @@ func (h *Handler) handleInsertions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Group = group
+	source, allowed := h.guardAgentWrite(w, r)
+	if !allowed {
+		return
+	}
+	if source == graph.InsertionSourceMCP {
+		// グループ必須。撒いたものを1操作で全部畳めるようにしておかないと、
+		// エージェントが散らした仕込みを人が1件ずつ探すはめになる。
+		if req.Group == "" {
+			jsonErr(w, "group is required for external clients (it is the unit that removes everything you planted)", http.StatusBadRequest)
+			return
+		}
+		if len(req.Lines) > mcpMaxLinesPerInsert {
+			jsonErr(w, fmt.Sprintf("at most %d lines per insert from external clients (got %d)", mcpMaxLinesPerInsert, len(req.Lines)), http.StatusBadRequest)
+			return
+		}
+		if n := h.countInsertionsBySource(graph.InsertionSourceMCP); n >= mcpMaxInsertions {
+			jsonErr(w, fmt.Sprintf("%d debug lines from external clients are already in place (limit %d); remove some before adding more", n, mcpMaxInsertions), http.StatusConflict)
+			return
+		}
+	}
 	for _, l := range req.Lines {
 		if strings.ContainsAny(l, "\n\r") {
 			// 改行を含む要素は1サイトが複数物理行になり、記録行数と
@@ -192,7 +257,7 @@ func (h *Handler) handleInsertions(w http.ResponseWriter, r *http.Request) {
 	for i, l := range lines {
 		sites[i] = graph.InsertionSite{Line: req.Line + 1 + i, Text: l}
 	}
-	ins := graph.Insertion{ID: tag, File: abs, Sites: sites, Group: req.Group, Enabled: true, CreatedAt: time.Now()}
+	ins := graph.Insertion{ID: tag, File: abs, Sites: sites, Group: req.Group, Source: source, Enabled: true, CreatedAt: time.Now()}
 	if err := h.store.AddInsertion(ins); err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -232,6 +297,14 @@ func (h *Handler) deleteInsertionByID(w http.ResponseWriter, r *http.Request, id
 	ins, ok := h.findInsertion(id)
 	if !ok {
 		jsonErr(w, "insertion not found", http.StatusNotFound)
+		return
+	}
+	if source, allowed := h.guardAgentWrite(w, r); !allowed {
+		return
+	} else if source == graph.InsertionSourceMCP && ins.Source != graph.InsertionSourceMCP {
+		// 自分が撒いたものだけ片付けさせる。人が見ている最中の printf を
+		// エージェントが消すと、消えた理由が誰にも分からなくなる。
+		jsonErr(w, "this debug line was inserted in the GUI; external clients may only remove their own", http.StatusForbidden)
 		return
 	}
 	if r.URL.Query().Get("record_only") == "1" {
@@ -842,6 +915,11 @@ func (h *Handler) handleInsertionsRemoveAll(w http.ResponseWriter, r *http.Reque
 	}
 	json.NewDecoder(r.Body).Decode(&req) // 空 body = 全部対象
 
+	agentSource, allowed := h.guardAgentWrite(w, r)
+	if !allowed {
+		return
+	}
+
 	// GetGraphResponse の読み出しから各 RemoveInsertion までを直列化する
 	// （他の挿入系APIと衝突すると読み出した一覧がその場で古くなる）。
 	h.insMu.Lock()
@@ -854,8 +932,15 @@ func (h *Handler) handleInsertionsRemoveAll(w http.ResponseWriter, r *http.Reque
 
 	all := h.store.GetGraphResponse().Insertions
 	byFile := map[string][]string{} // file -> ids, ファイル毎にまとめて処理順を作る
+	keptOthers := 0                 // エージェントの一括撤去で残した、人が入れた分
 	for _, ins := range all {
 		if req.Group != nil && ins.Group != *req.Group {
+			continue
+		}
+		// エージェントの一括撤去は自分が撒いた分だけ。同じグループに人が
+		// 足した行があっても巻き込まない（黙って消すより残して報告する）。
+		if agentSource == graph.InsertionSourceMCP && ins.Source != graph.InsertionSourceMCP {
+			keptOthers++
 			continue
 		}
 		byFile[ins.File] = append(byFile[ins.File], ins.ID)
@@ -900,7 +985,13 @@ func (h *Handler) handleInsertionsRemoveAll(w http.ResponseWriter, r *http.Reque
 			shifts = append(shifts, siteShifts...)
 		}
 	}
-	jsonOK(w, map[string]any{"removed": removed, "skipped": skipped, "shifts": shifts})
+	res := map[string]any{"removed": removed, "skipped": skipped, "shifts": shifts}
+	// 残した分は黙っていると「全部消えた」と読まれる。件数を返して、
+	// 人が入れた行が残っていることをエージェント側に分からせる。
+	if keptOthers > 0 {
+		res["kept_not_yours"] = keptOthers
+	}
+	jsonOK(w, res)
 }
 
 func maxSiteLine(ins graph.Insertion) int {

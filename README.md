@@ -147,7 +147,7 @@ go build -ldflags "-H=windowsgui -X main.defaultTray=1" -o grepnaviw.exe .
 
 AI に「`free_session()` の callers を 2 階層辿ってグラフに展開して」のように指示すると、AI が definition → graph_add_node → callers の連携で自動的にツリーを構築。grepnavi の GUI がリアルタイムで更新され、ブラウザのノードをクリック → エディタ該当行へジャンプして検証できる。
 
-ブリッジはソースコード read-only（memo / グラフのみ編集可）。grepnavi 側は外部プロセスからの API アクセスを許可するため `-mcp` フラグ付きで起動する。
+ブリッジは既定でソースコード read-only（memo / グラフのみ編集可）。grepnavi 側は外部プロセスからの API アクセスを許可するため `-mcp` フラグ付きで起動する。`-mcp-insert` を足すと AI がデバッグ行を撒いて撤去できるようになり、実機の出力からコードへ辿り直すところまで任せられる（挿入した行は一覧に AI 印が付き、グループ単位でまとめて撤去できる）。
 
 調査の進め方（どのツールをどの順で使うか、結果をどこまで信じてよいか）は [`mcp/skills/grepnavi/`](mcp/skills/grepnavi/) に Skill として分離してある。`cp -r mcp/skills/grepnavi ~/.claude/skills/` で有効化。入れなくても MCP 単体で動作する。
 

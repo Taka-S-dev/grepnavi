@@ -37,6 +37,7 @@ func main() {
 	logLevel := flag.String("log-level", "info", "log level: debug, info, warn, error")
 	debug := flag.Bool("debug", false, "enable /debug/pprof endpoint")
 	mcp := flag.Bool("mcp", defaultMCP == "1", "allow non-browser API access (required for external bridges like grepnavi-mcp)")
+	mcpInsert := flag.Bool("mcp-insert", false, "let external clients (AI agents) insert and remove debug lines; implies -mcp. Off by default: the bridge is read-only on source without it")
 	tray := flag.Bool("tray", defaultTray == "1", "run resident in the system tray; open windows on demand (Windows only)")
 	resetGraph := flag.Bool("reset-graph", false, "internal: start from an empty graph even when -graph is given (used when spawning a new window)")
 	view := flag.String("view", "", "internal: open a WebView2 viewer at this URL without starting a server (used by -tray)")
@@ -124,7 +125,12 @@ func main() {
 		fmt.Fprintln(os.Stderr)
 	}
 
-	srv := newServer(absRoot, rootExplicit, *graphFile, graphExplicit, addr, *debug, *mcp, *tray)
+	// -mcp-insert は書き込みの許可なので、API アクセス自体も当然許す。
+	// 別々に指定させると -mcp の付け忘れで黙って 403 になる。
+	if *mcpInsert {
+		*mcp = true
+	}
+	srv := newServer(absRoot, rootExplicit, *graphFile, graphExplicit, addr, *debug, *mcp, *mcpInsert, *tray)
 
 	slog.Info("grepnavi started", "root", absRoot, "graph", *graphFile, "build", api.BuildStamp())
 	if *mcp {

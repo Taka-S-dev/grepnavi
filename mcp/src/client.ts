@@ -128,8 +128,17 @@ export interface Insertion {
   sites: Array<{ line: number; text: string }>;
   group?: string;
   kind?: string;
+  /** "" = GUI が入れた、"mcp" = エージェントが入れた。サーバが要求を見て決める。 */
+  source?: string;
   enabled: boolean;
   created_at: string;
+}
+
+// kept_not_yours は同じグループに人が足していた分。黙って消さずに残した件数。
+export interface RemoveGroupResult {
+  removed: string[];
+  skipped: Array<{ id: string; reason: string }>;
+  kept_not_yours?: number;
 }
 
 // referenceParams は /api/references のクエリを組む。
@@ -533,6 +542,36 @@ export class GrepnaviClient {
   async graph(): Promise<GraphResponse> {
     const r = await this.req("/api/graph");
     return (await r.json()) as GraphResponse;
+  }
+
+  // 挿入・撤去はサーバ側が -mcp-insert で opt-in していなければ 403 を返す。
+  // ブリッジ側では判定しない（起動フラグを知っているのはサーバだけ）。
+  async insertDebugLines(args: {
+    file: string;
+    line: number;
+    lines: string[];
+    group: string;
+  }): Promise<{ insertion: Insertion }> {
+    const r = await this.req("/api/insertions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(args),
+    });
+    return (await r.json()) as { insertion: Insertion };
+  }
+
+  async removeDebugLine(id: string): Promise<unknown> {
+    const r = await this.req(`/api/insertions/${encodeURIComponent(id)}`, { method: "DELETE" });
+    return await r.json();
+  }
+
+  async removeDebugLineGroup(group: string): Promise<RemoveGroupResult> {
+    const r = await this.req("/api/insertions/removeall", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ group }),
+    });
+    return (await r.json()) as RemoveGroupResult;
   }
 
   async addNode(args: {

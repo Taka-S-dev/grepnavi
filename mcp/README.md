@@ -2,7 +2,7 @@
 
 [grepnavi](https://github.com/Taka-S-dev/grepnavi) の調査グラフに、AI エージェントから直接ノードを追加できるようにする MCP (Model Context Protocol) ブリッジ。
 
-AI が `grepnavi_graph_add_node` を呼ぶと grepnavi の GUI がリアルタイムで更新され、ユーザはそのノードをクリックして Monaco エディタの該当 file:line にジャンプできる。ブリッジはコードベースに対して**読み取り専用**で、ソースファイルを編集することはない。
+AI が `grepnavi_graph_add_node` を呼ぶと grepnavi の GUI がリアルタイムで更新され、ユーザはそのノードをクリックして Monaco エディタの該当 file:line にジャンプできる。ブリッジは既定でコードベースに対して**読み取り専用**。デバッグ行の挿入・撤去だけは、grepnavi を `-mcp-insert` 付きで起動したときに限って許可される（後述）。それ以外にソースを書き換える口は無い。
 
 > ⚠️ **データ送信に関する注意**: このブリッジ自体は grepnavi (localhost) としか通信しない。しかしブリッジを呼び出す AI エージェント (Claude Code / Copilot CLI 等) は、ツール結果 (**ファイル内容・検索結果・関数本体・グラフメモ・現在開いているファイルやカーソル位置等**) を自身の AI サービス (Anthropic / GitHub / OpenAI 等) に送信する。機密コード・プロプライエタリなソースを扱う場合は、利用する AI クライアントのデータ取り扱いポリシーを事前に確認すること。
 >
@@ -41,7 +41,7 @@ flowchart TD
 | `grepnavi_path` | 関数 A から関数 B への**呼び出し経路を 1 本だけ**返す (callers を全部辿らずに繋がりを確かめる) |
 | `grepnavi_callers` | 関数を呼んでいる箇所一覧 (call tree を上に辿る、`depth` で再帰) |
 | `grepnavi_callees` | 関数内から呼ばれている識別子一覧 + 各定義解決 (call_line, kind, engine, **`confidence`** (high/medium/low — low は silent failure 警告), likely_macro / likely_non_callable, self 自動除外、`depth` で再帰)。**`exclude_macros` / `exclude_non_callable` はデフォルト true** (ノイズ除去)。`excluded.macros` / `excluded.non_callable` は**名前リスト** で返す → 再 query 無しで「捨てたもの」を確認可能。definitions は path proximity で **top 1** のみ surface、`definitions_total` で件数通知 |
-| `grepnavi_list_insertions` | **記録済みデバッグ行の一覧**（読み取りのみ。ブリッジは挿入も撤去もしない）。`id` はソースに焼き込まれた `{tag}` そのものなので、実機やプログラムが吐いた `[GN9]` から file:line と行の中身を引ける (`tag: "GN9"`)。`group` / `file` で絞り込み。**出力に出なかった = その経路を通らなかった**の判断は `enabled: true` かつバイナリが挿入後にビルドされている場合にのみ成立する |
+| `grepnavi_list_insertions` | **記録済みデバッグ行の一覧**（読み取りのみ）。`source` が `mcp` なら AI が撒いた行、空なら人が GUI で入れた行。`id` はソースに焼き込まれた `{tag}` そのものなので、実機やプログラムが吐いた `[GN9]` から file:line と行の中身を引ける (`tag: "GN9"`)。`group` / `file` で絞り込み。**出力に出なかった = その経路を通らなかった**の判断は `enabled: true` かつバイナリが挿入後にビルドされている場合にのみ成立する |
 | `grepnavi_graph_list` | 既存ノード一覧 (id / label / file:line / memo / children) |
 
 ### グラフ編集系 (write)
@@ -54,6 +54,21 @@ flowchart TD
 | `grepnavi_graph_update_node` | label / memo / badge / line を任意組み合わせで更新 |
 | `grepnavi_graph_delete_node` | ノード削除 (pin ミスの取り消し) |
 | `grepnavi_graph_move_node` | 親付け替え (親 ID 空文字 = root 昇格) |
+
+### デバッグ行系 (write — `-mcp-insert` が必要)
+
+**このリポジトリで唯一ソースファイルを書き換えるツール**。既定では無効で、
+grepnavi を `-mcp-insert` 付きで起動したときだけ 403 でなくなる。
+既存行の変更・削除はサーバ側が受け付けないので、書けるのは「行を足す」と
+「自分が足した行を消す」の 2 つだけ。
+
+| ツール | 役割 |
+|---|---|
+| `grepnavi_insert_debug_line` | printf 等を挿入して位置を記録する。`group` **必須**（撒いた分をまとめて畳む単位）。テンプレの `{tag}` / `{group}` はサーバが置換するので、応答に返る実際の行を読むこと。上限は 1 コール 20 行・同時 100 件 |
+| `grepnavi_remove_debug_line` | `id` で1件、`group` でそのグループ分を撤去してファイルを復元する。**自分が撒いた分だけ**で、人が GUI で入れた行は拒否（`id` 指定）か据え置き（`group` 指定、`kept_not_yours` で件数を返す） |
+
+ビルドと実行は人の仕事。AI は撒いたら「ビルドして走らせてください」と言い、
+出てきた出力のタグを `grepnavi_list_insertions` でコードに引き直す。
 
 ### 行・範囲 memo 系 (write)
 
@@ -286,7 +301,7 @@ main.go の line 1 を「Claude 経由テスト」のラベルでルートノー
 
 - **origin タグ無し**: SSE イベントは `POST /api/graph/node` のたびに発火する。ブラウザ自身の追加操作でも飛ぶため、ブラウザ側で `loadGraph` が 2 回走る (冪等なので動作上は無害)。
 - **single instance 前提**: 1 ブリッジ = 1 grepnavi 想定。ポート違いの複数 grepnavi を切り替える場合は `GREPNAVI_URL` で対処。
-- **ソースファイル read-only**: bridge は grepnavi 上の memo / グラフは編集できるが、ソースコードそのものには手を加えない。
+- **ソースへの書き込みはデバッグ行だけ**: bridge が触れるのは memo / グラフと、`-mcp-insert` 時のデバッグ行の挿入・撤去のみ。既存行の変更・削除はサーバ側が受け付けない。
 
 ## ライセンス
 

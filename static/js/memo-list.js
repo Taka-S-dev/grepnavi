@@ -75,6 +75,7 @@ function getAllMemosOrdered() {
       kind: 'insertion', id: 'insertion::' + ins.id,
       file: ins.file, line: site.line, memo: site.text,
       _insId: ins.id, _group: ins.group || '',
+      _source: ins.source || '',
       _enabled: ins.enabled !== false,
       _siteCount: ins.sites.length,
     });
@@ -672,6 +673,10 @@ function _makeMemoRow(item) {
   // クリックで付け替えられる。無グループの行にも入口が要る（撒いた後に単位を
   // 決めるのが普通の流れ）ので、その場合はホバー時だけ出る薄いチップにする。
   // 他の行内操作と同じく button にする（span だとキーボードで到達できない）。
+  // AI が撒いた行の印。消し忘れの主因は「これ誰が入れたんだっけ」なので、
+  // 出所が GUI 以外のものだけ一覧で見分けられるようにする。
+  const insSourceChip = item.kind === 'insertion' && item._source === 'mcp'
+    ? `<span class="memo-list-inssource" title="AI エージェントが MCP 経由で挿入した行">AI</span>` : '';
   const insGroupChip = item.kind !== 'insertion' ? ''
     : item._group
     ? `<button class="memo-list-insgroup" title="グループ (クリックで変更。撤去・ON/OFF のまとめ単位)">${esc(item._group)}</button>`
@@ -682,7 +687,7 @@ function _makeMemoRow(item) {
     `<span class="memo-list-drag" title="ドラッグして並べ替え">⠿</span>` +
     `<span class="memo-list-icon">${icon}</span>` +
     `<span class="memo-list-locwrap"><span class="memo-list-loc" title="${esc(item.file)}">${esc(fileName)}<span class="memo-list-lineno">:${lineLabel}</span></span>` +
-    _memoDriftChip(item) + manualChip + insGroupChip + `</span>` +
+    _memoDriftChip(item) + manualChip + insSourceChip + insGroupChip + `</span>` +
     `<span class="memo-list-text" ${isBm ? 'style="color:#666"' : ''}>${textContent}` +
     // 一覧は 1 行目しか出さないので、残りが何行あるかを添える
     // （見えていない行があることが分からないと、書き換えで面食らう）。
