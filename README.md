@@ -35,7 +35,7 @@ clangd のような言語サーバを使える環境なら、精度はそちら�
 - **追跡ハイライト** — 単語を最大 8 色で、別ファイルを開いても追い続ける
 - **#ifdef 可視化** — 条件コンパイルで死ぬブロックをグレーアウト。条件はリストで管理
 - **行メモ・範囲メモ** — コードに書き込まずメモを残し、一覧からジャンプ
-- **デバッグ行の管理** — printf 等を挿入して場所を記録、一覧から一括撤去。消し忘れは残数バッジで防ぐ
+- **デバッグ行の管理** — printf 等を挿入して場所を記録、一覧から一括撤去。消し忘れは残数バッジで防ぐ。挿入欄も Monaco で、変数・構造体メンバーの補完と挿入先へのプレビューつき
 - **C セマンティックハイライト** — static 変数・関数呼び出し・マクロの追加色付け
 
 ### 調査グラフ
@@ -80,22 +80,15 @@ clangd のような言語サーバを使える環境なら、精度はそちら�
 
 [GitHub Releases](https://github.com/Taka-S-dev/grepnavi/releases) からアーカイブをダウンロードして展開してください。Go のインストール不要です。
 
+アーカイブの中身は次の 5 つです。
+
 ```
 grepnavi/
-├── main.go / server.go   # エントリーポイント・HTTP サーバー初期化
-├── api/                  # HTTP ハンドラ群（検索・グラフ・解析・索引・デバッグ行）
-├── graph/                # 調査グラフのデータ構造・プロジェクトファイルの読み書き
-├── search/               # 解析エンジン。ripgrep/GNU Global/ctags の統合、参照の解決規則、
-│                         # 参照マップ、状態遷移の収集、#ifdef 評価、ホバー・マクロ計算
-├── patch/                # デバッグ行のファイル書き換え（既存行は照合してから、挿入行だけを書く）
-├── proc/                 # 外部プロセス起動の共通層（セキュリティソフト環境向けの起動方式切り替え）
-├── desktop/              # トレイ常駐と WebView2 ウィンドウ（自前タイトルバー）
-├── tools/icongen/        # アイコン生成
-├── mcp/                  # AI エージェント向け MCP ブリッジ（TypeScript）
-└── static/               # フロントエンド。vanilla JS + Monaco、ビルド工程なし
-    ├── js/               # 検索・エディタ・グラフ・プロジェクト管理（機能ごとに1ファイル）
-    ├── addons/           # コールツリー / 参照マップ / 状態遷移図 / ジャンプマップ / インクルード依存
-    └── css/
+├── grepnavi.exe    # コンソール版。ターミナルからフラグ付きで起動する
+├── grepnaviw.exe   # ウィンドウ版。ダブルクリックでトレイ常駐する
+├── static/         # UI 一式（Monaco 同梱）
+├── README.md
+└── LICENSE
 ```
 
 > **注意：** `static/` フォルダを相対パスで参照するため、exe 単体では動作しません。アーカイブを展開したディレクトリごと配置してください。
@@ -189,63 +182,25 @@ npm run build
 
 ```
 grepnavi/
-├── main.go                    # エントリーポイント・フラグ解析
-├── server.go                  # HTTP サーバー初期化
-├── api/
-│   ├── handlers.go            # 構造体・Register・共通ヘルパー
-│   ├── handlers_search.go     # 検索
-│   ├── handlers_graph.go      # グラフ操作
-│   ├── handlers_tree.go       # ツリー管理
-│   ├── handlers_analysis.go   # コード解析（定義・ホバー・コールツリー等）
-│   ├── handlers_gtags.go      # GNU Global
-│   ├── handlers_fileops.go    # ファイル操作・ルート管理・.grepnavi 読み書き
-│   ├── handlers_projects.go   # プロジェクトマネージャー CRUD・.grepnavi open
-│   └── handlers_include.go    # インクルード依存グラフ
-├── graph/
-│   ├── model.go               # データ構造（Node, Edge, Tree, ProjectFile）
-│   ├── store.go               # プロジェクトファイルの読み書き・ノード/エッジ操作
-│   └── expand.go              # 検索結果 → ノード変換
-├── search/
-│   ├── ripgrep.go             # ripgrep 呼び出し・JSON パース・SSE ストリーミング
-│   ├── definition.go          # 定義ジャンプ（ctags 風シンボル解析）
-│   ├── symbolsearch.go        # シンボル名のパターン検索（tags ファイルベース）
-│   ├── symbols.go             # シンボル抽出
-│   ├── hover.go               # ホバープレビュー用スニペット取得
-│   ├── defineeval.go          # #define 定数式の評価（ホバーの計算値・電卓のマクロ解決）
-│   ├── calltree.go            # callers / callees 解析
-│   ├── gtags.go               # GNU Global 統合（インデックス管理・定義/参照検索）
-│   ├── include.go             # C インクルード依存グラフ解析
-│   ├── ifdef.go               # #ifdef 条件コンパイル解析
-│   └── ifdef_eval.go          # #ifdef 条件評価
-└── static/
-    ├── index.html
-    ├── js/
-    │   ├── vendor/            # サードパーティライブラリ（Monaco Editor・D3.js・Cytoscape 等）
-    │   ├── state.js           # グローバル状態変数
-    │   ├── utils.js           # 定数・ユーティリティ関数
-    │   ├── search.js          # 検索・フィルタ・結果表示
-    │   ├── graph.js           # グラフ/ツリー操作・D3.js・D&D
-    │   ├── editor.js          # Monaco エディタ・fzf・ナビ履歴・行メモ・#ifdef
-    │   ├── memo-list.js       # メモリストパネル（行・範囲メモ一覧・グループ管理）
-    │   ├── editor-c.js        # C/C++ 固有拡張（static変数・関数呼び出し・定数のハイライト、ローカル変数ホバー抑制）
-    │   ├── numlit.js          # 数値リテラルの基数変換（ホバー・電卓の式評価器）
-    │   ├── radix-calc.js      # 基数変換電卓パネル（右クリックメニューから）
-    │   ├── gtags.js           # GNU Global UI（エンジン選択・インデックス管理）
-    │   ├── include-graph.js   # C インクルード依存グラフ（D3.js）
-    │   ├── filebrowser.js     # ファイルブラウザ（パンくず・履歴・キーボードナビ）
-    │   ├── project.js         # プロジェクト保存/開く・ルート設定・glob履歴・リサイザー
-    │   ├── projects.js        # プロジェクトマネージャーパネル・JSON 切り替えメニュー
-    │   └── app.js             # ブートストラップ・グローバルイベント登録
-    ├── addons/
-    │   ├── addons.js          # アドオン設定（有効化リスト）
-    │   ├── c-include/         # C インクルード依存グラフ アドオン
-    │   ├── call-tree/         # コールツリー アドオン
-    │   ├── jump-map/          # 定義ジャンプ履歴グラフ アドオン
-    │   ├── ref-map/           # 参照マップ アドオン
-    │   └── state-machine/     # 状態遷移図 アドオン
+├── main.go / server.go   # エントリーポイント・フラグ解析・HTTP サーバー初期化
+├── api/                  # HTTP ハンドラ群（検索・グラフ・解析・索引・デバッグ行）
+├── graph/                # 調査グラフのデータ構造・プロジェクトファイルの読み書き
+├── search/               # 解析エンジン。ripgrep / GNU Global / ctags の統合、参照の解決規則、
+│                         # 参照マップ、状態遷移の収集、#ifdef 評価、ホバー・マクロ計算、補完
+├── patch/                # デバッグ行のファイル書き換え（既存行は照合してから、挿入行だけを書く）
+├── proc/                 # 外部プロセス起動の共通層（セキュリティソフト環境向けの起動方式切り替え）
+├── desktop/              # トレイ常駐と WebView2 ウィンドウ（自前タイトルバー）
+├── tools/icongen/        # アイコン生成
+├── mcp/                  # AI エージェント向け MCP ブリッジ（TypeScript）
+├── test/                 # フロントエンドのテスト（node --test）
+└── static/               # フロントエンド。vanilla JS + Monaco、ビルド工程なし
+    ├── js/               # 検索・エディタ・グラフ・プロジェクト管理（機能ごとに1ファイル）
+    ├── addons/           # コールツリー / 参照マップ / 状態遷移図 / ジャンプマップ / インクルード依存
     └── css/
-        └── main.css
 ```
+
+フロントエンドはビルド工程を持たない素の JS で、`static/js/` を `index.html` から
+順に読み込むだけ。リリースの `static/` も同じファイルをそのまま収めている。
 
 API エンドポイントの一覧は [docs/api.md](docs/api.md) を参照。
 

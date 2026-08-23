@@ -33,6 +33,12 @@ flowchart TD
 | `grepnavi_func_body` | 関数本体を file+line から一発取得 (read_file の line 範囲推測が不要) |
 | `grepnavi_symbols` | ファイル内の top-level シンボル一覧 (アウトライン) |
 | `grepnavi_definition` | シンボル名 → file:line 解決 (gtags / ctags / ripgrep フォールバック)。`{ hits, hint? }` を返し、hits は `func > define > typedef` 順に bridge がソート済み。**0 件時の `hint`** が「macro として索引にはあるが位置解決に失敗」「索引未生成」等の理由を説明する |
+| `grepnavi_definitions` | **複数シンボルを 1 call で解決**。engine とランキングは `definition` と同じで、並列に走らせるだけ |
+| `grepnavi_references` | シンボルが**使われている**箇所すべて (呼び出しに限らない)。構造体メンバー・グローバル変数・enum 定数・マクロは `callers` では見えないのでこちら。`assign: true` で書き込みだけ、`group: "value,func"` で「どの値を・どの関数が・どの行で」に集約 (件数が多い符号は生リストより集約が正解)。コメント/文字列だけの言及と `#if 0` 内は除外 |
+| `grepnavi_structure` | **参照マップ**。「どこから読み始めるか」「この部分は何に依存しているか」のような**構造の質問に最初に呼ぶ**。gtags 索引から集計するので実在しないファイルを挙げない。`focus` 無しで全体図 (被参照の多い順)、`focus: "<path>"` で `incoming` / `internal` / `outgoing` の3面。**`built: false` は未生成** — 生成は重いので自動では始めず、ユーザに生成を促す |
+| `grepnavi_state_transitions` | 状態変数を遷移表として読む。各状態からどの状態へ・どの関数で・どの行で移るか |
+| `grepnavi_ifdef_context` | ある行を囲んでいる `#ifdef` / `#if` を外側から順に列挙 |
+| `grepnavi_path` | 関数 A から関数 B への**呼び出し経路を 1 本だけ**返す (callers を全部辿らずに繋がりを確かめる) |
 | `grepnavi_callers` | 関数を呼んでいる箇所一覧 (call tree を上に辿る、`depth` で再帰) |
 | `grepnavi_callees` | 関数内から呼ばれている識別子一覧 + 各定義解決 (call_line, kind, engine, **`confidence`** (high/medium/low — low は silent failure 警告), likely_macro / likely_non_callable, self 自動除外、`depth` で再帰)。**`exclude_macros` / `exclude_non_callable` はデフォルト true** (ノイズ除去)。`excluded.macros` / `excluded.non_callable` は**名前リスト** で返す → 再 query 無しで「捨てたもの」を確認可能。definitions は path proximity で **top 1** のみ surface、`definitions_total` で件数通知 |
 | `grepnavi_graph_list` | 既存ノード一覧 (id / label / file:line / memo / children) |
