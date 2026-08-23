@@ -417,8 +417,7 @@
             aria-expanded="false" aria-controls="insert-dialog-group-row"
             title="まとめて撤去する単位。テンプレの {group} にも埋め込まれる">グループを付ける</button>
     <div id="insert-dialog-group-row" style="display:none">
-      <input id="insert-dialog-group" class="node-modal-input" type="text" list="insert-dialog-group-list" placeholder="例: path-A" title="撤去の単位になるグループ名。テンプレの {group} にも埋め込まれる">
-      <datalist id="insert-dialog-group-list"></datalist>
+      <input id="insert-dialog-group" class="node-modal-input" type="text" placeholder="例: path-A" title="撤去の単位になるグループ名。テンプレの {group} にも埋め込まれる">
     </div>
     <input id="insert-dialog-cond" class="node-modal-input" type="text" placeholder="条件式 (例: x == NULL)" title="条件式" style="display:none">
     <textarea id="insert-dialog-ta" class="node-modal-textarea" rows="4" placeholder="挿入するコード" spellcheck="false"></textarea>
@@ -647,6 +646,7 @@
 <script src="/js/editor-c.js"></script>
 <script src="/js/editor-snapshot.js"></script>
 <script src="/js/editor.js"></script>
+<script src="/js/complete-popup.js"></script>
 <script src="/js/insertions.js"></script>
 <script src="/js/memo-list.js"></script>
 <script src="/js/filebrowser.js"></script>

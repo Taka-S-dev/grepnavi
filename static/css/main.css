@@ -1367,3 +1367,12 @@ body.frameless #boot-overlay{top:var(--titlebar-h)}
 body.frameless #ct-sidebar,body.frameless #rm-sidebar,body.frameless #sm-panel,
 body.frameless #jm-panel{top:var(--titlebar-h)}
 body.frameless #memo-list-panel{top:var(--titlebar-h);height:auto;bottom:0}
+
+/* ===== 1行入力の候補リスト（complete-popup.js） ===== */
+/* 幅は中身に合わせる（min-width で狭すぎを防ぎ、max-width で頭打ち）。
+   位置は取り付け先の入力欄に合わせるので JS が left/top を書く。 */
+.cmpl-pop{position:fixed;z-index:var(--z-dropdown);max-height:220px;overflow-y:auto;background:#252526;border:1px solid #454545;border-radius:3px;box-shadow:0 4px 12px rgba(0,0,0,.5);font-size:12px;min-width:220px;max-width:min(560px,90vw);width:max-content}
+.cmpl-item{display:flex;justify-content:space-between;gap:12px;padding:3px 8px;cursor:pointer;white-space:nowrap}
+.cmpl-item.sel,.cmpl-item:hover{background:#04395e}
+.cmpl-label{color:#d4d4d4}
+.cmpl-detail{color:#888;font-size:11px;overflow:hidden;text-overflow:ellipsis;max-width:55%}

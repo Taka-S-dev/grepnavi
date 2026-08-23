@@ -27,7 +27,7 @@ function _lastTemplateId() {
   return templates.some(t => t.id === saved.id) ? saved.id : '';
 }
 
-// 既存のデバッグ行からグループ名一覧を作る（datalist と撤去メニューの共通ソース）。
+// 既存のデバッグ行からグループ名一覧を作る（候補リストと撤去メニューの共通ソース）。
 function _insertionGroups() {
   const counts = new Map(); // name -> count（"" = 無グループ）
   for (const ins of (Array.isArray(graph?.insertions) ? graph.insertions : [])) {
@@ -212,19 +212,10 @@ function openInsertDialog() {
   _setInsertDialogTarget(tab.file, line);
   document.getElementById('insert-dialog-cond').value = '';
 
-  // グループ: 既存グループ名を datalist で補完し、前回使ったものを既定にする
+  // グループ: 前回使った名前を既定にする（候補リストは _initInsertDialog で取り付け）
   // （連続で同じ調査に撒くのが典型パターンのため）。
   const groupInput = document.getElementById('insert-dialog-group');
-  const groupList = document.getElementById('insert-dialog-group-list');
-  if (groupInput && groupList) {
-    groupList.innerHTML = '';
-    for (const name of [..._insertionGroups().keys()].filter(Boolean).sort()) {
-      const opt = document.createElement('option');
-      opt.value = name;
-      groupList.appendChild(opt);
-    }
-    groupInput.value = localStorage.getItem(LS_INSERT_LAST_GROUP) || '';
-  }
+  if (groupInput) groupInput.value = localStorage.getItem(LS_INSERT_LAST_GROUP) || '';
   // 前回の値が残っているなら畳まずに開く。見えない欄の値で撤去の単位が
   // 決まると、後から「なぜこのグループに入ったのか」が分からなくなる。
   _setInsertGroupOpen(!!groupInput?.value);
@@ -1362,6 +1353,16 @@ function _initInsertDialog() {
   }
   btnOk.onclick = _insertDialogSubmit;
   btnCancel.onclick = closeInsertDialog;
+  const groupInput = document.getElementById('insert-dialog-group');
+  // 既存グループの候補。<datalist> はネイティブ描画で暗い画面から浮くので、
+  // 補完ポップアップと同じ見た目・同じキー操作の候補リストを使う。
+  // 件数を添えるのは「どのグループに何本撒いたか」が選ぶときの判断材料になるため。
+  if (groupInput && typeof attachSuggestList === 'function') {
+    attachSuggestList(groupInput, () => [..._insertionGroups()]
+      .filter(([name]) => name)
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([name, n]) => ({ label: name, detail: n + ' 本' })));
+  }
   const groupToggle = document.getElementById('insert-dialog-group-toggle');
   if (groupToggle) {
     groupToggle.onclick = () => {
