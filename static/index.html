@@ -411,14 +411,20 @@
       <button class="sec" id="insert-dialog-save-preset" title="下のテキストを名前付きテンプレとしてこの一覧に追加する">プリセット保存</button>
       <button class="sec" id="insert-dialog-del-preset" style="display:none" title="選択中のプリセットを削除する">削除</button>
     </div>
-    <div class="insert-dialog-label">グループ（まとめて撤去する単位。空欄可）</div>
-    <input id="insert-dialog-group" class="node-modal-input" type="text" list="insert-dialog-group-list" placeholder="例: path-A" title="撤去の単位になるグループ名。テンプレの {group} にも埋め込まれる">
-    <datalist id="insert-dialog-group-list"></datalist>
+    <!-- グループは任意項目なので既定では畳む。常時2行を占めると、主役である
+         コード欄より上に「めったに使わない入力」が居座ることになる。 -->
+    <button type="button" id="insert-dialog-group-toggle" class="insert-dialog-disclosure"
+            aria-expanded="false" aria-controls="insert-dialog-group-row"
+            title="まとめて撤去する単位。テンプレの {group} にも埋め込まれる">グループを付ける</button>
+    <div id="insert-dialog-group-row" style="display:none">
+      <input id="insert-dialog-group" class="node-modal-input" type="text" list="insert-dialog-group-list" placeholder="例: path-A" title="撤去の単位になるグループ名。テンプレの {group} にも埋め込まれる">
+      <datalist id="insert-dialog-group-list"></datalist>
+    </div>
     <input id="insert-dialog-cond" class="node-modal-input" type="text" placeholder="条件式 (例: x == NULL)" title="条件式" style="display:none">
     <textarea id="insert-dialog-ta" class="node-modal-textarea" rows="4" placeholder="挿入するコード" spellcheck="false"></textarea>
     <div class="node-modal-btns">
-      <button id="insert-dialog-ok">挿入</button>
-      <button class="sec" id="insert-dialog-cancel">キャンセル</button>
+      <button id="insert-dialog-ok" title="この内容を挿入する">挿入 <span class="btn-key">Ctrl+Enter</span></button>
+      <button class="sec" id="insert-dialog-cancel" title="閉じる（入力は破棄）">キャンセル <span class="btn-key">Esc</span></button>
     </div>
   </div>
 </div>

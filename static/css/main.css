@@ -1208,7 +1208,15 @@ body.search-mode #root-chip{min-width:0}
 .memo-list-item-insoff{opacity:0.55}
 .memo-list-item-insoff .memo-list-text{text-decoration:line-through}
 .insert-dialog-row{display:flex;gap:6px;align-items:center}
-.insert-dialog-label{font-size:10px;color:#888;margin-top:4px}
+/* 任意項目の開閉見出し。ボタンだが押せる面は出さず、行の見出しとして振る舞う */
+.insert-dialog-disclosure{background:none;border:none;padding:4px 0;margin-top:2px;color:#888;font-size:10px;font-family:inherit;text-align:left;cursor:pointer;align-self:flex-start}
+.insert-dialog-disclosure:hover{background:none;color:#ccc}
+.insert-dialog-disclosure::before{content:"▸ ";font-size:9px}
+.insert-dialog-disclosure.open::before{content:"▾ "}
+/* ボタンに添えるキー。押せる文字と見分けるため一段落とす */
+.btn-key{font-size:10px;opacity:.6;margin-left:4px}
+button:disabled{opacity:.45;cursor:default}
+button:disabled:hover{background:#3c3c3c}
 /* デバッグ行のグループチップ。挿入行装飾と同じ紫系で「デバッグ行の属性」だと分かるようにする。 */
 .memo-list-insgroup{margin-left:4px;padding:0 4px;border:none;border-radius:2px;background:#3d2a52;color:#c9a0e8;font:inherit;font-size:9px;line-height:1.6;cursor:pointer;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;max-width:90px;white-space:nowrap}
 .memo-list-insgroup:hover{background:#523570;color:#e0c0f8}

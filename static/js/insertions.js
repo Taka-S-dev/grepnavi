@@ -92,6 +92,7 @@ function _insertDialogRebuildTextarea(force = false) {
   // 複数行テンプレは全行にインデントを前置する（1行目だけだと段がずれる）。
   ta.value = body ? body.split('\n').map(l => indent + l).join('\n') : indent;
   _insertDialogGenerated = ta.value;
+  _syncInsertPresetBtn(); // 代入では input が飛ばないので自分で合わせる
 }
 
 // テンプレ select の再構築。selectId を渡すとそれを選択状態にする
@@ -151,6 +152,39 @@ async function _deleteInsertPreset() {
   st(`プリセット「${name}」を削除しました`);
 }
 
+// 挿入先の表示。知りたいのはファイル名と行なので、それを先に置いてフルパスは
+// ツールチップに回す。フルパスを地の文に出すとダイアログの幅がパスの長さで
+// 決まってしまい、主役の入力欄より目立つ。
+function _setInsertDialogTarget(file, line) {
+  const label = document.getElementById('insert-dialog-file');
+  if (!label) return;
+  const full = String(file).replace(/\\/g, '/');
+  label.textContent = full.split('/').pop() + ':' + line + ' の次に挿入';
+  label.title = full + ' : L' + line + '\nクリックで挿入先へスクロール';
+}
+
+// プリセット保存は「今のテキストを名前付きで残す」操作なので、空では押せない。
+// 押せる見た目のままだと、保存しないと挿入できないのかと読める。
+function _syncInsertPresetBtn() {
+  const btn = document.getElementById('insert-dialog-save-preset');
+  const ta = document.getElementById('insert-dialog-ta');
+  if (btn && ta) btn.disabled = !ta.value.trim();
+}
+
+// グループ欄の開閉。畳んでいるときも値が入っていることはある（前回の続き）ので、
+// 見出しのボタンに現在の値を出して、隠れた設定にならないようにする。
+function _setInsertGroupOpen(open) {
+  const row = document.getElementById('insert-dialog-group-row');
+  const btn = document.getElementById('insert-dialog-group-toggle');
+  if (!row || !btn) return;
+  row.style.display = open ? '' : 'none';
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  const val = document.getElementById('insert-dialog-group')?.value || '';
+  btn.textContent = open ? 'グループ（まとめて撤去する単位。空欄可）'
+    : (val ? 'グループ: ' + val : 'グループを付ける');
+  btn.classList.toggle('open', open);
+}
+
 function openInsertDialog() {
   const ed = monacoEditor;
   const tab = tabs[activeTabIdx];
@@ -175,8 +209,7 @@ function openInsertDialog() {
   // テンプレートも前回の選択から始める（グループと同じく、同じ調査では
   // 同じ形を続けて撒くのが典型のため）。
   _rebuildTemplateSelect(_lastTemplateId());
-  const fileLabel = document.getElementById('insert-dialog-file');
-  if (fileLabel) fileLabel.textContent = tab.file.replace(/\\/g, '/') + ' : L' + line + ' の次に挿入';
+  _setInsertDialogTarget(tab.file, line);
   document.getElementById('insert-dialog-cond').value = '';
 
   // グループ: 既存グループ名を datalist で補完し、前回使ったものを既定にする
@@ -192,6 +225,9 @@ function openInsertDialog() {
     }
     groupInput.value = localStorage.getItem(LS_INSERT_LAST_GROUP) || '';
   }
+  // 前回の値が残っているなら畳まずに開く。見えない欄の値で撤去の単位が
+  // 決まると、後から「なぜこのグループに入ったのか」が分からなくなる。
+  _setInsertGroupOpen(!!groupInput?.value);
   _insertDialogGenerated = null; // 開き直しは前回の内容を引き継がない
   _insertDialogRebuildTextarea(true);
 
@@ -423,8 +459,7 @@ function refreshInsertTargetDecoration(pulse = false) {
   }
   const line = _resolveInsertLine(state);
   // 表示も今の行に合わせる。開いた時点の番号のままだと、実際の挿入先と食い違う。
-  const label = document.getElementById('insert-dialog-file');
-  if (label) label.textContent = state.file.replace(/\\/g, '/') + ' : L' + line + ' の次に挿入';
+  _setInsertDialogTarget(state.file, line);
   // 脈打たせるクラスは2種類を交互に使う。同じクラス名を貼り直しても CSS の
   // アニメーションは再生され直さず、続けて押したときに反応が無いように見える。
   if (pulse) _insertPulseFlip = !_insertPulseFlip;
@@ -1322,13 +1357,23 @@ function _initInsertDialog() {
   condInput.addEventListener('input', () => _insertDialogRebuildTextarea(false));
   const fileLabel = document.getElementById('insert-dialog-file');
   if (fileLabel) {
-    fileLabel.title = 'クリックで挿入先へスクロール';
+    // title は _setInsertDialogTarget が挿入先ごとに書く（フルパス + 操作の案内）
     fileLabel.addEventListener('click', () => { revealInsertTarget(); refreshInsertTargetDecoration(true); });
   }
   btnOk.onclick = _insertDialogSubmit;
   btnCancel.onclick = closeInsertDialog;
+  const groupToggle = document.getElementById('insert-dialog-group-toggle');
+  if (groupToggle) {
+    groupToggle.onclick = () => {
+      const open = groupToggle.getAttribute('aria-expanded') === 'true';
+      _setInsertGroupOpen(!open);
+      if (!open) document.getElementById('insert-dialog-group')?.focus();
+    };
+  }
   const btnSavePreset = document.getElementById('insert-dialog-save-preset');
   const btnDelPreset = document.getElementById('insert-dialog-del-preset');
+  ta.addEventListener('input', _syncInsertPresetBtn);
+  _syncInsertPresetBtn();
   if (btnSavePreset) btnSavePreset.onclick = _saveInsertPreset;
   if (btnDelPreset) btnDelPreset.onclick = _deleteInsertPreset;
   const box = document.getElementById('insert-dialog-modal-box');
