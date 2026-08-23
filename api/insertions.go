@@ -37,6 +37,38 @@ const (
 	mcpMaxInsertions = 100
 )
 
+// rejectAgent はエージェントからの操作をフラグに関係なく断る。ファイルを
+// 書き換える経路のうち、「自分が撒いた仕込みへの操作」に収まらないものに使う。
+func (h *Handler) rejectAgent(w http.ResponseWriter, r *http.Request, why string) bool {
+	if !isAgentRequest(r) {
+		return false
+	}
+	jsonErr(w, "not available to external clients: "+why, http.StatusForbidden)
+	return true
+}
+
+// guardAgentOwns はエージェントが自分の撒いた仕込みだけを触っていることを確かめる。
+// 許可されていない場合と他人の記録を指した場合は応答済みで false を返す。
+func (h *Handler) guardAgentOwns(w http.ResponseWriter, r *http.Request, id string) bool {
+	src, allowed := h.guardAgentWrite(w, r)
+	if !allowed {
+		return false
+	}
+	if src != graph.InsertionSourceMCP {
+		return true // GUI からの操作
+	}
+	ins, ok := h.findInsertion(id)
+	if !ok {
+		jsonErr(w, "insertion not found", http.StatusNotFound)
+		return false
+	}
+	if ins.Source != graph.InsertionSourceMCP {
+		jsonErr(w, "this debug line was inserted in the GUI; external clients may only touch their own", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
 // countInsertionsBySource は指定の出所で入った仕込みの件数を数える。
 func (h *Handler) countInsertionsBySource(src string) int {
 	n := 0
@@ -396,6 +428,11 @@ func (h *Handler) handleInsertionsRestore(w http.ResponseWriter, r *http.Request
 		jsonErr(w, "file writes disabled (bind to loopback to enable)", http.StatusForbidden)
 		return
 	}
+	// 控えは GUI と共用の1枠しかないので、エージェントが呼ぶと人が直前に
+	// した撤去・移動を取り消してしまいうる。誰の操作かを区別できない。
+	if h.rejectAgent(w, r, "undo restores whatever was last removed or moved, which may be the user's own action") {
+		return
+	}
 
 	h.insMu.Lock()
 	defer h.insMu.Unlock()
@@ -545,6 +582,9 @@ func (h *Handler) handleInsertionsMove(w http.ResponseWriter, r *http.Request) {
 	h.insMu.Lock()
 	defer h.insMu.Unlock()
 
+	if !h.guardAgentOwns(w, r, req.ID) {
+		return
+	}
 	ins, ok := h.findInsertion(req.ID)
 	if !ok {
 		jsonErr(w, "insertion not found", http.StatusNotFound)
@@ -1143,17 +1183,32 @@ func (h *Handler) handleInsertionsToggle(w http.ResponseWriter, r *http.Request)
 	h.insMu.Lock()
 	defer h.insMu.Unlock()
 
+	agentSource, allowed := h.guardAgentWrite(w, r)
+	if !allowed {
+		return
+	}
 	var targets []graph.Insertion
+	keptOthers := 0 // エージェントのグループ指定で残した、人が入れた分
 	if req.ID != "" {
 		ins, ok := h.findInsertion(req.ID)
 		if !ok {
 			jsonErr(w, "insertion not found", http.StatusNotFound)
 			return
 		}
+		// 名指しは所有者を厳格に見る。人が見ている行を黙って黙らせない。
+		if agentSource == graph.InsertionSourceMCP && ins.Source != graph.InsertionSourceMCP {
+			jsonErr(w, "this debug line was inserted in the GUI; external clients may only touch their own", http.StatusForbidden)
+			return
+		}
 		targets = append(targets, ins)
 	} else {
 		for _, ins := range h.store.GetGraphResponse().Insertions {
 			if req.Group != nil && ins.Group != *req.Group {
+				continue
+			}
+			// まとめての ON/OFF も自分が撒いた分だけ。撤去と同じ規約。
+			if agentSource == graph.InsertionSourceMCP && ins.Source != graph.InsertionSourceMCP {
+				keptOthers++
 				continue
 			}
 			targets = append(targets, ins)
@@ -1184,7 +1239,12 @@ func (h *Handler) handleInsertionsToggle(w http.ResponseWriter, r *http.Request)
 		toggled = append(toggled, ins.ID)
 		updated = append(updated, u)
 	}
-	jsonOK(w, map[string]any{"toggled": toggled, "skipped": skipped, "insertions": updated})
+	res := map[string]any{"toggled": toggled, "skipped": skipped, "insertions": updated}
+	// 残した分を黙っていると「全部切り替わった」と読まれる。
+	if keptOthers > 0 {
+		res["kept_not_yours"] = keptOthers
+	}
+	jsonOK(w, res)
 }
 
 // --- POST /api/insertions/group ---
@@ -1261,6 +1321,11 @@ func (h *Handler) handleInsertionsWrap(w http.ResponseWriter, r *http.Request) {
 	}
 	if !h.fileWrites {
 		jsonErr(w, "file writes disabled (bind to loopback to enable)", http.StatusForbidden)
+		return
+	}
+	// 囲みは既存のコードを #if 0 で無効にする操作で、観測ではなく挙動の変更。
+	// エージェントに渡す判断はしていないので、-mcp-insert でも通さない。
+	if h.rejectAgent(w, r, "wrapping existing code in #if 0 changes behaviour, not just observation") {
 		return
 	}
 	var req struct {

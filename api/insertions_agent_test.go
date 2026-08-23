@@ -155,3 +155,86 @@ func TestAgentRemovesOnlyItsOwn(t *testing.T) {
 		t.Errorf("人が入れた分が残っていない: %+v", left)
 	}
 }
+
+// 囲み (#if 0) は printf の追加と違い、既存のユーザコードを無効にする。
+// 観測ではなく挙動の変更なので、-mcp-insert を付けてもエージェントには渡さない。
+func TestAgentCannotWrapCode(t *testing.T) {
+	h, src := newAgentTestSetup(t)
+	h.EnableMCPWrites() // 許可した状態でも通らないことを見る
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/insertions/wrap",
+		bytes.NewBufferString(`{"file":"`+src+`","start_line":1,"end_line":2,"group":"g"}`))
+	h.handleInsertionsWrap(rec, req)
+	if rec.Code != 403 {
+		t.Fatalf("status = %d, want 403 (body=%s)", rec.Code, rec.Body.String())
+	}
+	// GUI からは従来どおり使える
+	if rec := doInsertionsReq(h, "POST", "/api/insertions/wrap",
+		`{"file":"`+src+`","start_line":1,"end_line":2,"group":"g"}`); rec.Code != 200 {
+		t.Errorf("GUI wrap = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+	}
+}
+
+// 巻き戻しの控えは GUI と共用の1枠しかない。エージェントに開けると、人が
+// 直前にした撤去・移動を取り消してしまいうる。
+func TestAgentCannotRestore(t *testing.T) {
+	h, _ := newAgentTestSetup(t)
+	h.EnableMCPWrites()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/insertions/restore", bytes.NewBufferString(`{}`))
+	h.handleInsertionsRestore(rec, req)
+	if rec.Code != 403 {
+		t.Fatalf("status = %d, want 403 (body=%s)", rec.Code, rec.Body.String())
+	}
+}
+
+// 移動と ON/OFF も、自分が撒いた分だけ。人が見ている printf が黙って
+// 動いたり黙ったりしないようにする。
+func TestAgentMoveAndToggleOnlyItsOwn(t *testing.T) {
+	h, src := newAgentTestSetup(t)
+	h.EnableMCPWrites()
+
+	guiRec := doInsertionsReq(h, "POST", "/api/insertions", `{"file":"`+src+`","line":1,"lines":["  gui();"],"group":"shared"}`)
+	if guiRec.Code != 200 {
+		t.Fatalf("GUI insert = %d", guiRec.Code)
+	}
+	var gui struct {
+		Insertion graph.Insertion `json:"insertion"`
+	}
+	json.Unmarshal(guiRec.Body.Bytes(), &gui)
+	if rec := doAgentReq(h, "POST", "/api/insertions", `{"file":"`+src+`","line":1,"lines":["  ai();"],"group":"shared"}`); rec.Code != 200 {
+		t.Fatalf("agent insert = %d (body=%s)", rec.Code, rec.Body.String())
+	}
+
+	move := func(id string) int {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("POST", "/api/insertions/move",
+			bytes.NewBufferString(`{"id":"`+id+`","file":"`+src+`","line":3}`))
+		h.handleInsertionsMove(rec, req)
+		return rec.Code
+	}
+	if code := move(gui.Insertion.ID); code != 403 {
+		t.Errorf("agent move of GUI insertion = %d, want 403", code)
+	}
+
+	// グループ指定の ON/OFF は人の分を残し、その件数を返す
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/insertions/toggle", bytes.NewBufferString(`{"group":"shared","enabled":false}`))
+	h.handleInsertionsToggle(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("agent toggle = %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Toggled      []string `json:"toggled"`
+		KeptNotYours int      `json:"kept_not_yours"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &out)
+	if len(out.Toggled) != 1 || out.KeptNotYours != 1 {
+		t.Fatalf("toggled=%v kept_not_yours=%d, want 1 と 1 (body=%s)", out.Toggled, out.KeptNotYours, rec.Body.String())
+	}
+	for _, ins := range h.store.GetGraphResponse().Insertions {
+		if ins.ID == gui.Insertion.ID && !ins.Enabled {
+			t.Error("人が入れた行まで無効化された")
+		}
+	}
+}
