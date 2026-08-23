@@ -107,6 +107,10 @@ func (s *server) dispatch(req *request) (any, *responseError) {
 		return s.handleHover(req.Params)
 	case "textDocument/completion":
 		return s.handleCompletion(req.Params)
+	case "textDocument/documentSymbol":
+		return s.handleDocumentSymbol(req.Params)
+	case "workspace/symbol":
+		return s.handleWorkspaceSymbol(req.Params)
 	case "textDocument/semanticTokens/full":
 		return s.handleSemanticTokensFull(req.Params)
 	case "textDocument/prepareCallHierarchy":

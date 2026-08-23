@@ -60,7 +60,7 @@ ssh -L 8080:localhost:8080 user@desktop-ip
 
 ## エディタ連携（LSP・実験的）
 
-`grepnavi -lsp` は Language Server Protocol の stdio サーバとして起動し、定義ジャンプ・参照検索・ホバー（定義スニペットとマクロの計算値）・呼び出し階層・マクロ・型名の使用箇所の色付け（ctags 索引ベースのセマンティックトークン）をエディタに提供する（GUI も HTTP サーバも起動しない）。索引の扱いは GUI と同じで、GNU Global があれば索引で引き、無ければ ripgrep に落ちる。補完・診断は名乗らない。
+`grepnavi -lsp` は Language Server Protocol の stdio サーバとして起動し、定義ジャンプ・参照検索・ホバー（定義スニペットとマクロの計算値）・呼び出し階層・補完（構造体メンバー、`.`→`->` の自動修正、ローカル変数・関数・マクロ）・アウトラインとシンボル検索（Ctrl+Shift+O / Ctrl+T）・マクロと型名の色付け（セマンティックトークン）をエディタに提供する（GUI も HTTP サーバも起動しない）。索引の扱いは GUI と同じで、GNU Global があれば索引で引き、無ければ ripgrep に落ちる。診断（エラー表示）は名乗らない。
 
 Neovim は追加プラグインなしで接続できる:
 

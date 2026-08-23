@@ -437,6 +437,10 @@ func ctagsParseSymbols(tagsPath string) (SymbolsByKind, error) {
 	return result, nil
 }
 
+// IsCSourceFile は拡張子で C/C++ のソース・ヘッダかを見る（索引に他言語が
+// 混ざっている tags から C の項目だけ取るときの判定）。
+func IsCSourceFile(file string) bool { return ctagsIsCFile(file) }
+
 // ctagsIsCFile は tags のファイル欄が C/C++ のソース・ヘッダかを拡張子で見る。
 func ctagsIsCFile(file string) bool {
 	switch strings.ToLower(filepath.Ext(file)) {
