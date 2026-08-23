@@ -555,7 +555,9 @@ func CtagsSymbolsForFile(file, dir string) ([]DefHit, error) {
 	rel = strings.ReplaceAll(rel, `\`, "/")
 
 	// タブ区切りの第2フィールドがファイルパスにマッチする行を抽出
-	pattern := `\t` + regexp.QuoteMeta(rel) + `\t`
+	// `ctags -R .` で作った tags は "./crypto/x.c" のように ./ 付きで記録するので、
+	// 先頭の ./ は有っても無くても当てる
+	pattern := `\t(?:\./)?` + regexp.QuoteMeta(rel) + `\t`
 	cmd := proc.CommandContext(context.Background(), "rg",
 		"--no-line-number", "--no-filename", "--no-heading", "--color=never",
 		pattern, tagsPath)
