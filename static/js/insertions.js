@@ -37,11 +37,13 @@ function _insertionGroups() {
   return counts;
 }
 
-// {cond} を使わないテンプレは needsCond:false → 条件入力欄を隠す。
+// {cond} はスニペットのプレースホルダ。展開時に cond という文字を置き、
+// それを選択状態にして開くので、そのまま打てば条件式に置き換わる（専用の
+// 入力欄は置かない: 補完が効くのは本文側だし、欄と本文の二重管理になる）。
 const _INSERT_BUILTIN_TEMPLATES = [
-  { id: 'printf',      label: 'printf',        template: 'printf("[{tag}] %s:%d\\n", __func__, __LINE__);', needsCond: false },
-  { id: 'cond_printf', label: '条件付き printf', template: 'if ({cond}) printf("[{tag}] %s:%d\\n", __func__, __LINE__);', needsCond: true },
-  { id: 'free',        label: '自由入力',       template: '', needsCond: false },
+  { id: 'printf',      label: 'printf',        template: 'printf("[{tag}] %s:%d\\n", __func__, __LINE__);' },
+  { id: 'cond_printf', label: '条件付き printf', template: 'if ({cond}) printf("[{tag}] %s:%d\\n", __func__, __LINE__);' },
+  { id: 'free',        label: '自由入力',       template: '' },
 ];
 
 function _insertPresets() {
@@ -58,7 +60,6 @@ function _insertTemplates() {
       id: 'preset' + i,
       label: p.label || ('プリセット' + (i + 1)),
       template: p.template || '',
-      needsCond: !!p.needsCond,
     })),
   ];
 }
@@ -71,28 +72,32 @@ let _insertDialogState = null; // {file, line, indent}
 let _insertDialogGenerated = null;
 
 // force=false のときは、利用者が textarea に手を入れていたら組み直さない。
-// 条件式は1文字打つたびにここへ来るので、無条件に組み直すと書きかけが
-// キーストロークごとに消える（しかも value 代入なので Ctrl+Z でも戻らない）。
-// テンプレートを選び直したときは「その内容が欲しい」という意思表示なので組み直す。
+// 書きかけを消さないため、手を入れた後は組み直さない（value 代入は Ctrl+Z でも
+// 戻らない）。テンプレートを選び直したときは「その内容が欲しい」という意思表示
+// なので組み直す。
+const _INSERT_COND_PLACEHOLDER = 'cond';
+
 function _insertDialogRebuildTextarea(force = false) {
   const sel = document.getElementById('insert-dialog-template');
-  const condInput = document.getElementById('insert-dialog-cond');
   const ta = document.getElementById('insert-dialog-ta');
-  if (!sel || !condInput || !ta) return;
+  if (!sel || !ta) return;
   const templates = _insertTemplates();
   const tpl = templates.find(t => t.id === sel.value) || templates[0];
-  condInput.style.display = tpl.needsCond ? '' : 'none';
   const delBtn = document.getElementById('insert-dialog-del-preset');
   if (delBtn) delBtn.style.display = /^preset\d+$/.test(sel.value) ? '' : 'none';
   if (!force && _insertDialogGenerated !== null && ta.value !== _insertDialogGenerated) return;
 
-  const cond = condInput.value.trim() || 'cond';
-  const body = tpl.needsCond ? tpl.template.replace('{cond}', cond) : tpl.template;
+  const body = tpl.template.replace('{cond}', _INSERT_COND_PLACEHOLDER);
   const indent = _insertDialogState?.indent || '';
   // 複数行テンプレは全行にインデントを前置する（1行目だけだと段がずれる）。
   ta.value = body ? body.split('\n').map(l => indent + l).join('\n') : indent;
   _insertDialogGenerated = ta.value;
   _syncInsertPresetBtn(); // 代入では input が飛ばないので自分で合わせる
+  // プレースホルダを選択して開く。そのまま打てば条件式に置き換わり、
+  // 書き忘れれば選択が残るので、cond のまま挿入する事故に気づける。
+  const at = tpl.template.includes('{cond}') ? ta.value.indexOf(_INSERT_COND_PLACEHOLDER) : -1;
+  if (at >= 0) ta.setSelectionRange(at, at + _INSERT_COND_PLACEHOLDER.length);
+  else ta.setSelectionRange(ta.value.length, ta.value.length);
 }
 
 // テンプレ select の再構築。selectId を渡すとそれを選択状態にする
@@ -125,7 +130,7 @@ async function _saveInsertPreset() {
   const name = await showInputModal('プリセットとして保存', 'プリセット名');
   if (!name) return;
   const presets = _insertPresets();
-  presets.push({ label: name, template, needsCond: template.includes('{cond}') });
+  presets.push({ label: name, template });
   localStorage.setItem(LS_INSERT_PRESETS, JSON.stringify(presets));
   _rebuildTemplateSelect('preset' + (presets.length - 1));
   _rememberTemplate(document.getElementById('insert-dialog-template'));
@@ -210,7 +215,6 @@ function openInsertDialog() {
   // 同じ形を続けて撒くのが典型のため）。
   _rebuildTemplateSelect(_lastTemplateId());
   _setInsertDialogTarget(tab.file, line);
-  document.getElementById('insert-dialog-cond').value = '';
 
   // グループ: 前回使った名前を既定にする（候補リストは _initInsertDialog で取り付け）
   // （連続で同じ調査に撒くのが典型パターンのため）。
@@ -1336,16 +1340,17 @@ function registerInsertionEditorActions() {
 function _initInsertDialog() {
   const modal = document.getElementById('insert-dialog-modal');
   const sel = document.getElementById('insert-dialog-template');
-  const condInput = document.getElementById('insert-dialog-cond');
   const ta = document.getElementById('insert-dialog-ta');
   const btnOk = document.getElementById('insert-dialog-ok');
   const btnCancel = document.getElementById('insert-dialog-cancel');
-  if (!modal || !sel || !condInput || !ta || !btnOk || !btnCancel) return;
+  if (!modal || !sel || !ta || !btnOk || !btnCancel) return;
 
-  // テンプレートの選び直しは明示的な指定なので上書きする。条件式の入力は
-  // 追随にとどめ、手を入れた内容は消さない。
-  sel.addEventListener('change', () => { _rememberTemplate(sel); _insertDialogRebuildTextarea(true); });
-  condInput.addEventListener('input', () => _insertDialogRebuildTextarea(false));
+  // テンプレートの選び直しは明示的な指定なので、書きかけがあっても上書きする。
+  sel.addEventListener('change', () => {
+    _rememberTemplate(sel);
+    _insertDialogRebuildTextarea(true);
+    ta.focus(); // プレースホルダが選ばれているので、そのまま打てば置き換わる
+  });
   const fileLabel = document.getElementById('insert-dialog-file');
   if (fileLabel) {
     // title は _setInsertDialogTarget が挿入先ごとに書く（フルパス + 操作の案内）

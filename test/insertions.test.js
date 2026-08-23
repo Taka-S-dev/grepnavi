@@ -18,3 +18,18 @@ test('Ctrl+Z listeners load in undo-precedence order', () => {
   assert.ok(at('insertions') < at('memo-list'), 'insertions.js は memo-list.js より先に読む');
   assert.ok(at('memo-list') < at('app'), 'memo-list.js は app.js より先に読む');
 });
+
+// 条件付きテンプレはスニペットのプレースホルダ方式: 展開すると cond が入り、
+// それが選択された状態で開く（専用の入力欄は持たない）。空の条件で
+// if (cond) がそのまま挿入される事故を、選択が残ることで気づけるようにする。
+test('挿入ダイアログ - 条件付きテンプレは cond を選択状態で開く', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const root = path.join(__dirname, '..', 'static');
+  const js = fs.readFileSync(path.join(root, 'js', 'insertions.js'), 'utf8');
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  assert.match(js, /setSelectionRange\(at, at \+ _INSERT_COND_PLACEHOLDER\.length\)/,
+    'プレースホルダを選択していない。そのまま打っても条件に置き換わらない');
+  assert.doesNotMatch(html, /insert-dialog-cond/,
+    '条件式の専用入力欄は廃止した（本文側で書く。補完もそちらにしか効かない）');
+});
