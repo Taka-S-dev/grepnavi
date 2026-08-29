@@ -70,7 +70,26 @@ func (s *server) wordAt(uri string, pos position) (word, path string) {
 	if !ok {
 		return "", path
 	}
-	return wordAtPosition(content, pos), path
+	word = wordAtPosition(content, pos)
+	// キーワードに定義は無い。索引が 0 件を返したあと rg のフォールバックが
+	// ツリー全体を走査し、受付が直列なので後続の要求まで全部その後ろに並ぶ
+	// （実測: openssl で `unsigned` に F12 → 20 分）。語を空にして手前で止める
+	if cKeywords[word] {
+		return "", path
+	}
+	return word, path
+}
+
+// cKeywords は定義を探しても意味が無い語。型・修飾子・制御構文。
+// NULL や errno はマクロとして定義があるので入れない
+var cKeywords = map[string]bool{
+	"auto": true, "break": true, "case": true, "char": true, "const": true,
+	"continue": true, "default": true, "do": true, "double": true, "else": true,
+	"enum": true, "extern": true, "float": true, "for": true, "goto": true,
+	"if": true, "inline": true, "int": true, "long": true, "register": true,
+	"restrict": true, "return": true, "short": true, "signed": true, "sizeof": true,
+	"static": true, "struct": true, "switch": true, "typedef": true, "union": true,
+	"unsigned": true, "void": true, "volatile": true, "while": true,
 }
 
 func (s *server) findDefinitions(word, currentFile string) []search.DefHit {

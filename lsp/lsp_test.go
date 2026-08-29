@@ -239,3 +239,24 @@ func TestOutgoingCallsExpandTheCalleeNotTheCaller(t *testing.T) {
 		t.Errorf("helper は何も呼ばないのに子が出る（呼び出し元に戻っている）: %s", b2)
 	}
 }
+
+// キーワードは定義を探さない。索引 0 件のあと rg がツリー全体を走査し、直列の
+// 受付を塞ぐ（openssl で `unsigned` に F12 → 20 分待ち）。
+func TestKeywordsAreNotLookedUp(t *testing.T) {
+	dir := writeTestProject(t)
+	s := &server{root: dir}
+	uri := pathToURI(filepath.Join(dir, "main.c"))
+	for _, c := range []struct{ line, ch int }{{1, 0}, {2, 3}} { // `int` / `return`
+		params, _ := json.Marshal(map[string]any{
+			"textDocument": map[string]string{"uri": uri},
+			"position":     map[string]int{"line": c.line, "character": c.ch},
+		})
+		if w, _ := s.wordAt(uri, position{Line: c.line, Character: c.ch}); w != "" {
+			t.Errorf("wordAt(%d,%d) = %q, want \"\"", c.line, c.ch, w)
+		}
+		res, _ := s.handleDefinition(params)
+		if locs := res.([]location); len(locs) != 0 {
+			t.Errorf("keyword resolved to %+v", locs)
+		}
+	}
+}
