@@ -49,6 +49,8 @@ type callHierarchyItem struct {
 type callHierarchyData struct {
 	// Callee は展開時に定義を引き直す関数名。空なら Range の位置をそのまま使う
 	Callee string `json:"callee,omitempty"`
+	// Indirect は関数ポインタ経由の呼び出し。展開しない（実体は字面で決まらない）
+	Indirect bool `json:"indirect,omitempty"`
 }
 
 // LSP SymbolKind のうち使う値。マクロは Constant で出すと、関数と見分けが付く

@@ -293,12 +293,19 @@ func (s *server) handleOutgoingCalls(raw json.RawMessage) (any, *responseError) 
 	// 囲む関数を取ると呼び出し元自身に戻り、同じ子が何段でも繰り返される。
 	// 展開のときは Data に運んだ名前で定義を引き直し、その本体を見る。
 	// 定義が引けない名前（マクロ・libc）は「呼び先なし」で止める。
-	if p.Item.Data != nil && p.Item.Data.Callee != "" {
-		def, ok := s.findFunctionDefinition(p.Item.Data.Callee, file)
-		if !ok {
+	if p.Item.Data != nil {
+		// 関数ポインタ経由: 実体は字面で決まらない。名前で定義を引くと同名の
+		// 別関数の本体を展開してしまうので、ここで止める（GUI の (ptr) と同じ）
+		if p.Item.Data.Indirect {
 			return calls, nil
 		}
-		file, line = def.File, def.Line
+		if p.Item.Data.Callee != "" {
+			def, ok := s.findFunctionDefinition(p.Item.Data.Callee, file)
+			if !ok {
+				return calls, nil
+			}
+			file, line = def.File, def.Line
+		}
 	}
 	ctx, cancel := s.requestContext()
 	defer cancel()
@@ -318,14 +325,24 @@ func (s *server) handleOutgoingCalls(raw json.RawMessage) (any, *responseError) 
 		if c.Kind == "define" {
 			kind = symbolKindConstant
 		}
+		detail := s.detailOf(file, c.CallLine)
+		if c.Indirect {
+			// 受け手の式を添える: `(ptr s->method)` で「method に何が入るか」
+			// を追う起点が名前の横に出る
+			detail += "  (ptr"
+			if c.Receiver != "" {
+				detail += " " + c.Receiver
+			}
+			detail += ")"
+		}
 		calls = append(calls, outgoingCall{
 			To: callHierarchyItem{
 				Name:   c.Name,
 				Kind:   kind,
-				Detail: s.detailOf(file, c.CallLine),
+				Detail: detail,
 				URI:    pathToURI(file),
 				Range:  lineRange(c.CallLine), SelectionRange: lineRange(c.CallLine),
-				Data:   &callHierarchyData{Callee: c.Name},
+				Data:   &callHierarchyData{Callee: c.Name, Indirect: c.Indirect},
 			},
 			FromRanges: []lspRange{lineRange(c.CallLine)},
 		})

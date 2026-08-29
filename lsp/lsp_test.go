@@ -262,6 +262,50 @@ func TestKeywordsAreNotLookedUp(t *testing.T) {
 	}
 }
 
+// 関数ポインタ経由の呼び先は (ptr 受け手) と示し、展開しても子を出さない。
+// 名前で定義を引くと同名の別関数の本体が出てしまう（openssl の ssl_read）。
+func TestOutgoingCallsMarkMemberCallsAndDoNotExpandThem(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "read.c"), []byte(
+		"int read(int fd) { return fd; }\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "main.c"), []byte(
+		"int run(struct ops *o) {\n"+
+			"\treturn o->fn->read(o);\n"+
+			"}\n"), 0o644)
+	s := &server{root: dir}
+	item, _ := json.Marshal(map[string]any{"item": map[string]any{
+		"name": "run", "uri": pathToURI(filepath.Join(dir, "main.c")),
+		"selectionRange": map[string]any{
+			"start": map[string]int{"line": 0, "character": 0},
+			"end":   map[string]int{"line": 0, "character": 0},
+		},
+	}})
+	res, rerr := s.handleOutgoingCalls(item)
+	if rerr != nil {
+		t.Fatalf("error: %+v", rerr)
+	}
+	b, _ := json.Marshal(res)
+	var calls []struct {
+		To callHierarchyItem `json:"to"`
+	}
+	json.Unmarshal(b, &calls)
+	if len(calls) != 1 || calls[0].To.Name != "read" {
+		t.Fatalf("calls = %s", b)
+	}
+	child := calls[0].To
+	if !strings.Contains(child.Detail, "(ptr o->fn)") {
+		t.Errorf("detail = %q, want (ptr o->fn)", child.Detail)
+	}
+	if child.Data == nil || !child.Data.Indirect {
+		t.Fatalf("indirect flag missing: %s", b)
+	}
+	again, _ := json.Marshal(map[string]any{"item": child})
+	res2, _ := s.handleOutgoingCalls(again)
+	if b2, _ := json.Marshal(res2); string(b2) != "[]" {
+		t.Errorf("member call expanded into a same-named function: %s", b2)
+	}
+}
+
 // 1 リクエストに期限が付く。受付が直列なので、期限の無い rg 走査は後続を全部塞ぐ。
 func TestRequestContextHasDeadline(t *testing.T) {
 	s := &server{}
