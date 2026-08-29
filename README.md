@@ -4,7 +4,7 @@
 [![Release](https://img.shields.io/github/v/release/Taka-S-dev/grepnavi)](https://github.com/Taka-S-dev/grepnavi/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-*A lightweight code-reading tool for large C codebases — ripgrep search, a Monaco-based source viewer, call trees and reference maps on top of GNU Global. No language server required.*
+*A lightweight code-reading tool for large C codebases — ripgrep search, a Monaco-based source viewer, call trees and reference maps on top of GNU Global. No language server required — and it can serve as a lightweight one for your editor.*
 
 ![grepnavi のメイン画面 — 検索・コメント付き調査ツリー・エディタの3ペイン](docs/images/main.png)
 
@@ -58,6 +58,7 @@ clangd のような言語サーバを使える環境なら、精度はそちら�
 - **対象から外す宣言** — `.gitignore` と同じ書き方で生成物などを検索・参照・ジャンプの全機能から除外
 - **外部エディタ連携** — `{file}` / `{line}` プレースホルダで任意のエディタに接続
 - **AI エージェント連携** — MCP ブリッジで Claude Code / Copilot CLI 等から調査グラフを構築（[mcp/README.md](mcp/README.md)）
+- **エディタ連携（LSP・実験的）** — `-lsp` で Language Server として起動し、VSCode / Neovim に定義ジャンプ・参照・ホバー・呼び出し階層・補完・アウトラインを提供。索引は GUI と共有で、関数ポインタ経由の呼び出しは `(ptr)` と示して展開しない（[docs/setup.md](docs/setup.md)）
 
 各機能の挙動の細部・操作方法・制限・実測値は [docs/features.md](docs/features.md) を参照。
 
@@ -191,6 +192,8 @@ grepnavi/
 ├── proc/                 # 外部プロセス起動の共通層（セキュリティソフト環境向けの起動方式切り替え）
 ├── desktop/              # トレイ常駐と WebView2 ウィンドウ（自前タイトルバー）
 ├── tools/icongen/        # アイコン生成
+├── lsp/                  # エディタ向け Language Server（-lsp）。search の薄いラッパで、stdio 専用
+├── editors/vscode/       # LSP に接続する VSCode 拡張（ロジックは持たない）
 ├── mcp/                  # AI エージェント向け MCP ブリッジ（TypeScript）
 ├── test/                 # フロントエンドのテスト（node --test）
 └── static/               # フロントエンド。vanilla JS + Monaco、ビルド工程なし
