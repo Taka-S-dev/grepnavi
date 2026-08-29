@@ -65,6 +65,12 @@ func TestCapSitesReportsTruncation(t *testing.T) {
 // 部品が正しくても配線が食い違うのが今日の不具合だったので、ここを空けない。
 func writeRefFixture(t *testing.T) string {
 	t.Helper()
+	// 参照検索は rg で読むので、無い環境では失敗ではなく skip にする
+	// （このパッケージの他の rg 依存テストと同じ扱い。v0.4.0 のリリース
+	// ビルドが ripgrep 無しの Windows ランナーでここで落ちた）
+	if _, err := exec.LookPath("rg"); err != nil {
+		t.Skip("rg not installed")
+	}
 	dir := t.TempDir()
 	main := "" +
 		"static int helper(int a);\n" + // 1: プロトタイプ宣言（囲む関数なし）

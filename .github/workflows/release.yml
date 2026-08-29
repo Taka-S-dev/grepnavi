@@ -17,6 +17,11 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # ripgrep が無いと検索経路のテストが skip される（test.yml と同じ理由）。
+      # windows-latest には chocolatey が入っている
+      - name: Install ripgrep
+        run: choco install ripgrep -y --no-progress
+
       - name: Run tests
         run: go test ./...
 
