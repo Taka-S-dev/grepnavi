@@ -442,3 +442,65 @@ func keysOf(m map[string]bool) []string {
 	sort.Strings(out)
 	return out
 }
+
+func TestCalleeMarksMemberCalls(t *testing.T) {
+	dir := t.TempDir()
+	src := `int target(SSL *s, struct file *f, struct ops tbl[])
+{
+    n = s->method->ssl_read(s, buf, len);
+    ops.open(f);
+    r = tbl[i].cb(f);
+    get_ops(s)->write(f);
+    x = read(fd, buf, n);
+    ret = f->f_op->read(f, buf);
+    return plain(x);
+}
+`
+	f := filepath.Join(dir, "t.c")
+	if err := os.WriteFile(f, []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	hits, _, _, err := FindCallees(context.Background(), f, 1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	type want struct {
+		indirect bool
+		receiver string
+	}
+	wants := map[string]want{
+		"ssl_read": {true, "s->method"},
+		"read":     {true, "f->f_op"}, // 間接の read
+		"cb":       {true, "tbl[i]"},
+		"open":     {true, "ops"},
+		"write":    {true, ""}, // 戻り値のメンバ: 受け手は名前で追えない
+		"plain":    {false, ""},
+		"get_ops":  {false, ""},
+	}
+	seenDirectRead := false
+	for _, h := range hits {
+		if h.Name == "read" && !h.Indirect {
+			// 同名の直接呼び出し `read(fd, ...)` は別の呼び先として残る
+			seenDirectRead = true
+			continue
+		}
+		w, ok := wants[h.Name]
+		if !ok {
+			continue
+		}
+		if h.Indirect != w.indirect || h.Receiver != w.receiver {
+			t.Errorf("%s: indirect=%v receiver=%q, want indirect=%v receiver=%q",
+				h.Name, h.Indirect, h.Receiver, w.indirect, w.receiver)
+		}
+		delete(wants, h.Name)
+	}
+	for name := range wants {
+		t.Errorf("呼び先 %q が出ていない", name)
+	}
+	if !seenDirectRead {
+		t.Errorf("直接呼び出しの read(fd) がメンバ呼び出しの read に吸われている")
+	}
+	if !strings.Contains(hits[0].Text, "ssl_read") {
+		t.Errorf("Text が呼び出し行でない: %q", hits[0].Text)
+	}
+}

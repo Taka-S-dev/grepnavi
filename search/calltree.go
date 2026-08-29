@@ -53,6 +53,15 @@ var reCalleeFunc = regexp.MustCompile(`\b([A-Za-z_]\w*)\s*\(`)
 // 同じ形で型名が拾われるため。
 var reFuncPtrDecl = regexp.MustCompile(`\b([A-Za-z_]\w*)\s*\(\s*\*+\s*(?:[A-Za-z_]\w*)?(?:\s*\[[^\]]*\])*\s*\)\s*[(\[]`)
 
+// reMemberCall は呼び先名の直前が `->` / `.` で終わっているか、つまり
+// `s->method->ssl_read(` `ops.read(` のように構造体メンバを呼んでいるかを見る。
+// C にメソッドは無いので、メンバを `(` で呼ぶ形は必ず関数ポインタ経由になる。
+// 字面だけで決まり、推定を含まない。
+// 第1群は受け手の式（`s->method` / `ops[i]`）。識別子と添字の連鎖だけを取り、
+// `get(s)->read(` のように括弧を含むときは空にする（呼び出しの戻り値は
+// 名前で追えないので、あるように見せない）。
+var reMemberCall = regexp.MustCompile(`(?:([A-Za-z_]\w*(?:\[[^\]]*\])*(?:\s*(?:->|\.)\s*[A-Za-z_]\w*(?:\[[^\]]*\])*)*)\s*)?(?:->|\.)\s*$`)
+
 // 構造体変数名: identifier = { や identifier[] = { のパターン
 var reStructVarName = regexp.MustCompile(`\b([A-Za-z_]\w*)\s*(?:\[[^\]]*\]\s*)*=\s*\{?\s*$`)
 
@@ -248,6 +257,13 @@ type CalleeHit struct {
 	CallLine int    `json:"call_line"`      // 呼び出し行（1-indexed）
 	Kind     string `json:"kind,omitempty"` // 索引で確認できた種別（"func" / "define" 等）
 	Text     string `json:"text,omitempty"` // 呼び出し行のソース（callers と同じ判断材料を渡す）
+	// Indirect は構造体メンバを呼ぶ形（`s->method->ssl_read(`）。呼び先は
+	// メンバに入っている関数で、名前からは決まらない。印が無いと同名の
+	// 別関数に解決されて、辿っているつもりで別の実装を読むことになる
+	Indirect bool `json:"indirect,omitempty"`
+	// Receiver はメンバの持ち主の式（`s->method`）。何が入るかを追う起点。
+	// 呼び出しの戻り値など名前で追えない形のときは空
+	Receiver string `json:"receiver,omitempty"`
 }
 
 // _calleeKindLookupMax は種別を照会する候補数の上限（1 件につき tags を 1 回引く）。
@@ -316,15 +332,27 @@ func FindCallees(_ context.Context, file string, line int, root string) ([]Calle
 				continue
 			}
 			name := l[m[2]:m[3]]
-			if ctKeywords[name] || seen[name] {
+			if ctKeywords[name] {
 				continue
 			}
-			seen[name] = true
-			result = append(result, CalleeHit{
+			hit := CalleeHit{
 				Name:     name,
 				CallLine: line + i,
 				Text:     callSiteText(lines, line+i),
-			})
+			}
+			// 重複は名前と形の組で見る。`read(fd)` と `f_op->read(` は同じ名前でも
+			// 別の呼び先なので、片方を先に見たからといってもう片方を捨てない
+			key := name
+			if mm := reMemberCall.FindStringSubmatch(l[:m[2]]); mm != nil {
+				hit.Indirect = true
+				hit.Receiver = strings.Join(strings.Fields(mm[1]), "")
+				key = "->" + name
+			}
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			result = append(result, hit)
 		}
 	}
 	return annotateCalleeKinds(result, root), funcName, truncated, nil
@@ -337,8 +365,21 @@ func annotateCalleeKinds(hits []CalleeHit, root string) []CalleeHit {
 	}
 	for i := range hits {
 		defs, err := CtagsFindDefinitions(hits[i].Name, root)
-		if err == nil && len(defs) > 0 {
+		if err != nil || len(defs) == 0 {
+			continue
+		}
+		if !hits[i].Indirect {
 			hits[i].Kind = defs[0].Kind
+			continue
+		}
+		// メンバ呼び出しの名前で索引を引くと、同名の関数（`read`）が先に立つ。
+		// その種別を付けると「関数 read を呼んでいる」と読めてしまうので、
+		// メンバとして索引にあるときだけ member と言い、無ければ空のままにする
+		for _, d := range defs {
+			if d.Kind == "member" {
+				hits[i].Kind = "member"
+				break
+			}
 		}
 	}
 	return hits

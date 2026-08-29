@@ -617,6 +617,9 @@ function ctCalleeNode(c, callerFile) {
     callFile: callerFile || '', callLine,
     kind: typeof c === 'string' ? '' : (c.kind || ''),
     text: typeof c === 'string' ? '' : (c.text || ''),
+    // メンバ呼び出しは API が字面で印を付ける。ctags の member 種別は索引が
+    // あるときしか付かないので、索引なしでも (ptr) が出るのはこちらの印
+    indirect: typeof c === 'string' ? false : !!c.indirect,
     children: null, expanded: false,
   };
 }

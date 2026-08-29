@@ -1993,9 +1993,12 @@ async function openCalleePicker() {
     if(encl) id('fzf-input').placeholder = `${encl} の呼び先を絞り込む`;
     // 呼び出し行へ飛ぶのではなく、選んだ関数の定義へ飛びたいので、
     // Reference 形ではなく「名前 + 呼び出し行」を持たせて活性化時に解決する
+    // メンバ呼び出し (`s->method->ssl_read(`) は名前で定義に飛ぶと同名の別関数へ
+    // 行く。callee を外して呼び出し行へ飛ばし、行の字面で判断してもらう
     fzfRefs = hits.map(h => ({
       file: tab.file, line: h.call_line, text: h.text || '',
-      func: h.name, kind: h.kind || '', callee: h.name,
+      func: h.name, kind: h.kind || '', callee: h.indirect ? '' : h.name,
+      indirect: !!h.indirect,
     }));
     fzfRefs._engine = encl ? `${encl} の呼び先` : '呼び先';
     fzfRefs._truncated = calleeTruncated;
@@ -2052,6 +2055,12 @@ function fzfRenderRefs(query) {
       const badge = document.createElement('span');
       badge.className = 'fzf-kind';
       badge.textContent = 'マクロ';
+      name.appendChild(badge);
+    } else if(ref.indirect) {
+      const badge = document.createElement('span');
+      badge.className = 'fzf-kind';
+      badge.textContent = 'ptr';
+      badge.title = '関数ポインタ経由の呼び出し。実体は字面では決まらないので呼び出し行へ飛ぶ';
       name.appendChild(badge);
     }
     const loc = document.createElement('span');
