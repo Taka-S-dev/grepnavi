@@ -40,6 +40,15 @@ type callHierarchyItem struct {
 	URI            string   `json:"uri"`
 	Range          lspRange `json:"range"`
 	SelectionRange lspRange `json:"selectionRange"`
+	// Data はサーバが自由に持ち回れる値で、エディタは展開要求のときそのまま返す。
+	// 呼び出し先アイテムは位置を呼び出し行に置くので、展開時に「どの関数の
+	// 中身を見るか」をここで運ぶ（位置から囲む関数を取ると呼び出し元に戻ってしまう）
+	Data *callHierarchyData `json:"data,omitempty"`
+}
+
+type callHierarchyData struct {
+	// Callee は展開時に定義を引き直す関数名。空なら Range の位置をそのまま使う
+	Callee string `json:"callee,omitempty"`
 }
 
 // LSP SymbolKind のうち使う値。マクロは Constant で出すと、関数と見分けが付く

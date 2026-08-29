@@ -193,3 +193,49 @@ func TestExcludesApplyToDefinition(t *testing.T) {
 		}
 	}
 }
+
+// 呼び出し先アイテムは位置が呼び出し行（呼び出し元の中）なので、その位置で
+// 囲む関数を取ると呼び出し元に戻って同じ子が何段でも出る。展開は Data に運んだ
+// 名前の定義で行い、本体に呼び出しが無ければ空で止まること。
+func TestOutgoingCallsExpandTheCalleeNotTheCaller(t *testing.T) {
+	dir := writeTestProject(t)
+	s := &server{root: dir}
+	mainURI := pathToURI(filepath.Join(dir, "main.c"))
+	item, _ := json.Marshal(map[string]any{"item": map[string]any{
+		"name": "run", "uri": mainURI,
+		"selectionRange": map[string]any{
+			"start": map[string]int{"line": 1, "character": 0},
+			"end":   map[string]int{"line": 1, "character": 0},
+		},
+	}})
+	res, rerr := s.handleOutgoingCalls(item)
+	if rerr != nil {
+		t.Fatalf("error: %+v", rerr)
+	}
+	b, _ := json.Marshal(res)
+	var calls []struct {
+		To callHierarchyItem `json:"to"`
+	}
+	json.Unmarshal(b, &calls)
+	if len(calls) != 1 || calls[0].To.Name != "helper" {
+		t.Fatalf("run の呼び先 = %s, want helper だけ", b)
+	}
+	child := calls[0].To
+	if child.Data == nil || child.Data.Callee != "helper" {
+		t.Fatalf("子アイテムに展開用の名前が無い: %s", b)
+	}
+	if uriToPath(child.URI) != filepath.Join(dir, "main.c") || child.Range.Start.Line != 2 {
+		t.Errorf("子アイテムの位置は呼び出し行のまま: %+v", child)
+	}
+
+	// エディタは受け取ったアイテムをそのまま返して展開を頼む
+	again, _ := json.Marshal(map[string]any{"item": child})
+	res2, rerr := s.handleOutgoingCalls(again)
+	if rerr != nil {
+		t.Fatalf("error: %+v", rerr)
+	}
+	b2, _ := json.Marshal(res2)
+	if string(b2) != "[]" {
+		t.Errorf("helper は何も呼ばないのに子が出る（呼び出し元に戻っている）: %s", b2)
+	}
+}

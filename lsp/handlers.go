@@ -246,19 +246,34 @@ func (s *server) handleOutgoingCalls(raw json.RawMessage) (any, *responseError) 
 	}
 	file := uriToPath(p.Item.URI)
 	line := p.Item.SelectionRange.Start.Line + 1
-	hits, _, _, err := search.FindCallees(context.Background(), file, line, s.root)
-	if err != nil {
-		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
-	}
 	type outgoingCall struct {
 		To         callHierarchyItem `json:"to"`
 		FromRanges []lspRange        `json:"fromRanges"`
 	}
 	calls := []outgoingCall{}
+	// 子アイテムは位置が呼び出し行（呼び出し元の関数の中）なので、その位置で
+	// 囲む関数を取ると呼び出し元自身に戻り、同じ子が何段でも繰り返される。
+	// 展開のときは Data に運んだ名前で定義を引き直し、その本体を見る。
+	// 定義が引けない名前（マクロ・libc）は「呼び先なし」で止める。
+	if p.Item.Data != nil && p.Item.Data.Callee != "" {
+		def, ok := s.findFunctionDefinition(p.Item.Data.Callee, file)
+		if !ok {
+			return calls, nil
+		}
+		file, line = def.File, def.Line
+	}
+	hits, self, _, err := search.FindCallees(context.Background(), file, line, s.root)
+	if err != nil {
+		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
+	}
 	for _, c := range hits {
-		// 呼び先の定義位置は都度解決すると呼び先の数だけ索引を引くことに
-		// なるため、アイテムの位置は呼び出し行にする。クリックの着地点として
-		// は呼び出し行で用が足り、そこから先は definition が引ける。
+		// `int run(void) {` のように `{` がシグネチャと同じ行にあると、自分の
+		// 名前が呼び先に混ざる（GUI と MCP も同じ理由で自分を除いている）
+		if c.Name == self {
+			continue
+		}
+		// アイテムの位置は呼び出し行のまま: クリックの着地点はそこでよく、
+		// 呼び先ごとに索引を引かずに済む。定義は展開されたときだけ引く。
 		kind := symbolKindFunction
 		if c.Kind == "define" {
 			kind = symbolKindConstant
@@ -270,9 +285,21 @@ func (s *server) handleOutgoingCalls(raw json.RawMessage) (any, *responseError) 
 				Detail: s.detailOf(file, c.CallLine),
 				URI:    pathToURI(file),
 				Range:  lineRange(c.CallLine), SelectionRange: lineRange(c.CallLine),
+				Data:   &callHierarchyData{Callee: c.Name},
 			},
 			FromRanges: []lspRange{lineRange(c.CallLine)},
 		})
 	}
 	return calls, nil
+}
+
+// findFunctionDefinition は名前から関数定義を 1 件選ぶ。関数の定義が無く
+// マクロや宣言しか引けないときは false（本体が無いので呼び先も無い）。
+func (s *server) findFunctionDefinition(word, currentFile string) (search.DefHit, bool) {
+	for _, h := range s.findDefinitions(word, currentFile) {
+		if h.Kind == "func" {
+			return h, true
+		}
+	}
+	return search.DefHit{}, false
 }
