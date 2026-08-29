@@ -2797,10 +2797,10 @@ async function exportNodeSnapshot() {
       ctx.fill();
       ctx.stroke();
 
-      // 📝 アイコン + テキスト
+      // メモ印（モノクロ記号。カラー絵文字は他の記号から浮く）とテキスト
       ctx.fillStyle = '#666';
       ctx.font = `${FONT_SIZE - 1}px sans-serif`;
-      ctx.fillText('📝', bx + MEMO_PAD - 2, by + (bh - FONT_SIZE) / 2);
+      ctx.fillText('✎', bx + MEMO_PAD - 2, by + (bh - FONT_SIZE) / 2);
       ctx.fillStyle = '#333';
       ctx.font = MEMO_FONT;
       ctx.fillText(memoText, bx + MEMO_PAD + 18, by + (bh - (FONT_SIZE - 1)) / 2);

@@ -493,11 +493,13 @@ function toggleLineMemoInline() {
 
 // memo 編集 popup の category 選択肢。null は「category 未設定 (= 旧メモ)」用。
 const _MEMO_CATEGORIES = [
-  { value: 'draft', label: '📝 draft' },
+  // option はテキストしか持てないので記号はモノクロの文字で揃える
+  // （カラー絵文字は他の記号から浮く。memo-list.js のメモ印 ✎ と同じ）
+  { value: 'draft', label: '✎ draft' },
   { value: 'ok',    label: '✓ ok'    },
   { value: 'warn',  label: '⚠ warn'  },
   { value: 'error', label: '✕ error' },
-  { value: 'note',  label: '📌 note' },
+  { value: 'note',  label: '※ note'  },
 ];
 
 function _mkCategorySelect(currentCat) {
@@ -1262,7 +1264,7 @@ async function ensureEditor() {
                 suffix = `\n\n*実態: ${defFile}:${n.match.line}*`;
               }
               contents.push({value:
-                `💬 **${n.label || shortPath(n.match?.file||'')+':'+(n.match?.line||'')}**\n\n${n.memo}${suffix}`
+                `**${n.label || shortPath(n.match?.file||'')+':'+(n.match?.line||'')}**\n\n${n.memo}${suffix}`
               });
             });
             contents.push({value: '---'});

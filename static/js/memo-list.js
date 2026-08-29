@@ -31,6 +31,8 @@ function saveMemoGroups(arr) {
 
 // カラー絵文字 (⚡) は他のモノクロアイコンから浮くため、currentColor の SVG で持つ。
 const INSERTION_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 16 16" style="vertical-align:middle"><path d="M9 1.5 3.5 9H7l-1.5 5.5L11 7H7.5L9 1.5z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>`;
+// 削除の印も同じ理由で SVG。トーストと一括削除ボタンで共用する
+const TRASH_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 16 16" style="vertical-align:middle"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 9h5.6l.7-9" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>`;
 
 function getAllMemosOrdered() {
   const lineMemos = getLineMemos();
@@ -186,7 +188,7 @@ function _showUndoToast(label) {
   clearTimeout(_memoListUndoTimer);
   const toast = document.createElement('div');
   toast.id = 'memo-undo-toast';
-  toast.innerHTML = `<span>🗑 ${esc(label)}</span>` +
+  toast.innerHTML = `<span>${TRASH_ICON_SVG} ${esc(label)}</span>` +
                     `<button id="memo-undo-btn" title="Ctrl+Z でも可">元に戻す</button>`;
   document.body.appendChild(toast);
   document.getElementById('memo-undo-btn').onclick = _undoMemoDelete;
@@ -411,7 +413,7 @@ function renderMemoList() {
     const bulkBtn = document.createElement('button');
     bulkBtn.id = 'memo-list-bulk-del-drafts';
     bulkBtn.className = 'memo-bulk-btn';
-    bulkBtn.textContent = '🗑 draft メモ全削除';
+    bulkBtn.innerHTML = `${TRASH_ICON_SVG} draft メモ全削除`;
     bulkBtn.title = 'カテゴリ "draft" のメモを一括削除 (確認 dialog あり)';
     bulkBtn.onclick = _bulkDeleteDrafts;
     actionBar.appendChild(bulkBtn);

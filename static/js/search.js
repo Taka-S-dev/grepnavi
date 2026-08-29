@@ -196,7 +196,7 @@ function doSearch() {
     // 0件の理由 (glob ミス / regex ボタン押し忘れ) があれば結果パネルに表示。
     // 「存在しない」と「検索条件のミス」をユーザーが区別できるようにする。
     if(d.count === 0 && d.hint) {
-      id('results').innerHTML = `<div class="search-hint">💡 ${esc(d.hint)}</div>`;
+      id('results').innerHTML = `<div class="search-hint">${esc(d.hint)}</div>`;
     }
     saveSearchTab(q, d.count, title, overText);
     if(typeof updateSearchTitle === 'function') updateSearchTitle(q, d.count);
