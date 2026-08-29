@@ -1,5 +1,5 @@
 import { annotateMemo, likelyTrivial, inCallerSubtree } from "./client.js";
-import type { DefHit, GrepnaviClient, MemoCategory } from "./client.js";
+import type { DefHit, GrepnaviClient, MemoCategory, RawCallee } from "./client.js";
 import { client } from "./shared.js";
 import type { BatchNodeInput, CallerTreeNode } from "./shared.js";
 
@@ -492,9 +492,40 @@ export async function enrichCallee(name: string, callerFile?: string) {
 export type EnrichedCallee = Awaited<ReturnType<typeof enrichCallee>> & {
   call_line: number;
   children?: EnrichedCallee[];
+  indirect_calls?: IndirectCall[];
   recursion_stopped?: "depth_limit" | "non_callable" | "already_visited" | "no_definition";
   body_preview?: string;
 };
+
+// 関数ポインタ経由の呼び出し。名前で定義を引くと同名の別関数に当たるので、
+// 定義解決の列には混ぜず、「メンバ名」「持ち主」「行」だけを別の列で返す。
+export type IndirectCall = {
+  name: string;
+  call_line: number;
+  receiver?: string;
+  text?: string;
+};
+
+// 関数ポインタ経由の列に添える一行。手段と限界の説明はツール説明文にあり、
+// 応答は呼ぶたびに読まれるので、ここは次の一手だけを言う。
+export const indirectCallsNote =
+  "The target is whatever `receiver`.`name` holds, not decidable from text. Candidates: grepnavi_references(word: name, assign: true).";
+
+export function splitIndirectCallees(raw: RawCallee[]): { direct: RawCallee[]; indirect: IndirectCall[] } {
+  const direct: RawCallee[] = [];
+  const indirect: IndirectCall[] = [];
+  for (const c of raw) {
+    if (!c.indirect) {
+      direct.push(c);
+      continue;
+    }
+    const e: IndirectCall = { name: c.name, call_line: c.call_line };
+    if (c.receiver) e.receiver = c.receiver;
+    if (c.text) e.text = c.text.trim();
+    indirect.push(e);
+  }
+  return { direct, indirect };
+}
 
 // callees に optional な func body preview を付ける。
 // 各 callee の top definition (kind=func 推奨) に対して /api/func-body を呼び、
@@ -529,14 +560,18 @@ export async function fetchEnrichedCallees(
   selfName: string,
   filters: { exclude_macros?: boolean; exclude_non_callable?: boolean },
 ): Promise<{
-  raw: Array<{ name: string; call_line: number }>;
-  filtered: Array<{ name: string; call_line: number }>;
+  raw: RawCallee[];
+  filtered: RawCallee[];
   enriched: EnrichedCallee[];
+  indirect: IndirectCall[];
   excludedMacroNames: string[];
   excludedNonCallableNames: string[];
 }> {
   const raw = await client.callees(file, line);
-  const filtered = selfName ? raw.filter((c) => c.name !== selfName) : raw;
+  // 関数ポインタ経由は定義解決に掛けない: メンバ名で definition を引くと同名の
+  // 別関数 (`read`) が top に立ち、confidence まで付いて本物に見える。
+  const { direct, indirect } = splitIndirectCallees(raw);
+  const filtered = selfName ? direct.filter((c) => c.name !== selfName) : direct;
   const enriched = await Promise.all(
     filtered.map(async (c) => ({ ...c, ...(await enrichCallee(c.name, file)) })),
   );
@@ -560,6 +595,7 @@ export async function fetchEnrichedCallees(
     raw,
     filtered,
     enriched: kept,
+    indirect,
     excludedMacroNames,
     excludedNonCallableNames,
   };
@@ -653,10 +689,15 @@ export async function resolveAndEnrichCallees(args: {
     depth: maxDepth,
     total: top.raw.length,
     excluded: {
-      self: top.raw.length - top.filtered.length,
+      self: top.raw.length - top.filtered.length - top.indirect.length,
       macros: top.excludedMacroNames,
       non_callable: top.excludedNonCallableNames,
     },
+    // 関数ポインタ経由は callees の列に混ぜない。混ぜると同名の別関数に
+    // 解決された「本物らしい」行が並び、読む側は辿っているつもりで別の実装へ行く
+    ...(top.indirect.length
+      ? { indirect_calls: { count: top.indirect.length, note: indirectCallsNote, calls: top.indirect } }
+      : {}),
   };
   if (args.compact !== undefined) {
     return { ...base, callees: args.compact ? toCompactCallees(top.enriched) : top.enriched };
@@ -696,6 +737,9 @@ export type CompactCallee = {
   pin?: boolean;
   def?: string; // "file:line"。定義が引けなかったときは省略
   children?: CompactCallee[];
+  // 関数ポインタ経由は compact でも落とさない: 落とすと「この関数は ops 経由で
+  // 何も呼んでいない」と読めてしまう。行と受け手だけに畳む
+  indirect_calls?: Array<{ name: string; call_line: number; receiver?: string }>;
   recursion_stopped?: string;
 };
 
@@ -708,6 +752,11 @@ export function toCompactCallees(nodes: EnrichedCallee[]): CompactCallee[] {
     if (def) c.def = `${def.file}:${def.line}`;
     if (n.recursion_stopped) c.recursion_stopped = n.recursion_stopped;
     if (n.children?.length) c.children = toCompactCallees(n.children);
+    if (n.indirect_calls?.length) {
+      c.indirect_calls = n.indirect_calls.map(({ name, call_line, receiver }) =>
+        receiver ? { name, call_line, receiver } : { name, call_line },
+      );
+    }
     return c;
   });
 }
@@ -742,6 +791,7 @@ export async function expandCalleeRecursive(
 
   const sub = await fetchEnrichedCallees(target.file, target.line, node.name, filters);
   node.children = sub.enriched;
+  if (sub.indirect.length) node.indirect_calls = sub.indirect;
   for (const child of sub.enriched) {
     await expandCalleeRecursive(child, maxDepth, currentDepth + 1, visited, filters);
   }

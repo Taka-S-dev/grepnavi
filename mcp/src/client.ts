@@ -50,6 +50,17 @@ export interface CallSite {
   text?: string;
 }
 
+/** /api/callees の 1 件。indirect は `s->method->ssl_read(` のようなメンバ呼び出し。 */
+export interface RawCallee {
+  name: string;
+  call_line: number;
+  kind?: string;
+  text?: string;
+  indirect?: boolean;
+  /** メンバの持ち主の式 (`s->method`)。戻り値のメンバなど名前で追えない形では無い。 */
+  receiver?: string;
+}
+
 export interface SearchMatch {
   file: string;
   line: number;
@@ -527,16 +538,12 @@ export class GrepnaviClient {
   // /api/callees は (file, line) で「その関数定義の中から呼ばれる識別子と呼び出し行」を返す。
   // 新しい server は [{name, call_line}]、古い server は []string を返すので両形式を吸収する
   // (古い server に当たっても crash させない)。
-  async callees(file: string, line: number): Promise<Array<{ name: string; call_line: number }>> {
+  async callees(file: string, line: number): Promise<RawCallee[]> {
     const params = new URLSearchParams({ file, line: String(line) });
     const r = await this.req("/api/callees?" + params.toString());
     const data = (await r.json()) as unknown;
     if (!Array.isArray(data)) return [];
-    return data.map((c) =>
-      typeof c === "string"
-        ? { name: c, call_line: 0 }
-        : (c as { name: string; call_line: number }),
-    );
+    return data.map((c) => (typeof c === "string" ? { name: c, call_line: 0 } : (c as RawCallee)));
   }
 
   async graph(): Promise<GraphResponse> {
