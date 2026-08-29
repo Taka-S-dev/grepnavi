@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"grepnavi/search"
 )
@@ -258,5 +259,16 @@ func TestKeywordsAreNotLookedUp(t *testing.T) {
 		if locs := res.([]location); len(locs) != 0 {
 			t.Errorf("keyword resolved to %+v", locs)
 		}
+	}
+}
+
+// 1 リクエストに期限が付く。受付が直列なので、期限の無い rg 走査は後続を全部塞ぐ。
+func TestRequestContextHasDeadline(t *testing.T) {
+	s := &server{}
+	ctx, cancel := s.requestContext()
+	defer cancel()
+	d, ok := ctx.Deadline()
+	if !ok || time.Until(d) > requestTimeout || time.Until(d) <= 0 {
+		t.Errorf("deadline = %v ok=%v", d, ok)
 	}
 }

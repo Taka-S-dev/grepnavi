@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"grepnavi/search"
 )
@@ -92,8 +93,20 @@ var cKeywords = map[string]bool{
 	"unsigned": true, "void": true, "volatile": true, "while": true,
 }
 
+// requestTimeout は 1 リクエストに許す時間。受付が直列なので、索引に無い語の
+// rg フォールバックが長引くと後続の要求が全部その後ろに並ぶ。期限が来たら
+// rg は殺され（proc.CommandContext）、その要求は「答えなし」で返る。
+// 索引があれば 1 秒かからず、無くても openssl 級のツリーの rg 走査は数秒で
+// 終わるので、正しい答えを切る値ではない。
+const requestTimeout = 15 * time.Second
+
+func (s *server) requestContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), requestTimeout)
+}
+
 func (s *server) findDefinitions(word, currentFile string) []search.DefHit {
-	ctx := context.Background()
+	ctx, cancel := s.requestContext()
+	defer cancel()
 	if search.GtagsInPath() && search.GtagsIndexed(s.root) {
 		if hits, err := search.GtagsFindDefinitions(ctx, word, s.root); err == nil && len(hits) > 0 {
 			return hits
@@ -133,7 +146,9 @@ func (s *server) handleReferences(raw json.RawMessage) (any, *responseError) {
 	}
 	// 上限は GUI の参照一覧と同じ発想で高めに取る。切られたことを LSP で
 	// 伝える口は無いので、途中で黙って切れるよりは広く返す。
-	refs, _, _, err := search.FindReferences(context.Background(), word, s.root, 2000, false, "")
+	ctx, cancel := s.requestContext()
+	defer cancel()
+	refs, _, _, err := search.FindReferences(ctx, word, s.root, 2000, false, "")
 	if err != nil {
 		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
 	}
@@ -155,7 +170,9 @@ func (s *server) handleHover(raw json.RawMessage) (any, *responseError) {
 	if word == "" {
 		return nil, nil
 	}
-	hits, _, err := search.FindHover(context.Background(), word, s.root, "", s.root)
+	ctx, cancel := s.requestContext()
+	defer cancel()
+	hits, _, err := search.FindHover(ctx, word, s.root, "", s.root)
 	if err != nil || len(hits) == 0 {
 		return nil, nil
 	}
@@ -223,7 +240,9 @@ func (s *server) handleIncomingCalls(raw json.RawMessage) (any, *responseError) 
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
 	}
-	sites, _, _, err := search.FindRefSites(context.Background(), search.RefQuery{
+	ctx, cancel := s.requestContext()
+	defer cancel()
+	sites, _, _, err := search.FindRefSites(ctx, search.RefQuery{
 		Word:        p.Item.Name,
 		Root:        s.root,
 		CallersOnly: true,
@@ -281,7 +300,9 @@ func (s *server) handleOutgoingCalls(raw json.RawMessage) (any, *responseError) 
 		}
 		file, line = def.File, def.Line
 	}
-	hits, self, _, err := search.FindCallees(context.Background(), file, line, s.root)
+	ctx, cancel := s.requestContext()
+	defer cancel()
+	hits, self, _, err := search.FindCallees(ctx, file, line, s.root)
 	if err != nil {
 		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
 	}
