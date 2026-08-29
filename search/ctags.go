@@ -385,7 +385,7 @@ func ctagsParseSymbols(tagsPath string) (SymbolsByKind, error) {
 		rest := line[tab1:]
 		// ファイル欄（2列目）で C/C++ 以外と除外パスを落とす。tags が古い設定で
 		// 作られていると生成物（doxygen の html/js など）の名前が混ざり、補完で
-		// cryptlib_8c.html のようなゴミが出る
+		// cryptlib_8c.html のような候補が出る
 		if tab2 := bytes.IndexByte(rest[1:], '\t'); tab2 >= 0 {
 			file := string(rest[1 : 1+tab2])
 			if !ctagsIsCFile(file) || IsExcluded(filepath.Join(tagsDir, strings.TrimPrefix(file, "./"))) {

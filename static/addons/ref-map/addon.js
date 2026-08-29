@@ -98,61 +98,33 @@ function closeRefMap() {
 }
 
 // ===== 移動の履歴 =====
-
 // パンくずは祖先しか辿れない。`▾` の兄弟移動やファイルツリーからの直行が入って、
-
 // 「さっき見ていた場所」がパンくずの上に無いことが普通になったので、来た道を
-
 // 別に持つ。エディタ側の履歴 (editor.js の navHistory) と同じ規約で、履歴を
-
 // 辿っている間は積まない。
-
 let _rmHist = [];
-
 let _rmHistIdx = -1;
 
-
-
 function rmHistPush(focus) {
-
   if (_rmHistIdx >= 0 && _rmHist[_rmHistIdx] === focus) return;
-
   _rmHist = _rmHist.slice(0, _rmHistIdx + 1);
-
   _rmHist.push(focus);
-
   _rmHistIdx = _rmHist.length - 1;
-
 }
-
-
 
 function rmHistGo(delta) {
-
   const i = _rmHistIdx + delta;
-
   if (i < 0 || i >= _rmHist.length) return false;
-
   _rmHistIdx = i;
-
   rmLoad(_rmHist[i], { fromHistory: true });
-
   return true;
-
 }
 
-
-
 function rmUpdateNavButtons() {
-
   const b = document.getElementById('rm-back');
-
   const f = document.getElementById('rm-fwd');
-
   if (b) b.disabled = _rmHistIdx <= 0;
-
   if (f) f.disabled = _rmHistIdx >= _rmHist.length - 1;
-
 }
 
 async function rmLoad(focus, opts) {

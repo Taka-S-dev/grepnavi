@@ -1434,7 +1434,7 @@ const nodeBadgeEditor = createNodeFieldModal({
   successToast: () => 'バッジ保存',
 });
 
-// F2 / 右クリック「名前を変更」のエントリポイント。lbl/m は API 互換のため残置。
+// F2 / 右クリック「名前を変更」のエントリポイント。lbl/m は呼び出し側の形を揃えるためだけに受ける。
 function startNodeLabelEdit(lbl, node, m) {
   nodeLabelEditor.open(node);
 }
@@ -2676,7 +2676,7 @@ function attachIndentDrag(handle, row, nodeId, depth) {
   }
 }
 
-// インクルード依存グラフ機能は static/js/include-graph.js に分離されています。
+// インクルード依存グラフは static/addons/c-include/addon.js にある。
 
 // ===== CODE SNAPSHOT =====
 // 実装は editor.js の exportSelectionSnapshot() を参照

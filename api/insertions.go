@@ -376,7 +376,8 @@ func (h *Handler) deleteInsertionByID(w http.ResponseWriter, r *http.Request, id
 			return
 		}
 		// ErrUnsupportedEncoding→415 / ErrMismatch・errRecordedLineModified→409
-		// など、POST/PUT と同じマッピングを通す（以前は一律500にしていた）。
+		// など、POST/PUT と同じマッピングを通す。一律 500 だと呼び出し側が
+		// 「行が変わっていた」と「壊れた」を区別できない
 		patchErrStatus(w, err)
 		return
 	}

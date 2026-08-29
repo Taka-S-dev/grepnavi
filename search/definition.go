@@ -312,7 +312,7 @@ func findDefinitionsInFiles(ctx context.Context, word string, files []string) ([
 //
 // 実行戦略:
 //   - 全パターン（define / struct / enum / typedef / func）を1つの正規表現に統合して
-//     rg を1回だけ呼ぶ（従来の7プロセス → 1プロセス）。
+//     rg を1回だけ呼ぶ（パターンごとに起動すると 7 プロセスになる）。
 //   - 各ヒットの kind はマッチ行のテキストから事後判定する。
 func FindDefinitionsN(ctx context.Context, word, dir, glob string, maxPerQuery int) ([]DefHit, error) {
 	if word == "" || dir == "" {

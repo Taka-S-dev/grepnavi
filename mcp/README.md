@@ -295,7 +295,7 @@ main.go の line 1 を「Claude 経由テスト」のラベルでルートノー
 - **callees の self 除外**: `word` を渡しておけば同名は自動で除外される (`excluded_self` カウントが結果に含まれる)。
 - **`fetch failed` 単独で出てきたら**: ブリッジは `ECONNREFUSED` / `ENOTFOUND` / `ETIMEDOUT` を検出して原因コードと対処を表示する。それでも出ない場合は `GREPNAVI_URL` の port を疑う (デフォルト 8080)。
 - **GUI と AI の memo 同時編集**: `/api/graph/memos` が**全置換 PUT** な性質上、AI が memo を書き、ほぼ同時刻に GUI でも別 memo を編集していると一方が消える race window がある。ブリッジは「現状 fetch → merge → PUT」で minimize、加えて server が `memos.updated` SSE を発火 → browser が即時 reload するので**最終状態は通常収束**する。ただし「AI が memo X を書く」と「GUI で memo Y を typing 中」が ms 単位で重なった場合は GUI のローカル変更が prefer される。
-- **version mismatch**: grepnavi 本体や bridge を更新したら**両方とも再起動**する必要がある。bridge は古い `/api/callees` 形式 (`[]string`) も互換吸収するが、その場合 `call_line` が 0 で返る。更新時は `go build && 再起動` + `npm run build` + Claude Code 再起動の **3 ステップ**を忘れずに。
+- **version mismatch**: grepnavi 本体や bridge を更新したら**両方とも再起動**する必要がある。bridge は古い `/api/callees` 形式 (`[]string`) も互換吸収するが、その場合 `call_line` が 0 で返る。更新時は `go build && 再起動` + `npm run build` + Claude Code 再起動の **3 ステップ**が要る。
 
 ## 既知の制限
 

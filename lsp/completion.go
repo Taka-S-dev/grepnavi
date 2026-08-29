@@ -14,8 +14,7 @@ import (
 // 補完はエディタの未保存バッファを見ないと成立しない（"s->" と打った瞬間、
 // ディスクにはまだ無い）。textDocumentSync を full で受け、開いている文書の
 // 内容を持つ。他のハンドラ（hover / definition）も開いていればこちらを優先する。
-// didChange を無視していた「保存済み状態だけを見る」方針からの変更点で、
-// 索引（定義位置など）が保存済み基準なのは変わらない。
+// 索引（定義位置など）は保存済みのファイルが基準のまま。
 
 func (s *server) handleDidOpen(raw json.RawMessage) {
 	var p struct {

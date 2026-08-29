@@ -170,9 +170,8 @@ func FindHover(ctx context.Context, word, dir, glob, root string, includeChain .
 			commentLine = findContainingBlockStart(lines, h.Line)
 		case "func":
 			body = extractBraceBlock(lines, h.Line, 20)
-			// { がない場合は宣言（プロトタイプ）
-			// NOTE: 宣言/定義の判定ロジックは search/classify.go の ClassifyKind と対になっています。
-			// 片方を変更した場合はもう片方も確認してください。
+			// { がない場合は宣言（プロトタイプ）。
+			// 判定は search/classify.go の ClassifyKind と対。片方を変えたらもう片方も直す
 			if !strings.Contains(body, "{") {
 				body = h.Text
 				isDecl = true
@@ -194,9 +193,9 @@ func FindHover(ctx context.Context, word, dir, glob, root string, includeChain .
 		result = append(result, HoverHit{File: h.File, Line: h.Line, Kind: h.Kind, Body: body, Decl: isDecl, Value: value, Healed: h.Healed})
 	}
 
-	// func 結果を実装（decl:false）優先・上限2件でフィルタ
-	// 宣言（decl:true）は実装が見つからない場合のみ最大2件補完
-	// ※ 以前の funcCount >= 2 制限は宣言2件で実装がスキップされるバグがあったため廃止
+	// func 結果を実装（decl:false）優先・上限2件でフィルタ。
+	// 宣言（decl:true）は実装が見つからない場合のみ最大2件補完。宣言の件数で
+	// 先に打ち切ると、宣言が2件あるだけで実装が出なくなる
 	var funcDefs, funcDecls []HoverHit
 	var nonFunc []HoverHit
 	for _, h := range result {

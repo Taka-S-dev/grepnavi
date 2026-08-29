@@ -127,7 +127,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/structure/build", h.handleStructureBuild)
 	mux.HandleFunc("/api/structure/children", h.handleStructureChildren)
 	mux.HandleFunc("/api/structure/edge-symbols", h.handleStructureEdgeSymbols)
-	// [GNU Global] 以下の4行を削除し、definition/hover/callersの分岐を除去で取り外し可能
+	// [GNU Global] この5行と definition/hover/callers の分岐を消せば取り外せる
 	mux.HandleFunc("/api/gtags/status", h.handleGtagsStatus)
 	mux.HandleFunc("/api/gtags/index", h.handleGtagsIndex)
 	mux.HandleFunc("/api/gtags/update", h.handleGtagsUpdate)
@@ -137,7 +137,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/ctags/index", h.handleCtagsIndex)
 	mux.HandleFunc("/api/ctags/file-symbols", h.handleCtagsFileSymbols)
 	mux.HandleFunc("/api/ctags/macros", h.handleCtagsMacros)
-	// [C言語アドオン] 以下の3行を削除するとインクルードグラフAPIが無効になります
+	// [C言語アドオン] この3行を消すとインクルードグラフ API が無効になる
 	mux.HandleFunc("/api/include-graph", h.handleIncludeGraph)
 	mux.HandleFunc("/api/include-file", h.handleIncludeFile)
 	mux.HandleFunc("/api/include-by", h.handleIncludeBy)
