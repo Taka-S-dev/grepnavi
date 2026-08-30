@@ -22,7 +22,7 @@ before reporting anything as certain.
 - `graph` — a digest of the investigation already in progress: node count, entry points with their
   memos, and `unverified` (memos written from inference and never confirmed). **If this is
   non-empty, the user has been here before — continue from those roots instead of starting over.**
-  Absent entirely on grepnavi builds older than 2026-07; fall back to `grepnavi_graph_list` then.
+  If the field is absent (an older grepnavi build), fall back to `grepnavi_graph_list`.
 
 ## Picking a tool
 

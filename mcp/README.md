@@ -272,7 +272,7 @@ main.go の line 1 を「Claude 経由テスト」のラベルでルートノー
 
 ### コツ
 
-> tool description は意図的に簡潔に保ってあるので、運用 tip はここで補う。
+ツールの説明文に入れていない運用上の注意をまとめる。
 
 - **ファイルを開く時は必ず `grepnavi_read_file`** を使うように AI に指示する。AI 自前の Read/Bash は CWD が grepnavi の root とズレてミスマッチを起こすし、SJIS / EUC-JP ファイルを正しく decode できない (この 2 つが「ノードに文字化けした memo が紛れ込む」問題の根本原因)
 - **definition の sanity check pattern**: definition は稀に無関係な hit (gtags miss → ripgrep fallback がコメントを拾う等) を返すことがある。直後に `grepnavi_callees(word=...)` を呼ぶと bridge が `caller` を echo back する → そこで定義 pick と照合できる。一致しなければ `file` や `dir` で絞って再 query
