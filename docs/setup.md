@@ -60,7 +60,7 @@ ssh -L 8080:localhost:8080 user@desktop-ip
 
 ## エディタ連携（LSP・実験的）
 
-`grepnavi -lsp` は Language Server Protocol の stdio サーバとして起動し、次をエディタに提供します（GUI も HTTP サーバは起動しません）。
+`grepnavi -lsp` は Language Server Protocol の stdio サーバとして起動し、次をエディタに提供します（GUI も HTTP サーバも起動しません）。
 
 | エディタの操作 | LSP | 中身 |
 |---|---|---|
@@ -104,10 +104,12 @@ VSCode は同梱の接続拡張を使います（`editors/vscode/`）。ビル�
 cd editors/vscode
 npm install
 npx @vscode/vsce package --allow-missing-repository --skip-license
-code --install-extension grepnavi-lsp-0.1.4.vsix
+code --install-extension grepnavi-lsp-0.1.5.vsix
 ```
 
-インストール後、設定 `grepnavi.serverPath` に grepnavi 実行ファイルのパスを指定します（PATH に置いてあれば不要です）。`grepnavi.defines` に `CONFIG_X=1 DEBUG=0` のように構成を書くと、その構成で無効になるブロックが薄く表示されます（ワークスペースごとに設定できます）。C/C++ ファイルを開くと自動で接続され、F12 / Shift+F12 / 呼び出し階層（Shift+Alt+H）が grepnavi の索引で動きます。拡張名を出したくない環境では `package.json` の `displayName` を変えてからパッケージし直してください。
+インストール後、設定 `grepnavi.serverPath` に grepnavi 実行ファイルのパスを指定します（PATH に置いてあれば不要です）。`grepnavi.defines` に `CONFIG_X=1 DEBUG=0` のように構成を書くと、その構成で無効になるブロックが薄く表示されます（ワークスペースごとに設定できます）。C/C++ ファイルを開くと自動で接続され、F12 / Shift+F12 / 呼び出し階層（Shift+Alt+H）が grepnavi の索引で動きます。
+
+ステータスバー右の `✓ grepnavi` が接続表示です。文字を変えたいときは設定 `grepnavi.statusBarLabel`（空文字でアイコンだけ）、項目ごと消すときはステータスバーの右クリックから非表示にします。Output のチャンネル名やクラッシュ通知まで含めてツール名を出したくない環境では、`package.json` の `displayName` を変えてからパッケージし直すと、名前の出る場所がすべてその表示名になります（拡張 ID と設定キー `grepnavi.*` は変えないでください。別拡張の扱いになり設定が引き継がれません）。
 
 ## アイコンの再生成
 

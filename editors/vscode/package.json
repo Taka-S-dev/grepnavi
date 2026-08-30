@@ -1,8 +1,8 @@
 {
   "name": "grepnavi-lsp",
-  "displayName": "grepnavi LSP",
+  "displayName": "grepnavi",
   "description": "C/C++ navigation via grepnavi -lsp: definition, references, hover, call hierarchy, completion, outline",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "publisher": "grepnavi-local",
   "license": "MIT",
   "engines": {
@@ -31,6 +31,14 @@
           "default": "",
           "scope": "resource",
           "description": "#ifdef の構成。\"CONFIG_X=1 DEBUG=0 NDEBUG\" のように空白区切りで書く（値を省くと 1）。偽になるブロックと #if 0 が薄く表示される。GUI の #ifdef 条件リストと同じ書式"
+        },
+        "grepnavi.statusBarLabel": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "ステータスバーの接続表示に出す文字。未設定なら拡張の表示名、空文字なら状態アイコンだけになる。項目ごと消したいときはステータスバーを右クリックして非表示にする"
         }
       }
     }
