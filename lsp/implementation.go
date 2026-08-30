@@ -17,7 +17,7 @@ import (
 func (s *server) handleImplementation(ctx context.Context, raw json.RawMessage) (any, *responseError) {
 	var p textDocumentPositionParams
 	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
+		return nil, &responseError{Code: codeInvalidParams, Message: err.Error()}
 	}
 	locs := []location{}
 	word, path := s.wordAt(p.TextDocument.URI, p.Position)
@@ -44,7 +44,7 @@ func (s *server) handleImplementation(ctx context.Context, raw json.RawMessage) 
 	// 代入の形の行だけを手元で残す
 	refs, _, _, err := search.FindReferences(ctx, word, s.root, 2000, false, "")
 	if err != nil {
-		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
+		return nil, searchError(ctx, err)
 	}
 	// 受け手 `file->f_op` の struct が分かれば、その struct の初期化子にある
 	// `.read = fn` だけを残す。linux の `read` は 1,294 行に代入されていて、

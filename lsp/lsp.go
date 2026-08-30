@@ -59,7 +59,10 @@ type server struct {
 	outMu sync.Mutex // 応答は 1 件ずつ書く。並行処理でフレームが混ざらないように
 	out   io.Writer
 
-	shutdown atomic.Bool
+	// initialized / shutdown はライフサイクルの旗。initialize 前の要求は
+	// ServerNotInitialized、shutdown 後の要求は InvalidRequest で断る（LSP 3.17 の規定）
+	initialized atomic.Bool
+	shutdown    atomic.Bool
 
 	docsMu sync.RWMutex
 	docs   map[string]string // 開いている文書の内容（URI → 全文）。補完が未保存バッファを見るため
@@ -92,31 +95,61 @@ type responseError struct {
 	Message string `json:"message"`
 }
 
+// JSON-RPC / LSP のエラーコード。
 const (
-	codeMethodNotFound = -32601
-	codeInvalidRequest = -32600
+	codeInvalidRequest       = -32600
+	codeMethodNotFound       = -32601
+	codeInvalidParams        = -32602 // 引数の JSON が読めない・形が違う
+	codeInternalError        = -32603 // 検索エンジンの失敗
+	codeServerNotInitialized = -32002 // initialize より前の要求
+	codeRequestCancelled     = -32800 // エディタが $/cancelRequest で取り消した
+	codeServerCancelled      = -32802 // サーバの期限（requestTimeout）で打ち切った
 )
 
-// codeRequestCancelled は LSP が取り消された要求に返すエラーコード。
-const codeRequestCancelled = -32800
+// searchError は検索エンジンの失敗を、原因に応じたコードに写す。ctx はその要求の
+// context（期限つき）: 期限切れはサーバ都合、取り消しはエディタ都合で、どちらも
+// 「エディタの要求が不正」ではない
+func searchError(ctx context.Context, err error) *responseError {
+	switch ctx.Err() {
+	case context.Canceled:
+		return &responseError{Code: codeRequestCancelled, Message: "request cancelled"}
+	case context.DeadlineExceeded:
+		return &responseError{Code: codeServerCancelled, Message: "request timed out"}
+	}
+	return &responseError{Code: codeInternalError, Message: err.Error()}
+}
 
 func (s *server) run() error {
 	defer s.wg.Wait()
+	// shutdown の応答は別 goroutine が処理中の要求を待ってから書く。exit や stdin の
+	// 終わりで抜けるときは、その応答を書き終えるまで待つ（書きかけで終わらない）
+	var shutdownReplied chan struct{}
+	waitShutdown := func() {
+		if shutdownReplied != nil {
+			<-shutdownReplied
+		}
+	}
 	for {
 		req, err := s.readMessage()
 		if err == io.EOF {
+			waitShutdown()
 			return nil
 		}
 		if err != nil {
 			return err
 		}
 		if req.Method == "exit" {
+			waitShutdown()
 			return nil
 		}
 		// 通知（ID なし）には応答しない。文書の開閉・変更は読み取りループで
 		// 順に反映する: 後から来た要求は必ず反映後の文書を見る。取り消しも
 		// ここで受ける（要求の goroutine が待っている間に届く必要がある）。
+		// initialize 前の通知は捨てる（exit だけは上で受けた）
 		if req.ID == nil {
+			if !s.initialized.Load() {
+				continue
+			}
 			switch req.Method {
 			case "textDocument/didOpen":
 				s.publishInactive(s.handleDidOpen(req.Params))
@@ -129,33 +162,63 @@ func (s *server) run() error {
 			}
 			continue
 		}
-		// initialize と shutdown は順序が意味を持つので、その場で答える。
-		// shutdown は処理中の要求を終えてから: 先に旗を立てると、直前に
-		// 受け付けた要求が「shutting down」で落ちる
-		if req.Method == "initialize" || req.Method == "shutdown" {
-			if req.Method == "shutdown" {
-				s.wg.Wait()
+		// ライフサイクルは読み取りループで判定する。initialize は 1 回だけ、
+		// それ以前の要求は ServerNotInitialized、shutdown 後の要求は InvalidRequest
+		if req.Method == "initialize" {
+			var rerr *responseError
+			var result any
+			if s.initialized.Load() {
+				rerr = &responseError{Code: codeInvalidRequest, Message: "server is already initialized"}
+			} else {
+				result = s.handleInitialize(req.Params)
+				s.initialized.Store(true)
 			}
-			result, rerr := s.dispatch(context.Background(), req)
 			if err := s.reply(req.ID, result, rerr); err != nil {
 				return err
 			}
 			continue
 		}
+		if !s.initialized.Load() {
+			if err := s.reply(req.ID, nil, &responseError{Code: codeServerNotInitialized, Message: "server not initialized"}); err != nil {
+				return err
+			}
+			continue
+		}
+		if s.shutdown.Load() {
+			if err := s.reply(req.ID, nil, &responseError{Code: codeInvalidRequest, Message: "server is shutting down"}); err != nil {
+				return err
+			}
+			continue
+		}
+		// shutdown は処理中の要求を終えてから答える。ただし待つのは別の goroutine:
+		// 読み取りループが止まると、処理中の要求への $/cancelRequest が届かなくなる
+		if req.Method == "shutdown" {
+			s.shutdown.Store(true)
+			shutdownReplied = make(chan struct{})
+			go func(id json.RawMessage, done chan struct{}) {
+				defer close(done)
+				s.wg.Wait()
+				_ = s.reply(id, nil, nil)
+			}(req.ID, shutdownReplied)
+			continue
+		}
+		// 取り消し口は goroutine を起こす前に登録する。起こしてからだと、直後に
+		// 届いた $/cancelRequest が「知らない ID」として捨てられることがある
+		ctx, cancel := context.WithCancel(context.Background())
+		s.cancelMu.Lock()
+		s.cancels[string(req.ID)] = cancel
+		s.cancelMu.Unlock()
 		s.wg.Add(1)
-		go s.serveRequest(req)
+		go s.serveRequest(ctx, cancel, req)
 	}
 }
 
 // serveRequest は 1 件の要求を自分の goroutine で処理する。取り消されたら
 // 結果を捨てて RequestCancelled を返す（エディタは応答が無いと待ち続ける）。
-func (s *server) serveRequest(req *request) {
+// ctx / cancel は呼ぶ側が cancels に登録済みで、ここで登録を外す。
+func (s *server) serveRequest(ctx context.Context, cancel context.CancelFunc, req *request) {
 	defer s.wg.Done()
-	ctx, cancel := context.WithCancel(context.Background())
 	key := string(req.ID)
-	s.cancelMu.Lock()
-	s.cancels[key] = cancel
-	s.cancelMu.Unlock()
 	defer func() {
 		s.cancelMu.Lock()
 		delete(s.cancels, key)
@@ -196,16 +259,10 @@ func (s *server) cancelRequest(raw json.RawMessage) {
 	}
 }
 
+// dispatch は initialize / shutdown 以外の要求をハンドラに配る（ライフサイクルは
+// run が見る）。
 func (s *server) dispatch(ctx context.Context, req *request) (any, *responseError) {
-	if s.shutdown.Load() && req.Method != "exit" {
-		return nil, &responseError{Code: codeInvalidRequest, Message: "server is shutting down"}
-	}
 	switch req.Method {
-	case "initialize":
-		return s.handleInitialize(req.Params), nil
-	case "shutdown":
-		s.shutdown.Store(true)
-		return nil, nil
 	case "textDocument/definition":
 		return s.handleDefinition(ctx, req.Params)
 	case "textDocument/references":

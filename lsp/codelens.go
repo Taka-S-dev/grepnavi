@@ -52,7 +52,7 @@ func (s *server) handleCodeLens(ctx context.Context, raw json.RawMessage) (any, 
 		} `json:"textDocument"`
 	}
 	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
+		return nil, &responseError{Code: codeInvalidParams, Message: err.Error()}
 	}
 	out := []codeLens{}
 	content, ok := s.documentText(p.TextDocument.URI)
@@ -75,7 +75,7 @@ func (s *server) handleCodeLens(ctx context.Context, raw json.RawMessage) (any, 
 func (s *server) handleCodeLensResolve(ctx context.Context, raw json.RawMessage) (any, *responseError) {
 	var lens codeLens
 	if err := json.Unmarshal(raw, &lens); err != nil {
-		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
+		return nil, &responseError{Code: codeInvalidParams, Message: err.Error()}
 	}
 	if lens.Data == nil || lens.Data.Name == "" {
 		lens.Command = &lensCommand{Title: "", Command: ""}

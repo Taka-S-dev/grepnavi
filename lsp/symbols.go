@@ -52,7 +52,7 @@ func (s *server) handleDocumentSymbol(ctx context.Context, raw json.RawMessage) 
 		} `json:"textDocument"`
 	}
 	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
+		return nil, &responseError{Code: codeInvalidParams, Message: err.Error()}
 	}
 	hits, err := search.CtagsSymbolsForFile(uriToPath(p.TextDocument.URI), s.root)
 	if err != nil {
@@ -89,7 +89,7 @@ func (s *server) handleWorkspaceSymbol(ctx context.Context, raw json.RawMessage)
 		Query string `json:"query"`
 	}
 	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
+		return nil, &responseError{Code: codeInvalidParams, Message: err.Error()}
 	}
 	if p.Query == "" {
 		return []any{}, nil

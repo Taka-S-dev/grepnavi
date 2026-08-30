@@ -52,7 +52,7 @@ func (s *server) handleSemanticTokensFull(ctx context.Context, raw json.RawMessa
 		} `json:"textDocument"`
 	}
 	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
+		return nil, &responseError{Code: codeInvalidParams, Message: err.Error()}
 	}
 	content, err := os.ReadFile(uriToPath(p.TextDocument.URI))
 	if err != nil {

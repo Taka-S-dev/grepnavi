@@ -13,7 +13,7 @@ import (
 func (s *server) handleTypeDefinition(ctx context.Context, raw json.RawMessage) (any, *responseError) {
 	var p textDocumentPositionParams
 	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
+		return nil, &responseError{Code: codeInvalidParams, Message: err.Error()}
 	}
 	locs := []location{}
 	word, path := s.wordAt(p.TextDocument.URI, p.Position)

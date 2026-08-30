@@ -24,7 +24,7 @@ func (s *server) handleFoldingRange(ctx context.Context, raw json.RawMessage) (a
 		} `json:"textDocument"`
 	}
 	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
+		return nil, &responseError{Code: codeInvalidParams, Message: err.Error()}
 	}
 	out := []foldingRange{}
 	content, ok := s.documentText(p.TextDocument.URI)

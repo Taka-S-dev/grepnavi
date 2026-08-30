@@ -222,7 +222,7 @@ func cSourceOnly(hits []search.DefHit) []search.DefHit {
 func (s *server) handleDefinition(ctx context.Context, raw json.RawMessage) (any, *responseError) {
 	var p textDocumentPositionParams
 	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
+		return nil, &responseError{Code: codeInvalidParams, Message: err.Error()}
 	}
 	word, path := s.wordAt(p.TextDocument.URI, p.Position)
 	if word == "" {
@@ -258,7 +258,7 @@ func (s *server) handleDefinition(ctx context.Context, raw json.RawMessage) (any
 func (s *server) handleReferences(ctx context.Context, raw json.RawMessage) (any, *responseError) {
 	var p referenceParams
 	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
+		return nil, &responseError{Code: codeInvalidParams, Message: err.Error()}
 	}
 	word, path := s.wordAt(p.TextDocument.URI, p.Position)
 	if word == "" {
@@ -276,7 +276,7 @@ func (s *server) handleReferences(ctx context.Context, raw json.RawMessage) (any
 	defer cancel()
 	refs, _, engine, err := search.FindReferences(ctx, word, s.root, 2000, false, "")
 	if err != nil {
-		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
+		return nil, searchError(ctx, err)
 	}
 	isMember := hasDoc && memberAccessAt(content, p.Position)
 	if isMember {
@@ -366,7 +366,7 @@ func lineKey(file string, line int) string {
 func (s *server) handleHover(ctx context.Context, raw json.RawMessage) (any, *responseError) {
 	var p textDocumentPositionParams
 	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
+		return nil, &responseError{Code: codeInvalidParams, Message: err.Error()}
 	}
 	word, path := s.wordAt(p.TextDocument.URI, p.Position)
 	if word == "" {
@@ -461,7 +461,7 @@ func (s *server) handleHover(ctx context.Context, raw json.RawMessage) (any, *re
 func (s *server) handlePrepareCallHierarchy(ctx context.Context, raw json.RawMessage) (any, *responseError) {
 	var p textDocumentPositionParams
 	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
+		return nil, &responseError{Code: codeInvalidParams, Message: err.Error()}
 	}
 	word, path := s.wordAt(p.TextDocument.URI, p.Position)
 	if word == "" {
@@ -495,7 +495,7 @@ type callHierarchyCallsParams struct {
 func (s *server) handleIncomingCalls(ctx context.Context, raw json.RawMessage) (any, *responseError) {
 	var p callHierarchyCallsParams
 	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
+		return nil, &responseError{Code: codeInvalidParams, Message: err.Error()}
 	}
 	ctx, cancel := s.requestContext(ctx)
 	defer cancel()
@@ -506,7 +506,7 @@ func (s *server) handleIncomingCalls(ctx context.Context, raw json.RawMessage) (
 		Limit:       1000,
 	})
 	if err != nil {
-		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
+		return nil, searchError(ctx, err)
 	}
 	type incomingCall struct {
 		From       callHierarchyItem `json:"from"`
@@ -537,7 +537,7 @@ func (s *server) handleIncomingCalls(ctx context.Context, raw json.RawMessage) (
 func (s *server) handleOutgoingCalls(ctx context.Context, raw json.RawMessage) (any, *responseError) {
 	var p callHierarchyCallsParams
 	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
+		return nil, &responseError{Code: codeInvalidParams, Message: err.Error()}
 	}
 	file := uriToPath(p.Item.URI)
 	line := p.Item.SelectionRange.Start.Line + 1
@@ -568,7 +568,7 @@ func (s *server) handleOutgoingCalls(ctx context.Context, raw json.RawMessage) (
 	defer cancel()
 	hits, self, _, err := search.FindCallees(ctx, file, line, s.root)
 	if err != nil {
-		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
+		return nil, searchError(ctx, err)
 	}
 	for _, c := range hits {
 		// `int run(void) {` のように `{` がシグネチャと同じ行にあると、自分の

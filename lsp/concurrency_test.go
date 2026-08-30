@@ -111,18 +111,10 @@ func TestCancelRequestWhileQueued(t *testing.T) {
 		s.sem <- struct{}{} // 枠を全部埋めて、次の要求を待たせる
 	}
 	req := &request{ID: json.RawMessage("7"), Method: "textDocument/hover", Params: json.RawMessage(`{}`)}
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancels["7"] = cancel
 	s.wg.Add(1)
-	go s.serveRequest(req)
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		s.cancelMu.Lock()
-		_, registered := s.cancels["7"]
-		s.cancelMu.Unlock()
-		if registered || time.Now().After(deadline) {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	go s.serveRequest(ctx, cancel, req)
 	s.cancelRequest(json.RawMessage(`{"id":7}`))
 	s.wg.Wait()
 	fs := out.frames(t)
