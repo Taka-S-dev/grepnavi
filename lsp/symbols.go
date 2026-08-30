@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"sort"
+	"strings"
 
 	"grepnavi/search"
 )
@@ -54,18 +55,35 @@ func (s *server) handleDocumentSymbol(ctx context.Context, raw json.RawMessage) 
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &responseError{Code: codeInvalidParams, Message: err.Error()}
 	}
-	hits, err := search.CtagsSymbolsForFile(uriToPath(p.TextDocument.URI), s.root)
-	if err != nil {
-		return []any{}, nil
-	}
-	sort.Slice(hits, func(i, j int) bool { return hits[i].Line < hits[j].Line })
+	path := uriToPath(p.TextDocument.URI)
+	hits, _ := search.CtagsSymbolsForFile(path, s.root)
 	type documentSymbol struct {
 		Name           string   `json:"name"`
 		Kind           int      `json:"kind"`
 		Range          lspRange `json:"range"`
 		SelectionRange lspRange `json:"selectionRange"`
 	}
-	out := make([]documentSymbol, 0, len(hits))
+	out := []documentSymbol{}
+	// 開いている文書の関数は、未保存の内容から取る。ctags の行は保存時点のもので、
+	// 編集中は書いたばかりの関数がアウトラインに出ず、行もずれる。マクロや struct
+	// は索引のまま（字面だけで安く取れるのは関数の範囲だけ）
+	if text, ok := s.openDocument(p.TextDocument.URI); ok {
+		kept := hits[:0]
+		for _, h := range hits {
+			if h.Kind != "func" {
+				kept = append(kept, h)
+			}
+		}
+		hits = kept
+		for _, fr := range search.FunctionRanges(strings.Split(text, "\n")) {
+			out = append(out, documentSymbol{
+				Name: fr.Name, Kind: symbolKindFunction,
+				Range:          lspRange{Start: position{Line: fr.Start - 1}, End: position{Line: fr.End - 1, Character: 9999}},
+				SelectionRange: wordRange(path, fr.Start, fr.Name),
+			})
+		}
+	}
+	sort.Slice(hits, func(i, j int) bool { return hits[i].Line < hits[j].Line })
 	for _, h := range hits {
 		name := h.Name
 		if name == "" {
@@ -79,6 +97,7 @@ func (s *server) handleDocumentSymbol(ctx context.Context, raw json.RawMessage) 
 			Range: wordRange(uriToPath(p.TextDocument.URI), h.Line, name), SelectionRange: wordRange(uriToPath(p.TextDocument.URI), h.Line, name),
 		})
 	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Range.Start.Line < out[j].Range.Start.Line })
 	return out, nil
 }
 

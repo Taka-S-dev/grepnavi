@@ -73,7 +73,7 @@ ssh -L 8080:localhost:8080 user@desktop-ip
 | 引数のヒント（`(` `,` で発火） | signatureHelp | 定義行の字面。関数ポインタのメンバは宣言 `int (*read)(...)` から |
 | 呼び出し階層（Shift+Alt+H） | callHierarchy | 呼び出し元はテーブル登録行を含む。呼び出し先は関数ポインタ経由を `(ptr 受け手)` と示して展開しない |
 | 補完 | completion | 構造体メンバー、`.`→`->` の自動修正、ローカル変数・関数・マクロ |
-| アウトライン / Ctrl+T | documentSymbol / workspaceSymbol | ctags |
+| アウトライン / Ctrl+T | documentSymbol / workspaceSymbol | ctags。開いている文書の関数は未保存の内容から取るので、書いたばかりの関数もアウトラインに出る（マクロ・struct は保存時点の索引） |
 | 折りたたみ | foldingRange | 関数本体、`#if`〜`#endif`、複数行コメント |
 | マクロと型名の色付け | semanticTokens | ctags |
 | 関数の上の「呼び出し元 3（登録 1）」 | codeLens | 索引の呼び出し元。テーブル登録行も数える。クリックで呼び出し行の一覧を Peek。件数は画面に見えている関数だけ数え、ファイルごとにキャッシュする |

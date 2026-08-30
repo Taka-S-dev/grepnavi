@@ -73,6 +73,14 @@ func (s *server) handleDidClose(raw json.RawMessage) {
 }
 
 // documentText は開いていればバッファ、無ければディスクの内容を返す。
+// openDocument はエディタが開いている文書の内容だけを返す（ディスクには落ちない）。
+func (s *server) openDocument(uri string) (string, bool) {
+	s.docsMu.RLock()
+	defer s.docsMu.RUnlock()
+	t, ok := s.docs[uri]
+	return t, ok
+}
+
 func (s *server) documentText(uri string) (string, bool) {
 	s.docsMu.RLock()
 	t, ok := s.docs[uri]

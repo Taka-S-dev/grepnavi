@@ -193,3 +193,35 @@ func TestFileURIRoundTripWithSpecialCharacters(t *testing.T) {
 		}
 	}
 }
+
+// アウトラインは開いている文書の未保存の内容から関数を取る。索引（保存時点）に
+// 無い関数も、書いた直後から出る。
+func TestDocumentSymbolsFollowTheOpenBuffer(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "a.c", "int existing(void) { return 0; }\n")
+	s := newServer(dir, nil, nil)
+	uri := pathToURI(f)
+	open, _ := json.Marshal(map[string]any{"textDocument": map[string]any{"uri": uri, "text": "int existing(void) { return 0; }\nint brand_new(int x) {\n\treturn x;\n}\n"}})
+	s.handleDidOpen(open)
+	params, _ := json.Marshal(map[string]any{"textDocument": map[string]string{"uri": uri}})
+	res, rerr := s.handleDocumentSymbol(context.Background(), params)
+	if rerr != nil {
+		t.Fatalf("error: %+v", rerr)
+	}
+	b, _ := json.Marshal(res)
+	var syms []struct {
+		Name  string `json:"name"`
+		Range struct {
+			Start struct{ Line int }
+			End   struct{ Line int }
+		}
+	}
+	json.Unmarshal(b, &syms)
+	var names []string
+	for _, sy := range syms {
+		names = append(names, fmt.Sprintf("%s@%d-%d", sy.Name, sy.Range.Start.Line, sy.Range.End.Line))
+	}
+	if got := strings.Join(names, " "); got != "existing@0-0 brand_new@1-3" {
+		t.Errorf("symbols = %q, want the two functions from the buffer", got)
+	}
+}
