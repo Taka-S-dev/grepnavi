@@ -60,7 +60,24 @@ ssh -L 8080:localhost:8080 user@desktop-ip
 
 ## エディタ連携（LSP・実験的）
 
-`grepnavi -lsp` は Language Server Protocol の stdio サーバとして起動し、定義ジャンプ・参照検索・ホバー（定義スニペットとマクロの計算値）・呼び出し階層・補完（構造体メンバー、`.`→`->` の自動修正、ローカル変数・関数・マクロ）・アウトラインとシンボル検索（Ctrl+Shift+O / Ctrl+T）・マクロと型名の色付け（セマンティックトークン）をエディタに提供する（GUI も HTTP サーバも起動しない）。索引の扱いは GUI と同じで、GNU Global があれば索引で引き、無ければ ripgrep に落ちる。診断（エラー表示）は名乗らない。
+`grepnavi -lsp` は Language Server Protocol の stdio サーバとして起動し、次をエディタに提供する（GUI も HTTP サーバも起動しない）。
+
+| エディタの操作 | LSP | 中身 |
+|---|---|---|
+| 定義へ移動（F12） | definition | gtags → ctags → ripgrep の順で、GUI と同じ |
+| 型定義へ移動 | typeDefinition | 変数の型を struct / union まで辿る（typedef は索引で解く） |
+| 実装へ移動 | implementation | 関数ならその定義。関数ポインタのメンバ（`p->read(`）なら `.read = fn` / `p->read = fn` と書いている行の一覧。名前だけから実体は決められないので、集合で返す |
+| 参照（Shift+F12） | references | 索引優先 |
+| 同じ語のハイライト | documentHighlight | ローカル変数はその関数の中だけ、書き込みは Write として区別 |
+| ホバー | hover | 定義スニペットとマクロ・enum の計算値 |
+| 引数のヒント（`(` `,` で発火） | signatureHelp | 定義行の字面。関数ポインタのメンバは宣言 `int (*read)(...)` から |
+| 呼び出し階層（Shift+Alt+H） | callHierarchy | 呼び出し元はテーブル登録行を含む。呼び出し先は関数ポインタ経由を `(ptr 受け手)` と示して展開しない |
+| 補完 | completion | 構造体メンバー、`.`→`->` の自動修正、ローカル変数・関数・マクロ |
+| アウトライン / Ctrl+T | documentSymbol / workspaceSymbol | ctags |
+| 折りたたみ | foldingRange | 関数本体、`#if`〜`#endif`、複数行コメント |
+| マクロと型名の色付け | semanticTokens | ctags |
+
+やらないもの: rename（検索ベースで名前を書き換えると別のシンボルまで変わる）、診断・コードアクション・整形（コンパイラの領分）。1 リクエストは 15 秒で打ち切り、索引に無い語の全文検索が後続を塞がないようにしている。索引の扱いは GUI と同じで、GNU Global があれば索引で引き、無ければ ripgrep に落ちる。診断（エラー表示）は名乗らない。
 
 Neovim は追加プラグインなしで接続できる:
 

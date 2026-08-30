@@ -58,7 +58,7 @@ clangd のような言語サーバを使える環境なら、精度はそちら�
 - **対象から外す宣言** — `.gitignore` と同じ書き方で生成物などを検索・参照・ジャンプの全機能から除外
 - **外部エディタ連携** — `{file}` / `{line}` プレースホルダで任意のエディタに接続
 - **AI エージェント連携** — MCP ブリッジで Claude Code / Copilot CLI 等から調査グラフを構築（[mcp/README.md](mcp/README.md)）
-- **エディタ連携（LSP・実験的）** — `-lsp` で Language Server として起動し、VSCode / Neovim に定義ジャンプ・参照・ホバー・呼び出し階層・補完・アウトラインを提供。索引は GUI と共有で、関数ポインタ経由の呼び出しは `(ptr)` と示して展開しない（[docs/setup.md](docs/setup.md)）
+- **エディタ連携（LSP・実験的）** — `-lsp` で Language Server として起動し、VSCode / Neovim に定義・型定義・実装へ移動、参照、同じ語のハイライト、ホバー、引数のヒント、呼び出し階層、補完、アウトライン、折りたたみを提供。索引は GUI と共有。関数ポインタのメンバは名前で別関数に解決せず、呼び出し階層では `(ptr)` と示し、「実装へ移動」では登録している行の一覧を返す（[docs/setup.md](docs/setup.md)）
 
 各機能の挙動の細部・操作方法・制限・実測値は [docs/features.md](docs/features.md) を参照。
 
