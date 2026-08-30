@@ -394,3 +394,31 @@ func TestLocalsResolveToTheirDeclarationInTheFunction(t *testing.T) {
 		t.Error("r->version must not resolve to the local version")
 	}
 }
+
+// doxygen の出力ごと索引にしたツリーでは、tags に HTML の見出しが入る。
+// エディタの F12 とホバーには出さない（GUI は最後に並べて残す）。
+func TestEditorAnswersDropHitsOutsideCSources(t *testing.T) {
+	dir := t.TempDir()
+	hdr := writeFile(t, dir, "rec.h", "struct rec {\n\tint rlayer;\n};\n")
+	html := writeFile(t, dir, "532.html", "<html>\n<body>\n<h3>\n<title>rlayer</title>\n")
+	f := writeFile(t, dir, "main.c", "#include \"rec.h\"\nint get(struct rec *r) { return r->rlayer; }\n")
+	slash := func(p string) string { return strings.ReplaceAll(p, "\\", "/") }
+	writeFile(t, dir, "tags", ""+
+		"!_TAG_FILE_SORTED\t1\t/0=unsorted, 1=sorted, 2=foldcase/\n"+
+		"rlayer\t"+slash(html)+"\t/^<title>rlayer<\\/title>$/;\"\tj\tline:4\n"+
+		"rlayer\t"+slash(hdr)+"\t/^\\tint rlayer;$/;\"\tm\tline:2\tstruct:rec\n")
+	s := &server{root: dir}
+	uri := pathToURI(f)
+	res, _ := s.handleDefinition(posParams(uri, 1, 36))
+	for _, l := range res.([]location) {
+		if strings.HasSuffix(l.URI, ".html") {
+			t.Errorf("F12 led into generated HTML: %+v", l)
+		}
+	}
+	res, _ = s.handleHover(posParams(uri, 1, 36))
+	if hv, ok := res.(map[string]any); ok {
+		if md := hv["contents"].(map[string]string)["value"]; strings.Contains(md, ".html") {
+			t.Errorf("hover shows an HTML heading: %s", md)
+		}
+	}
+}

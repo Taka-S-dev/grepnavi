@@ -114,14 +114,35 @@ func (s *server) findDefinitions(word, currentFile string) []search.DefHit {
 	defer cancel()
 	if search.GtagsInPath() && search.GtagsIndexed(s.root) {
 		if hits, err := search.GtagsFindDefinitions(ctx, word, s.root); err == nil && len(hits) > 0 {
-			return hits
+			return cSourceOnly(hits)
+		}
+	}
+	// gtags に無いもの（構造体メンバ・typedef の一部）は ctags が持つ。GUI と同じ
+	// gtags → ctags → rg の順。ここを飛ばすと `s->rlayer` の F12 が 0 件になる
+	if search.CtagsIndexed(s.root) {
+		if hits, err := search.CtagsFindDefinitions(word, s.root); err == nil && len(cSourceOnly(hits)) > 0 {
+			return cSourceOnly(hits)
 		}
 	}
 	hits, err := search.FindDefinitionsSmart(ctx, word, currentFile, s.root, "")
 	if err != nil {
 		return nil
 	}
-	return hits
+	return cSourceOnly(hits)
+}
+
+// cSourceOnly は C/C++ 以外のファイルにあるヒットを落とす。doxygen の出力ごと
+// 索引にしたツリーでは `<title>rlayer</title>` の見出しがメンバ rlayer の定義として
+// 並ぶ（実測: openssl の ssl/record/html/）。GUI は選ぶ場なので最後に並べて残すが、
+// エディタの F12 やホバーに HTML の見出しを出す理由は無い
+func cSourceOnly(hits []search.DefHit) []search.DefHit {
+	out := hits[:0:0]
+	for _, h := range hits {
+		if search.IsCSourceFile(h.File) {
+			out = append(out, h)
+		}
+	}
+	return out
 }
 
 func (s *server) handleDefinition(raw json.RawMessage) (any, *responseError) {
@@ -195,7 +216,18 @@ func (s *server) handleHover(raw json.RawMessage) (any, *responseError) {
 	ctx, cancel := s.requestContext()
 	defer cancel()
 	hits, _, err := search.FindHover(ctx, word, s.root, "", s.root)
-	if err != nil || len(hits) == 0 {
+	if err != nil {
+		return nil, nil
+	}
+	// 生成 HTML の見出しなど C/C++ 以外のヒットはカードにしない（cSourceOnly と同じ理由）
+	kept := hits[:0:0]
+	for _, h := range hits {
+		if search.IsCSourceFile(h.File) {
+			kept = append(kept, h)
+		}
+	}
+	hits = kept
+	if len(hits) == 0 {
 		return nil, nil
 	}
 	var md strings.Builder
