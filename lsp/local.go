@@ -3,6 +3,8 @@ package lsp
 import (
 	"regexp"
 	"strings"
+
+	"grepnavi/search"
 )
 
 // localDeclaration は pos を含む関数の中で word が宣言されている行を返す
@@ -43,6 +45,87 @@ func localDeclaration(content string, pos position, word string) (int, string, b
 		return 0, "", false
 	}
 	return found, strings.TrimSpace(strings.TrimSuffix(lines[found], "\r")), true
+}
+
+// declarationBlock は line（1-indexed）にある宣言を、文として完結する範囲で返す。
+// ctags が指す行は名前のある 1 行だけで、
+//
+//	enum {SSL_HRR_NONE = 0, SSL_HRR_PENDING, SSL_HRR_COMPLETE}
+//	    hello_retry_request;
+//
+// のように型が前の行にある宣言では、その行だけを見せても型が分からない。
+// 上へは文の切れ目（`;` `{` `*/` 空行 `#`）まで、`}` で終わる行は無名の
+// enum / struct なので対応する `{` まで遡る。下へは `;` が出るまで（最大 12 行）。
+// 読めなければ fallback（ctags の行の字面）を返す。
+func declarationBlock(file string, line int, fallback string) string {
+	lines, err := search.CachedLines(file)
+	if err != nil || line < 1 || line > len(lines) {
+		return strings.TrimSpace(fallback)
+	}
+	start, end := line-1, line-1
+	for end < len(lines)-1 && end-(line-1) < 12 && !strings.Contains(lines[end], ";") {
+		end++
+	}
+	for start > 0 && (line-1)-start < 12 {
+		prev := strings.TrimSpace(strings.TrimSuffix(lines[start-1], "\r"))
+		if prev == "" || strings.HasPrefix(prev, "#") || strings.HasSuffix(prev, ";") ||
+			strings.HasSuffix(prev, "{") || strings.HasSuffix(prev, "*/") || strings.HasPrefix(prev, "//") {
+			break
+		}
+		start--
+		if strings.HasSuffix(prev, "}") {
+			// 無名 enum / struct の本体: 対応する `{` の行まで含める
+			depth := 0
+			for start >= 0 {
+				l := lines[start]
+				depth += strings.Count(l, "}") - strings.Count(l, "{")
+				if depth <= 0 {
+					break
+				}
+				start--
+			}
+			if start < 0 {
+				start = 0
+			}
+			// `{` だけの行なら、その上の `enum` / `struct` の行も宣言の一部
+			if t := strings.TrimSpace(lines[start]); t == "{" && start > 0 {
+				start--
+			}
+			break
+		}
+	}
+	var b strings.Builder
+	for i := start; i <= end; i++ {
+		if i > start {
+			b.WriteByte('\n')
+		}
+		b.WriteString(strings.TrimRight(lines[i], "\r"))
+	}
+	return dedent(b.String())
+}
+
+// dedent は共通の先頭空白を落とす（ホバーの中で左に寄せる）。
+func dedent(s string) string {
+	lines := strings.Split(s, "\n")
+	indent := -1
+	for _, l := range lines {
+		if strings.TrimSpace(l) == "" {
+			continue
+		}
+		n := len(l) - len(strings.TrimLeft(l, " \t"))
+		if indent < 0 || n < indent {
+			indent = n
+		}
+	}
+	if indent <= 0 {
+		return s
+	}
+	for i, l := range lines {
+		if len(l) >= indent {
+			lines[i] = l[indent:]
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // declRegexp は word の宣言の形に当たる正規表現。第 1 群は型の語。

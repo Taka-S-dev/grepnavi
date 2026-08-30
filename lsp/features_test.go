@@ -473,3 +473,45 @@ func TestLocalsDeclaredInAListResolve(t *testing.T) {
 		t.Error("a call argument list is not a declaration")
 	}
 }
+
+// ホバーの場所表示はリンク、ローカル変数には型の struct へのリンクが付く。
+func TestHoverLinksToTheSourceAndTheVariableStruct(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "pt.h", "struct pt {\n\tint x;\n};\n")
+	f := writeFile(t, dir, "main.c", "#include \"pt.h\"\nint run(void) {\n\tstruct pt *p = 0;\n\treturn p->x;\n}\n")
+	s := &server{root: dir}
+	res, _ := s.handleHover(context.Background(), posParams(pathToURI(f), 3, 8)) // p
+	md := res.(map[string]any)["contents"].(map[string]string)["value"]
+	if !strings.Contains(md, "](file:///") || !strings.Contains(md, "#L3)") {
+		t.Errorf("hover header should link to main.c line 3: %s", md)
+	}
+	if !strings.Contains(md, "struct pt") || !strings.Contains(md, "pt.h#L1)") {
+		t.Errorf("hover should link to struct pt in pt.h: %s", md)
+	}
+}
+
+// 宣言が複数行に分かれていても、ホバーには型まで含めた宣言全体を出す。
+func TestDeclarationBlockSpansTheWholeDeclaration(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "h.h", ""+
+		"struct ssl_st {\n"+ // 1
+		"    size_t cert_verify_hash_len;\n"+ // 2
+		"\n"+ // 3
+		"    /* Flag to indicate whether we should send a HelloRetryRequest */\n"+ // 4
+		"    enum {SSL_HRR_NONE = 0, SSL_HRR_PENDING, SSL_HRR_COMPLETE}\n"+ // 5
+		"        hello_retry_request;\n"+ // 6
+		"    int (*ssl_read) (SSL *s, void *buf, size_t len,\n"+ // 7
+		"                     size_t *readbytes);\n"+ // 8
+		"    RECORD_LAYER rlayer;\n"+ // 9
+		"};\n")
+	cases := map[int]string{
+		6: "enum {SSL_HRR_NONE = 0, SSL_HRR_PENDING, SSL_HRR_COMPLETE}\n    hello_retry_request;",
+		7: "int (*ssl_read) (SSL *s, void *buf, size_t len,\n                 size_t *readbytes);",
+		9: "RECORD_LAYER rlayer;",
+	}
+	for line, want := range cases {
+		if got := declarationBlock(f, line, "x"); got != want {
+			t.Errorf("line %d:\n got %q\nwant %q", line, got, want)
+		}
+	}
+}

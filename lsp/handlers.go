@@ -22,6 +22,29 @@ func (s *server) detailOf(file string, line int) string {
 	return "L" + strconv.Itoa(line) + " " + filepath.ToSlash(rel)
 }
 
+// lineLink は detailOf と同じ表示を、ホバーの中で押せるリンクにしたもの。
+// 吹き出しの中のテキストは Ctrl+クリックできないので、場所へはリンクで行く。
+// `file:///path#L10` は VSCode が行番号つきで開く。
+func (s *server) lineLink(file string, line int) string {
+	return "[" + s.detailOf(file, line) + "](" + pathToURI(file) + "#L" + strconv.Itoa(line) + ")"
+}
+
+// typeLine は宣言された変数の型を struct / union まで辿り、その定義へのリンク行を
+// 返す（辿れなければ空）。`SSL3_RECORD *thisrr;` のホバーから、typedef の先の
+// struct ssl3_record_st へ 1 クリックで行けるように。
+func (s *server) typeLine(ctx context.Context, content string, line int, word, currentFile string) string {
+	owner, ok := search.VariableStructInText(s.root, content, line, word)
+	if !ok {
+		return ""
+	}
+	for _, h := range s.findDefinitions(ctx, owner, currentFile) {
+		if h.Kind == "struct" || h.Kind == "union" {
+			return "\n型: " + h.Kind + " " + owner + " — " + s.lineLink(h.File, h.Line) + "\n"
+		}
+	}
+	return ""
+}
+
 // 解決の方針は GUI と同じ: 索引 (gtags) があれば索引で引き、無ければ ripgrep に
 // 落ちる。0 件は「無い」という答えとして返し、劣化した全文検索の結果で水増し
 // しない。エディタの一覧 UI は候補の真偽を選別する場ではないため、この規律は
@@ -240,7 +263,8 @@ func (s *server) handleHover(ctx context.Context, raw json.RawMessage) (any, *re
 	// 構造体メンバがツリー全体から並ぶ（ssl3_get_record の version で 13 件）
 	if content, ok := s.documentText(p.TextDocument.URI); ok {
 		if line, text, ok := localDeclaration(content, p.Position, word); ok {
-			md := "**local** — L" + strconv.Itoa(line+1) + "\n\n```c\n" + text + "\n```\n"
+			md := "**local** — " + s.lineLink(path, line+1) + "\n\n```c\n" + declarationBlock(path, line+1, text) + "\n```\n" +
+				s.typeLine(ctx, content, p.Position.Line+1, word, path)
 			return map[string]any{
 				"contents": map[string]string{"kind": "markdown", "value": md},
 			}, nil
@@ -261,7 +285,15 @@ func (s *server) handleHover(ctx context.Context, raw json.RawMessage) (any, *re
 					if i > 0 {
 						md.WriteString("\n---\n")
 					}
-					fmt.Fprintf(&md, "**member** — %s\n\n```c\n%s\n```\n", s.detailOf(d.File, d.Line), strings.TrimSpace(d.Text))
+					fmt.Fprintf(&md, "**member** — %s\n\n```c\n%s\n```\n", s.lineLink(d.File, d.Line), declarationBlock(d.File, d.Line, d.Text))
+					if d.Owner != "" {
+						for _, o := range s.findDefinitions(ctx, d.Owner, path) {
+							if o.Kind == "struct" || o.Kind == "union" {
+								fmt.Fprintf(&md, "\n%s %s — %s\n", o.Kind, d.Owner, s.lineLink(o.File, o.Line))
+								break
+							}
+						}
+					}
 				}
 				return map[string]any{
 					"contents": map[string]string{"kind": "markdown", "value": md.String()},
@@ -271,7 +303,7 @@ func (s *server) handleHover(ctx context.Context, raw json.RawMessage) (any, *re
 	}
 	ctx, cancel := s.requestContext(ctx)
 	defer cancel()
-	hits, _, err := search.FindHover(ctx, word, s.root, "", s.root)
+	hits, engine, err := search.FindHover(ctx, word, s.root, "", s.root)
 	if err != nil {
 		return nil, nil
 	}
@@ -303,8 +335,10 @@ func (s *server) handleHover(ctx context.Context, raw json.RawMessage) (any, *re
 		if h.Value != "" {
 			title += " = " + h.Value
 		}
-		fmt.Fprintf(&md, "**%s** — %s\n\n```c\n%s\n```\n",
-			title, s.detailOf(h.File, h.Line), strings.TrimRight(h.Body, "\r\n"))
+		// どの索引で引いたかを 1 語添える。検索ベースの答えは「なぜここか」が
+		// 見えないと信用しにくく、rg（全文検索の推定）と gtags（索引）では重みが違う
+		fmt.Fprintf(&md, "**%s** (%s) — %s\n\n```c\n%s\n```\n",
+			title, engine, s.lineLink(h.File, h.Line), strings.TrimRight(h.Body, "\r\n"))
 	}
 	return map[string]any{
 		"contents": map[string]string{"kind": "markdown", "value": md.String()},
