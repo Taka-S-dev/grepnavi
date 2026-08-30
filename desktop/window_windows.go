@@ -18,7 +18,7 @@ import (
 	webview "github.com/jchv/go-webview2"
 )
 
-// windowTitle は意図的に空。会社利用を想定し、ウィンドウタイトル・タスクバー・トレイの
+// windowTitle は意図的に空。共有画面や通知に写る環境を想定し、ウィンドウタイトル・タスクバー・トレイの
 // ツールチップにツール名やファイル名を一切出さない（document.title もミラーしない）。
 const windowTitle = ""
 
