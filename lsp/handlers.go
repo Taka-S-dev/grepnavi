@@ -82,6 +82,9 @@ func (s *server) handleInitialize(raw json.RawMessage) any {
 			"workspaceSymbolProvider":   true,
 			"callHierarchyProvider":     true,
 			"foldingRangeProvider":      true,
+			// resolve を分けるのは、レンズの位置は 1ms で出せるが件数は索引を
+			// 引くため。VSCode は見えているレンズだけ resolve してくる
+			"codeLensProvider": map[string]any{"resolveProvider": true},
 			"semanticTokensProvider": map[string]any{
 				"legend": semanticLegend,
 				"full":   true,

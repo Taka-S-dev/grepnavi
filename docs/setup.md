@@ -76,6 +76,7 @@ ssh -L 8080:localhost:8080 user@desktop-ip
 | アウトライン / Ctrl+T | documentSymbol / workspaceSymbol | ctags |
 | 折りたたみ | foldingRange | 関数本体、`#if`〜`#endif`、複数行コメント |
 | マクロと型名の色付け | semanticTokens | ctags |
+| 関数の上の「呼び出し元 3（登録 1）」 | codeLens | 索引の呼び出し元。テーブル登録行も数える。クリックで呼び出し行の一覧を Peek。件数は画面に見えている関数だけ数え、ファイルごとにキャッシュする |
 
 やらないもの: rename（検索ベースで名前を書き換えると別のシンボルまで変わる）、診断・コードアクション・整形（コンパイラの領分）。
 

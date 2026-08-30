@@ -70,6 +70,11 @@ type server struct {
 
 	sem chan struct{}
 	wg  sync.WaitGroup
+
+	// lensCache は codeLens/resolve の結果（ファイルの mtime と関数名が鍵）。
+	// 同じ関数を見えるたびに数え直さない
+	lensMu    sync.Mutex
+	lensCache map[string]resolvedLens
 }
 
 type request struct {
@@ -214,6 +219,10 @@ func (s *server) dispatch(ctx context.Context, req *request) (any, *responseErro
 		return s.handleImplementation(ctx, req.Params)
 	case "textDocument/foldingRange":
 		return s.handleFoldingRange(ctx, req.Params)
+	case "textDocument/codeLens":
+		return s.handleCodeLens(ctx, req.Params)
+	case "codeLens/resolve":
+		return s.handleCodeLensResolve(ctx, req.Params)
 	case "textDocument/completion":
 		return s.handleCompletion(ctx, req.Params)
 	case "textDocument/documentSymbol":
@@ -284,3 +293,4 @@ func (s *server) reply(id json.RawMessage, result any, rerr *responseError) erro
 	_, err = fmt.Fprintf(s.out, "Content-Length: %d\r\n\r\n%s", len(body), body)
 	return err
 }
+
