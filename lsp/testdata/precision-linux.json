@@ -1,0 +1,30 @@
+{
+  "files": 40,
+  "function_f12": {
+    "samples": 285,
+    "counts": {
+      "ambiguous": 114,
+      "hit": 153,
+      "miss": 3,
+      "unindexed": 3,
+      "wrong": 12
+    },
+    "hit_rate_percent": 54.3,
+    "wrong_rate_percent": 4.3,
+    "p50_ms": 42.6,
+    "p95_ms": 1237.7
+  },
+  "member_f12": {
+    "samples": 128,
+    "counts": {
+      "ambiguous": 25,
+      "hit": 86,
+      "miss": 16,
+      "wrong": 1
+    },
+    "hit_rate_percent": 67.2,
+    "wrong_rate_percent": 0.8,
+    "p50_ms": 3.7,
+    "p95_ms": 518.4
+  }
+}
