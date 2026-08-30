@@ -744,6 +744,7 @@ func ctagsParseLine(line, word, dir string) *DefHit {
 
 	lineNum := 0
 	kind := ""
+	owner := ""
 	if ext != "" {
 		for _, ef := range strings.Split(ext, "\t") {
 			if strings.HasPrefix(ef, "line:") {
@@ -753,6 +754,12 @@ func ctagsParseLine(line, word, dir string) *DefHit {
 			}
 			if len(ef) == 1 {
 				kind = ctagsKindToKind(ef)
+			}
+			// 入れ子 struct:outer::inner は末尾（直接の持ち主）だけ使う
+			if o, ok := strings.CutPrefix(ef, "struct:"); ok {
+				owner = o[strings.LastIndex(o, ":")+1:]
+			} else if o, ok := strings.CutPrefix(ef, "union:"); ok {
+				owner = o[strings.LastIndex(o, ":")+1:]
 			}
 		}
 	}
@@ -773,11 +780,12 @@ func ctagsParseLine(line, word, dir string) *DefHit {
 		text = word // アドレスが行番号形式のときはパターンが無い
 	}
 	return &DefHit{
-		File: file,
-		Line: lineNum,
-		Text: text,
-		Name: name,
-		Kind: kind,
+		File:  file,
+		Line:  lineNum,
+		Text:  text,
+		Name:  name,
+		Owner: owner,
+		Kind:  kind,
 	}
 }
 

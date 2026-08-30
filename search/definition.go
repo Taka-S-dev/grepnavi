@@ -28,6 +28,10 @@ type DefHit struct {
 	Name   string `json:"name,omitempty"`
 	Kind   string `json:"kind"`             // "define" / "struct" / "enum" / "union" / "typedef" / "func"
 	Engine string `json:"engine,omitempty"` // 解決に使ったバックエンド ("gtags" / "ctags" / "rg")。API レイヤで後付けされる
+	// Owner はメンバ（kind "member"）の所属する struct / union 名。ctags の
+	// struct: フィールドから。同名のメンバが別の型に何十もある（linux の read）
+	// ので、受け手の型が分かる場面ではこれで絞る
+	Owner string `json:"owner,omitempty"`
 	// Healed は索引の行番号が現在のファイルとずれていて、着地点を動かしたこと。
 	// 黙って動かすと、外したときに気づく手掛かりが無くなるので利用者に見せる。
 	// API レイヤで後付けされる。
