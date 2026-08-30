@@ -17,7 +17,8 @@ import (
 // 内容を持つ。他のハンドラ（hover / definition）も開いていればこちらを優先する。
 // 索引（定義位置など）は保存済みのファイルが基準のまま。
 
-func (s *server) handleDidOpen(raw json.RawMessage) {
+// handleDidOpen / handleDidChange は反映した文書の URI を返す（無効領域の再計算に使う）。
+func (s *server) handleDidOpen(raw json.RawMessage) string {
 	var p struct {
 		TextDocument struct {
 			URI  string `json:"uri"`
@@ -26,7 +27,9 @@ func (s *server) handleDidOpen(raw json.RawMessage) {
 	}
 	if json.Unmarshal(raw, &p) == nil && p.TextDocument.URI != "" {
 		s.setDocument(p.TextDocument.URI, p.TextDocument.Text)
+		return p.TextDocument.URI
 	}
+	return ""
 }
 
 // 文書の表は読み取りループが書き、要求の goroutine が読む。
@@ -39,7 +42,7 @@ func (s *server) setDocument(uri, text string) {
 	s.docs[uri] = text
 }
 
-func (s *server) handleDidChange(raw json.RawMessage) {
+func (s *server) handleDidChange(raw json.RawMessage) string {
 	var p struct {
 		TextDocument struct {
 			URI string `json:"uri"`
@@ -51,7 +54,9 @@ func (s *server) handleDidChange(raw json.RawMessage) {
 	if json.Unmarshal(raw, &p) == nil && p.TextDocument.URI != "" && len(p.ContentChanges) > 0 {
 		// full sync なので最後の要素が文書全体
 		s.setDocument(p.TextDocument.URI, p.ContentChanges[len(p.ContentChanges)-1].Text)
+		return p.TextDocument.URI
 	}
+	return ""
 }
 
 func (s *server) handleDidClose(raw json.RawMessage) {

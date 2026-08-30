@@ -77,6 +77,7 @@ ssh -L 8080:localhost:8080 user@desktop-ip
 | 折りたたみ | foldingRange | 関数本体、`#if`〜`#endif`、複数行コメント |
 | マクロと型名の色付け | semanticTokens | ctags |
 | 関数の上の「呼び出し元 3（登録 1）」 | codeLens | 索引の呼び出し元。テーブル登録行も数える。クリックで呼び出し行の一覧を Peek。件数は画面に見えている関数だけ数え、ファイルごとにキャッシュする |
+| 構成で無効になるブロックを薄く表示 | grepnavi/inactiveRegions（独自通知） | 設定 `grepnavi.defines`（`CONFIG_X=1 DEBUG=0` の書式、GUI の条件リストと同じ）で偽になる `#if` と `#if 0`。同梱の拡張が装飾する |
 
 やらないもの: rename（検索ベースで名前を書き換えると別のシンボルまで変わる）、診断・コードアクション・整形（コンパイラの領分）。
 
@@ -103,10 +104,10 @@ VSCode は同梱の接続拡張を使う（`editors/vscode/`）。ビルドと�
 cd editors/vscode
 npm install
 npx @vscode/vsce package --allow-missing-repository --skip-license
-code --install-extension grepnavi-lsp-0.1.3.vsix
+code --install-extension grepnavi-lsp-0.1.4.vsix
 ```
 
-インストール後、設定 `grepnavi.serverPath` に grepnavi 実行ファイルのパスを指定する（PATH に置いてあれば不要）。C/C++ ファイルを開くと自動で接続され、F12 / Shift+F12 / 呼び出し階層（Shift+Alt+H）が grepnavi の索引で動く。拡張名を出したくない環境では `package.json` の `displayName` を変えてからパッケージし直す。
+インストール後、設定 `grepnavi.serverPath` に grepnavi 実行ファイルのパスを指定する（PATH に置いてあれば不要）。`grepnavi.defines` に `CONFIG_X=1 DEBUG=0` のように構成を書くと、その構成で無効になるブロックが薄く表示される（ワークスペースごとに設定できる）。C/C++ ファイルを開くと自動で接続され、F12 / Shift+F12 / 呼び出し階層（Shift+Alt+H）が grepnavi の索引で動く。拡張名を出したくない環境では `package.json` の `displayName` を変えてからパッケージし直す。
 
 ## アイコンの再生成
 

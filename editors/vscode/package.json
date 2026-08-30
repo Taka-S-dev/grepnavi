@@ -2,7 +2,7 @@
   "name": "grepnavi-lsp",
   "displayName": "grepnavi LSP",
   "description": "C/C++ navigation via grepnavi -lsp: definition, references, hover, call hierarchy, completion, outline",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "publisher": "grepnavi-local",
   "license": "MIT",
   "engines": {
@@ -25,6 +25,12 @@
           "default": "grepnavi",
           "scope": "machine",
           "description": "grepnavi 実行ファイルのパス。-lsp 付きで起動される。PATH に無い場合はフルパスを指定する。machine スコープ: 開いたリポジトリの .vscode/settings.json からは変更できない（任意 exe を起動させないため）"
+        },
+        "grepnavi.defines": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "description": "#ifdef の構成。\"CONFIG_X=1 DEBUG=0 NDEBUG\" のように空白区切りで書く（値を省くと 1）。偽になるブロックと #if 0 が薄く表示される。GUI の #ifdef 条件リストと同じ書式"
         }
       }
     }

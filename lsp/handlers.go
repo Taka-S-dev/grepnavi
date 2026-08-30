@@ -52,8 +52,13 @@ func (s *server) typeLine(ctx context.Context, content string, line int, word, c
 
 func (s *server) handleInitialize(raw json.RawMessage) any {
 	var p struct {
-		RootURI  string `json:"rootUri"`
-		RootPath string `json:"rootPath"`
+		RootURI               string `json:"rootUri"`
+		RootPath              string `json:"rootPath"`
+		InitializationOptions struct {
+			// Defines は "CONFIG_X=1 DEBUG=0" の形。GUI の #ifdef 条件リストと同じ
+			// 書式で、無効になる領域の計算に使う（拡張の設定 grepnavi.defines）
+			Defines string `json:"defines"`
+		} `json:"initializationOptions"`
 	}
 	_ = json.Unmarshal(raw, &p)
 	if p.RootURI != "" {
@@ -61,6 +66,7 @@ func (s *server) handleInitialize(raw json.RawMessage) any {
 	} else if p.RootPath != "" {
 		s.root = p.RootPath
 	}
+	s.defines = search.ParseDefines(p.InitializationOptions.Defines)
 	// 「対象から外すもの」を GUI と同じに効かせる。除外規則は search のグローバル
 	// だが読み込むのは普段 api 層なので、API を起動しない LSP では自分で読む。
 	search.LoadExcludesFromRoot(s.root)

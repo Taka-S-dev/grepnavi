@@ -71,6 +71,9 @@ type server struct {
 	sem chan struct{}
 	wg  sync.WaitGroup
 
+	// defines は #ifdef の評価に使う構成（initialize の initializationOptions）
+	defines map[string]int
+
 	// lensCache は codeLens/resolve の結果（ファイルの mtime と関数名が鍵）。
 	// 同じ関数を見えるたびに数え直さない
 	lensMu    sync.Mutex
@@ -116,9 +119,9 @@ func (s *server) run() error {
 		if req.ID == nil {
 			switch req.Method {
 			case "textDocument/didOpen":
-				s.handleDidOpen(req.Params)
+				s.publishInactive(s.handleDidOpen(req.Params))
 			case "textDocument/didChange":
-				s.handleDidChange(req.Params)
+				s.publishInactive(s.handleDidChange(req.Params))
 			case "textDocument/didClose":
 				s.handleDidClose(req.Params)
 			case "$/cancelRequest":
@@ -294,3 +297,14 @@ func (s *server) reply(id json.RawMessage, result any, rerr *responseError) erro
 	return err
 }
 
+// notify はサーバ発の通知（ID なし）を送る。
+func (s *server) notify(method string, params any) error {
+	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "method": method, "params": params})
+	if err != nil {
+		return err
+	}
+	s.outMu.Lock()
+	defer s.outMu.Unlock()
+	_, err = fmt.Fprintf(s.out, "Content-Length: %d\r\n\r\n%s", len(body), body)
+	return err
+}
