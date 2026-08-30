@@ -73,6 +73,13 @@ func (s *server) handleInitialize(raw json.RawMessage) any {
 	// マクロ名のキャッシュを先に温める（セマンティックトークン用。サイドカーが
 	// あれば一瞬、無ければ tags のパースが裏で走る）
 	search.CtagsMacroWarmup(s.root)
+	// gtags も GUI と同じく先に温める: global の起動方式の判定と定義テーブルの
+	// 一括プリロード。無いと F12 のたびに global.exe を起動し、Ctrl を押して
+	// 語に乗ってから下線が出るまで待たされて、最初のクリックが空振りする
+	search.GtagsWarmupAsync(s.root)
+	// 定義の表はメモリに持つ: F12 のたびの global.exe 起動（40〜60ms、検査の
+	// 入る環境では不定期に 400〜900ms）を無くし、Ctrl+クリックの下線が即出る
+	search.GtagsPreloadDefsAsync(s.root)
 	return map[string]any{
 		"capabilities": map[string]any{
 			"textDocumentSync":        1, // Full: 変更のたびに全文が届く。補完が未保存バッファを見るため

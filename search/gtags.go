@@ -730,6 +730,29 @@ func maybePreloadDefsAsync(globalBin, dir string) {
 	if _globalTransport.Load() == _transportDirect {
 		return
 	}
+	preloadDefsAsync(globalBin, dir)
+}
+
+// GtagsPreloadDefsAsync は起動方式に関わらず全定義をプリロードする。エディタ
+// （LSP）向け: F12 のたびに global.exe を起動すると 1 回 40〜60ms、セキュリティ
+// ソフトが起動を検査する環境では不定期に 400〜900ms 掛かり、Ctrl を押して語に
+// 乗ってから下線が出るまでの間に最初のクリックが空振りする。表に持てば起動なし。
+// ダンプが _gtagsPreloadMaxBytes を超える索引（カーネル級）では諦めて従来どおり。
+func GtagsPreloadDefsAsync(dir string) {
+	if !GtagsAvailable(dir) {
+		return
+	}
+	// ダンプの大きさは GTAGS とほぼ同じ（openssl: GTAGS 3.1MB → ダンプ 2.9MB）。
+	// カーネル級（GTAGS 965MB）はダンプに 90 秒以上掛かったうえで上限で捨てる
+	// ことになるので、始める前に GTAGS の大きさで諦める
+	if fi, err := os.Stat(filepath.Join(dir, "GTAGS")); err != nil || fi.Size() > _gtagsPreloadMaxBytes {
+		slog.Info("gtags-preload", "msg", "index too large for an in-memory table, lookups will run global per query", "dir", dir)
+		return
+	}
+	preloadDefsAsync(resolveGlobalBin(), dir)
+}
+
+func preloadDefsAsync(globalBin, dir string) {
 	if snap := _gtagsDefsAll.Load(); snap != nil && snap.dir == dir {
 		return
 	}
@@ -756,6 +779,14 @@ func maybePreloadDefsAsync(globalBin, dir string) {
 
 		t0 := time.Now()
 		out, handled := runGlobalSticky(globalBin, dir, ".*", "-xd")
+		if !handled && _globalTransport.Load() == _transportDirect {
+			// 直接起動が効く環境（エディタからの明示プリロード）: そのまま起動する
+			cmd := proc.Command(globalBin, "-xd", ".*")
+			cmd.Dir = dir
+			if o, err := cmd.Output(); err == nil {
+				out, handled = o, true
+			}
+		}
 		if !handled || len(bytes.TrimSpace(out)) == 0 {
 			slog.Info("gtags-preload", "msg", "dump empty, preload skipped", "dir", dir)
 			return
