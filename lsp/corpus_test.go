@@ -67,13 +67,15 @@ func TestCorpusEditorAnswers(t *testing.T) {
 				continue
 			}
 			sig := lines[fr.Start-1]
+			// 関数の範囲をまとめて塗る: 1 行ずつでは複数行コメントの中を見抜けない
+			fmasked := maskNonCode(lines[fr.Start-1 : fr.End])
 			// 引数のホバーとハイライト（1 関数につき最初の引数だけ）
 			if m := reParam.FindStringSubmatchIndex(sig); m != nil && !cKeywords[sig[m[2]:m[3]]] {
 				name := sig[m[4]:m[5]]
 				use, at := -1, 0
 				reName := regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\b`)
 				for i := fr.Start; i < fr.End && i < len(lines) && use < 0; i++ {
-					masked := maskNonCode([]string{lines[i]})[0]
+					masked := fmasked[i-(fr.Start-1)]
 					for _, m := range reName.FindAllStringIndex(masked, -1) {
 						// `ino->sbi = sbi;` の左は同名のメンバ。変数としての出現を選ぶ
 						if !memberAccessBefore(masked, m[0]) {
@@ -103,7 +105,7 @@ func TestCorpusEditorAnswers(t *testing.T) {
 			}
 			// メンバ呼び出しの F12（1 関数につき最初の 1 件）
 			for i := fr.Start; i < fr.End && i < len(lines); i++ {
-				l := maskNonCode([]string{lines[i]})[0]
+				l := fmasked[i-(fr.Start-1)]
 				m := reMember.FindStringSubmatchIndex(l)
 				if m == nil {
 					continue
