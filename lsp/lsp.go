@@ -105,6 +105,16 @@ func (s *server) dispatch(req *request) (any, *responseError) {
 		return s.handleReferences(req.Params)
 	case "textDocument/hover":
 		return s.handleHover(req.Params)
+	case "textDocument/documentHighlight":
+		return s.handleDocumentHighlight(req.Params)
+	case "textDocument/signatureHelp":
+		return s.handleSignatureHelp(req.Params)
+	case "textDocument/typeDefinition":
+		return s.handleTypeDefinition(req.Params)
+	case "textDocument/implementation":
+		return s.handleImplementation(req.Params)
+	case "textDocument/foldingRange":
+		return s.handleFoldingRange(req.Params)
 	case "textDocument/completion":
 		return s.handleCompletion(req.Params)
 	case "textDocument/documentSymbol":

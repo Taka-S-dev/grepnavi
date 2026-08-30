@@ -48,12 +48,17 @@ func (s *server) handleInitialize(raw json.RawMessage) any {
 		"capabilities": map[string]any{
 			"textDocumentSync":        1, // Full: 変更のたびに全文が届く。補完が未保存バッファを見るため
 			"completionProvider":      map[string]any{"triggerCharacters": []string{".", ">"}},
-			"definitionProvider":      true,
-			"referencesProvider":      true,
-			"hoverProvider":           true,
-			"documentSymbolProvider":  true,
-			"workspaceSymbolProvider": true,
-			"callHierarchyProvider":   true,
+			"definitionProvider":        true,
+			"typeDefinitionProvider":    true,
+			"implementationProvider":    true,
+			"referencesProvider":        true,
+			"documentHighlightProvider": true,
+			"hoverProvider":             true,
+			"signatureHelpProvider":     map[string]any{"triggerCharacters": []string{"(", ","}},
+			"documentSymbolProvider":    true,
+			"workspaceSymbolProvider":   true,
+			"callHierarchyProvider":     true,
+			"foldingRangeProvider":      true,
 			"semanticTokensProvider": map[string]any{
 				"legend": semanticLegend,
 				"full":   true,
