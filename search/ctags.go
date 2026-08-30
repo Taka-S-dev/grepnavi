@@ -149,7 +149,7 @@ func CtagsMacroTrim() {
 
 // v2 で Types を追加。v1 のファイルはヘッダ不一致で読み飛ばされ、次回の
 // フルパースで v2 に書き直される（派生キャッシュなので取りこぼしは無い）。
-const macroSidecarMagic = "grepnavi-macros v4"
+const macroSidecarMagic = "grepnavi-macros v5"
 
 // サイドカーのセクション区切り行。シンボル名にタブは入らないので、タブ始まりの
 // 行は名前と衝突しない。v3 で members / typedefs / globals を追加。
@@ -475,7 +475,9 @@ func ctagsCollectCompletionFields(result *SymbolsByKind, name string, rest []byt
 			typ = "enum " + strings.TrimPrefix(s, "typeref:enum:")
 		}
 	}
-	typ = readableAnonType(typ)
+	// 無名 struct の内部名（__anon<16進>）はそのまま表に入れる。`} ext;` の型から
+	// そのメンバ表へ辿る鍵になるので、見た目のために潰すと `s->ext.early_data` が
+	// 解けなくなる。見せるときに readableAnonType で直す
 	switch {
 	case hasKind('m') && owner != "":
 		// 入れ子の struct:outer::inner のようなスコープは末尾だけ使う

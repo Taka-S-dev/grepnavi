@@ -101,6 +101,11 @@ func (s *server) handleSignatureHelp(ctx context.Context, raw json.RawMessage) (
 // memberDeclarations は struct / union `owner` の本体から、メンバ name の宣言行を返す。
 // `int (*read)(...)` のような関数ポインタも `int n;` も、名前の直後の字面で見る。
 func (s *server) memberDeclarations(ctx context.Context, owner, name, currentFile string) []search.DefHit {
+	// struct 名として成り立たない文字列で索引を引かない: 索引に無い語は rg の
+	// 全走査に落ち、大きいツリーでは期限（15 秒）まで待つことになる
+	if !isIdentifier(owner) {
+		return nil
+	}
 	re := regexp.MustCompile(`(?:\(\s*\*\s*` + regexp.QuoteMeta(name) + `\s*\)|\b` + regexp.QuoteMeta(name) + `\s*[;\[:,)])`)
 	var out []search.DefHit
 	for _, d := range s.findDefinitions(ctx, owner, currentFile) {
@@ -125,6 +130,19 @@ func (s *server) memberDeclarations(ctx context.Context, owner, name, currentFil
 		}
 	}
 	return out
+}
+
+// isIdentifier は C の識別子として成り立つ文字列か。
+func isIdentifier(s string) bool {
+	if s == "" || (s[0] >= '0' && s[0] <= '9') {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if !isIdentByte(s[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // enclosingCall は text の末尾から遡り、まだ閉じていない `(` の直前の識別子と、

@@ -106,7 +106,7 @@ func completeWith(syms SymbolsByKind, root string, lines []string, line int, bef
 			if partial != "" && !strings.HasPrefix(strings.ToLower(mem.Name), lowerPartial) {
 				continue
 			}
-			res.Items = append(res.Items, CompletionItem{Label: mem.Name, Kind: "field", Detail: mem.Type})
+			res.Items = append(res.Items, CompletionItem{Label: mem.Name, Kind: "field", Detail: readableAnonType(mem.Type)})
 		}
 		// このファイルで実際に使われているメンバーを先に出す。名前順だけだと
 		// ssl_st のような 100 件級の構造体で、先頭が allow_early_data_cb のような
@@ -289,6 +289,22 @@ func resolveChainType(syms SymbolsByKind, root string, lines []string, line int,
 
 // membersOf は struct/union のメンバー表。索引の表が空なら（マクロ生成の型など
 // ctags が拾えなかった場合）本体をソースから読む。root が空なら索引だけ。
+// innermostScope は ctags の入れ子表記 `outer::inner` の末尾を返す。メンバ表の
+// 鍵は直接の持ち主だけで引いている（無名 struct なら __anon<16進>）。
+// 配列の宣言 `struct pcb_struct pcb_va[1]` の型は ctags が `struct pcb_struct[1]` と
+// 記録するので、識別子の後ろは落とす（残すと索引に無い名前で引きに行く）。
+func innermostScope(name string) string {
+	name = strings.TrimSpace(name)
+	if i := strings.LastIndex(name, "::"); i >= 0 {
+		name = name[i+2:]
+	}
+	end := 0
+	for end < len(name) && (name[end] == '_' || name[end] >= '0' && name[end] <= '9' || name[end] >= 'a' && name[end] <= 'z' || name[end] >= 'A' && name[end] <= 'Z') {
+		end++
+	}
+	return name[:end]
+}
+
 func membersOf(syms SymbolsByKind, root, owner string) []Member {
 	if ms := syms.Members[owner]; len(ms) > 0 {
 		return ms
@@ -322,9 +338,9 @@ func resolveStruct(syms SymbolsByKind, typ string) (string, bool) {
 		t := normalizeType(typ)
 		switch {
 		case strings.HasPrefix(t, "struct "):
-			return strings.TrimSpace(strings.TrimPrefix(t, "struct ")), true
+			return innermostScope(strings.TrimPrefix(t, "struct ")), true
 		case strings.HasPrefix(t, "union "):
-			return strings.TrimSpace(strings.TrimPrefix(t, "union ")), true
+			return innermostScope(strings.TrimPrefix(t, "union ")), true
 		}
 		if _, isStruct := syms.Members[t]; isStruct {
 			return t, true

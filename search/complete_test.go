@@ -240,3 +240,22 @@ func TestReadableAnonType(t *testing.T) {
 		}
 	}
 }
+
+// ctags の入れ子表記 `outer::inner` は末尾（直接の持ち主）でメンバ表を引く。
+// 無名 struct の内部名もそのまま鍵になる。
+func TestResolveStructFollowsNestedScope(t *testing.T) {
+	syms := SymbolsByKind{Members: map[string][]Member{
+		"ssl_st":  {{Name: "ext", Type: "struct ssl_st::__anon1"}},
+		"__anon1": {{Name: "early_data", Type: "int"}},
+	}}
+	if got, ok := resolveStruct(syms, "struct ssl_st::__anon1"); !ok || got != "__anon1" {
+		t.Errorf("resolveStruct(nested anon) = %q %v, want __anon1", got, ok)
+	}
+	if got, ok := resolveStruct(syms, "struct ssl_st"); !ok || got != "ssl_st" {
+		t.Errorf("resolveStruct(plain) = %q %v", got, ok)
+	}
+	// 配列の変数の型（ctags は添字ごと記録する）
+	if got, ok := resolveStruct(syms, "struct ssl_st[1]"); !ok || got != "ssl_st" {
+		t.Errorf("resolveStruct(array) = %q %v, want ssl_st", got, ok)
+	}
+}

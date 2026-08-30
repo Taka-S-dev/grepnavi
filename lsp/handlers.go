@@ -39,7 +39,11 @@ func (s *server) typeLine(ctx context.Context, content string, line int, word, c
 	}
 	for _, h := range s.findDefinitions(ctx, owner, currentFile) {
 		if h.Kind == "struct" || h.Kind == "union" {
-			return "\n型: " + h.Kind + " " + owner + " — " + s.lineLink(h.File, h.Line) + "\n"
+			label := owner
+			if strings.HasPrefix(owner, "__anon") {
+				label = "{...}" // ctags が無名 struct に付ける内部名は読めない
+			}
+			return "\n型: " + h.Kind + " " + label + " — " + s.lineLink(h.File, h.Line) + "\n"
 		}
 	}
 	return ""
