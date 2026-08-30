@@ -36,6 +36,15 @@ type textDocumentPositionParams struct {
 	Position position `json:"position"`
 }
 
+// referenceParams は textDocument/references の引数。context.includeDeclaration は
+// 宣言・定義の行を結果に含めるかで、エディタが必ず送ってくる。
+type referenceParams struct {
+	textDocumentPositionParams
+	Context struct {
+		IncludeDeclaration bool `json:"includeDeclaration"`
+	} `json:"context"`
+}
+
 type callHierarchyItem struct {
 	Name           string   `json:"name"`
 	Kind           int      `json:"kind"`

@@ -67,7 +67,7 @@ ssh -L 8080:localhost:8080 user@desktop-ip
 | 定義へ移動（F12） | definition | gtags → ctags → ripgrep の順で、GUI と同じ |
 | 型定義へ移動 | typeDefinition | 変数の型を struct / union まで辿る（typedef は索引で解く） |
 | 実装へ移動 | implementation | 関数ならその定義。関数ポインタのメンバ（`p->read(`）なら `.read = fn` / `p->read = fn` と書いている行の一覧。名前だけから実体は決められないので、集合で返す |
-| 参照（Shift+F12） | references | 索引優先 |
+| 参照（Shift+F12） | references | 索引優先。ローカル変数はその関数の中の出現、メンバは `->name` / `.name` の形の行だけ。定義行は `includeDeclaration` に従う |
 | 同じ語のハイライト | documentHighlight | ローカル変数はその関数の中だけ、書き込みは Write として区別 |
 | ホバー | hover | 定義スニペットとマクロ・enum の計算値 |
 | 引数のヒント（`(` `,` で発火） | signatureHelp | 定義行の字面。関数ポインタのメンバは宣言 `int (*read)(...)` から |

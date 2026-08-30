@@ -2,9 +2,85 @@ package lsp
 
 import (
 	"context"
+	"encoding/json"
+	"os/exec"
+	"sort"
 	"strings"
 	"testing"
 )
+
+func refParams(uri string, line, ch int, includeDeclaration bool) json.RawMessage {
+	b, _ := json.Marshal(map[string]any{
+		"textDocument": map[string]string{"uri": uri},
+		"position":     map[string]int{"line": line, "character": ch},
+		"context":      map[string]bool{"includeDeclaration": includeDeclaration},
+	})
+	return b
+}
+
+func refLines(t *testing.T, s *server, params json.RawMessage) []string {
+	t.Helper()
+	res, rerr := s.handleReferences(context.Background(), params)
+	if rerr != nil {
+		t.Fatalf("error: %+v", rerr)
+	}
+	var out []string
+	for _, l := range res.([]location) {
+		p := uriToPath(l.URI)
+		out = append(out, p[strings.LastIndexAny(p, `\/`)+1:]+":"+itoa(l.Range.Start.Line))
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ローカル変数の参照は、その変数を宣言している関数の中だけ。索引にローカルは
+// 無いので、語で引くと別の関数の同名変数まで並ぶ。
+func TestReferencesScopeLocalsToTheirFunction(t *testing.T) {
+	dir := t.TempDir()
+	f := writeFile(t, dir, "a.c", ""+
+		"int f(void) {\n"+
+		"\tint n = 0;\n"+
+		"\tn++;\n"+
+		"\treturn n;\n"+
+		"}\n"+
+		"int g(void) {\n"+
+		"\tint n = 1;\n"+
+		"\treturn n;\n"+
+		"}\n")
+	s := &server{root: dir}
+	uri := pathToURI(f)
+	got := refLines(t, s, refParams(uri, 2, 1, false))
+	if want := "a.c:2 a.c:3"; strings.Join(got, " ") != want {
+		t.Errorf("references without declaration = %v, want %s", got, want)
+	}
+	got = refLines(t, s, refParams(uri, 2, 1, true))
+	if want := "a.c:1 a.c:2 a.c:3"; strings.Join(got, " ") != want {
+		t.Errorf("references with declaration = %v, want %s", got, want)
+	}
+}
+
+// メンバとして書かれた語の参照は `->name` `.name` の形で現れる行だけ。同名の
+// 関数の呼び出しや定義は別物。
+func TestReferencesKeepMemberAccessesOnly(t *testing.T) {
+	if _, err := exec.LookPath("rg"); err != nil {
+		t.Skip("rg not installed")
+	}
+	dir := t.TempDir()
+	writeFile(t, dir, "box.h", "struct box {\n\tint count;\n};\n")
+	f := writeFile(t, dir, "main.c", ""+
+		"#include \"box.h\"\n"+
+		"int count(int x) { return x; }\n"+
+		"int run(struct box *b) {\n"+
+		"\tb->count = 1;\n"+
+		"\treturn count(b->count);\n"+
+		"}\n")
+	s := &server{root: dir}
+	uri := pathToURI(f)
+	got := refLines(t, s, refParams(uri, 3, 4, true))
+	if want := "main.c:3 main.c:4"; strings.Join(got, " ") != want {
+		t.Errorf("member references = %v, want %s", got, want)
+	}
+}
 
 // 無名の入れ子 struct のメンバ（`struct { int early_data; } ext;`）にも F12 が届く。
 // ctags は無名 struct に __anon<16進> という内部名を付け、メンバの持ち主も

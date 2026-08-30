@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -249,28 +251,114 @@ func (s *server) handleDefinition(ctx context.Context, raw json.RawMessage) (any
 	return locs, nil
 }
 
+// handleReferences は定義ジャンプと同じ絞り込みを参照一覧にも掛ける。索引は語で
+// 引くので、そのまま返すと ssl_lib.c の `s` に 1,026 件、`version` に別構造体の
+// メンバまで並ぶ。ローカル変数はその関数の中の出現だけ、メンバは `->name` `.name`
+// の形で現れる行だけにする。
 func (s *server) handleReferences(ctx context.Context, raw json.RawMessage) (any, *responseError) {
-	var p textDocumentPositionParams
+	var p referenceParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
 	}
-	word, _ := s.wordAt(p.TextDocument.URI, p.Position)
+	word, path := s.wordAt(p.TextDocument.URI, p.Position)
 	if word == "" {
 		return []location{}, nil
+	}
+	content, hasDoc := s.documentText(p.TextDocument.URI)
+	if hasDoc {
+		if declLine, _, ok := localDeclaration(content, p.Position, word); ok {
+			return localReferences(p.TextDocument.URI, content, p.Position, word, declLine, p.Context.IncludeDeclaration), nil
+		}
 	}
 	// 上限は GUI の参照一覧と同じ発想で高めに取る。切られたことを LSP で
 	// 伝える口は無いので、途中で黙って切れるよりは広く返す。
 	ctx, cancel := s.requestContext(ctx)
 	defer cancel()
-	refs, _, _, err := search.FindReferences(ctx, word, s.root, 2000, false, "")
+	refs, _, engine, err := search.FindReferences(ctx, word, s.root, 2000, false, "")
 	if err != nil {
 		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
 	}
+	isMember := hasDoc && memberAccessAt(content, p.Position)
+	if isMember {
+		re := regexp.MustCompile(`(?:->|\.)\s*` + regexp.QuoteMeta(word) + `\b`)
+		kept := refs[:0]
+		for _, r := range refs {
+			if re.MatchString(r.Text) {
+				kept = append(kept, r)
+			}
+		}
+		refs = kept
+	}
+	// 宣言・定義の行は includeDeclaration に従って足す／外す。索引の参照一覧は
+	// 定義行を含まない（gtags -r）ので、定義は別に引いて揃える。索引が無くて rg で
+	// 引いたときは定義行も参照として混ざっており、もう一度走査してまで選り分けない
+	var defs []search.DefHit
+	if engine != "rg" {
+		if isMember {
+			defs = s.memberDefinitions(ctx, content, p.Position, word, path)
+		} else {
+			defs = s.findDefinitions(ctx, word, path)
+		}
+	}
+	isDef := map[string]bool{}
+	for _, d := range defs {
+		isDef[lineKey(d.File, d.Line)] = true
+	}
 	locs := []location{}
+	seen := map[string]bool{}
 	for _, r := range refs {
+		k := lineKey(r.File, r.Line)
+		if seen[k] || (isDef[k] && !p.Context.IncludeDeclaration) {
+			continue
+		}
+		seen[k] = true
 		locs = append(locs, location{URI: pathToURI(r.File), Range: wordRange(r.File, r.Line, word)})
 	}
+	if p.Context.IncludeDeclaration {
+		for _, d := range defs {
+			if k := lineKey(d.File, d.Line); !seen[k] {
+				seen[k] = true
+				locs = append(locs, location{URI: pathToURI(d.File), Range: wordRange(d.File, d.Line, word)})
+			}
+		}
+	}
 	return locs, nil
+}
+
+// localReferences はローカル変数・引数の参照: 宣言を含む関数の中の出現を字面から
+// 集める（ハイライトと同じ経路）。includeDeclaration が偽なら宣言の行は外す。
+func localReferences(uri, content string, pos position, word string, declLine int, includeDeclaration bool) []location {
+	locs := []location{}
+	lines := strings.Split(content, "\n")
+	fr, ok := enclosingFuncRange(lines, pos.Line+1)
+	if !ok {
+		return locs
+	}
+	masked := maskNonCode(lines[fr.Start-1 : fr.End])
+	re := regexp.MustCompile(`\b` + regexp.QuoteMeta(word) + `\b`)
+	for i, l := range masked {
+		abs := fr.Start - 1 + i
+		if abs == declLine && !includeDeclaration {
+			continue
+		}
+		for _, m := range re.FindAllStringIndex(l, -1) {
+			locs = append(locs, location{URI: uri, Range: lspRange{
+				Start: position{Line: abs, Character: utf16Len(l[:m[0]])},
+				End:   position{Line: abs, Character: utf16Len(l[:m[1]])},
+			}})
+		}
+	}
+	return locs
+}
+
+// lineKey は「同じファイルの同じ行」の鍵。索引と定義表でパスの区切りや大文字小文字が
+// 揃わないことがあるので、正規化してから比べる
+func lineKey(file string, line int) string {
+	p := filepath.ToSlash(filepath.Clean(file))
+	if runtime.GOOS == "windows" {
+		p = strings.ToLower(p)
+	}
+	return p + ":" + strconv.Itoa(line)
 }
 
 // handleHover は GUI のホバーと同じ FindHover を Markdown に組む。定義スニペット
