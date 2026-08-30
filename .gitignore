@@ -35,7 +35,7 @@
 !editors/vscode/
 !editors/vscode/package.json
 !editors/vscode/package-lock.json
-!editors/vscode/extension.js
+!editors/vscode/*.js
 !editors/vscode/.vscodeignore
 
 # 公開ドキュメント（docs/ 直下の他ファイルは作業メモなので許可しない）
