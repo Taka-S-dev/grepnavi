@@ -72,12 +72,18 @@ const (
 	symbolKindConstant = 14
 )
 
-// uriToPath は file:// URI を OS のパスに直す。
-// VSCode は Windows のドライブ文字を %3A でエスケープして送る（file:///c%3A/...）。
+// uriToPath は file:// URI を OS のパスに直す。net/url に任せるのは、空白・`#`・
+// `%`・非 ASCII のエスケープと、UNC（file://server/share/x.c）の authority を
+// 手書きで正しく扱うのが難しいため。VSCode は Windows のドライブ文字を %3A で
+// エスケープして送る（file:///c%3A/...）。
 func uriToPath(uri string) string {
-	p := strings.TrimPrefix(uri, "file://")
-	if unescaped, err := url.PathUnescape(p); err == nil {
-		p = unescaped
+	u, err := url.Parse(uri)
+	if err != nil || u.Scheme != "file" {
+		return filepath.FromSlash(strings.TrimPrefix(uri, "file://"))
+	}
+	p := u.Path
+	if u.Host != "" && u.Host != "localhost" {
+		return filepath.FromSlash("//" + u.Host + p) // UNC: \\server\share\x.c
 	}
 	// file:///C:/... は先頭に余分な / が付く
 	if runtime.GOOS == "windows" && len(p) >= 3 && p[0] == '/' && p[2] == ':' {
@@ -86,12 +92,21 @@ func uriToPath(uri string) string {
 	return filepath.FromSlash(p)
 }
 
+// pathToURI は OS のパスを file:// URI にする（uriToPath の逆。空白や `#` を
+// 含むパスも往復で同じパスに戻る）。
 func pathToURI(path string) string {
 	p := filepath.ToSlash(path)
-	if !strings.HasPrefix(p, "/") {
-		p = "/" + p // Windows のドライブパス（C:/...）
+	u := url.URL{Scheme: "file"}
+	if host, rest, ok := strings.Cut(strings.TrimPrefix(p, "//"), "/"); ok && strings.HasPrefix(p, "//") {
+		u.Host = host // UNC \\server\share\x.c → file://server/share/x.c
+		u.Path = "/" + rest
+	} else {
+		if !strings.HasPrefix(p, "/") {
+			p = "/" + p // Windows のドライブパス（C:/...）
+		}
+		u.Path = p
 	}
-	return "file://" + p
+	return u.String()
 }
 
 // wordRange は file の line1 行にある word の範囲。索引は行までしか知らないが、

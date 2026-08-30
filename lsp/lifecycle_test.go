@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -156,6 +158,38 @@ func TestMalformedParamsReturnInvalidParams(t *testing.T) {
 		_, rerr := s.dispatch(context.Background(), &request{Method: method, Params: json.RawMessage(`[1, 2]`)})
 		if rerr == nil || rerr.Code != codeInvalidParams {
 			t.Errorf("%s with array params -> %+v, want InvalidParams", method, rerr)
+		}
+	}
+}
+
+// 空白・`#`・`%`・非 ASCII を含むパスも URI を往復して同じパスに戻る。
+func TestFileURIRoundTripWithSpecialCharacters(t *testing.T) {
+	base := string(filepath.Separator) + "tmp"
+	if runtime.GOOS == "windows" {
+		base = `D:\tmp`
+	}
+	for _, name := range []string{"My Project", "foo#old", "100%", "日本語", "a+b&c"} {
+		p := filepath.Join(base, name, "x.c")
+		u := pathToURI(p)
+		if strings.ContainsAny(u, " #%日") && !strings.Contains(u, "%") {
+			t.Errorf("pathToURI(%q) = %q is not escaped", p, u)
+		}
+		if strings.Contains(u, "#") {
+			t.Errorf("pathToURI(%q) = %q leaves a fragment marker", p, u)
+		}
+		if got := uriToPath(u); got != p {
+			t.Errorf("round trip %q -> %q -> %q", p, u, got)
+		}
+	}
+	if runtime.GOOS == "windows" {
+		if got := uriToPath("file:///c%3A/My%20Project/a%23b.c"); got != `c:\My Project\a#b.c` {
+			t.Errorf("uriToPath(escaped) = %q", got)
+		}
+		if got := uriToPath("file://server/share/dir/x.c"); got != `\\server\share\dir\x.c` {
+			t.Errorf("uriToPath(UNC) = %q", got)
+		}
+		if got := pathToURI(`\\server\share\dir\x.c`); got != "file://server/share/dir/x.c" {
+			t.Errorf("pathToURI(UNC) = %q", got)
 		}
 	}
 }
