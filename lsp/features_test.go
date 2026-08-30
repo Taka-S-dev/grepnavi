@@ -357,3 +357,40 @@ func TestReceiverChainBefore(t *testing.T) {
 		t.Errorf("a call result has no name chain, got %v", c)
 	}
 }
+
+// ローカル変数・引数のホバーと F12 は、この関数の宣言行を返す。索引の同名シンボルは引かない。
+func TestLocalsResolveToTheirDeclarationInTheFunction(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "other.c", "struct rec { int version; };\nint version = 3;\n")
+	f := writeFile(t, dir, "main.c", ""+
+		"int get(struct rec *r, int flag) {\n"+ // 0: 引数 flag
+		"\tunsigned int version;\n"+ // 1: ローカル version
+		"\tversion = r->version + flag;\n"+ // 2
+		"\treturn version;\n"+ // 3
+		"}\n")
+	s := &server{root: dir}
+	uri := pathToURI(f)
+
+	res, _ := s.handleHover(posParams(uri, 3, 9)) // return version
+	hv, _ := res.(map[string]any)
+	md, _ := hv["contents"].(map[string]string)
+	if md == nil || !strings.Contains(md["value"], "local") || !strings.Contains(md["value"], "unsigned int version;") {
+		t.Errorf("hover on a local should show its declaration, got %#v", res)
+	}
+	res, _ = s.handleDefinition(posParams(uri, 3, 9))
+	locs := res.([]location)
+	if len(locs) != 1 || locs[0].URI != uri || locs[0].Range.Start.Line != 1 {
+		t.Errorf("definition of a local should be its declaration line, got %+v", locs)
+	}
+	res, _ = s.handleDefinition(posParams(uri, 2, 24)) // flag（引数）
+	locs = res.([]location)
+	if len(locs) != 1 || locs[0].Range.Start.Line != 0 {
+		t.Errorf("definition of a parameter should be the signature line, got %+v", locs)
+	}
+	// r->version はメンバ。同名のローカルがあってもローカル扱いにしない
+	if _, _, ok := localDeclaration(strings.Join([]string{
+		"int get(struct rec *r, int flag) {", "\tunsigned int version;", "\tversion = r->version + flag;", "}"}, "\n"),
+		position{Line: 2, Character: 15}, "version"); ok {
+		t.Error("r->version must not resolve to the local version")
+	}
+}

@@ -134,6 +134,13 @@ func (s *server) handleDefinition(raw json.RawMessage) (any, *responseError) {
 		return []location{}, nil
 	}
 	locs := []location{}
+	// ローカル変数・引数はこの関数の宣言行へ。索引にはローカルが無いので、
+	// 引くと同名のグローバルやメンバに飛んでしまう
+	if content, ok := s.documentText(p.TextDocument.URI); ok {
+		if line, _, ok := localDeclaration(content, p.Position, word); ok {
+			return []location{{URI: p.TextDocument.URI, Range: lineRange(line + 1)}}, nil
+		}
+	}
 	for _, h := range s.findDefinitions(word, path) {
 		locs = append(locs, location{URI: pathToURI(h.File), Range: lineRange(h.Line)})
 	}
@@ -174,6 +181,16 @@ func (s *server) handleHover(raw json.RawMessage) (any, *responseError) {
 	word, _ := s.wordAt(p.TextDocument.URI, p.Position)
 	if word == "" {
 		return nil, nil
+	}
+	// ローカル変数・引数はこの関数の宣言行を見せる。索引を引くと同名の
+	// 構造体メンバがツリー全体から並ぶ（ssl3_get_record の version で 13 件）
+	if content, ok := s.documentText(p.TextDocument.URI); ok {
+		if line, text, ok := localDeclaration(content, p.Position, word); ok {
+			md := "**local** — L" + strconv.Itoa(line+1) + "\n\n```c\n" + text + "\n```\n"
+			return map[string]any{
+				"contents": map[string]string{"kind": "markdown", "value": md},
+			}, nil
+		}
 	}
 	ctx, cancel := s.requestContext()
 	defer cancel()
