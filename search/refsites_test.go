@@ -421,3 +421,30 @@ func TestKeepAssignRawRunsBeforeTheBudget(t *testing.T) {
 		}
 	}
 }
+
+// 索引が参照を返し、その中に代入が無いときは 0 件が答え。rg へ降格しない
+// （openssl の ssl_read で、降格の再走査が cold 118 秒かかっていた）。
+func TestFindRefSitesAssignOnlyDoesNotFallBackToRg(t *testing.T) {
+	if _, err := exec.LookPath("gtags"); err != nil {
+		t.Skip("gtags なし")
+	}
+	dir := writeRefFixture(t)
+	if err := GtagsBuildIndex(context.Background(), dir); err != nil {
+		t.Skipf("gtags の作成に失敗: %v", err)
+	}
+	if !GtagsAvailable(dir) {
+		t.Skip("索引を認識できない")
+	}
+	sites, engine, _, err := FindRefSites(context.Background(), RefQuery{
+		Word: "helper", Root: dir, AssignOnly: true, Limit: 100,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if engine != "gtags" {
+		t.Errorf("engine = %q, want gtags (no fallback scan for a zero-write answer)", engine)
+	}
+	if len(sites) != 0 {
+		t.Errorf("helper is never assigned, got %+v", sites)
+	}
+}

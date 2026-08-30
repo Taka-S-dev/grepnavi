@@ -111,7 +111,10 @@ func FindRefSites(ctx context.Context, q RefQuery) ([]CallSite, string, bool, er
 			// 呼び出し元は 0 件でも索引の答えとして返す（0 件 = 呼び出し元
 			// なし）。参照一覧は従来どおり rg へ落ちる — 索引対象外の
 			// ファイル種別からの参照がありえるのは、任意の行を拾う参照の側。
-			if len(sites) > 0 || q.CallersOnly {
+			// 「書き込みだけ」も降格しない: 索引の参照の中に代入の形が無いのが
+			// 答えで、rg で全木を読み直しても同じ 0 件が返るだけ（openssl の
+			// ssl_read で実測: 索引 10ms に対し rg の再走査は cold 118 秒）。
+			if len(sites) > 0 || q.CallersOnly || q.AssignOnly {
 				sites, truncated := capSites(sites, q.Limit)
 				return sites, "gtags", truncated || cut, nil
 			}
