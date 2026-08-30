@@ -42,7 +42,7 @@ func (w *safeBuf) frames(t *testing.T) []map[string]any {
 		}
 		var n int
 		fmt.Sscanf(strings.TrimSpace(strings.TrimPrefix(line, "Content-Length:")), "%d", &n)
-		r.ReadString('\n') // 空行
+		r.ReadString('\n')
 		body := make([]byte, n)
 		if _, err := io.ReadFull(r, body); err != nil {
 			return out

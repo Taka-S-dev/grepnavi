@@ -45,11 +45,6 @@ func (s *server) typeLine(ctx context.Context, content string, line int, word, c
 	return ""
 }
 
-// 解決の方針は GUI と同じ: 索引 (gtags) があれば索引で引き、無ければ ripgrep に
-// 落ちる。0 件は「無い」という答えとして返し、劣化した全文検索の結果で水増し
-// しない。エディタの一覧 UI は候補の真偽を選別する場ではないため、この規律は
-// GUI 以上に効く。
-
 func (s *server) handleInitialize(raw json.RawMessage) any {
 	var p struct {
 		RootURI               string `json:"rootUri"`
@@ -123,8 +118,8 @@ func (s *server) wordAt(uri string, pos position) (word, path string) {
 		return "", path
 	}
 	// キーワードに定義は無い。索引が 0 件を返したあと rg のフォールバックが
-	// ツリー全体を走査し、受付が直列なので後続の要求まで全部その後ろに並ぶ
-	// （実測: openssl で `unsigned` に F12 → 20 分）。語を空にして手前で止める
+	// ツリー全体を走査し、同時 4 枠の 1 つを長時間塞ぐ（openssl 実測: `unsigned`
+	// に F12 → 20 分）。語を空にして手前で止める
 	if cKeywords[word] {
 		return "", path
 	}
@@ -143,9 +138,9 @@ var cKeywords = map[string]bool{
 	"unsigned": true, "void": true, "volatile": true, "while": true,
 }
 
-// requestTimeout は 1 リクエストに許す時間。受付が直列なので、索引に無い語の
-// rg フォールバックが長引くと後続の要求が全部その後ろに並ぶ。期限が来たら
-// rg は殺され（proc.CommandContext）、その要求は「答えなし」で返る。
+// requestTimeout は 1 リクエストに許す時間。同時に処理する枠は 4 つなので、
+// 索引に無い語の rg フォールバックが長引くと枠を塞いで後続を待たせる。期限が
+// 来たら rg は殺され（proc.CommandContext）、その要求は「答えなし」で返る。
 // 索引があれば 1 秒かからず、無くても openssl 級のツリーの rg 走査は数秒で
 // 終わるので、正しい答えを切る値ではない。
 const requestTimeout = 15 * time.Second
@@ -154,6 +149,10 @@ func (s *server) requestContext(ctx context.Context) (context.Context, context.C
 	return context.WithTimeout(ctx, requestTimeout)
 }
 
+// findDefinitions は GUI と同じ方針で定義を引く: 索引 (gtags) があれば索引、
+// 無ければ ripgrep。0 件は「無い」という答えとして返し、劣化した全文検索の
+// 結果で水増ししない。エディタの一覧 UI は候補の真偽を選別する場ではないので、
+// この規律は GUI 以上に効く。
 func (s *server) findDefinitions(ctx context.Context, word, currentFile string) []search.DefHit {
 	ctx, cancel := s.requestContext(ctx)
 	defer cancel()

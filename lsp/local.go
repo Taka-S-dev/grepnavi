@@ -140,7 +140,7 @@ func declRegexp(word string) *regexp.Regexp {
 	w := regexp.QuoteMeta(word)
 	declarator := `[A-Za-z_]\w*(?:\s*\[[^\]]*\])*(?:\s*=\s*[^,;]+)?`
 	// 型と宣言子の間には空白か * が要る。無いと `SSL_AD_RECORD_OVERFLOW, word` を
-	// `SSL_AD_RECORD_OVERFLO` + `W` に切って宣言と読んでしまう（実際に踏んだ）
+	// `SSL_AD_RECORD_OVERFLO` + `W` に切って宣言と読んでしまう
 	return regexp.MustCompile(
 		`\b([A-Za-z_]\w*)(?:\s+\**\s*|\s*\*+\s*)` +
 			`(?:` + declarator + `(?:\s*,\s*\**\s*` + declarator + `)*\s*,\s*\**\s*)?` +

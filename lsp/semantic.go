@@ -77,7 +77,6 @@ func symbolTokens(src []byte, syms search.SymbolsByKind) []int {
 		return b == '_' || b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
 	}
 	advance := func(from, to int) {
-		// from..to のバイト列を読み飛ばしながら行・列を進める
 		for from < to {
 			r, size := utf8.DecodeRune(src[from:])
 			if r == '\n' {

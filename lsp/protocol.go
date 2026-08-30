@@ -125,7 +125,6 @@ func wordAtPosition(content string, pos position) string {
 		return ""
 	}
 	line := strings.TrimSuffix(lines[pos.Line], "\r")
-	// UTF-16 位置 → バイト位置
 	byteOff := 0
 	u16 := 0
 	for i, r := range line {
