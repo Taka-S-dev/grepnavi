@@ -95,7 +95,7 @@ func (s *server) handleWorkspaceSymbol(ctx context.Context, raw json.RawMessage)
 		return []any{}, nil
 	}
 	// 部分一致・大文字小文字無視。エディタ側がさらに絞り込むので広めに返す
-	hits, _, err := search.CtagsSearchSymbolNames(context.Background(), regexp.QuoteMeta(p.Query), s.root, "", false, workspaceSymbolLimit, "")
+	hits, _, err := search.CtagsSearchSymbolNames(ctx, regexp.QuoteMeta(p.Query), s.root, "", false, workspaceSymbolLimit, "")
 	if err != nil {
 		return []any{}, nil
 	}
