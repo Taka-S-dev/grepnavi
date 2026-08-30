@@ -82,7 +82,7 @@ func enclosingFuncRange(lines []string, line int) (search.FuncRange, bool) {
 // 直前が型名（識別子）で、後ろが `;` `,` `=` `)` `[` のいずれか。
 // `SSL *s,` `int n = 0;` は宣言、`return s;` `x = s;` は違う。
 func declaredWithin(lines []string, word string) bool {
-	re := regexp.MustCompile(`([A-Za-z_]\w*)\s*\**\s*\b` + regexp.QuoteMeta(word) + `\b\s*[;,=)\[]`)
+	re := declRegexp(word)
 	for _, l := range lines {
 		for _, m := range re.FindAllStringSubmatch(l, -1) {
 			if !cKeywords[m[1]] || isTypeKeyword(m[1]) {

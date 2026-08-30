@@ -447,3 +447,29 @@ func TestMemberCallsResolveToTheMemberDeclaration(t *testing.T) {
 		t.Errorf("hover on p->read should show the member only, got %#v", res)
 	}
 }
+
+// `T *a, *b;` の 2 つ目以降の宣言子もローカルとして解決する。
+func TestLocalsDeclaredInAListResolve(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "other.c", "struct rec { int thisrr; int j; };\n")
+	f := writeFile(t, dir, "main.c", ""+
+		"int get(struct rec *r) {\n"+
+		"\tstruct rec *rr, *thisrr;\n"+ // 1
+		"\tsize_t num_recs = 0, max_recs, j;\n"+ // 2
+		"\tthisrr = rr;\n"+ // 3
+		"\treturn j + r->thisrr;\n"+ // 4
+		"}\n")
+	s := &server{root: dir}
+	uri := pathToURI(f)
+	res, _ := s.handleDefinition(context.Background(), posParams(uri, 3, 3)) // thisrr
+	if locs := res.([]location); len(locs) != 1 || locs[0].Range.Start.Line != 1 {
+		t.Errorf("thisrr should resolve to its declaration on line 1, got %+v", locs)
+	}
+	res, _ = s.handleDefinition(context.Background(), posParams(uri, 4, 8)) // j
+	if locs := res.([]location); len(locs) != 1 || locs[0].Range.Start.Line != 2 {
+		t.Errorf("j should resolve to its declaration on line 2, got %+v", locs)
+	}
+	if _, _, ok := localDeclaration("int f(int a) {\n\tg(a, thisrr);\n}\n", position{Line: 1, Character: 7}, "thisrr"); ok {
+		t.Error("a call argument list is not a declaration")
+	}
+}
