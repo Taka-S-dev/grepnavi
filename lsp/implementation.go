@@ -30,7 +30,7 @@ func (s *server) handleImplementation(ctx context.Context, raw json.RawMessage) 
 	if !memberAccessAt(content, p.Position) {
 		for _, h := range s.findDefinitions(ctx, word, path) {
 			if h.Kind == "func" {
-				locs = append(locs, location{URI: pathToURI(h.File), Range: lineRange(h.Line)})
+				locs = append(locs, location{URI: pathToURI(h.File), Range: wordRange(h.File, h.Line, word)})
 			}
 		}
 		if len(locs) > 0 {
@@ -65,7 +65,7 @@ func (s *server) handleImplementation(ctx context.Context, raw json.RawMessage) 
 					break
 				}
 			}
-			locs = append(locs, location{URI: pathToURI(r.File), Range: lineRange(r.Line)})
+			locs = append(locs, location{URI: pathToURI(r.File), Range: wordRange(r.File, r.Line, word)})
 			break
 		}
 	}

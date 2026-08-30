@@ -215,20 +215,20 @@ func (s *server) handleDefinition(ctx context.Context, raw json.RawMessage) (any
 	// 引くと同名のグローバルやメンバに飛んでしまう
 	if content, ok := s.documentText(p.TextDocument.URI); ok {
 		if line, _, ok := localDeclaration(content, p.Position, word); ok {
-			return []location{{URI: p.TextDocument.URI, Range: lineRange(line + 1)}}, nil
+			return []location{{URI: p.TextDocument.URI, Range: wordRange(path, line+1, word)}}, nil
 		}
 		// メンバとして書かれた語は、同名の関数ではなくメンバの宣言へ。宣言が
 		// 引けないときも関数には落とさない: C にメソッドは無いので、`x->f(` の f と
 		// 同名の関数は別物（実測: befs の nls->uni2char が static uni2char に飛んだ）
 		if memberAccessAt(content, p.Position) {
 			for _, h := range s.memberDefinitions(ctx, content, p.Position, word, path) {
-				locs = append(locs, location{URI: pathToURI(h.File), Range: lineRange(h.Line)})
+				locs = append(locs, location{URI: pathToURI(h.File), Range: wordRange(h.File, h.Line, word)})
 			}
 			return locs, nil
 		}
 	}
 	for _, h := range s.findDefinitions(ctx, word, path) {
-		locs = append(locs, location{URI: pathToURI(h.File), Range: lineRange(h.Line)})
+		locs = append(locs, location{URI: pathToURI(h.File), Range: wordRange(h.File, h.Line, word)})
 	}
 	return locs, nil
 }
@@ -252,7 +252,7 @@ func (s *server) handleReferences(ctx context.Context, raw json.RawMessage) (any
 	}
 	locs := []location{}
 	for _, r := range refs {
-		locs = append(locs, location{URI: pathToURI(r.File), Range: lineRange(r.Line)})
+		locs = append(locs, location{URI: pathToURI(r.File), Range: wordRange(r.File, r.Line, word)})
 	}
 	return locs, nil
 }
@@ -369,13 +369,13 @@ func (s *server) handlePrepareCallHierarchy(ctx context.Context, raw json.RawMes
 		Name:  word,
 		Kind:  symbolKindFunction,
 		URI:   p.TextDocument.URI,
-		Range: lineRange(p.Position.Line + 1), SelectionRange: lineRange(p.Position.Line + 1),
+		Range: wordRange(path, p.Position.Line+1, word), SelectionRange: wordRange(path, p.Position.Line+1, word),
 	}
 	for _, h := range s.findDefinitions(ctx, word, path) {
 		if h.Kind == "func" || item.URI == p.TextDocument.URI {
 			item.URI = pathToURI(h.File)
-			item.Range = lineRange(h.Line)
-			item.SelectionRange = lineRange(h.Line)
+			item.Range = wordRange(h.File, h.Line, word)
+			item.SelectionRange = item.Range
 			if h.Kind == "func" {
 				break
 			}
@@ -422,9 +422,9 @@ func (s *server) handleIncomingCalls(ctx context.Context, raw json.RawMessage) (
 				Kind:   symbolKindFunction,
 				Detail: s.detailOf(c.File, c.CallLine),
 				URI:    pathToURI(c.File),
-				Range:  lineRange(c.Line), SelectionRange: lineRange(c.Line),
+				Range:  wordRange(c.File, c.Line, name), SelectionRange: wordRange(c.File, c.Line, name),
 			},
-			FromRanges: []lspRange{lineRange(c.CallLine)},
+			FromRanges: []lspRange{wordRange(c.File, c.CallLine, p.Item.Name)},
 		})
 	}
 	return calls, nil
@@ -494,10 +494,10 @@ func (s *server) handleOutgoingCalls(ctx context.Context, raw json.RawMessage) (
 				Kind:   kind,
 				Detail: detail,
 				URI:    pathToURI(file),
-				Range:  lineRange(c.CallLine), SelectionRange: lineRange(c.CallLine),
+				Range:  wordRange(file, c.CallLine, c.Name), SelectionRange: wordRange(file, c.CallLine, c.Name),
 				Data:   &callHierarchyData{Callee: c.Name, Indirect: c.Indirect},
 			},
-			FromRanges: []lspRange{lineRange(c.CallLine)},
+			FromRanges: []lspRange{wordRange(file, c.CallLine, c.Name)},
 		})
 	}
 	return calls, nil

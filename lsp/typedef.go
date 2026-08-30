@@ -36,7 +36,7 @@ func (s *server) handleTypeDefinition(ctx context.Context, raw json.RawMessage) 
 	for _, name := range uniqueStrings(owner, word) {
 		for _, h := range s.findDefinitions(ctx, name, path) {
 			if isTypeKind(h.Kind) {
-				locs = append(locs, location{URI: pathToURI(h.File), Range: lineRange(h.Line)})
+				locs = append(locs, location{URI: pathToURI(h.File), Range: wordRange(h.File, h.Line, name)})
 			}
 		}
 		if len(locs) > 0 {

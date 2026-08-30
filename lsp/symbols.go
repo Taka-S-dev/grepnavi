@@ -76,7 +76,7 @@ func (s *server) handleDocumentSymbol(ctx context.Context, raw json.RawMessage) 
 		}
 		out = append(out, documentSymbol{
 			Name: name, Kind: symbolKindOf(h.Kind),
-			Range: lineRange(h.Line), SelectionRange: lineRange(h.Line),
+			Range: wordRange(uriToPath(p.TextDocument.URI), h.Line, name), SelectionRange: wordRange(uriToPath(p.TextDocument.URI), h.Line, name),
 		})
 	}
 	return out, nil
@@ -116,7 +116,7 @@ func (s *server) handleWorkspaceSymbol(ctx context.Context, raw json.RawMessage)
 		}
 		out = append(out, symbolInformation{
 			Name: name, Kind: symbolKindOf(h.Kind),
-			Location: location{URI: pathToURI(h.File), Range: lineRange(h.Line)},
+			Location: location{URI: pathToURI(h.File), Range: wordRange(h.File, h.Line, name)},
 		})
 	}
 	return out, nil

@@ -3,9 +3,12 @@ package lsp
 import (
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"unicode/utf16"
+
+	"grepnavi/search"
 )
 
 // LSP の型のうち、名乗る capability に必要な最小集合。
@@ -80,6 +83,28 @@ func pathToURI(path string) string {
 		p = "/" + p // Windows のドライブパス（C:/...）
 	}
 	return "file://" + p
+}
+
+// wordRange は file の line1 行にある word の範囲。索引は行までしか知らないが、
+// 着地点が行全体だとエディタは行をまるごと選択し、移動履歴（Alt+←）にも
+// 行全体の選択が残る。語の列まで返せば、着地も履歴もその語になる。
+// 行に語が無い（索引が古い等）ときは行全体に落とす。
+func wordRange(file string, line1 int, word string) lspRange {
+	lines, err := search.CachedLines(file)
+	if err != nil || word == "" || line1 < 1 || line1 > len(lines) {
+		return lineRange(line1)
+	}
+	l := strings.TrimSuffix(lines[line1-1], "\r")
+	masked := maskNonCode([]string{l})[0]
+	re := regexp.MustCompile(`\b` + regexp.QuoteMeta(word) + `\b`)
+	m := re.FindStringIndex(masked)
+	if m == nil {
+		return lineRange(line1)
+	}
+	return lspRange{
+		Start: position{Line: line1 - 1, Character: utf16Len(l[:m[0]])},
+		End:   position{Line: line1 - 1, Character: utf16Len(l[:m[1]])},
+	}
 }
 
 // lineRange は1行全体を指す範囲（1-indexed の行番号から作る）。

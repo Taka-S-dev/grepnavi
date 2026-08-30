@@ -65,7 +65,7 @@ func (s *server) handleCodeLens(ctx context.Context, raw json.RawMessage) (any, 
 			continue
 		}
 		out = append(out, codeLens{
-			Range: lineRange(fr.Start),
+			Range: wordRange(file, fr.Start, fr.Name),
 			Data:  &lensData{Name: fr.Name, File: file, Line: fr.Start},
 		})
 	}
@@ -130,7 +130,7 @@ func (s *server) resolveCallers(ctx context.Context, d *lensData) resolvedLens {
 		if c.Indirect {
 			registrations++
 		}
-		locs = append(locs, location{URI: pathToURI(c.File), Range: lineRange(c.CallLine)})
+		locs = append(locs, location{URI: pathToURI(c.File), Range: wordRange(c.File, c.CallLine, d.Name)})
 	}
 	title := "呼び出し元 " + strconv.Itoa(len(sites))
 	if truncated {
