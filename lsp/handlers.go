@@ -109,6 +109,12 @@ func (s *server) wordAt(uri string, pos position) (word, path string) {
 		return "", path
 	}
 	word = wordAtPosition(content, pos)
+	// コメントと文字列の中の語は引かない。Ctrl を押したままスクロールすると
+	// エディタはコメントの語にも定義を尋ね、索引に無い語は rg の全走査
+	// （openssl で約 0.9 秒）になる。答えも無いので、手前で止める
+	if inCommentOrString(content, pos) {
+		return "", path
+	}
 	// キーワードに定義は無い。索引が 0 件を返したあと rg のフォールバックが
 	// ツリー全体を走査し、受付が直列なので後続の要求まで全部その後ろに並ぶ
 	// （実測: openssl で `unsigned` に F12 → 20 分）。語を空にして手前で止める

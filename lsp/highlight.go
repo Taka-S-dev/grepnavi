@@ -102,6 +102,27 @@ func isTypeKeyword(w string) bool {
 	return false
 }
 
+// inCommentOrString は pos がコメントか文字列リテラルの中かを返す。
+// ブロックコメントは行をまたぐので、先頭からその行までを塗ってから見る。
+func inCommentOrString(content string, pos position) bool {
+	lines := strings.Split(content, "\n")
+	if pos.Line < 0 || pos.Line >= len(lines) {
+		return false
+	}
+	masked := maskNonCode(lines[:pos.Line+1])
+	orig := strings.TrimSuffix(lines[pos.Line], "\r")
+	m := strings.TrimSuffix(masked[pos.Line], "\r")
+	at := utf16ByteOffset(orig, pos.Character)
+	if at >= len(orig) {
+		at = len(orig) - 1
+	}
+	if at < 0 {
+		return false
+	}
+	// 塗られた位置は空白になり、元の文字と食い違う
+	return orig[at] != ' ' && orig[at] != '\t' && m[at] == ' '
+}
+
 // maskNonCode はコメントと文字列リテラルの中身を空白に置き換える。
 // 列を変えないので、結果の位置がそのまま元の行の位置になる。
 // search.codeOnlyLines は列を詰めるので、位置を返す用途にはこちらを使う。

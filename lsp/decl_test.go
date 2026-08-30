@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 // 識別子の途中で切って「型 + 宣言子」と読まない（SSL_AD_RECORD_OVERFLO + W）。
@@ -17,6 +18,19 @@ func TestArgumentListsAreNotDeclarations(t *testing.T) {
 	}
 	if !declRegexp("b").MatchString("int a, b;") || !declRegexp("p").MatchString("struct pt*p;") {
 		t.Error("real declarations must still match")
+	}
+}
+
+// コメント・文字列の中の語は定義もホバーも引かない（rg の全走査を起こさない）。
+func TestWordsInCommentsAndStringsAreIgnored(t *testing.T) {
+	src := "int run(void) {\n\t/* move the packet */\n\tputs(\"helper\");\n\treturn helper(1); // helper\n}\n"
+	for _, c := range []struct {
+		line, ch int
+		want     bool
+	}{{1, 5, true}, {2, 8, true}, {3, 20, true}, {3, 9, false}} {
+		if got := inCommentOrString(src, position{Line: c.line, Character: c.ch}); got != c.want {
+			t.Errorf("(%d,%d) inCommentOrString = %v, want %v", c.line, c.ch, got, c.want)
+		}
 	}
 }
 
@@ -34,6 +48,34 @@ func TestDefinitionRangesPointAtTheSymbol(t *testing.T) {
 	r := locs[0].Range
 	if r.Start.Character != 11 || r.End.Character != 17 {
 		t.Errorf("range should cover `helper` on the definition line (11..17), got %+v", r)
+	}
+}
+
+// コメントの中の語に F12 / ホバー / ハイライトしても、索引を引かずに空を返す。
+// （root に索引が無いので、引きに行けば rg の走査が起きて時間で分かる）
+func TestCommentWordsAnswerEmptyThroughTheHandlers(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "lib.c", "int helper(int x) { return x; }\n")
+	f := writeFile(t, dir, "main.c", "int run(void) {\n\t/* call helper here */\n\treturn helper(1); /* helper */\n}\n")
+	s := &server{root: dir}
+	uri := pathToURI(f)
+	ctx := context.Background()
+	t0 := time.Now()
+	if res, _ := s.handleDefinition(ctx, posParams(uri, 1, 9)); len(res.([]location)) != 0 {
+		t.Errorf("F12 on a comment word returned %+v", res)
+	}
+	if res, _ := s.handleHover(ctx, posParams(uri, 1, 9)); res != nil {
+		t.Errorf("hover on a comment word returned %+v", res)
+	}
+	if res, _ := s.handleDocumentHighlight(ctx, posParams(uri, 2, 22)); len(res.([]documentHighlight)) != 0 {
+		t.Errorf("highlight from a comment word returned %+v", res)
+	}
+	if time.Since(t0) > 200*time.Millisecond {
+		t.Errorf("comment words took %v; they must not reach the search", time.Since(t0))
+	}
+	// 同じ語でもコードの中なら答える
+	if res, _ := s.handleDefinition(ctx, posParams(uri, 2, 9)); len(res.([]location)) == 0 {
+		t.Error("F12 on the real call should still resolve")
 	}
 }
 
