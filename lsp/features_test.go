@@ -423,3 +423,27 @@ func TestEditorAnswersDropHitsOutsideCSources(t *testing.T) {
 		}
 	}
 }
+
+// メンバ呼び出し `p->read(` の F12 とホバーは、同名の関数ではなくメンバの宣言へ。
+func TestMemberCallsResolveToTheMemberDeclaration(t *testing.T) {
+	if _, err := exec.LookPath("rg"); err != nil {
+		t.Skip("rg not installed")
+	}
+	dir := t.TempDir()
+	writeFile(t, dir, "ops.h", "struct ops {\n\tint (*read)(int);\n};\n")
+	writeFile(t, dir, "read.c", "int read(int fd) { return fd; }\n") // 同名の関数
+	f := writeFile(t, dir, "main.c", "#include \"ops.h\"\nint run(struct ops *p) { return p->read(1); }\n")
+	s := &server{root: dir}
+	uri := pathToURI(f)
+	res, _ := s.handleDefinition(context.Background(), posParams(uri, 1, 36))
+	locs := res.([]location)
+	if len(locs) != 1 || !strings.HasSuffix(uriToPath(locs[0].URI), "ops.h") || locs[0].Range.Start.Line != 1 {
+		t.Errorf("F12 on p->read should land on the member declaration, got %+v", locs)
+	}
+	res, _ = s.handleHover(context.Background(), posParams(uri, 1, 36))
+	hv, _ := res.(map[string]any)
+	md, _ := hv["contents"].(map[string]string)
+	if md == nil || !strings.Contains(md["value"], "member") || !strings.Contains(md["value"], "(*read)(int)") || strings.Contains(md["value"], "read.c") {
+		t.Errorf("hover on p->read should show the member only, got %#v", res)
+	}
+}

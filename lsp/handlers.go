@@ -131,6 +131,30 @@ func (s *server) findDefinitions(ctx context.Context, word, currentFile string) 
 	return cSourceOnly(hits)
 }
 
+// memberDefinitions は `s->method->ssl_read` のようにメンバとして書かれた語の
+// 宣言を返す。受け手の struct が分かればその本体の宣言行、分からなければ
+// ctags のメンバ項目。名前だけで索引を引くと同名の関数（bio_ssl.c の static
+// ssl_read）が先に立つので、メンバ呼び出しではこちらを先に見る。
+func (s *server) memberDefinitions(ctx context.Context, content string, pos position, word, currentFile string) []search.DefHit {
+	owner := ""
+	if chain := receiverChainAt(content, pos); len(chain) > 0 {
+		owner, _ = search.ChainStructInText(s.root, content, pos.Line+1, chain)
+	}
+	if owner != "" {
+		if defs := s.memberDeclarations(ctx, owner, word, currentFile); len(defs) > 0 {
+			return defs
+		}
+	}
+	hits, _ := search.CtagsFindDefinitions(word, s.root)
+	var out []search.DefHit
+	for _, h := range cSourceOnly(hits) {
+		if h.Kind == "member" && (owner == "" || h.Owner == "" || h.Owner == owner) {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
 // cSourceOnly は C/C++ 以外のファイルにあるヒットを落とす。doxygen の出力ごと
 // 索引にしたツリーでは `<title>rlayer</title>` の見出しがメンバ rlayer の定義として
 // 並ぶ（実測: openssl の ssl/record/html/）。GUI は選ぶ場なので最後に並べて残すが、
@@ -160,6 +184,15 @@ func (s *server) handleDefinition(ctx context.Context, raw json.RawMessage) (any
 	if content, ok := s.documentText(p.TextDocument.URI); ok {
 		if line, _, ok := localDeclaration(content, p.Position, word); ok {
 			return []location{{URI: p.TextDocument.URI, Range: lineRange(line + 1)}}, nil
+		}
+		// メンバとして書かれた語は、同名の関数ではなくメンバの宣言へ。宣言が
+		// 引けないときも関数には落とさない: C にメソッドは無いので、`x->f(` の f と
+		// 同名の関数は別物（実測: befs の nls->uni2char が static uni2char に飛んだ）
+		if memberAccessAt(content, p.Position) {
+			for _, h := range s.memberDefinitions(ctx, content, p.Position, word, path) {
+				locs = append(locs, location{URI: pathToURI(h.File), Range: lineRange(h.Line)})
+			}
+			return locs, nil
 		}
 	}
 	for _, h := range s.findDefinitions(ctx, word, path) {
@@ -199,7 +232,7 @@ func (s *server) handleHover(ctx context.Context, raw json.RawMessage) (any, *re
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
 	}
-	word, _ := s.wordAt(p.TextDocument.URI, p.Position)
+	word, path := s.wordAt(p.TextDocument.URI, p.Position)
 	if word == "" {
 		return nil, nil
 	}
@@ -211,6 +244,29 @@ func (s *server) handleHover(ctx context.Context, raw json.RawMessage) (any, *re
 			return map[string]any{
 				"contents": map[string]string{"kind": "markdown", "value": md},
 			}, nil
+		}
+		// メンバとして書かれた語は、その宣言行だけをカードにする。宣言が引けない
+		// ときは何も出さない（同名の関数のカードを出すよりは無いほうが正しい）
+		if memberAccessAt(content, p.Position) {
+			defs := s.memberDefinitions(ctx, content, p.Position, word, path)
+			if len(defs) == 0 {
+				return nil, nil
+			}
+			{
+				var md strings.Builder
+				for i, d := range defs {
+					if i == 3 {
+						break
+					}
+					if i > 0 {
+						md.WriteString("\n---\n")
+					}
+					fmt.Fprintf(&md, "**member** — %s\n\n```c\n%s\n```\n", s.detailOf(d.File, d.Line), strings.TrimSpace(d.Text))
+				}
+				return map[string]any{
+					"contents": map[string]string{"kind": "markdown", "value": md.String()},
+				}, nil
+			}
 		}
 	}
 	ctx, cancel := s.requestContext(ctx)
