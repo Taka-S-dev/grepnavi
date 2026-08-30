@@ -128,7 +128,7 @@ func TestDefinitionEndToEnd(t *testing.T) {
 		"textDocument": map[string]string{"uri": uri},
 		"position":     map[string]int{"line": 2, "character": 9}, // helper(41) の上
 	})
-	res, rerr := s.handleDefinition(params)
+	res, rerr := s.handleDefinition(context.Background(), params)
 	if rerr != nil {
 		t.Fatalf("error: %+v", rerr)
 	}
@@ -164,7 +164,7 @@ func TestIncomingCallsEndToEnd(t *testing.T) {
 			"end":   map[string]int{"line": 0, "character": 0},
 		},
 	}})
-	res, rerr := s.handleIncomingCalls(item)
+	res, rerr := s.handleIncomingCalls(context.Background(), item)
 	if rerr != nil {
 		t.Fatalf("error: %+v", rerr)
 	}
@@ -187,7 +187,7 @@ func TestExcludesApplyToDefinition(t *testing.T) {
 		"textDocument": map[string]string{"uri": pathToURI(filepath.Join(dir, "main.c"))},
 		"position":     map[string]int{"line": 2, "character": 9},
 	})
-	res, _ := s.handleDefinition(params)
+	res, _ := s.handleDefinition(context.Background(), params)
 	for _, l := range res.([]location) {
 		if strings.HasSuffix(uriToPath(l.URI), "lib.c") {
 			t.Fatalf("excluded lib.c still resolved: %+v", res)
@@ -209,7 +209,7 @@ func TestOutgoingCallsExpandTheCalleeNotTheCaller(t *testing.T) {
 			"end":   map[string]int{"line": 1, "character": 0},
 		},
 	}})
-	res, rerr := s.handleOutgoingCalls(item)
+	res, rerr := s.handleOutgoingCalls(context.Background(), item)
 	if rerr != nil {
 		t.Fatalf("error: %+v", rerr)
 	}
@@ -231,7 +231,7 @@ func TestOutgoingCallsExpandTheCalleeNotTheCaller(t *testing.T) {
 
 	// エディタは受け取ったアイテムをそのまま返して展開を頼む
 	again, _ := json.Marshal(map[string]any{"item": child})
-	res2, rerr := s.handleOutgoingCalls(again)
+	res2, rerr := s.handleOutgoingCalls(context.Background(), again)
 	if rerr != nil {
 		t.Fatalf("error: %+v", rerr)
 	}
@@ -255,7 +255,7 @@ func TestKeywordsAreNotLookedUp(t *testing.T) {
 		if w, _ := s.wordAt(uri, position{Line: c.line, Character: c.ch}); w != "" {
 			t.Errorf("wordAt(%d,%d) = %q, want \"\"", c.line, c.ch, w)
 		}
-		res, _ := s.handleDefinition(params)
+		res, _ := s.handleDefinition(context.Background(), params)
 		if locs := res.([]location); len(locs) != 0 {
 			t.Errorf("keyword resolved to %+v", locs)
 		}
@@ -280,7 +280,7 @@ func TestOutgoingCallsMarkMemberCallsAndDoNotExpandThem(t *testing.T) {
 			"end":   map[string]int{"line": 0, "character": 0},
 		},
 	}})
-	res, rerr := s.handleOutgoingCalls(item)
+	res, rerr := s.handleOutgoingCalls(context.Background(), item)
 	if rerr != nil {
 		t.Fatalf("error: %+v", rerr)
 	}
@@ -300,7 +300,7 @@ func TestOutgoingCallsMarkMemberCallsAndDoNotExpandThem(t *testing.T) {
 		t.Fatalf("indirect flag missing: %s", b)
 	}
 	again, _ := json.Marshal(map[string]any{"item": child})
-	res2, _ := s.handleOutgoingCalls(again)
+	res2, _ := s.handleOutgoingCalls(context.Background(), again)
 	if b2, _ := json.Marshal(res2); string(b2) != "[]" {
 		t.Errorf("member call expanded into a same-named function: %s", b2)
 	}
@@ -309,7 +309,7 @@ func TestOutgoingCallsMarkMemberCallsAndDoNotExpandThem(t *testing.T) {
 // 1 リクエストに期限が付く。受付が直列なので、期限の無い rg 走査は後続を全部塞ぐ。
 func TestRequestContextHasDeadline(t *testing.T) {
 	s := &server{}
-	ctx, cancel := s.requestContext()
+	ctx, cancel := s.requestContext(context.Background())
 	defer cancel()
 	d, ok := ctx.Deadline()
 	if !ok || time.Until(d) > requestTimeout || time.Until(d) <= 0 {

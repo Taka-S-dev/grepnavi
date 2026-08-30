@@ -105,12 +105,12 @@ var cKeywords = map[string]bool{
 // 終わるので、正しい答えを切る値ではない。
 const requestTimeout = 15 * time.Second
 
-func (s *server) requestContext() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), requestTimeout)
+func (s *server) requestContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, requestTimeout)
 }
 
-func (s *server) findDefinitions(word, currentFile string) []search.DefHit {
-	ctx, cancel := s.requestContext()
+func (s *server) findDefinitions(ctx context.Context, word, currentFile string) []search.DefHit {
+	ctx, cancel := s.requestContext(ctx)
 	defer cancel()
 	if search.GtagsInPath() && search.GtagsIndexed(s.root) {
 		if hits, err := search.GtagsFindDefinitions(ctx, word, s.root); err == nil && len(hits) > 0 {
@@ -145,7 +145,7 @@ func cSourceOnly(hits []search.DefHit) []search.DefHit {
 	return out
 }
 
-func (s *server) handleDefinition(raw json.RawMessage) (any, *responseError) {
+func (s *server) handleDefinition(ctx context.Context, raw json.RawMessage) (any, *responseError) {
 	var p textDocumentPositionParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
@@ -162,13 +162,13 @@ func (s *server) handleDefinition(raw json.RawMessage) (any, *responseError) {
 			return []location{{URI: p.TextDocument.URI, Range: lineRange(line + 1)}}, nil
 		}
 	}
-	for _, h := range s.findDefinitions(word, path) {
+	for _, h := range s.findDefinitions(ctx, word, path) {
 		locs = append(locs, location{URI: pathToURI(h.File), Range: lineRange(h.Line)})
 	}
 	return locs, nil
 }
 
-func (s *server) handleReferences(raw json.RawMessage) (any, *responseError) {
+func (s *server) handleReferences(ctx context.Context, raw json.RawMessage) (any, *responseError) {
 	var p textDocumentPositionParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
@@ -179,7 +179,7 @@ func (s *server) handleReferences(raw json.RawMessage) (any, *responseError) {
 	}
 	// 上限は GUI の参照一覧と同じ発想で高めに取る。切られたことを LSP で
 	// 伝える口は無いので、途中で黙って切れるよりは広く返す。
-	ctx, cancel := s.requestContext()
+	ctx, cancel := s.requestContext(ctx)
 	defer cancel()
 	refs, _, _, err := search.FindReferences(ctx, word, s.root, 2000, false, "")
 	if err != nil {
@@ -194,7 +194,7 @@ func (s *server) handleReferences(raw json.RawMessage) (any, *responseError) {
 
 // handleHover は GUI のホバーと同じ FindHover を Markdown に組む。定義スニペット
 // （直前コメント込み）と、マクロ・enum なら計算値。複数定義は最大3枚まで。
-func (s *server) handleHover(raw json.RawMessage) (any, *responseError) {
+func (s *server) handleHover(ctx context.Context, raw json.RawMessage) (any, *responseError) {
 	var p textDocumentPositionParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
@@ -213,7 +213,7 @@ func (s *server) handleHover(raw json.RawMessage) (any, *responseError) {
 			}, nil
 		}
 	}
-	ctx, cancel := s.requestContext()
+	ctx, cancel := s.requestContext(ctx)
 	defer cancel()
 	hits, _, err := search.FindHover(ctx, word, s.root, "", s.root)
 	if err != nil {
@@ -255,7 +255,7 @@ func (s *server) handleHover(raw json.RawMessage) (any, *responseError) {
 	}, nil
 }
 
-func (s *server) handlePrepareCallHierarchy(raw json.RawMessage) (any, *responseError) {
+func (s *server) handlePrepareCallHierarchy(ctx context.Context, raw json.RawMessage) (any, *responseError) {
 	var p textDocumentPositionParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
@@ -272,7 +272,7 @@ func (s *server) handlePrepareCallHierarchy(raw json.RawMessage) (any, *response
 		URI:   p.TextDocument.URI,
 		Range: lineRange(p.Position.Line + 1), SelectionRange: lineRange(p.Position.Line + 1),
 	}
-	for _, h := range s.findDefinitions(word, path) {
+	for _, h := range s.findDefinitions(ctx, word, path) {
 		if h.Kind == "func" || item.URI == p.TextDocument.URI {
 			item.URI = pathToURI(h.File)
 			item.Range = lineRange(h.Line)
@@ -289,12 +289,12 @@ type callHierarchyCallsParams struct {
 	Item callHierarchyItem `json:"item"`
 }
 
-func (s *server) handleIncomingCalls(raw json.RawMessage) (any, *responseError) {
+func (s *server) handleIncomingCalls(ctx context.Context, raw json.RawMessage) (any, *responseError) {
 	var p callHierarchyCallsParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
 	}
-	ctx, cancel := s.requestContext()
+	ctx, cancel := s.requestContext(ctx)
 	defer cancel()
 	sites, _, _, err := search.FindRefSites(ctx, search.RefQuery{
 		Word:        p.Item.Name,
@@ -331,7 +331,7 @@ func (s *server) handleIncomingCalls(raw json.RawMessage) (any, *responseError) 
 	return calls, nil
 }
 
-func (s *server) handleOutgoingCalls(raw json.RawMessage) (any, *responseError) {
+func (s *server) handleOutgoingCalls(ctx context.Context, raw json.RawMessage) (any, *responseError) {
 	var p callHierarchyCallsParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
@@ -354,14 +354,14 @@ func (s *server) handleOutgoingCalls(raw json.RawMessage) (any, *responseError) 
 			return calls, nil
 		}
 		if p.Item.Data.Callee != "" {
-			def, ok := s.findFunctionDefinition(p.Item.Data.Callee, file)
+			def, ok := s.findFunctionDefinition(ctx, p.Item.Data.Callee, file)
 			if !ok {
 				return calls, nil
 			}
 			file, line = def.File, def.Line
 		}
 	}
-	ctx, cancel := s.requestContext()
+	ctx, cancel := s.requestContext(ctx)
 	defer cancel()
 	hits, self, _, err := search.FindCallees(ctx, file, line, s.root)
 	if err != nil {
@@ -406,8 +406,8 @@ func (s *server) handleOutgoingCalls(raw json.RawMessage) (any, *responseError) 
 
 // findFunctionDefinition は名前から関数定義を 1 件選ぶ。関数の定義が無く
 // マクロや宣言しか引けないときは false（本体が無いので呼び先も無い）。
-func (s *server) findFunctionDefinition(word, currentFile string) (search.DefHit, bool) {
-	for _, h := range s.findDefinitions(word, currentFile) {
+func (s *server) findFunctionDefinition(ctx context.Context, word, currentFile string) (search.DefHit, bool) {
+	for _, h := range s.findDefinitions(ctx, word, currentFile) {
 		if h.Kind == "func" {
 			return h, true
 		}

@@ -45,7 +45,7 @@ func symbolKindOf(kind string) int {
 	return symbolKindVariable
 }
 
-func (s *server) handleDocumentSymbol(raw json.RawMessage) (any, *responseError) {
+func (s *server) handleDocumentSymbol(ctx context.Context, raw json.RawMessage) (any, *responseError) {
 	var p struct {
 		TextDocument struct {
 			URI string `json:"uri"`
@@ -84,7 +84,7 @@ func (s *server) handleDocumentSymbol(raw json.RawMessage) (any, *responseError)
 
 const workspaceSymbolLimit = 200
 
-func (s *server) handleWorkspaceSymbol(raw json.RawMessage) (any, *responseError) {
+func (s *server) handleWorkspaceSymbol(ctx context.Context, raw json.RawMessage) (any, *responseError) {
 	var p struct {
 		Query string `json:"query"`
 	}

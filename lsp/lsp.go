@@ -15,12 +15,15 @@ package lsp
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 )
 
 // Serve は stdin/stdout で LSP クライアントと会話する。クライアントが exit を
@@ -28,16 +31,45 @@ import (
 // initialize の rootUri があればそちらを優先する（エディタが開いている
 // ワークスペースこそが調査対象なので）。
 func Serve(root string) error {
-	s := &server{root: root, in: bufio.NewReader(os.Stdin), out: os.Stdout, docs: map[string]string{}}
+	s := newServer(root, bufio.NewReader(os.Stdin), os.Stdout)
 	return s.run()
 }
 
+func newServer(root string, in *bufio.Reader, out io.Writer) *server {
+	return &server{
+		root:    root,
+		in:      in,
+		out:     out,
+		docs:    map[string]string{},
+		cancels: map[string]context.CancelFunc{},
+		sem:     make(chan struct{}, maxInFlight),
+	}
+}
+
+// maxInFlight は同時に処理する要求の数。エディタはカーソルが動くたびにホバー・
+// ハイライト・シグネチャを続けて送るので、直列だと 1 件の遅い索引引きが後続を
+// 全部止める。上限を置くのは、大きいファイルのセマンティックトークンのような
+// 重い要求が何十も並んで CPU を奪い合わないため。
+const maxInFlight = 4
+
 type server struct {
-	root     string
-	in       *bufio.Reader
-	out      io.Writer
-	shutdown bool
-	docs     map[string]string // 開いている文書の内容（URI → 全文）。補完が未保存バッファを見るため
+	root string
+	in   *bufio.Reader
+
+	outMu sync.Mutex // 応答は 1 件ずつ書く。並行処理でフレームが混ざらないように
+	out   io.Writer
+
+	shutdown atomic.Bool
+
+	docsMu sync.RWMutex
+	docs   map[string]string // 開いている文書の内容（URI → 全文）。補完が未保存バッファを見るため
+
+	// 処理中の要求の取り消し口（要求 ID → cancel）。$/cancelRequest で引く
+	cancelMu sync.Mutex
+	cancels  map[string]context.CancelFunc
+
+	sem chan struct{}
+	wg  sync.WaitGroup
 }
 
 type request struct {
@@ -57,7 +89,11 @@ const (
 	codeInvalidRequest = -32600
 )
 
+// codeRequestCancelled は LSP が取り消された要求に返すエラーコード。
+const codeRequestCancelled = -32800
+
 func (s *server) run() error {
+	defer s.wg.Wait()
 	for {
 		req, err := s.readMessage()
 		if err == io.EOF {
@@ -69,8 +105,9 @@ func (s *server) run() error {
 		if req.Method == "exit" {
 			return nil
 		}
-		// 通知（ID なし）には応答しない。文書の開閉・変更だけは追う（補完が
-		// 未保存バッファを見るため）。他の通知は無視してよい。
+		// 通知（ID なし）には応答しない。文書の開閉・変更は読み取りループで
+		// 順に反映する: 後から来た要求は必ず反映後の文書を見る。取り消しも
+		// ここで受ける（要求の goroutine が待っている間に届く必要がある）。
 		if req.ID == nil {
 			switch req.Method {
 			case "textDocument/didOpen":
@@ -79,56 +116,118 @@ func (s *server) run() error {
 				s.handleDidChange(req.Params)
 			case "textDocument/didClose":
 				s.handleDidClose(req.Params)
+			case "$/cancelRequest":
+				s.cancelRequest(req.Params)
 			}
 			continue
 		}
-		result, rerr := s.dispatch(req)
-		if err := s.reply(req.ID, result, rerr); err != nil {
-			return err
+		// initialize と shutdown は順序が意味を持つので、その場で答える。
+		// shutdown は処理中の要求を終えてから: 先に旗を立てると、直前に
+		// 受け付けた要求が「shutting down」で落ちる
+		if req.Method == "initialize" || req.Method == "shutdown" {
+			if req.Method == "shutdown" {
+				s.wg.Wait()
+			}
+			result, rerr := s.dispatch(context.Background(), req)
+			if err := s.reply(req.ID, result, rerr); err != nil {
+				return err
+			}
+			continue
 		}
+		s.wg.Add(1)
+		go s.serveRequest(req)
 	}
 }
 
-func (s *server) dispatch(req *request) (any, *responseError) {
-	if s.shutdown && req.Method != "exit" {
+// serveRequest は 1 件の要求を自分の goroutine で処理する。取り消されたら
+// 結果を捨てて RequestCancelled を返す（エディタは応答が無いと待ち続ける）。
+func (s *server) serveRequest(req *request) {
+	defer s.wg.Done()
+	ctx, cancel := context.WithCancel(context.Background())
+	key := string(req.ID)
+	s.cancelMu.Lock()
+	s.cancels[key] = cancel
+	s.cancelMu.Unlock()
+	defer func() {
+		s.cancelMu.Lock()
+		delete(s.cancels, key)
+		s.cancelMu.Unlock()
+		cancel()
+	}()
+
+	// 待っている間に取り消されたら、処理を始めない
+	select {
+	case s.sem <- struct{}{}:
+	case <-ctx.Done():
+		_ = s.reply(req.ID, nil, &responseError{Code: codeRequestCancelled, Message: "request cancelled"})
+		return
+	}
+	defer func() { <-s.sem }()
+
+	result, rerr := s.dispatch(ctx, req)
+	if ctx.Err() != nil {
+		result, rerr = nil, &responseError{Code: codeRequestCancelled, Message: "request cancelled"}
+	}
+	_ = s.reply(req.ID, result, rerr)
+}
+
+// cancelRequest は $/cancelRequest 通知を受けて、その ID の要求を取り消す。
+// 既に終わった要求や知らない ID は無視する（通知なので応答も無い）。
+func (s *server) cancelRequest(raw json.RawMessage) {
+	var p struct {
+		ID json.RawMessage `json:"id"`
+	}
+	if json.Unmarshal(raw, &p) != nil || p.ID == nil {
+		return
+	}
+	s.cancelMu.Lock()
+	cancel := s.cancels[string(p.ID)]
+	s.cancelMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func (s *server) dispatch(ctx context.Context, req *request) (any, *responseError) {
+	if s.shutdown.Load() && req.Method != "exit" {
 		return nil, &responseError{Code: codeInvalidRequest, Message: "server is shutting down"}
 	}
 	switch req.Method {
 	case "initialize":
 		return s.handleInitialize(req.Params), nil
 	case "shutdown":
-		s.shutdown = true
+		s.shutdown.Store(true)
 		return nil, nil
 	case "textDocument/definition":
-		return s.handleDefinition(req.Params)
+		return s.handleDefinition(ctx, req.Params)
 	case "textDocument/references":
-		return s.handleReferences(req.Params)
+		return s.handleReferences(ctx, req.Params)
 	case "textDocument/hover":
-		return s.handleHover(req.Params)
+		return s.handleHover(ctx, req.Params)
 	case "textDocument/documentHighlight":
-		return s.handleDocumentHighlight(req.Params)
+		return s.handleDocumentHighlight(ctx, req.Params)
 	case "textDocument/signatureHelp":
-		return s.handleSignatureHelp(req.Params)
+		return s.handleSignatureHelp(ctx, req.Params)
 	case "textDocument/typeDefinition":
-		return s.handleTypeDefinition(req.Params)
+		return s.handleTypeDefinition(ctx, req.Params)
 	case "textDocument/implementation":
-		return s.handleImplementation(req.Params)
+		return s.handleImplementation(ctx, req.Params)
 	case "textDocument/foldingRange":
-		return s.handleFoldingRange(req.Params)
+		return s.handleFoldingRange(ctx, req.Params)
 	case "textDocument/completion":
-		return s.handleCompletion(req.Params)
+		return s.handleCompletion(ctx, req.Params)
 	case "textDocument/documentSymbol":
-		return s.handleDocumentSymbol(req.Params)
+		return s.handleDocumentSymbol(ctx, req.Params)
 	case "workspace/symbol":
-		return s.handleWorkspaceSymbol(req.Params)
+		return s.handleWorkspaceSymbol(ctx, req.Params)
 	case "textDocument/semanticTokens/full":
-		return s.handleSemanticTokensFull(req.Params)
+		return s.handleSemanticTokensFull(ctx, req.Params)
 	case "textDocument/prepareCallHierarchy":
-		return s.handlePrepareCallHierarchy(req.Params)
+		return s.handlePrepareCallHierarchy(ctx, req.Params)
 	case "callHierarchy/incomingCalls":
-		return s.handleIncomingCalls(req.Params)
+		return s.handleIncomingCalls(ctx, req.Params)
 	case "callHierarchy/outgoingCalls":
-		return s.handleOutgoingCalls(req.Params)
+		return s.handleOutgoingCalls(ctx, req.Params)
 	default:
 		return nil, &responseError{Code: codeMethodNotFound, Message: "unsupported method: " + req.Method}
 	}
@@ -180,6 +279,8 @@ func (s *server) reply(id json.RawMessage, result any, rerr *responseError) erro
 	if err != nil {
 		return err
 	}
+	s.outMu.Lock()
+	defer s.outMu.Unlock()
 	_, err = fmt.Fprintf(s.out, "Content-Length: %d\r\n\r\n%s", len(body), body)
 	return err
 }

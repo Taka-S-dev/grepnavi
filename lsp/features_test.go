@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -39,7 +40,7 @@ func TestDocumentHighlightSkipsCommentsAndMarksWrites(t *testing.T) {
 		"}\n")
 	s := &server{root: dir}
 	uri := pathToURI(f)
-	res, rerr := s.handleDocumentHighlight(posParams(uri, 2, 1))
+	res, rerr := s.handleDocumentHighlight(context.Background(), posParams(uri, 2, 1))
 	if rerr != nil {
 		t.Fatalf("error: %+v", rerr)
 	}
@@ -81,7 +82,7 @@ func TestSignatureHelpFindsTheEnclosingCall(t *testing.T) {
 	s := &server{root: dir}
 	uri := pathToURI(f)
 
-	res, rerr := s.handleSignatureHelp(posParams(uri, 3, 13)) // `3` の直後 = 第2引数
+	res, rerr := s.handleSignatureHelp(context.Background(), posParams(uri, 3, 13)) // `3` の直後 = 第2引数
 	if rerr != nil {
 		t.Fatalf("error: %+v", rerr)
 	}
@@ -100,7 +101,7 @@ func TestSignatureHelpFindsTheEnclosingCall(t *testing.T) {
 	}
 
 	// マクロの中: `SQ(2|` は SQ の第 1 引数
-	res, _ = s.handleSignatureHelp(posParams(uri, 2, 15))
+	res, _ = s.handleSignatureHelp(context.Background(), posParams(uri, 2, 15))
 	sh, ok = res.(signatureHelp)
 	if !ok || len(sh.Signatures) == 0 || !strings.HasPrefix(sh.Signatures[0].Label, "SQ(x)") || sh.ActiveParameter != 0 {
 		t.Errorf("macro signature = %#v", res)
@@ -130,7 +131,7 @@ func TestTypeDefinitionResolvesTheVariableStruct(t *testing.T) {
 		"\treturn p->x;\n"+
 		"}\n")
 	s := &server{root: dir}
-	res, rerr := s.handleTypeDefinition(posParams(pathToURI(f), 3, 8))
+	res, rerr := s.handleTypeDefinition(context.Background(), posParams(pathToURI(f), 3, 8))
 	if rerr != nil {
 		t.Fatalf("error: %+v", rerr)
 	}
@@ -157,7 +158,7 @@ func TestImplementationListsRegistrationSites(t *testing.T) {
 		"\treturn p->read(1);\n"+
 		"}\n")
 	s := &server{root: dir}
-	res, rerr := s.handleImplementation(posParams(pathToURI(f), 2, 12))
+	res, rerr := s.handleImplementation(context.Background(), posParams(pathToURI(f), 2, 12))
 	if rerr != nil {
 		t.Fatalf("error: %+v", rerr)
 	}
@@ -188,7 +189,7 @@ func TestFoldingRangesCoverFunctionsDirectivesAndComments(t *testing.T) {
 		"}\n") // 9
 	s := &server{root: dir}
 	params, _ := json.Marshal(map[string]any{"textDocument": map[string]string{"uri": pathToURI(f)}})
-	res, rerr := s.handleFoldingRange(params)
+	res, rerr := s.handleFoldingRange(context.Background(), params)
 	if rerr != nil {
 		t.Fatalf("error: %+v", rerr)
 	}
@@ -217,7 +218,7 @@ func TestImplementationIgnoresSameNamedFunctionForMemberCalls(t *testing.T) {
 		"struct ops table = { .read = my_read };\n")
 	f := writeFile(t, dir, "main.c", "int run(struct ops *p) { return p->read(1); }\n")
 	s := &server{root: dir}
-	res, _ := s.handleImplementation(posParams(pathToURI(f), 0, 36))
+	res, _ := s.handleImplementation(context.Background(), posParams(pathToURI(f), 0, 36))
 	var lines []int
 	for _, l := range res.([]location) {
 		lines = append(lines, l.Range.Start.Line)
@@ -276,7 +277,7 @@ func TestDocumentHighlightScopesLocalsToTheirFunction(t *testing.T) {
 		"}\n") // 7
 	s := &server{root: dir}
 	uri := pathToURI(f)
-	res, _ := s.handleDocumentHighlight(posParams(uri, 6, 8)) // two() の n
+	res, _ := s.handleDocumentHighlight(context.Background(), posParams(uri, 6, 8)) // two() の n
 	var lines []int
 	for _, h := range res.([]documentHighlight) {
 		lines = append(lines, h.Range.Start.Line)
@@ -284,7 +285,7 @@ func TestDocumentHighlightScopesLocalsToTheirFunction(t *testing.T) {
 	if len(lines) != 3 || lines[0] != 4 || lines[2] != 6 {
 		t.Errorf("local n highlighted at %v, want [4 5 6] only", lines)
 	}
-	res, _ = s.handleDocumentHighlight(posParams(uri, 5, 1)) // g はグローバル
+	res, _ = s.handleDocumentHighlight(context.Background(), posParams(uri, 5, 1)) // g はグローバル
 	lines = nil
 	for _, h := range res.([]documentHighlight) {
 		lines = append(lines, h.Range.Start.Line)
@@ -329,13 +330,13 @@ func TestMemberLookupsAreNarrowedByTheReceiverStruct(t *testing.T) {
 	s := &server{root: dir}
 	uri := pathToURI(f)
 
-	res, _ := s.handleSignatureHelp(posParams(uri, 2, 21)) // fop->read(0, 0, 1|
+	res, _ := s.handleSignatureHelp(context.Background(), posParams(uri, 2, 21)) // fop->read(0, 0, 1|
 	sh, ok := res.(signatureHelp)
 	if !ok || len(sh.Signatures) != 1 || !strings.Contains(sh.Signatures[0].Label, "struct file *") {
 		t.Errorf("signature should be file_operations.read only: %#v", res)
 	}
 
-	res, _ = s.handleImplementation(posParams(uri, 2, 14)) // read
+	res, _ = s.handleImplementation(context.Background(), posParams(uri, 2, 14)) // read
 	var got []int
 	for _, l := range res.([]location) {
 		got = append(got, l.Range.Start.Line)
@@ -371,18 +372,18 @@ func TestLocalsResolveToTheirDeclarationInTheFunction(t *testing.T) {
 	s := &server{root: dir}
 	uri := pathToURI(f)
 
-	res, _ := s.handleHover(posParams(uri, 3, 9)) // return version
+	res, _ := s.handleHover(context.Background(), posParams(uri, 3, 9)) // return version
 	hv, _ := res.(map[string]any)
 	md, _ := hv["contents"].(map[string]string)
 	if md == nil || !strings.Contains(md["value"], "local") || !strings.Contains(md["value"], "unsigned int version;") {
 		t.Errorf("hover on a local should show its declaration, got %#v", res)
 	}
-	res, _ = s.handleDefinition(posParams(uri, 3, 9))
+	res, _ = s.handleDefinition(context.Background(), posParams(uri, 3, 9))
 	locs := res.([]location)
 	if len(locs) != 1 || locs[0].URI != uri || locs[0].Range.Start.Line != 1 {
 		t.Errorf("definition of a local should be its declaration line, got %+v", locs)
 	}
-	res, _ = s.handleDefinition(posParams(uri, 2, 24)) // flag（引数）
+	res, _ = s.handleDefinition(context.Background(), posParams(uri, 2, 24)) // flag（引数）
 	locs = res.([]location)
 	if len(locs) != 1 || locs[0].Range.Start.Line != 0 {
 		t.Errorf("definition of a parameter should be the signature line, got %+v", locs)
@@ -409,13 +410,13 @@ func TestEditorAnswersDropHitsOutsideCSources(t *testing.T) {
 		"rlayer\t"+slash(hdr)+"\t/^\\tint rlayer;$/;\"\tm\tline:2\tstruct:rec\n")
 	s := &server{root: dir}
 	uri := pathToURI(f)
-	res, _ := s.handleDefinition(posParams(uri, 1, 36))
+	res, _ := s.handleDefinition(context.Background(), posParams(uri, 1, 36))
 	for _, l := range res.([]location) {
 		if strings.HasSuffix(l.URI, ".html") {
 			t.Errorf("F12 led into generated HTML: %+v", l)
 		}
 	}
-	res, _ = s.handleHover(posParams(uri, 1, 36))
+	res, _ = s.handleHover(context.Background(), posParams(uri, 1, 36))
 	if hv, ok := res.(map[string]any); ok {
 		if md := hv["contents"].(map[string]string)["value"]; strings.Contains(md, ".html") {
 			t.Errorf("hover shows an HTML heading: %s", md)

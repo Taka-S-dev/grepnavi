@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"sort"
@@ -44,7 +45,7 @@ func (s *server) symbolNames() search.SymbolsByKind {
 	}
 }
 
-func (s *server) handleSemanticTokensFull(raw json.RawMessage) (any, *responseError) {
+func (s *server) handleSemanticTokensFull(ctx context.Context, raw json.RawMessage) (any, *responseError) {
 	var p struct {
 		TextDocument struct {
 			URI string `json:"uri"`

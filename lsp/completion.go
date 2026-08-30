@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"strings"
@@ -24,11 +25,18 @@ func (s *server) handleDidOpen(raw json.RawMessage) {
 		} `json:"textDocument"`
 	}
 	if json.Unmarshal(raw, &p) == nil && p.TextDocument.URI != "" {
-		if s.docs == nil {
-			s.docs = map[string]string{}
-		}
-		s.docs[p.TextDocument.URI] = p.TextDocument.Text
+		s.setDocument(p.TextDocument.URI, p.TextDocument.Text)
 	}
+}
+
+// 文書の表は読み取りループが書き、要求の goroutine が読む。
+func (s *server) setDocument(uri, text string) {
+	s.docsMu.Lock()
+	defer s.docsMu.Unlock()
+	if s.docs == nil {
+		s.docs = map[string]string{}
+	}
+	s.docs[uri] = text
 }
 
 func (s *server) handleDidChange(raw json.RawMessage) {
@@ -41,11 +49,8 @@ func (s *server) handleDidChange(raw json.RawMessage) {
 		} `json:"contentChanges"`
 	}
 	if json.Unmarshal(raw, &p) == nil && p.TextDocument.URI != "" && len(p.ContentChanges) > 0 {
-		if s.docs == nil {
-			s.docs = map[string]string{}
-		}
 		// full sync なので最後の要素が文書全体
-		s.docs[p.TextDocument.URI] = p.ContentChanges[len(p.ContentChanges)-1].Text
+		s.setDocument(p.TextDocument.URI, p.ContentChanges[len(p.ContentChanges)-1].Text)
 	}
 }
 
@@ -56,13 +61,18 @@ func (s *server) handleDidClose(raw json.RawMessage) {
 		} `json:"textDocument"`
 	}
 	if json.Unmarshal(raw, &p) == nil {
+		s.docsMu.Lock()
 		delete(s.docs, p.TextDocument.URI)
+		s.docsMu.Unlock()
 	}
 }
 
 // documentText は開いていればバッファ、無ければディスクの内容を返す。
 func (s *server) documentText(uri string) (string, bool) {
-	if t, ok := s.docs[uri]; ok {
+	s.docsMu.RLock()
+	t, ok := s.docs[uri]
+	s.docsMu.RUnlock()
+	if ok {
 		return t, true
 	}
 	b, err := os.ReadFile(uriToPath(uri))
@@ -100,7 +110,7 @@ func completionKind(kind string) int {
 	return completionKindText
 }
 
-func (s *server) handleCompletion(raw json.RawMessage) (any, *responseError) {
+func (s *server) handleCompletion(ctx context.Context, raw json.RawMessage) (any, *responseError) {
 	var p textDocumentPositionParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}

@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"context"
 	"encoding/json"
 	"regexp"
 	"strings"
@@ -26,7 +27,7 @@ type parameterInformation struct {
 // handleSignatureHelp は `foo(a, |` の位置で foo のシグネチャと、いま何番目の
 // 引数かを返す。シグネチャは定義行の字面（関数なら `(` から対応する `)` まで、
 // マクロなら #define の行）で、型を解釈しない。
-func (s *server) handleSignatureHelp(raw json.RawMessage) (any, *responseError) {
+func (s *server) handleSignatureHelp(ctx context.Context, raw json.RawMessage) (any, *responseError) {
 	var p textDocumentPositionParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
@@ -65,13 +66,13 @@ func (s *server) handleSignatureHelp(raw json.RawMessage) (any, *responseError) 
 			owner, _ = search.ChainStructInText(s.root, content, p.Position.Line+1, chain)
 		}
 		if owner != "" {
-			defs = s.memberDeclarations(owner, name, path)
+			defs = s.memberDeclarations(ctx, owner, name, path)
 		}
 		if len(defs) == 0 {
 			defs, _ = search.CtagsFindDefinitions(name, s.root)
 		}
 	} else {
-		defs = s.findDefinitions(name, path)
+		defs = s.findDefinitions(ctx, name, path)
 	}
 	var sigs []signatureInformation
 	for _, h := range defs {
@@ -99,10 +100,10 @@ func (s *server) handleSignatureHelp(raw json.RawMessage) (any, *responseError) 
 
 // memberDeclarations は struct / union `owner` の本体から、メンバ name の宣言行を返す。
 // `int (*read)(...)` のような関数ポインタも `int n;` も、名前の直後の字面で見る。
-func (s *server) memberDeclarations(owner, name, currentFile string) []search.DefHit {
+func (s *server) memberDeclarations(ctx context.Context, owner, name, currentFile string) []search.DefHit {
 	re := regexp.MustCompile(`(?:\(\s*\*\s*` + regexp.QuoteMeta(name) + `\s*\)|\b` + regexp.QuoteMeta(name) + `\s*[;\[:,)])`)
 	var out []search.DefHit
-	for _, d := range s.findDefinitions(owner, currentFile) {
+	for _, d := range s.findDefinitions(ctx, owner, currentFile) {
 		if d.Kind != "struct" && d.Kind != "union" {
 			continue
 		}

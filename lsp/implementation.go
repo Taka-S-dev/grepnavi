@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"context"
 	"encoding/json"
 	"regexp"
 	"strings"
@@ -13,7 +14,7 @@ import (
 // 初期化子や `ops->read = fn` の代入 — を返す。呼び出し `s->method->ssl_read(...)`
 // で名前だけから実体を決めることはできないので、決めずに候補の集合を出す。
 // 位置指定や マクロで組む表（OpenSSL のメソッド表）は字面に名前が無く、出ない。
-func (s *server) handleImplementation(raw json.RawMessage) (any, *responseError) {
+func (s *server) handleImplementation(ctx context.Context, raw json.RawMessage) (any, *responseError) {
 	var p textDocumentPositionParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}
@@ -27,7 +28,7 @@ func (s *server) handleImplementation(raw json.RawMessage) (any, *responseError)
 	// `p->read(` の read はメンバ。同名の関数 read が索引にあっても、それは
 	// この呼び出しの実装ではない（bio_ssl.c の static ssl_read に飛んでいた）
 	if !memberAccessAt(content, p.Position) {
-		for _, h := range s.findDefinitions(word, path) {
+		for _, h := range s.findDefinitions(ctx, word, path) {
 			if h.Kind == "func" {
 				locs = append(locs, location{URI: pathToURI(h.File), Range: lineRange(h.Line)})
 			}
@@ -36,7 +37,7 @@ func (s *server) handleImplementation(raw json.RawMessage) (any, *responseError)
 			return locs, nil
 		}
 	}
-	ctx, cancel := s.requestContext()
+	ctx, cancel := s.requestContext(ctx)
 	defer cancel()
 	// assign 指定は索引で答えられず rg の全走査になる（openssl で cold 118 秒、
 	// warm 1.2 秒を実測）。参照一覧は索引が 10ms で返すので、そちらを取ってから

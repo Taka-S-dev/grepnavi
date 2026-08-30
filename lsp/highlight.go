@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"context"
 	"encoding/json"
 	"regexp"
 	"strings"
@@ -23,7 +24,7 @@ const (
 // コメントと文字列の中は除く。書き込み（`x = ...` `x++`）は Write、他は Read。
 // 索引は引かない: 1 ファイルの字面だけで決まり、カーソルが動くたびに来る要求なので
 // 速さが要る。
-func (s *server) handleDocumentHighlight(raw json.RawMessage) (any, *responseError) {
+func (s *server) handleDocumentHighlight(ctx context.Context, raw json.RawMessage) (any, *responseError) {
 	var p textDocumentPositionParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &responseError{Code: codeInvalidRequest, Message: err.Error()}

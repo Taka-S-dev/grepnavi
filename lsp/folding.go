@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 
@@ -16,7 +17,7 @@ type foldingRange struct {
 // handleFoldingRange は折りたためる範囲を返す: 関数本体、`#if`〜`#endif`、
 // 複数行のブロックコメント。関数の範囲は GUI と同じ走査器（search.FunctionRanges）
 // で、ブレース深度から取るので `{` の位置に依らない。
-func (s *server) handleFoldingRange(raw json.RawMessage) (any, *responseError) {
+func (s *server) handleFoldingRange(ctx context.Context, raw json.RawMessage) (any, *responseError) {
 	var p struct {
 		TextDocument struct {
 			URI string `json:"uri"`
