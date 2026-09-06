@@ -86,5 +86,12 @@
 *.pem
 *.key
 id_rsa*
-**/secrets.*
-**/credentials.*
+# 拡張子で絞る。`**/credentials.*` だと credentials.ts のようなソースまで黙って落ちる
+**/secrets.json
+**/secrets.toml
+**/secrets.yaml
+**/secrets.yml
+**/credentials.json
+**/credentials.toml
+**/credentials.yaml
+**/credentials.yml
