@@ -452,8 +452,14 @@ body.insmove-active .monaco-editor,body.insmove-active .monaco-editor .view-line
 #tree{flex:1;overflow:auto;padding:6px 4px;min-height:0}
 
 /* ノードカード */
-/* 帯を継ぎ目なく続けるため、兄弟の隙間は margin ではなく padding で取る */
-.node{padding:3px 0;position:relative}
+/* 帯を継ぎ目なく続けるため、兄弟の隙間は margin ではなく padding で取る。
+   入れ子は右端を一段ごとに内側へ寄せ、角を丸める。左は字下げで外の面が残るが、
+   右端が揃っていると縞が重なって見えるだけで「中に置かれている」と読めない */
+.node{padding:3px 0;position:relative;border-radius:4px}
+/* 左にも 8px はみ出す。子の行と同じ位置から面が始まると「行の背景」に見え、
+   「子を包む箱」に見えない。外側の縦線 (12px 左) は覆わない */
+.children > .node.band-start{margin-right:8px;margin-left:-8px;padding-left:8px}
+.children > .node.band-start::before{left:-4px;width:12px}
 /* 帯: 同じディレクトリの塊を同じ色の面で包む。出現順に 6 色を循環。
    面は広いので彩度は低く、カード (#252526) が上に乗っても読める濃さに留める */
 .node.band-0{background:#1c2638}
