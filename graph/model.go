@@ -185,6 +185,9 @@ type GraphResponse struct {
 	RootDir            string            `json:"root_dir"`
 	Description        string            `json:"description,omitempty"`
 	FilePath           string            `json:"file_path"`
+	// SaveError は非同期の書き込みが最後に失敗したときのメッセージ。書き込みは
+	// API 応答の後に走るので、失敗はここで次の応答に載せるしか伝える道が無い。
+	SaveError          string            `json:"save_error,omitempty"`
 	UpdatedAt          time.Time         `json:"updated_at"`
 	Trees              []TreeMeta        `json:"trees"`
 	ActiveTreeID       string            `json:"active_tree_id"`

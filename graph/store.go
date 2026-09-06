@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -38,6 +39,10 @@ type Store struct {
 	saveDone  chan struct{}  // saveLoop 終了の合図
 	closed    bool           // Close 済み。以降 saveCh へ送らない
 	undoStack []undoSnapshot // アンドゥ履歴（メモリのみ、永続化しない）
+	// saveErr は saveLoop が最後に踏んだ書き込み失敗。save() はキューに入れた時点で
+	// 成功を返すので、ここに残さないと呼び出し側には永久に届かない。
+	// saveLoop が書き、応答を組み立てる側が読む。s.mu の外で動くので別に守る。
+	saveErr atomic.Value // string
 }
 
 // Close は保存キューを閉じ、書き込み中のジョブが終わるまで待つ。
@@ -178,11 +183,24 @@ func (s *Store) saveLoop() {
 			continue // 保存先未確定（新規 / 未保存グラフ）は書き込まない
 		}
 		tmp := job.path + ".tmp"
-		if err := os.WriteFile(tmp, job.data, 0644); err != nil {
+		err := os.WriteFile(tmp, job.data, 0644)
+		if err == nil {
+			err = os.Rename(tmp, job.path)
+		}
+		if err != nil {
+			slog.Error("failed to write project file", "path", job.path, "err", err)
+			s.saveErr.Store(err.Error())
 			continue
 		}
-		_ = os.Rename(tmp, job.path)
+		s.saveErr.Store("")
 	}
+}
+
+// LastSaveError は非同期の書き込みが最後に失敗したときのメッセージ。
+// 直近の書き込みが成功していれば空。
+func (s *Store) LastSaveError() string {
+	v, _ := s.saveErr.Load().(string)
+	return v
 }
 
 func loadProjectFile(path string) (*ProjectFile, error) {
@@ -280,6 +298,7 @@ func (s *Store) buildResponse(t *Tree) *GraphResponse {
 		RootDir:            s.pf.RootDir,
 		Description:        s.pf.Description,
 		FilePath:           s.filePath,
+		SaveError:          s.LastSaveError(),
 		UpdatedAt:          t.UpdatedAt,
 		Trees:              s.treeMetas(),
 		ActiveTreeID:       s.pf.ActiveTreeID,
@@ -513,8 +532,8 @@ func (s *Store) GetDigest(root string) Digest {
 
 func (s *Store) SetRootDir(root string) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.pf.RootDir = root
-	s.mu.Unlock()
 	_ = s.save()
 }
 
@@ -527,8 +546,8 @@ func (s *Store) SetRootDirNoSave(root string) {
 // SetDescription はこの .json の調査メモ（自由記述）を設定して保存する。
 func (s *Store) SetDescription(desc string) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.pf.Description = desc
-	s.mu.Unlock()
 	return s.save()
 }
 
@@ -919,14 +938,16 @@ type MemoSnapshot struct {
 }
 
 func (s *Store) UpdateMemos(m MemoSnapshot) error {
+	// save() は s.pf を JSON にするので、ロックを手放す前に呼ぶ。
+	// 外して呼ぶと、同時に走るノード追加と map を巡って競合する（-race で再現）。
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.pf.LineMemos = m.LineMemos
 	s.pf.LineMemoCategories = m.LineMemoCategories
 	s.pf.LineMemoSources = m.LineMemoSources
 	s.pf.LineMemoTexts = m.LineMemoTexts
 	s.pf.RangeMemos = m.RangeMemos
 	s.pf.Bookmarks = m.Bookmarks
-	s.mu.Unlock()
 	return s.save()
 }
 

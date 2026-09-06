@@ -10,6 +10,8 @@ function applyGraphResponse(g) {
   const projectChanged = window._serverGraphFile == null || curFile !== window._serverGraphFile;
   window._serverGraphFile = curFile;
 
+  // ディスクへの書き込みは応答の後に走るので、失敗は次の応答で初めて分かる
+  if (g.save_error) st("保存に失敗しました: " + g.save_error);
   graph = g;
   if (!graph.nodes) graph.nodes = {};
   if (!graph.edges) graph.edges = [];
