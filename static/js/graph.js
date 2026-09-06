@@ -318,6 +318,27 @@ function pulseNodesTab() {
   setTimeout(() => btn.classList.remove('pulse'), cssDurationMs('--anim-pulse-tab') + 100);
 }
 
+// 帯の色はハッシュではなく木の上から出た順で決める。ハッシュだと隣り合う帯が
+// 似た色になることがあるが、出現順なら隣は必ず違う色になる。同じディレクトリが
+// 離れて再登場したときは同じ色なので「さっきの所に戻った」と分かる。
+// 折り畳みで順番が変わらないよう、畳まれた子孫も数える。
+let _bandIndex = new Map();
+const BAND_COLORS = 6;
+
+function computeBandIndex(roots) {
+  const idx = new Map();
+  const seen = new Set();
+  function visit(n) {
+    if (!n || seen.has(n.id)) return;
+    seen.add(n.id);
+    const d = nodeDir(n.match?.file || "", graph.root_dir);
+    if (!idx.has(d)) idx.set(d, idx.size % BAND_COLORS);
+    (n.children || []).forEach((cid) => visit(graph.nodes[cid]));
+  }
+  roots.forEach(visit);
+  return idx;
+}
+
 function renderTree() {
   const el = id("tree");
   const hasParent = new Set();
@@ -338,6 +359,7 @@ function renderTree() {
       ]
     : rootSet;
 
+  _bandIndex = computeBandIndex(roots);
   el.innerHTML = "";
   const frag = document.createDocumentFragment();
   roots.forEach((n) => frag.appendChild(makeNodeEl(n, 0)));
@@ -1115,11 +1137,32 @@ function makeNodeBody(node, m) {
   const matchText = (m.text || "").trim();
   const lbl = document.createElement("div");
   lbl.className = "node-label";
-  lbl.textContent = node.label || matchText || labelFrom(m);
+  // 「関数名 — 説明」は名前だけ太く。全部同じ太さだと目が止まる場所が無い。
+  const { head, rest } = splitNodeLabel(node.label || matchText || labelFrom(m));
+  const headEl = document.createElement("span");
+  headEl.className = "node-label-head";
+  headEl.textContent = head;
+  lbl.appendChild(headEl);
+  if (rest) {
+    const restEl = document.createElement("span");
+    restEl.className = "node-label-rest";
+    restEl.textContent = " " + rest;
+    lbl.appendChild(restEl);
+  }
   const sub = document.createElement("div");
   sub.className = "node-sub";
   const subLink = document.createElement("span");
-  subLink.textContent = shortPath(m.file || "") + (m.line ? ":" + m.line : "");
+  // ディレクトリは帯が担うので薄く、ファイル名と行だけ読める濃さにする
+  const sp = shortPath(m.file || "");
+  const cut = sp.lastIndexOf("/") + 1;
+  const dirEl = document.createElement("span");
+  dirEl.className = "node-sub-dir";
+  dirEl.textContent = sp.slice(0, cut);
+  const fileEl = document.createElement("span");
+  fileEl.className = "node-sub-file";
+  fileEl.textContent = sp.slice(cut) + (m.line ? ":" + m.line : "");
+  subLink.appendChild(dirEl);
+  subLink.appendChild(fileEl);
   subLink.title = "Ctrl+クリックでエディタで開く";
   subLink.style.cssText = "cursor:pointer;text-decoration:underline";
   subLink.onclick = (e) => {
@@ -1763,7 +1806,7 @@ function attachNodeDragDrop(row, wrap, node) {
   };
 }
 
-function makeNodeEl(node, depth, visited = new Set()) {
+function makeNodeEl(node, depth, visited = new Set(), parentDir) {
   if (visited.has(node.id) || depth > 30) return document.createElement("div");
   visited.add(node.id);
   const m = node.match || {};
@@ -1774,6 +1817,20 @@ function makeNodeEl(node, depth, visited = new Set()) {
   const wrap = document.createElement("div");
   wrap.className = `node depth-${Math.min(depth, 4)}`;
   wrap.dataset.id = node.id;
+  // 帯: 親と同じディレクトリなら同じ色で継ぎ目なく続く。違えば親の面の中に
+  // 別の色の面が現れ、そこが境目になる。名前は境目にだけ書く。
+  const dir = nodeDir(m.file || "", graph.root_dir);
+  wrap.classList.add("band-" + (_bandIndex.get(dir) ?? 0));
+  const bandStart = parentDir === undefined || dir !== parentDir;
+  if (bandStart) {
+    wrap.classList.add("band-start");
+    // 帯の名前は面の最初の行の上に見出しとして置く。行の位置 (= 深さ) には触らない
+    const tag = document.createElement("div");
+    tag.className = "band-label";
+    tag.textContent = bandLabel(dir, parentDir);
+    tag.title = dir || "(root)";
+    wrap.appendChild(tag);
+  }
 
   const isCollapsed = children.length > 0 && node.expanded === false;
   const row = document.createElement("div");
@@ -1859,7 +1916,7 @@ function makeNodeEl(node, depth, visited = new Set()) {
     const ch = document.createElement("div");
     ch.className = "children";
     children.forEach((c) =>
-      ch.appendChild(makeNodeEl(c, depth + 1, new Set(visited))),
+      ch.appendChild(makeNodeEl(c, depth + 1, new Set(visited), dir)),
     );
     wrap.appendChild(ch);
   }

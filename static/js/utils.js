@@ -93,7 +93,51 @@ function foreignRootName(file, root) {
   return fp[i] || fp[0] || '';
 }
 
-if (typeof module !== "undefined") module.exports = { shortPath, labelFrom, foreignRootName };
+// ===== ツリーの帯 (同じディレクトリの塊) =====
+// 木を俯瞰したときに「どこで別のモジュールへ渡ったか」が見えるように、
+// 同じディレクトリのノードを同じ色の面で包む。単位はディレクトリで、
+// ファイルではない。ファイル単位だと帯が細切れになって俯瞰にならない。
+//
+// nodeDir: 帯の鍵。root 配下なら root からの相対ディレクトリ ("" は root 直下)。
+// root 外なら foreignRootName を頭に付けて、別ツリーの同名ディレクトリと混ざらないようにする。
+function nodeDir(file, root) {
+  if(!file) return '';
+  const norm = p => p.replace(/\\/g, '/').replace(/\/+$/, '');
+  const f = norm(file);
+  const dir = f.slice(0, f.lastIndexOf('/') + 1).replace(/\/$/, '');
+  if(root) {
+    const r = norm(root);
+    if((dir + '/').toLowerCase().startsWith((r + '/').toLowerCase())) return dir.slice(r.length + 1);
+    const foreign = foreignRootName(file, root);
+    if(foreign) {
+      const i = dir.toLowerCase().indexOf(foreign.toLowerCase());
+      return i >= 0 ? dir.slice(i) : dir;
+    }
+  }
+  return dir;
+}
+
+// bandLabel: 帯の先頭に一度だけ書く名前。親の帯の中なら共通の接頭辞を落として差分だけ出す。
+//   親 "drivers/net/ethernet/intel"、子 "drivers/net/ethernet/intel/e1000e" → "e1000e/"
+// 深いツリーで毎回フルパスが出ると、名前が邪魔になって面が見えなくなる。
+function bandLabel(dir, parentDir) {
+  if(dir === '' ) return './';
+  if(parentDir !== undefined && parentDir !== '' && (dir + '/').startsWith(parentDir + '/')) {
+    return dir.slice(parentDir.length + 1) + '/';
+  }
+  return dir + '/';
+}
+
+// splitNodeLabel: 「関数名 — 説明」の形のラベルを名前と説明に分ける。
+// 名前だけ太くして、目が止まる場所を作るため。区切りが無ければ全体を名前として扱う。
+function splitNodeLabel(label) {
+  const s = label || '';
+  const m = /^(.*?\S)\s*(?:[—–]|[:：]\s|：|\s-\s|→|➜)\s*(\S.*)$/.exec(s);
+  if(!m) return { head: s, rest: '' };
+  return { head: m[1], rest: m[2] };
+}
+
+if (typeof module !== "undefined") module.exports = { shortPath, labelFrom, foreignRootName, nodeDir, bandLabel, splitNodeLabel };
 
 function extractSym(text) {
   const m = text.match(/\b([a-zA-Z_][a-zA-Z0-9_]{2,})\b/);

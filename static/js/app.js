@@ -383,6 +383,24 @@ addEventListener('DOMContentLoaded', async () => {
     if(e.altKey && e.shiftKey && e.key.toLowerCase() === 'p') { e.preventDefault(); id('btn-node-sub')?.click(); }
   });
 
+  const btnBands = id('btn-tree-bands');
+  if(btnBands) {
+    // 既定は表示。消したいのは「色が邪魔」なときで、それは人によるので覚えておく
+    let on = true;
+    try { on = localStorage.getItem('grepnavi-tree-bands') !== 'off'; } catch {}
+    const apply = () => {
+      id('tree').classList.toggle('no-bands', !on);
+      btnBands.classList.toggle('on', on);
+      btnBands.style.background = on ? '#094771' : '';
+    };
+    apply();
+    btnBands.onclick = () => {
+      on = !on;
+      try { localStorage.setItem('grepnavi-tree-bands', on ? 'on' : 'off'); } catch {}
+      apply();
+    };
+  }
+
   const btnTm = id('btn-tree-memo');
   if(btnTm) {
     btnTm.onclick = () => {

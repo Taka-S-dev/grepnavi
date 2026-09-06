@@ -39,11 +39,21 @@
     document.getElementById('project-menu').classList.remove('open');
     if (viewMenu.classList.toggle('open')) {
       viewMenu.innerHTML = '';
+      // 上は「ノードツリーの見え方」、下は「別のビューを開く」。対象も動詞も違う
+      // ものが並ぶので、見出しでどこに効くかを言う
+      const heading = (text) => {
+        const h = document.createElement('div');
+        h.className = 'pmenu-heading';
+        h.textContent = text;
+        viewMenu.appendChild(h);
+      };
+      heading('ノードツリー');
       // ツリーの描き方の切り替え。チェックは隠したボタンの現在状態から毎回読む
       // （btn-view のラベルは「切り替え先」を出すので、'ツリー' 表示中 = グラフ表示中）
       const toggles = [
         { id: 'btn-node-sub', label: 'パス表示', hint: 'Alt+Shift+P', on: b => b.classList.contains('on') },
         { id: 'btn-tree-memo', label: 'メモ表示', hint: 'Alt+Shift+N', on: b => b.classList.contains('on') },
+        { id: 'btn-tree-bands', label: 'ディレクトリで色分け', hint: '', on: b => b.classList.contains('on') },
         { id: 'btn-view', label: 'グラフ表示 (D3)', hint: '', on: b => b.textContent === 'ツリー' },
       ];
       for (const t of toggles) {
@@ -70,6 +80,7 @@
       const sep = document.createElement('div');
       sep.className = 'pmenu-separator';
       viewMenu.appendChild(sep);
+      heading('ビューを開く');
       for (const b of document.querySelectorAll('#addon-buttons button')) {
         const item = document.createElement('div');
         item.className = 'pmenu-item';

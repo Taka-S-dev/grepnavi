@@ -452,7 +452,35 @@ body.insmove-active .monaco-editor,body.insmove-active .monaco-editor .view-line
 #tree{flex:1;overflow:auto;padding:6px 4px;min-height:0}
 
 /* ノードカード */
-.node{margin:3px 0;position:relative}
+/* 帯を継ぎ目なく続けるため、兄弟の隙間は margin ではなく padding で取る */
+.node{padding:3px 0;position:relative}
+/* 帯: 同じディレクトリの塊を同じ色の面で包む。出現順に 6 色を循環。
+   面は広いので彩度は低く、カード (#252526) が上に乗っても読める濃さに留める */
+.node.band-0{background:#1c2638}
+.node.band-1{background:#1c2e22}
+.node.band-2{background:#30281c}
+.node.band-3{background:#2a2134}
+.node.band-4{background:#1b2e2f}
+.node.band-5{background:#332025}
+/* 帯の名前。面の最初の行の上に見出しとして置く。
+   行の中に入れるとノードのタグに見え、右端だとどの面の名前か目で結べず、
+   左隣だと名前の幅で行が押されてインデント (= 深さ) が嘘になる。
+   上なら帯の切り替わりで 1 行分高くなるだけで、行の位置には触らない */
+.band-label{
+  display:block;width:max-content;margin:0 0 1px 18px;
+  font-size:10px;line-height:14px;padding:0 6px;border-radius:2px;
+  font-family:inherit;white-space:nowrap;letter-spacing:0.03em;
+}
+/* 見出し行の分だけ、横の接続線を下の行へずらす */
+.children > .node.band-start::before{top:31px}
+.band-0 > .band-label{color:#7aa2d6;background:#1a2a44}
+.band-1 > .band-label{color:#7fbf8a;background:#1b3a25}
+.band-2 > .band-label{color:#d6a86a;background:#3d3120}
+.band-3 > .band-label{color:#b08ad6;background:#342642}
+.band-4 > .band-label{color:#6ac0c0;background:#1c3a3b}
+.band-5 > .band-label{color:#d68a9a;background:#402329}
+#tree.no-bands .node{background:none}
+#tree.no-bands .band-label{display:none}
 .node-row{
   display:inline-flex;align-items:flex-start;gap:4px;
   padding:3px 6px 3px 4px;
@@ -518,8 +546,13 @@ body.insmove-active .monaco-editor,body.insmove-active .monaco-editor .view-line
 .node-collapsed-count{flex-shrink:0;color:#888;background:#3c3c3c;padding:0 6px;border-radius:8px;font-size:9px;line-height:14px;margin-left:auto;cursor:help}
 .node-body{min-width:0;max-width:360px}
 .node-label{color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}
+.node-label-head{font-weight:600;color:#e0e0e0}
+.node-label-rest{color:#9a9a9a}
 .node-row.sel .node-label{color:#fff}
+.node-row.sel .node-label-head,.node-row.sel .node-label-rest{color:#fff}
 .node-sub{color:#888;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;margin-top:1px}
+.node-sub-dir{color:#5c5c5c}
+.node-sub-file{color:#9a9a9a}
 #tree.hide-sub .node-sub{display:none}
 /* 現在のルート外のノード。見比べる用途は許すので禁止色ではなく識別色にする。 */
 /* ピン位置がずれたノード。直す操作は右クリックにあるので、禁止色ではなく注意色。 */
@@ -551,7 +584,7 @@ body.insmove-active .monaco-editor,body.insmove-active .monaco-editor .view-line
 .children > .node::before{
   content:'';
   position:absolute;
-  left:-12px;top:13px;
+  left:-12px;top:16px;
   width:12px;height:1px;
   background:#484848;
 }
@@ -668,6 +701,8 @@ body.frameless #tree-tab-actions,body.frameless #tree-toolbar{display:none}
 .pmenu-hint{color:#666;font-size:10px}
 .pmenu-item:hover .pmenu-hint{color:#aaa}
 .pmenu-separator{height:1px;background:#444;margin:3px 0}
+/* メニュー内のグループ見出し。項目ではないので押せない見た目にする */
+.pmenu-heading{padding:4px 10px 2px;font-size:10px;color:#777;letter-spacing:0.06em;pointer-events:none;user-select:none}
 
 /* fzf ファイルクイックオープン */
 #fzf-overlay{display:none;position:fixed;inset:0;z-index:var(--z-modal);background:rgba(0,0,0,0.5);align-items:flex-start;justify-content:center;padding-top:80px}
@@ -1113,7 +1148,6 @@ body.search-mode #root-chip{min-width:0}
 #memo-list-hdr button:hover{color:#ccc;background:#2a2d2e}
 #memo-list-body{flex:1;overflow-y:auto}
 .memo-list-item{display:grid;grid-template-columns:16px 16px auto 1fr;gap:4px;align-items:center;padding:5px 8px;border-bottom:1px solid #2a2a2a;cursor:pointer;font-size:11px}
-.memo-list-item:hover{background:#2a2d2e}
 .memo-list-item.memo-list-dragging{opacity:0.4}
 .memo-list-item.memo-list-dragover{border-top:2px solid #007acc}
 .memo-list-drag{color:#555;cursor:grab;user-select:none;font-size:13px;text-align:center}
@@ -1171,6 +1205,7 @@ body.search-mode #root-chip{min-width:0}
 .memo-list-item--bm{grid-template-columns:16px auto 1fr 16px}
 /* 移動ボタン。削除と同じくホバーで現れる（常時出すと一覧が賑やかすぎる）。 */
 .memo-list-move{background:none;border:none;color:transparent;cursor:pointer;font-size:12px;padding:0 2px;border-radius:2px;line-height:1;flex-shrink:0}
+.memo-list-item:hover{background:#2a2d2e}
 .memo-list-item:hover .memo-list-move{color:#555}
 .memo-list-move:hover{color:#4ec9b0!important;background:rgba(78,201,176,0.12)}
 .memo-list-del{background:none;border:none;color:transparent;cursor:pointer;font-size:13px;padding:0 2px;border-radius:2px;line-height:1}
