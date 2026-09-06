@@ -174,6 +174,19 @@ func (h *Handler) handleMemStats(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// BodyLimitMiddleware はリクエスト本文を limit バイトで打ち切る。
+// -mcp でブラウザ以外のクライアントを受けるので、上限が無いと JSON を 1 本
+// 送るだけでメモリを好きなだけ使わせられる。超えた本文は Decode がエラーになり、
+// 各ハンドラの 400 経路に落ちる。
+func BodyLimitMiddleware(next http.Handler, limit int64) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, limit)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // cspMiddleware はすべてのレスポンスに Content-Security-Policy ヘッダーを付与する。
 // connect-src 'self' により、フロントエンドが localhost 以外へ fetch/XHR/WebSocket を
 // 送ることをブラウザレベルでブロックする。

@@ -51,7 +51,9 @@ func newServer(root string, rootExplicit bool, graphFile string, graphExplicit b
 	}
 
 	// ActivityMiddleware は csrf の内側: 拒否されたリクエストをアイドル判定に数えない
-	return &http.Server{Addr: addr, Handler: api.CspMiddleware(csrfMiddleware(api.ActivityMiddleware(mux), mcpEnabled, addr))}
+	// 本文の上限は調査 JSON の取り込み (/api/graph/import) が通る大きさに置く。
+	// 数千ノードのグラフでも数 MB なので 64 MiB あれば足りる。
+	return &http.Server{Addr: addr, Handler: api.CspMiddleware(csrfMiddleware(api.ActivityMiddleware(api.BodyLimitMiddleware(mux, 64<<20)), mcpEnabled, addr))}
 }
 
 // isLoopbackHost は "host" / "host:port" のホスト部が loopback を指すかを返す。

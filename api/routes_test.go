@@ -1,6 +1,8 @@
 package api
 
 import (
+	"io"
+	"strings"
 	"bytes"
 	"net/http"
 	"net/http/httptest"
@@ -42,5 +44,26 @@ func TestInsertionRoutesReachTheirHandlers(t *testing.T) {
 				t.Errorf("%s %s: status = %d, want %d (body=%s)", c.method, c.path, rec.Code, c.want, rec.Body.String())
 			}
 		})
+	}
+}
+
+// 本文の上限を超える要求は、ハンドラが本文を読んだ時点でエラーになる。
+// 上限が無いと -mcp で受ける外部クライアントが送る 1 本の JSON でメモリを使い切れる。
+func TestBodyLimitMiddleware(t *testing.T) {
+	var readErr error
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, readErr = io.ReadAll(r.Body)
+	})
+	h := BodyLimitMiddleware(inner, 16)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("POST", "/api/graph/node", strings.NewReader(strings.Repeat("x", 15))))
+	if readErr != nil {
+		t.Fatalf("上限内の本文が読めない: %v", readErr)
+	}
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("POST", "/api/graph/node", strings.NewReader(strings.Repeat("x", 17))))
+	if readErr == nil {
+		t.Fatal("上限を超えた本文が読めてしまう")
 	}
 }
