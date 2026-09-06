@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 // setup.js (--require) で browser globals をスタブ済み
 global.id = () => null;
 
-const { statusGate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane } = require('../static/js/editor.js');
+const { statusGate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane, layoutDrifted } = require('../static/js/editor.js');
 
 test('fzfMatchToken - exact match', () => {
   const r = fzfMatchToken('foobar', 'foo');
@@ -349,4 +349,20 @@ test('右クリックメニュー - 常時出る項目を12件までに抑える
   const always = contextMenuActions().filter(i => i.group && !i.precondition);
   assert.ok(always.length <= 12,
     `常時出る項目が ${always.length} 件: ${always.map(i => i.label).join(', ')}`);
+});
+
+// Monaco が認識している大きさとコンテナの実寸の食い違い判定。
+// 小数ピクセルの揺れを「ずれ」と数えると毎秒 layout() が走るので、1px までは無視する。
+test('layoutDrifted - 1px までの差は揺れとして無視', () => {
+  assert.equal(layoutDrifted(1030, 508, { width: 1030, height: 508 }), false);
+  assert.equal(layoutDrifted(1030, 509, { width: 1030, height: 508 }), false);
+  assert.equal(layoutDrifted(1029, 508, { width: 1030, height: 508 }), false);
+});
+test('layoutDrifted - 広げた分を Monaco が知らなければずれ', () => {
+  assert.equal(layoutDrifted(1030, 509, { width: 1030, height: 259 }), true);
+  assert.equal(layoutDrifted(800, 508, { width: 1030, height: 508 }), true);
+});
+test('layoutDrifted - 情報が無い・コンテナが 0 なら触らない', () => {
+  assert.equal(layoutDrifted(0, 0, { width: 1030, height: 508 }), false);
+  assert.equal(layoutDrifted(1030, 508, null), false);
 });

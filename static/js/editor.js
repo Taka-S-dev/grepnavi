@@ -1094,6 +1094,23 @@ async function ensureEditor() {
   });
   window.addEventListener('resize', relayout);
   window.addEventListener('focus', relayout);
+  // 上の取り直しをすり抜けて「広げた分が黒いまま」になることが、デスクトップ窓で
+  // まれにある（条件は特定できていない）。原因を当てにいく代わりに、Monaco が
+  // 認識している大きさとコンテナの実寸を毎秒比べ、ずれていれば取り直す。
+  // 読むのは値 2 つで、ずれていない限り layout() は呼ばない。
+  let driftStreak = 0, driftKey = '';
+  setInterval(() => {
+    if (!monacoEditor || document.hidden || peekResizing) return;
+    const el = id('monaco-container');
+    if (!el || !el.offsetParent) return; // エディタを閉じているとき
+    const w = el.clientWidth, h = el.clientHeight;
+    if (!layoutDrifted(w, h, monacoEditor.getLayoutInfo())) { driftStreak = 0; return; }
+    // 同じ実寸で 3 回直しても合わないなら、そのサイズでは諦める（毎秒描き直しの連打を防ぐ）
+    const key = w + 'x' + h;
+    if (key !== driftKey) { driftKey = key; driftStreak = 0; }
+    if (++driftStreak > 3) return;
+    relayout();
+  }, 1000);
   // editor-state sync (MCP bridge 経由で AI が editor 状態を取れるようにする)
   if (typeof startEditorStateSync === 'function') startEditorStateSync();
 
@@ -2693,6 +2710,14 @@ async function openPeek(file, line, {permanent = false} = {}) {
   monacoEditor.layout();
 }
 
+// layoutDrifted は Monaco が認識している大きさとコンテナの実寸が食い違って
+// いるかを返す。1px までは揺れとして無視する: コンテナは小数ピクセルを取りうるが
+// Monaco は整数で持つので、そこを「ずれ」と数えると毎秒 layout() が走ってしまう。
+function layoutDrifted(width, height, info) {
+  if (!info || !(width > 0) || !(height > 0)) return false;
+  return Math.abs(width - info.width) > 1 || Math.abs(height - info.height) > 1;
+}
+
 // hasInternalEditorPane は内蔵エディタをこの窓に出せるかを返す。
 //
 // 内蔵エディタのペインが無い窓（検索のみ・パネル・コールツリー）で内蔵タブを
@@ -3497,4 +3522,4 @@ addEventListener('DOMContentLoaded', () => {
   }
 });
 
-if (typeof module !== 'undefined') module.exports = { statusGate, syncedNavLine, refFilterPredicate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane };
+if (typeof module !== 'undefined') module.exports = { statusGate, syncedNavLine, refFilterPredicate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane, layoutDrifted };
