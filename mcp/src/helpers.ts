@@ -1,4 +1,6 @@
 import { annotateMemo, likelyTrivial, inCallerSubtree } from "./client.js";
+import { recordRead, verifyMemo, hasVerifiedTag, wasRead } from "./readlog.js";
+import type { MemoAnchor, VerifyResult } from "./readlog.js";
 import type { DefHit, GrepnaviClient, MemoCategory, RawCallee } from "./client.js";
 import { client } from "./shared.js";
 import type { BatchNodeInput, CallerTreeNode } from "./shared.js";
@@ -39,6 +41,30 @@ function lineMemoKey(file: string, line: number): string {
   return `${file}::${line}`;
 }
 
+// [verified] の照合先。呼び出し木の子はアンカーが呼び出し元の行なので、`word` の定義位置も
+// 候補に加える。アンカー自身が読まれていれば定義の解決は省く (往復を増やさない)。
+export async function memoAnchors(
+  file: string,
+  line: number,
+  word?: string,
+  endLine?: number,
+): Promise<MemoAnchor[]> {
+  const anchors: MemoAnchor[] = [{ file, line, end_line: endLine }];
+  if (!word || wasRead(file, line, endLine ?? line)) return anchors;
+  try {
+    const { hits } = await client.definition(word);
+    for (const h of hits) anchors.push({ file: h.file, line: h.line });
+  } catch {
+    // 定義が引けなければアンカーだけで判定する
+  }
+  return anchors;
+}
+
+// verifyMemo の結果を応答に載せる形。落としていないときは何も付けない。
+export function verificationField(v: VerifyResult): { verification?: { downgraded: true; reason: string } } {
+  return v.downgraded ? { verification: { downgraded: true, reason: v.reason! } } : {};
+}
+
 export async function setLineMemo(
   file: string,
   line: number,
@@ -53,6 +79,8 @@ export async function setLineMemo(
   const bookmarks = { ...(g.bookmarks ?? {}) };
   const key = lineMemoKey(file, line);
   const had = key in lineMemos;
+  const v = verifyMemo(memo, [{ file, line }]);
+  memo = v.memo;
   if (memo === "") {
     delete lineMemos[key];
     delete lineMemoCategories[key];
@@ -77,6 +105,7 @@ export async function setLineMemo(
     deleted: memo === "" && had,
     set: memo !== "",
     total_line_memos: Object.keys(lineMemos).length,
+    ...verificationField(v),
   };
 }
 
@@ -97,6 +126,8 @@ export async function setRangeMemo(args: {
   const rangeMemos = [...(g.range_memos ?? [])];
   const bookmarks = { ...(g.bookmarks ?? {}) };
   const category = args.category ?? "draft";
+  const v = verifyMemo(args.memo, [{ file: args.file, line: args.start_line, end_line: args.end_line }]);
+  args = { ...args, memo: v.memo };
 
   let resultId = args.id;
   let action: "created" | "updated" | "deleted" = "created";
@@ -147,7 +178,7 @@ export async function setRangeMemo(args: {
     lineMemoCategories,
     lineMemoSources,
   );
-  return { id: resultId, action, category, total_range_memos: rangeMemos.length };
+  return { id: resultId, action, category, total_range_memos: rangeMemos.length, ...verificationField(v) };
 }
 
 // callers の再帰展開。各 caller の `func` 名で更に callers を引く。
@@ -255,6 +286,7 @@ export async function addNodesBatch(nodes: BatchNodeInput[]): Promise<{
     node_id?: string;
     label?: string;
     error?: string;
+    verification?: { downgraded: true; reason: string };
   }>;
 }> {
   if (!Array.isArray(nodes) || nodes.length === 0) {
@@ -298,23 +330,28 @@ export async function addNodesBatch(nodes: BatchNodeInput[]): Promise<{
     node_id?: string;
     label?: string;
     error?: string;
+    verification?: { downgraded: true; reason: string };
   }> = [];
   for (const n of sorted) {
     try {
       const effectiveLabel = n.label || (n.word ? `${n.word}:${n.line}` : undefined);
+      const v = hasVerifiedTag(n.memo)
+        ? verifyMemo(n.memo, await memoAnchors(n.file, n.line, n.word))
+        : { memo: n.memo ?? "", downgraded: false as const };
       const r = await client.addNode({
         file: n.file,
         line: n.line,
         label: effectiveLabel,
-        memo: n.memo,
+        memo: n.memo === undefined ? undefined : v.memo,
         tags: n.tags,
         badge_color: n.badge_color,
         badge_text: n.badge_text,
         text: n.text,
         parent_id: n.parent_client_id ?? "",
+        edge_label: n.edge_label,
         client_node_id: n.client_id,
       });
-      results.push({ client_id: n.client_id, node_id: r.node.id, label: r.node.label });
+      results.push({ client_id: n.client_id, node_id: r.node.id, label: r.node.label, ...verificationField(v) });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       results.push({ client_id: n.client_id, error: msg });
@@ -544,6 +581,8 @@ export async function attachBodyPreviews(
         const r = await client.funcBody(def.file, def.line);
         const lines = (r.body || "").split("\n").slice(0, previewLines);
         c.body_preview = lines.join("\n");
+        // 見せたのは先頭 N 行だけなので、読んだ範囲もそこまでにする
+        if (lines.length > 0) recordRead(def.file, r.start_line, r.start_line + lines.length - 1);
       } catch {
         // 取得失敗は無視 (preview は best-effort)
       }

@@ -65,8 +65,10 @@ Every `file` in a grepnavi result is an **absolute path** — pass it verbatim, 
 The graph is the deliverable the user keeps. Two rules matter more than the rest:
 
 1. **Read the function before you write a memo about it.** Names lie. The bridge auto-prefixes
-   `[未確認]` to any memo that lacks a verification tag; prefix with `[verified]` / `[確認済]`
-   yourself only after actually reading the body.
+   `[未確認]` to any memo that lacks a verification tag, and a `[verified]` / `[確認済]` you add is
+   kept only if `grepnavi_func_body` / `grepnavi_read_file` returned that code in this session —
+   otherwise it is rewritten to `[未確認]` and the response says why. Pass `word` on call-tree
+   children so the callee body you read matches the call-site anchor.
 2. **Call-tree children anchor at the CALLER's file + the callee's `call_line`** — not the callee's
    definition. This is what activates grepnavi's call ↔ definition memo sync.
 

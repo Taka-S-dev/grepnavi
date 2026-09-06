@@ -1,4 +1,5 @@
 import { client, ok, text } from "../shared.js";
+import { recordRead } from "../readlog.js";
 import type { ToolDef, ToolHandler } from "../shared.js";
 import {
   formatFileContent,
@@ -376,6 +377,7 @@ export const handlers: Record<string, ToolHandler> = {
       startLine: a.start_line,
       endLine: a.end_line,
     });
+    recordRead(r.file, r.start, r.end);
     return text(formatFileContent(r));
   },
   grepnavi_definition: async (args) => {
@@ -495,9 +497,13 @@ export const handlers: Record<string, ToolHandler> = {
     }
     // at / containing が来たら関数全体ではなく該当する case だけ返す
     if ((a.at && a.at.length) || a.containing) {
-      return ok(await client.funcBodyBlocks(file, line, { at: a.at, containing: a.containing }));
+      const blocks = await client.funcBodyBlocks(file, line, { at: a.at, containing: a.containing });
+      for (const b of blocks.blocks) recordRead(file, b.start_line, b.end_line);
+      return ok(blocks);
     }
-    return ok(await client.funcBody(file, line));
+    const body = await client.funcBody(file, line);
+    recordRead(file, body.start_line, body.end_line);
+    return ok(body);
   },
   grepnavi_symbols: async (args) => {
     const a = args as { file: string };

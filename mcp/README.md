@@ -282,7 +282,8 @@ main.go の line 1 を「Claude 経由テスト」のラベルでルートノー
 - AI が大量にノードを追加してきたら、grepnavi UI 側で**折り畳み**を活用して整理
 - ノードに `tags` / `badge_color` を付けると後でグルーピング・色分けがしやすい (調査ツリーと行解説を混ぜたときの仕分けに有効)
 - **サブツリー丸ごと作る時は `grepnavi_graph_add_nodes`** で 1 call にまとめる。`client_id` で親子関係を表現して、bridge に topo-sort を任せる
-- **memo の `[未確認]` auto-prefix**: bridge が AI からの memo を全部 check して、verification tag (`[verified]` / `[確認済]` / `[読了]` / `[unverified]` / `[推測]` / `[未確認]` / `[未読]`) が無ければ自動で `[未確認]` を頭に付ける。AI が「読んで書いた」と主張するには明示的に `[verified]` または `[確認済]` を prefix する必要がある。GUI で `[未確認]` を見たら、**内容は AI の推測のため信用する前にコードを開いて確認する**こと
+- **memo の `[未確認]` auto-prefix**: bridge が AI からの memo を全部 check して、verification tag (`[verified]` / `[確認済]` / `[読了]` / `[unverified]` / `[推測]` / `[未確認]` / `[未読]`) が無ければ自動で `[未確認]` を頭に付ける。AI が「読んで書いた」と主張するには明示的に `[verified]` または `[確認済]` を prefix する必要がある。**その申告は bridge が照合する**: `grepnavi_func_body` / `grepnavi_read_file` がそのセッションで返した範囲を bridge が覚えていて、アンカー行（または `word` の定義位置）がどの範囲にも入っていなければ `[未確認]` に書き換え、応答の `verification.downgraded` に理由を載せる。GUI で `[未確認]` を見たら、**内容は AI の推測のため信用する前にコードを開いて確認する**こと
+- **`edge_label`**: `graph_add_node` / `add_nodes` で親からの辺に文字を載せられる（呼び出し条件など）。GUI は `ref` 以外のラベルを辺の上に描く
 - **コールツリーを作る時は子ノードを「呼び出し行 (call site)」に置く**。`callees` の `definitions[0]` (callee の定義) ではなく、**caller の `file` + callee の `call_line`** を node 位置に使う。理由:
   - grepnavi の **call ↔ definition 同期**が起動し、call site に置いた memo が定義側でも見える (逆もしかり) → 双方向の発見性
   - クリックが**親と同じファイル内**で完結 → 引数や条件分岐など呼び出し文脈が保たれる

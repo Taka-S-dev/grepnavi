@@ -1,6 +1,22 @@
 import { client, ok } from "../shared.js";
 import type { BatchNodeInput, ToolDef, ToolHandler } from "../shared.js";
-import { addNodesBatch, normalizeInputPath } from "../helpers.js";
+import { addNodesBatch, memoAnchors, normalizeInputPath, verificationField } from "../helpers.js";
+import { hasVerifiedTag, verifyMemo } from "../readlog.js";
+import type { VerifyResult } from "../readlog.js";
+
+// 既存ノードのメモ更新時の照合先。ラベルが `<word>:<line>` の形ならその word の定義も候補にする。
+async function anchorsForNode(nodeId: string) {
+  const g = await client.graph();
+  const n = g.nodes[nodeId];
+  if (!n) throw new Error(`node '${nodeId}' not found`);
+  const m = /^([A-Za-z_][A-Za-z0-9_]*):\d+$/.exec(n.label ?? "");
+  return memoAnchors(n.match.file, n.match.line, m?.[1]);
+}
+
+async function verifyNodeMemo(nodeId: string, memo: string | undefined): Promise<VerifyResult> {
+  if (!hasVerifiedTag(memo)) return { memo: memo ?? "", downgraded: false };
+  return verifyMemo(memo, await anchorsForNode(nodeId));
+}
 
 export const definitions: ToolDef[] = [
   {
@@ -27,7 +43,9 @@ export const definitions: ToolDef[] = [
       "- **Call-tree children: anchor at the CALLER's file + callee's `call_line`** (not the callee's definition). Activates grepnavi's call ↔ definition memo sync and keeps clicks in the parent's file.\n" +
       "- Attach via `parent_id`; empty = root.\n" +
       "- Strings must be UTF-8. If `text` may have been corrupted by your own file-read on non-UTF-8 source, omit it — grepnavi will fetch its own preview.\n" +
-      "- **Before writing a substantive `memo`, actually READ the function** via grepnavi_func_body (or grepnavi_read_file). Function names lie — inferring purpose without reading the body produces plausible-but-wrong memos. The bridge **auto-prefixes `[未確認]`** to any memo that doesn't start with a verification tag. To mark a memo as actually verified, prefix it explicitly with `[verified]` or `[確認済]` AFTER reading the code. Recognized tags: `[verified]` / `[確認済]` / `[読了]` (read), `[unverified]` / `[推測]` / `[未確認]` / `[未読]` (not read).",
+      "- **Before writing a substantive `memo`, actually READ the function** via grepnavi_func_body (or grepnavi_read_file). Function names lie — inferring purpose without reading the body produces plausible-but-wrong memos. The bridge **auto-prefixes `[未確認]`** to any memo that doesn't start with a verification tag. To mark a memo as actually verified, prefix it explicitly with `[verified]` or `[確認済]` AFTER reading the code. Recognized tags: `[verified]` / `[確認済]` / `[読了]` (read), `[unverified]` / `[推測]` / `[未確認]` / `[未読]` (not read).\n" +
+      "- **`[verified]` is checked, not trusted.** The bridge remembers every range grepnavi_func_body / grepnavi_read_file returned in this session. If neither the anchor line nor `word`'s definition falls inside one, the tag is replaced with `[未確認]` and the response carries `verification.downgraded` with the reason. Pass `word` so a call-site anchor can be matched against the callee body you read.\n" +
+      "- `edge_label`: short text drawn on the edge from the parent — the call condition (`on error`, `state==READY`). Omit for a plain link. Do not use `seq`.",
     inputSchema: {
       type: "object",
       properties: {
@@ -44,6 +62,10 @@ export const definitions: ToolDef[] = [
         parent_id: {
           type: "string",
           description: "Existing node id to attach under. Empty = root.",
+        },
+        edge_label: {
+          type: "string",
+          description: "Text shown on the edge from `parent_id` (e.g. the call condition). Omit for a plain link.",
         },
         text: {
           type: "string",
@@ -76,7 +98,7 @@ export const definitions: ToolDef[] = [
       "Each node needs `client_id` (unique in batch). `parent_client_id` is: empty (root) | another batch `client_id` | existing server node id (from grepnavi_graph_list). All other per-node fields match grepnavi_graph_add_node.\n\n" +
       "**Always call grepnavi_callees FIRST** to get authoritative file/line/call_line. Building from your own guesses is the #1 cause of delete+re-add cycles.\n\n" +
       "**Call-tree children: anchor at caller's file + callee's `call_line`** (not the callee's definition).\n\n" +
-      "**Memo verification**: same rule as grepnavi_graph_add_node. Bridge auto-prefixes `[未確認]` to any memo without a verification tag. Read each function via grepnavi_func_body first and prefix the memo with `[verified]` / `[確認済]` to mark it as actually verified.",
+      "**Memo verification**: same rule as grepnavi_graph_add_node. Bridge auto-prefixes `[未確認]` to any memo without a verification tag, and downgrades a `[verified]` whose anchor (or `word`'s definition) was never returned by grepnavi_func_body / grepnavi_read_file in this session — see `verification` on each result. `edge_label` per node labels the edge from its parent.",
     inputSchema: {
       type: "object",
       properties: {
@@ -100,6 +122,7 @@ export const definitions: ToolDef[] = [
               badge_color: { type: "string" },
               badge_text: { type: "string" },
               text: { type: "string" },
+              edge_label: { type: "string", description: "Text on the edge from the parent (e.g. call condition)." },
             },
             required: ["client_id", "file", "line"],
           },
@@ -112,7 +135,7 @@ export const definitions: ToolDef[] = [
     name: "grepnavi_graph_set_memo",
     description:
       "Replace the memo on an existing node. Use this to record findings on nodes you (or the user) created earlier without rebuilding them. Pass empty string to clear the memo.\n\n" +
-      "**Read the function before writing** (grepnavi_func_body / grepnavi_read_file). Bridge auto-prefixes `[未確認]` to any memo without a verification tag. To mark verified, prefix explicitly with `[verified]` / `[確認済]`.",
+      "**Read the function before writing** (grepnavi_func_body / grepnavi_read_file). Bridge auto-prefixes `[未確認]` to any memo without a verification tag. A `[verified]` prefix is kept only if the node's line (or the function its label names) was returned by one of those reads in this session; otherwise it is replaced with `[未確認]` and `verification.downgraded` says why.",
     inputSchema: {
       type: "object",
       properties: {
@@ -222,11 +245,21 @@ export const handlers: Record<string, ToolHandler> = {
       badge_text?: string;
       word?: string;
       client_node_id?: string;
+      edge_label?: string;
     };
     // word が来てるのに label 空なら、シンボル名:line を default に使う
     // (grepnavi の自動 label は basename:line で tree 上の可読性が悪い)
     const effectiveLabel = a.label || (a.word ? `${a.word}:${a.line}` : undefined);
-    const r = await client.addNode({ ...a, file: normalizeInputPath(a.file), label: effectiveLabel });
+    const file = normalizeInputPath(a.file);
+    const v = hasVerifiedTag(a.memo)
+      ? verifyMemo(a.memo, await memoAnchors(file, a.line, a.word))
+      : { memo: a.memo ?? "", downgraded: false as const };
+    const r = await client.addNode({
+      ...a,
+      file,
+      label: effectiveLabel,
+      memo: a.memo === undefined ? undefined : v.memo,
+    });
     return ok({
       node_id: r.node.id,
       label: r.node.label,
@@ -234,6 +267,7 @@ export const handlers: Record<string, ToolHandler> = {
       tags: r.node.tags ?? [],
       badge_color: r.node.badge_color ?? "",
       badge_text: r.node.badge_text ?? "",
+      ...verificationField(v),
     });
   },
   grepnavi_graph_add_nodes: async (args) => {
@@ -243,8 +277,9 @@ export const handlers: Record<string, ToolHandler> = {
   },
   grepnavi_graph_set_memo: async (args) => {
     const a = args as { node_id: string; memo: string };
-    const n = await client.updateNode(a.node_id, { memo: a.memo });
-    return ok({ node_id: n.id, memo: n.memo ?? "" });
+    const v = await verifyNodeMemo(a.node_id, a.memo);
+    const n = await client.updateNode(a.node_id, { memo: v.memo });
+    return ok({ node_id: n.id, memo: n.memo ?? "", ...verificationField(v) });
   },
   grepnavi_graph_update_node: async (args) => {
     const a = args as {
@@ -257,6 +292,8 @@ export const handlers: Record<string, ToolHandler> = {
       tags?: string[];
     };
     const { node_id, ...fields } = a;
+    const v = await verifyNodeMemo(node_id, fields.memo);
+    if (fields.memo !== undefined) fields.memo = v.memo;
     const n = await client.updateNode(node_id, fields);
     return ok({
       node_id: n.id,
@@ -265,6 +302,7 @@ export const handlers: Record<string, ToolHandler> = {
       tags: n.tags ?? [],
       badge_color: n.badge_color ?? "",
       badge_text: n.badge_text ?? "",
+      ...verificationField(v),
     });
   },
   grepnavi_graph_delete_node: async (args) => {

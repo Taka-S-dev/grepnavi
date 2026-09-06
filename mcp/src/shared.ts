@@ -1,6 +1,6 @@
 import { GrepnaviClient } from "./client.js";
 
-export const BRIDGE_VERSION = "0.17.0";
+export const BRIDGE_VERSION = "0.18.0";
 
 const baseUrl = process.env.GREPNAVI_URL ?? "http://localhost:8080";
 export const client = new GrepnaviClient(baseUrl);
@@ -34,6 +34,7 @@ export interface BatchNodeInput {
   badge_color?: string;
   badge_text?: string;
   text?: string;
+  edge_label?: string;
 }
 
 export interface CallerTreeNode {

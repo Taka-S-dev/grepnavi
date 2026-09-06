@@ -27,8 +27,24 @@ and wrong, repeatedly.
 - Recognized as read: `[verified]` `[確認済]` `[読了]`.
 - Recognized as not read: `[unverified]` `[推測]` `[未確認]` `[未読]`.
 
-Adding the tag without reading the code defeats the entire mechanism. If you did not read it, leave
-it unverified — the digest surfaces the count so it can be cleaned up later.
+The tag is checked, not trusted. The bridge keeps every range that `grepnavi_func_body` and
+`grepnavi_read_file` returned in this session. A `[verified]` memo whose anchor line — or the
+definition of its `word` — was never inside one of those ranges is rewritten to `[未確認]`, and the
+response carries `verification.downgraded` with the reason. So:
+
+- Pass `word` on call-tree children. Their anchor is the caller's line; without `word` the bridge
+  cannot match the callee body you read against that anchor.
+- A `with_preview` body preview counts only for the lines it showed, not the whole function.
+- A downgrade is not an error. Read the code and resubmit with the tag.
+
+If you did not read it, leave it unverified — the digest surfaces the count so it can be cleaned up
+later.
+
+## Edge labels
+
+`edge_label` on `grepnavi_graph_add_node` / `add_nodes` puts text on the edge from the parent. Use it
+for the reason the child exists in the flow — the call condition (`on error`, `state == READY`),
+not a restatement of the child's name. Omit it for a plain link. `seq` is reserved by the GUI.
 
 ## Node anchoring
 
