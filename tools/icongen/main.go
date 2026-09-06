@@ -27,10 +27,18 @@ import (
 // Windows がトレイ・エクスプローラ・タスクバー・高DPI で参照するサイズ一式。
 var sizes = []int{16, 20, 24, 32, 48, 64, 256}
 
+// 輪は白にしない。暗いタスクバーではネイビーの板が背景に溶けるので、
+// 輪の色だけが虫眼鏡の形を運ぶ。白い輪だと板ごと消える（実寸 16px で比較）。
 var (
-	bgColor     = color.RGBA{R: 30, G: 64, B: 175, A: 255}   // 深いブルー
-	glyphColor  = color.RGBA{R: 255, G: 255, B: 255, A: 255} // 虫眼鏡と針の南側
-	needleColor = color.RGBA{R: 245, G: 158, B: 11, A: 255}  // 針の北側（青との補色で小サイズでも残る）
+	bgColor     = color.RGBA{R: 15, G: 23, B: 42, A: 255}    // ネイビー
+	glyphColor  = color.RGBA{R: 56, G: 189, B: 248, A: 255}  // 虫眼鏡（シアン）
+	needleColor = color.RGBA{R: 249, G: 115, B: 22, A: 255}  // 針の北側（橙。シアンとの補色で小サイズでも残る）
+	// 針の南側は輪と別の色にする。輪と同じシアンだと 16px で針が橙の点にしか
+	// 見えず、白なら「橙と白の 2 色の線」として方位磁針だと分かる。
+	southColor = color.RGBA{R: 236, G: 240, B: 245, A: 255}
+	// 板の外周 1px。暗いタスクバーではネイビーの板が背景に溶けて線だけになり、
+	// 隣のアイコンより軽く見える（実機で確認）。縁があれば板の形が戻る。
+	rimColor = color.RGBA{R: 71, G: 85, B: 105, A: 255}
 )
 
 // glyphParams は描画パラメータ（キャンバス幅に対する比率）。
@@ -49,23 +57,27 @@ type glyphParams struct {
 func paramsFor(size int) glyphParams {
 	// レンズを大きめに取り、内側の針を読ませる。ただし取っ手が消えると
 	// 虫眼鏡に見えなくなるため、半径は 0.32 を上限とする。
+	// 針はレンズ内径の 9 割まで伸ばす。16px では針が唯一の差別化要素で、
+	// 短いと橙の点にしかならず、検索ツール一般と見分けが付かない。
+	// 全体を板の中心へ 4% 寄せてある。柄の先端が板の角に触れると 256px で
+	// 窮屈に見え、16px では縮小の差が出ないので損が無い。
 	p := glyphParams{
 		corner:     0.22,
-		ringCenter: 0.44,
-		ringRadius: 0.32,
-		ringStroke: 0.085,
-		handleEnd:  0.88,
-		handleWide: 0.10,
-		needleLen:  0.225,
-		needleWide: 0.072,
+		ringCenter: 0.4424,
+		ringRadius: 0.3072,
+		ringStroke: 0.0816,
+		handleEnd:  0.8648,
+		handleWide: 0.096,
+		needleLen:  0.285,
+		needleWide: 0.0864,
 	}
 	if size <= 24 {
 		// 16px では 1px 未満の線が消えるため、比率を保ったまま線と針を太らせる
-		p.ringRadius = 0.315
-		p.ringStroke = 0.119
-		p.handleWide = 0.124
-		p.needleLen = 0.214
-		p.needleWide = 0.083
+		p.ringRadius = 0.3024
+		p.ringStroke = 0.1142
+		p.handleWide = 0.119
+		p.needleLen = 0.2707
+		p.needleWide = 0.0998
 	}
 	return p
 }
@@ -140,6 +152,11 @@ func drawHiRes(size, ss int) *image.RGBA {
 				continue // 角の外は透明のまま
 			}
 			c := bgColor
+			// 縁は角丸に沿って 1 デバイスピクセル。角の半径も同じだけ縮めて、
+			// 内側の角丸が外側と同心になるようにする
+			if inset := float64(ss); !insideRoundedRect(px-inset, py-inset, f-2*inset, corner-inset) {
+				c = rimColor
+			}
 			switch {
 			case math.Abs(math.Hypot(px-cx, py-cy)-rr) <= rs,
 				distToSegment(px, py, hx0, hy0, hx1, hy1) <= hw:
@@ -147,7 +164,7 @@ func drawHiRes(size, ss int) *image.RGBA {
 			case insideTriangle(px, py, tipN, baseL, baseR):
 				c = needleColor
 			case insideTriangle(px, py, tipS, baseL, baseR):
-				c = glyphColor
+				c = southColor
 			}
 			img.SetRGBA(x, y, c)
 		}
