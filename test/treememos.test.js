@@ -6,7 +6,7 @@ const { nodeDir } = require('../static/js/utils.js');
 const groupLooseMemos = (loose, spanOf, root) => _group(loose, spanOf, root, nodeDir);
 
 // 行メモを「同じファイル・同じ関数の中の、直近上のノード」へ結ぶ。
-// 関数範囲は ctags 由来で、テストでは表で与える。
+// 関数範囲は本体の走査器 (/api/func-spans) 由来で、テストでは表で与える。
 const SPANS = {
   'c:/p/ssl/record/rec_layer_s3.c': [
     { name: 'ssl3_read_bytes', start_line: 1217, end_line: 1290 },
