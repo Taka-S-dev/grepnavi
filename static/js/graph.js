@@ -326,6 +326,13 @@ function pulseNodesTab() {
 let _bandIndex = new Map();
 const BAND_COLORS = 6;
 
+// 木の外 (マーク一覧など) が同じディレクトリを同じ色で出すための引き口。
+// 木に無いディレクトリは次の色を割り当てる (木の描き直しで揃い直る)。
+function bandIndexFor(dir) {
+  if (!_bandIndex.has(dir)) _bandIndex.set(dir, _bandIndex.size % BAND_COLORS);
+  return _bandIndex.get(dir);
+}
+
 function computeBandIndex(roots) {
   const idx = new Map();
   const seen = new Set();

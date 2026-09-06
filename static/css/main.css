@@ -1176,6 +1176,10 @@ body.search-mode #root-chip{min-width:0}
 #memo-list-hdr button:hover{color:#ccc;background:#2a2d2e}
 #memo-list-body{flex:1;overflow-y:auto}
 .memo-list-item{display:grid;grid-template-columns:16px 16px auto 1fr;gap:4px;align-items:center;padding:5px 8px;border-bottom:1px solid #2a2a2a;cursor:pointer;font-size:11px}
+/* ホバーは「いまの背景を同じ量だけ明るくする」で全段そろえる。絶対色にすると
+   ファイル見出しのホバーがディレクトリ見出しの通常色と同じになり、段が入れ替わって見える。
+   重ね塗りなら行の種別色 (デバッグ行の紫など) も残る */
+.memo-list-item:hover{background-image:linear-gradient(rgba(255,255,255,0.05),rgba(255,255,255,0.05))}
 .memo-list-item.memo-list-dragging{opacity:0.4}
 .memo-list-item.memo-list-dragover{border-top:2px solid #007acc}
 .memo-list-drag{color:#555;cursor:grab;user-select:none;font-size:13px;text-align:center}
@@ -1187,6 +1191,39 @@ body.search-mode #root-chip{min-width:0}
 #memo-list-filter-bar{display:flex;align-items:center;gap:4px;padding:4px 8px;border-bottom:1px solid #222;flex-shrink:0}
 #memo-list-type-bar{display:flex;align-items:center;gap:3px;padding:3px 8px;border-bottom:1px solid #333;flex-shrink:0}
 .memo-type-btn{background:none;border:1px solid #3a3a3a;color:#666;cursor:pointer;font-size:12px;width:26px;height:22px;padding:0;border-radius:3px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+/* 並べ方の切り替え (一覧 / ディレクトリ)。排他なので分割ボタンにする */
+#memo-list-view-seg{margin-left:auto;display:inline-flex;border:1px solid #3a3a3a;border-radius:3px;overflow:hidden;flex-shrink:0}
+.memo-view-btn{background:none;border:none;color:#666;cursor:pointer;font-size:10px;padding:0 7px;height:20px;font-family:inherit}
+.memo-view-btn + .memo-view-btn{border-left:1px solid #3a3a3a}
+.memo-view-btn:hover{color:#ccc}
+.memo-view-btn.active{background:#094771;color:#fff}
+/* ディレクトリで畳んだ一覧。色はノードツリーの帯と同じ 6 色を左の縁に出す */
+.memo-list-bydir .memo-list-drag{visibility:hidden}
+.memo-dir-section{border-left:3px solid transparent}
+.memo-dir-section.band-0{border-left-color:#4a6a9a}
+.memo-dir-section.band-1{border-left-color:#4f8a5a}
+.memo-dir-section.band-2{border-left-color:#9a7a48}
+.memo-dir-section.band-3{border-left-color:#7a5a9a}
+.memo-dir-section.band-4{border-left-color:#3f8a8a}
+.memo-dir-section.band-5{border-left-color:#9a5a6a}
+/* ディレクトリの見出し行は一律の色で塗る。ファイル見出しは塗らないので、
+   塗ってある行 = 一段目、と目で分かる。所属 (どのディレクトリか) は左の縁と
+   見出し文字の色相が担うので、背景には階層の意味しか載せない */
+.memo-dir-hdr{padding-top:5px;padding-bottom:5px;background:#2a2d31}
+.memo-dir-section.band-0 .memo-dir-name{color:#7aa2d6}
+.memo-dir-section.band-1 .memo-dir-name{color:#7fbf8a}
+.memo-dir-section.band-2 .memo-dir-name{color:#d6a86a}
+.memo-dir-section.band-3 .memo-dir-name{color:#b08ad6}
+.memo-dir-section.band-4 .memo-dir-name{color:#6ac0c0}
+.memo-dir-section.band-5 .memo-dir-name{color:#d68a9a}
+.memo-file-hdr{display:flex;align-items:center;gap:4px;padding:3px 8px 1px 22px;font-size:11px;cursor:pointer;user-select:none}
+.memo-file-hdr:hover{background-image:linear-gradient(rgba(255,255,255,0.05),rgba(255,255,255,0.05))}
+.memo-dir-name .memo-group-count{margin-left:6px;font-weight:normal}
+.memo-file-name{color:#c8c8c8;font-weight:600}
+/* 字下げ線。ディレクトリの段は左端の色の縁が担い、ファイルの段はこの細線が担う。
+   線は見出しの山形の真下を通す (山形 = 14px 位置 + 幅の半分) */
+.memo-list-bydir .memo-group-list{margin-left:29px;padding-left:0;border-left:1px solid #3d3d3d}
+.memo-list-bydir .memo-group-list .memo-list-item{padding-left:6px}
 .memo-type-btn:hover{border-color:#666;color:#ccc}
 .memo-type-btn.active{border-color:#007acc;color:#4fc3f7;background:rgba(0,122,204,0.15)}
 
@@ -1233,7 +1270,6 @@ body.search-mode #root-chip{min-width:0}
 .memo-list-item--bm{grid-template-columns:16px auto 1fr 16px}
 /* 移動ボタン。削除と同じくホバーで現れる（常時出すと一覧が賑やかすぎる）。 */
 .memo-list-move{background:none;border:none;color:transparent;cursor:pointer;font-size:12px;padding:0 2px;border-radius:2px;line-height:1;flex-shrink:0}
-.memo-list-item:hover{background:#2a2d2e}
 .memo-list-item:hover .memo-list-move{color:#555}
 .memo-list-move:hover{color:#4ec9b0!important;background:rgba(78,201,176,0.12)}
 .memo-list-del{background:none;border:none;color:transparent;cursor:pointer;font-size:13px;padding:0 2px;border-radius:2px;line-height:1}
@@ -1335,7 +1371,7 @@ button:disabled:hover{background:#3c3c3c}
 #memo-list-add-group:hover{color:#ccc;background:#2a2d2e}
 .memo-group-section{border-bottom:1px solid #2a2a2a}
 .memo-group-hdr{display:flex;align-items:center;gap:4px;padding:4px 8px;cursor:pointer;font-size:11px;color:#aaa;user-select:none}
-.memo-group-hdr:hover{background:#2a2d2e}
+.memo-group-hdr:hover{background-image:linear-gradient(rgba(255,255,255,0.05),rgba(255,255,255,0.05))}
 .memo-group-toggle{font-size:11px;color:#666;flex-shrink:0}
 .memo-group-name{flex:1;font-weight:600;color:#ccc}
 .memo-group-count{color:#555;font-size:10px;margin-right:4px}

@@ -11,6 +11,12 @@ let _memoListTypeFilter = new Set();
 let _memoListCategoryFilter = new Set();
 let _memoListSourceFilter = new Set();
 let _memoListSelectedId = null;
+// 並べ方: 'flat' = 手動順の一覧 / 'dir' = ディレクトリ → ファイルで畳む。
+// 別ビューにはしない。同じ在庫が 2 か所に出ると、どちらを見るかが増えるだけ。
+let _memoListView = 'flat';
+try { _memoListView = localStorage.getItem('grepnavi-memo-list-view') === 'dir' ? 'dir' : 'flat'; } catch {}
+const _memoListCollapsedDirs = new Set();
+const _memoListCollapsedFiles = new Set();
 let _memoListNavAbort = null;
 // bulk delete の undo 用 snapshot。30 秒以内に「元に戻す」されたら復元する。
 let _memoListUndoTimer = null;
@@ -54,7 +60,8 @@ function getAllMemosOrdered() {
   for (const m of rangeMemos) {
     items.push({
       kind: 'range', id: 'range::' + m.id,
-      file: m.file, line: m.startLine, endLine: m.endLine, memo: m.memo,
+      // 保存形式は start_line。古い localStorage には startLine のものが残りうる
+      file: m.file, line: m.start_line ?? m.startLine, endLine: m.end_line ?? m.endLine, memo: m.memo,
       category: m.category || '',
       source: m.source || '',
       _rangeId: m.id,
@@ -350,6 +357,27 @@ function renderMemoList() {
       };
       typeBar.appendChild(btn);
     });
+    // 並べ方の切り替え。フィルタ (何を出すか) と同じ段の右端に置き、
+    // 「どう並べるか」は一つだけ選ぶ形にする
+    const viewWrap = document.createElement('span');
+    viewWrap.id = 'memo-list-view-seg';
+    [
+      { v: 'flat', label: '一覧',        title: '手動で並べ替えられる一覧' },
+      { v: 'dir',  label: 'ディレクトリ', title: 'ディレクトリ → ファイルで畳む。色はノードツリーと同じ' },
+    ].forEach(({ v, label, title }) => {
+      const b = document.createElement('button');
+      b.className = 'memo-view-btn' + (_memoListView === v ? ' active' : '');
+      b.textContent = label;
+      b.title = title;
+      b.onclick = () => {
+        _memoListView = v;
+        try { localStorage.setItem('grepnavi-memo-list-view', v); } catch {}
+        viewWrap.querySelectorAll('.memo-view-btn').forEach(x => x.classList.toggle('active', x === b));
+        _renderMemoListBody(getAllMemosOrdered());
+      };
+      viewWrap.appendChild(b);
+    });
+    typeBar.appendChild(viewWrap);
     panel.appendChild(typeBar);
 
     // category フィルタ + source フィルタ + bulk delete (draft) を集約したバー
@@ -498,7 +526,7 @@ function _showMemoPreview(item) {
   });
 
   const fileName = item.file.replace(/\\/g, '/').split('/').pop();
-  const lineLabel = item.kind === 'range' ? `L${item.line}–${item.endLine}` : `L${item.line}`;
+  const lineLabel = item.kind === 'range' && item.endLine > item.line ? `L${item.line}–${item.endLine}` : `L${item.line}`;
   const icon = item.kind === 'bookmark'
     ? `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 16 16" style="vertical-align:middle"><path d="M5 2h6a1 1 0 0 1 1 1v10l-4-2.5L4 13V3a1 1 0 0 1 1-1z" fill="none" stroke="#888" stroke-width="1.5" stroke-linejoin="round"/></svg>`
     : item.kind === 'range' ? '▤'
@@ -615,7 +643,7 @@ function _showMemoPreview(item) {
 
 function _makeMemoRow(item) {
   const fileName = item.file.replace(/\\/g, '/').split('/').pop();
-  const lineLabel = item.kind === 'range' ? `L${item.line}–${item.endLine}` : `L${item.line}`;
+  const lineLabel = item.kind === 'range' && item.endLine > item.line ? `L${item.line}–${item.endLine}` : `L${item.line}`;
   const memoPreview = item.memo.split('\n')[0].substring(0, 60);
   const icon = item.kind === 'bookmark'
     ? `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 16 16" style="vertical-align:middle"><path d="M5 2h6a1 1 0 0 1 1 1v10l-4-2.5L4 13V3a1 1 0 0 1 1-1z" fill="none" stroke="#888" stroke-width="1.5" stroke-linejoin="round"/></svg>`
@@ -766,11 +794,19 @@ function _renderMemoListBody(allItems) {
   });
 
   body.innerHTML = '';
+  document.querySelectorAll('#memo-list-view-seg .memo-view-btn').forEach((b, i) =>
+    b.classList.toggle('active', (i === 0) === (_memoListView !== 'dir')));
 
   const groups = getMemoGroups();
   const groupedIds = new Set(groups.flatMap(g => g.itemIds));
   const isFiltering = q || tf.size > 0 || cf.size > 0 || sf.size > 0;
   const filteredIds = new Set(filtered.map(it => it.id));
+
+  if (_memoListView === 'dir') {
+    _renderMemoListByDir(body, allItems, filtered, isFiltering);
+    return;
+  }
+  body.classList.remove('memo-list-bydir');
 
   if (isFiltering && !filtered.length) {
     body.innerHTML = '<div style="color:#666;font-size:11px;padding:12px 8px">一致するメモがありません</div>';
@@ -869,6 +905,97 @@ function _renderMemoListBody(allItems) {
 
   _initMemoListDnd(body, allItems, groups);
   _initMemoListKeyNav(body, filtered);
+}
+
+// ディレクトリ → ファイル → 行 の順で畳んだ描画。手動グループと手動順は使わない
+// (並びはパスで決まるので、取っ手も出さない)。色はノードツリーの帯と同じ鍵。
+function _renderMemoListByDir(body, allItems, filtered, isFiltering) {
+  body.classList.add('memo-list-bydir');
+  const root = (typeof graph !== 'undefined' && graph.root_dir) || '';
+  const dirOf = f => (typeof nodeDir === 'function' ? nodeDir(f, root) : f);
+  const norm = f => (f || '').replace(/\\/g, '/').toLowerCase();
+
+  // 件数は絞り込み前の全体で数える (「12 件中 3 件が見えている」が分かるように)
+  const byDir = new Map();
+  for (const it of allItems) {
+    const d = dirOf(it.file);
+    if (!byDir.has(d)) byDir.set(d, new Map());
+    const files = byDir.get(d);
+    const fk = norm(it.file);
+    if (!files.has(fk)) files.set(fk, { file: it.file, items: [] });
+    files.get(fk).items.push(it);
+  }
+  const dirs = [...byDir.keys()].sort((a, b) => a.localeCompare(b));
+  if (!dirs.length) {
+    body.innerHTML = '<div style="color:#666;font-size:11px;padding:12px 8px">メモがありません</div>';
+    _initMemoListKeyNav(body, []);
+    return;
+  }
+  if (isFiltering && !filtered.length) {
+    body.innerHTML = '<div style="color:#666;font-size:11px;padding:12px 8px">一致するメモがありません</div>';
+    _initMemoListKeyNav(body, []);
+    return;
+  }
+  const visible = new Set(filtered.map(it => it.id));
+  const ordered = [];
+  for (const d of dirs) {
+    const files = [...byDir.get(d).values()].sort((a, b) => norm(a.file).localeCompare(norm(b.file)));
+    const total = files.reduce((n, f) => n + f.items.length, 0);
+    const shown = files.reduce((n, f) => n + f.items.filter(it => visible.has(it.id)).length, 0);
+    if (isFiltering && !shown) continue;
+    const band = typeof bandIndexFor === 'function' ? bandIndexFor(d) : 0;
+    const collapsed = _memoListCollapsedDirs.has(d);
+
+    const sec = document.createElement('div');
+    sec.className = 'memo-group-section memo-dir-section band-' + band;
+    const hdr = document.createElement('div');
+    hdr.className = 'memo-group-hdr memo-dir-hdr';
+    hdr.innerHTML =
+      `<span class="memo-group-toggle codicon ${collapsed ? 'codicon-chevron-right' : 'codicon-chevron-down'}"></span>` +
+      `<span class="memo-group-name memo-dir-name">${esc(d ? d + '/' : './')}` +
+      `<span class="memo-group-count">${isFiltering ? shown + '/' + total : total}</span></span>`;
+    hdr.onclick = () => {
+      if (_memoListCollapsedDirs.has(d)) _memoListCollapsedDirs.delete(d); else _memoListCollapsedDirs.add(d);
+      _renderMemoListBody(getAllMemosOrdered());
+    };
+    sec.appendChild(hdr);
+    if (!collapsed) {
+      for (const f of files) {
+        const items = f.items.filter(it => visible.has(it.id)).sort((a, b) => a.line - b.line);
+        if (isFiltering && !items.length) continue;
+        const fk = norm(f.file);
+        const fcollapsed = _memoListCollapsedFiles.has(fk);
+        const fh = document.createElement('div');
+        fh.className = 'memo-file-hdr';
+        fh.innerHTML = `<span class="memo-group-toggle codicon ${fcollapsed ? 'codicon-chevron-right' : 'codicon-chevron-down'}"></span>` +
+                       `<span class="memo-file-name" title="${esc(f.file)}">${esc(f.file.replace(/\\/g, '/').split('/').pop())}</span>` +
+                       `<span class="memo-group-count">${isFiltering ? items.length + '/' + f.items.length : f.items.length}</span>`;
+        fh.onclick = (e) => {
+          e.stopPropagation();
+          if (_memoListCollapsedFiles.has(fk)) _memoListCollapsedFiles.delete(fk); else _memoListCollapsedFiles.add(fk);
+          _renderMemoListBody(getAllMemosOrdered());
+        };
+        sec.appendChild(fh);
+        if (fcollapsed) continue;
+        const list = document.createElement('div');
+        list.className = 'memo-group-list';
+        items.forEach(it => {
+          const row = _makeMemoRow(it);
+          row.draggable = false;
+          // ファイル名は見出しにあるので、行は行番号だけにする
+          const loc = row.querySelector('.memo-list-loc');
+          if (loc && loc.firstChild && loc.firstChild.nodeType === 3) loc.firstChild.textContent = '';
+          const ln = row.querySelector('.memo-list-lineno');
+          if (ln) ln.textContent = ln.textContent.replace(/^:/, '');
+          list.appendChild(row);
+          ordered.push(it);
+        });
+        sec.appendChild(list);
+      }
+    }
+    body.appendChild(sec);
+  }
+  _initMemoListKeyNav(body, ordered);
 }
 
 function _initMemoListKeyNav(body, items) {
