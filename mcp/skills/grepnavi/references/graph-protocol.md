@@ -80,6 +80,12 @@ rejects cycles, `client_id` collisions, and unknown parents up front.
 Separate from graph nodes; they render in the editor margin. Use them for annotations too
 fine-grained to deserve a node ("TODO: race", "returns NULL when X").
 
+They also show up in the tree. A line memo placed inside the function of an existing node is
+listed under that node (the nearest node above it in the same function). Memos in functions that
+have no node are grouped at the tail of the tree by file and function, where the user can promote
+the function to a node. So when a finding belongs to a step the tree already has, put the memo
+inside that step's function — it will appear in the flow, not only in the list.
+
 - The bridge tags `source: "ai"` and defaults `category: "draft"`.
 - Drafts are bulk-deletable by the user, which is the point — promote to `ok` / `warn` / `error` /
   `note` only once you have verified the claim.

@@ -54,6 +54,7 @@
         { id: 'btn-node-sub', label: 'パス表示', hint: 'Alt+Shift+P', on: b => b.classList.contains('on') },
         { id: 'btn-tree-memo', label: 'メモ表示', hint: 'Alt+Shift+N', on: b => b.classList.contains('on') },
         { id: 'btn-tree-bands', label: 'ディレクトリで色分け', hint: '', on: b => b.classList.contains('on') },
+        { id: 'btn-tree-linememos', label: '行メモ表示', hint: '', on: b => b.classList.contains('on') },
         { id: 'btn-view', label: 'グラフ表示 (D3)', hint: '', on: b => b.textContent === 'ツリー' },
       ];
       for (const t of toggles) {

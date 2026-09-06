@@ -401,6 +401,24 @@ addEventListener('DOMContentLoaded', async () => {
     };
   }
 
+  const btnLm = id('btn-tree-linememos');
+  if(btnLm) {
+    // 行メモはノードの説明 (メモ) とは別の項目なので、別のスイッチにする
+    let on = true;
+    try { on = localStorage.getItem('grepnavi-tree-linememos') !== 'off'; } catch {}
+    const apply = () => {
+      id('tree').classList.toggle('hide-linememos', !on);
+      btnLm.classList.toggle('on', on);
+      btnLm.style.background = on ? '#094771' : '';
+    };
+    apply();
+    btnLm.onclick = () => {
+      on = !on;
+      try { localStorage.setItem('grepnavi-tree-linememos', on ? 'on' : 'off'); } catch {}
+      apply();
+    };
+  }
+
   const btnTm = id('btn-tree-memo');
   if(btnTm) {
     btnTm.onclick = () => {

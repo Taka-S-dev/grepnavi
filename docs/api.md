@@ -10,6 +10,7 @@
 | `/api/search` | 検索（ページネーション付き一括取得。MCP ブリッジ用） |
 | `/api/symbol-search` | シンボル名のパターン検索（Alt+Shift+T / ƒ パネル、ctags 索引） |
 | `/api/symbols` | 指定ファイル内のシンボル一覧 |
+| `/api/func-spans` | 指定ファイル内の関数定義の行範囲（複数行の引数リストも拾う） |
 | `/api/definition` | 定義ジャンプ先の解決 |
 | `/api/references` | 参照一覧（参照ピッカー / MCP） |
 | `/api/complete` | 補完候補（デバッグ行ダイアログ用。メンバー / ローカル変数 / マクロ） |

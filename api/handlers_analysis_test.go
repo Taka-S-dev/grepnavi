@@ -188,3 +188,41 @@ func TestCompleteRejectsPathOutsideRoot(t *testing.T) {
 		}
 	}
 }
+
+// /api/func-spans: 引数が複数行にまたがる定義も範囲に入る。
+// /api/symbols はこれを落とすので、行メモをノードの関数へ結ぶ側はこちらを使う。
+func TestHandleFuncSpans(t *testing.T) {
+	dir := t.TempDir()
+	src := "int one(void)\n{\n    return 1;\n}\n\n" +
+		"int two(int a,\n        int b)\n{\n    return a + b;\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "a.c"), []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	h := &Handler{root: dir, events: NewEventBus()}
+
+	rec := httptest.NewRecorder()
+	h.handleFuncSpans(rec, httptest.NewRequest("GET", "/api/func-spans?file=a.c", nil))
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var got []struct {
+		Name      string `json:"name"`
+		StartLine int    `json:"start_line"`
+		EndLine   int    `json:"end_line"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Name != "one" || got[1].Name != "two" {
+		t.Fatalf("関数が揃わない: %+v", got)
+	}
+	if got[1].StartLine > 7 || got[1].EndLine != 10 {
+		t.Errorf("複数行シグネチャの範囲が違う: %+v", got[1])
+	}
+
+	rec = httptest.NewRecorder()
+	h.handleFuncSpans(rec, httptest.NewRequest("GET", "/api/func-spans?file=", nil))
+	if rec.Code != 400 {
+		t.Errorf("空の file が %d を返した（400 のはず）", rec.Code)
+	}
+}

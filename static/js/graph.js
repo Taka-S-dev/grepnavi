@@ -20,6 +20,7 @@ function applyGraphResponse(g) {
   // 新グラフなので現在のルートを保持する。
   if (g.root_dir && (!projectRoot || (projectChanged && curFile))) {
     projectRoot = g.root_dir;
+    _funcSpans.clear();
     const parts = g.root_dir.replace(/\\/g, "/").split("/");
     id("root-label").textContent = parts[parts.length - 1] || g.root_dir;
     id("root-label").title = g.root_dir;
@@ -339,6 +340,213 @@ function computeBandIndex(roots) {
   return idx;
 }
 
+// ===== 行メモを木に出す =====
+// 行メモは編集画面の余白と一覧にしか出ず、木の流れの中のどこに関する気づきか
+// が見えなかった。行メモもノードも「ファイルの位置」なので、同じ関数の中に
+// あるノードへ機械的に結べる。ノードが無いメモは、コードそのものの構造
+// (ディレクトリ → ファイル → 関数) で木の末尾にまとめる。保存形式は変えない。
+
+// file(正規化) → 関数範囲の配列。null は取得中。root を切り替えたら捨てる。
+const _funcSpans = new Map();
+let _spanFetchPending = 0;
+
+function _normFile(f) {
+  return (f || "").replace(/\\/g, "/").toLowerCase();
+}
+
+function enclosingSpan(file, line) {
+  const spans = _funcSpans.get(_normFile(file));
+  if (!spans) return null;
+  for (const s of spans) if (s.start_line <= line && line <= s.end_line) return s;
+  return null;
+}
+
+// 未取得のファイルの関数範囲を取りに行き、揃ったら木を描き直す。
+// 描画は同期のままにしたいので、初回は範囲なしで描いて、届いてから一度だけ直す。
+function ensureFuncSpans(files) {
+  const missing = [...new Set(files.map(_normFile))].filter((f) => f && !_funcSpans.has(f));
+  if (!missing.length) return;
+  missing.forEach((f) => _funcSpans.set(f, null));
+  _spanFetchPending += missing.length;
+  missing.forEach(async (f) => {
+    let spans = [];
+    try {
+      const r = await fetch("/api/func-spans?file=" + encodeURIComponent(f));
+      const d = await r.json();
+      if (Array.isArray(d)) spans = d.filter((s) => s.start_line > 0 && s.end_line >= s.start_line);
+    } catch {
+      // 取れなければ関数無しの扱い。メモはファイル見出しの直下に出る
+    }
+    _funcSpans.set(f, spans);
+    if (--_spanFetchPending === 0 && viewMode === "tree") renderTree();
+  });
+}
+
+// localStorage の行メモ・範囲メモを木で扱う形に揃える。
+function collectTreeMemos() {
+  const out = [];
+  if (typeof getLineMemos !== "function") return out;
+  const memos = getLineMemos();
+  const cats = getLineMemoCategories();
+  const srcs = getLineMemoSources();
+  for (const key of Object.keys(memos)) {
+    const i = key.lastIndexOf("::");
+    if (i < 0) continue;
+    const line = parseInt(key.slice(i + 2), 10);
+    if (!(line > 0)) continue;
+    out.push({ key, file: key.slice(0, i), line, end_line: line, text: memos[key] || "", category: cats[key] || "", source: srcs[key] || "" });
+  }
+  if (typeof getRangeMemos === "function") {
+    for (const m of getRangeMemos()) {
+      if (!m || !m.file || !(m.start_line > 0)) continue;
+      out.push({ key: "range:" + m.id, file: m.file, line: m.start_line, end_line: m.end_line || m.start_line, text: m.memo || "", category: m.category || "", source: m.source || "" });
+    }
+  }
+  return out;
+}
+
+// メモを「同じファイル・同じ関数の中の、直近上のノード」へ割り当てる。
+// 関数の外にあるメモや、その関数にノードが無いメモは loose に落とす。
+// spanOf(file, line) は関数範囲か null。純関数にしてテストする。
+function assignTreeMemos(memos, nodes, spanOf) {
+  const byNode = new Map();
+  const loose = [];
+  const nodesByFile = new Map();
+  for (const n of nodes) {
+    const f = _normFile(n.file);
+    if (!nodesByFile.has(f)) nodesByFile.set(f, []);
+    nodesByFile.get(f).push(n);
+  }
+  for (const m of memos) {
+    const span = spanOf(m.file, m.line);
+    const cands = span
+      ? (nodesByFile.get(_normFile(m.file)) || []).filter((n) => {
+          const s = spanOf(n.file, n.line);
+          return s && s.start_line === span.start_line;
+        })
+      : [];
+    if (!cands.length) { loose.push(m); continue; }
+    // 直近上のノード。メモが関数内のどのノードより上なら、いちばん上のノード
+    const above = cands.filter((n) => n.line <= m.line);
+    const pick = above.length
+      ? above.reduce((a, b) => (b.line > a.line ? b : a))
+      : cands.reduce((a, b) => (b.line < a.line ? b : a));
+    if (!byNode.has(pick.id)) byNode.set(pick.id, []);
+    byNode.get(pick.id).push(m);
+  }
+  for (const list of byNode.values()) list.sort((a, b) => a.line - b.line);
+  return { byNode, loose };
+}
+
+// ノード外のメモを ディレクトリ → ファイル → 関数 に畳む。順序はパス、行。
+// 関数の外のメモは name が null の見出し無しグループに入る。
+function groupLooseMemos(loose, spanOf, root, dirOf = nodeDir) {
+  const files = new Map();
+  for (const m of loose) {
+    const f = _normFile(m.file);
+    if (!files.has(f)) files.set(f, { file: m.file, dir: dirOf(m.file, root), funcs: new Map() });
+    const span = spanOf(m.file, m.line);
+    const fk = span ? span.start_line : 0;
+    const g = files.get(f).funcs;
+    if (!g.has(fk)) g.set(fk, { name: span ? span.name : null, start_line: span ? span.start_line : 0, end_line: span ? span.end_line : 0, detail: span ? span.detail : "", memos: [] });
+    g.get(fk).memos.push(m);
+  }
+  return [...files.values()]
+    .sort((a, b) => _normFile(a.file).localeCompare(_normFile(b.file)))
+    .map((f) => ({
+      file: f.file,
+      dir: f.dir,
+      funcs: [...f.funcs.values()]
+        .sort((a, b) => a.start_line - b.start_line)
+        .map((fn) => ({ ...fn, memos: fn.memos.sort((a, b) => a.line - b.line) })),
+    }));
+}
+
+const MEMO_CATS = new Set(["draft", "ok", "warn", "error", "note"]);
+
+function makeTreeMemoRow(m) {
+  const row = document.createElement("div");
+  row.className = "tmemo" + (m.source === "ai" ? " tmemo-ai" : "");
+  const ln = document.createElement("span");
+  ln.className = "tmemo-line";
+  ln.textContent = "L" + m.line + (m.end_line > m.line ? "-" + m.end_line : "");
+  const cat = document.createElement("span");
+  cat.className = "tmemo-cat tmemo-cat-" + (MEMO_CATS.has(m.category) ? m.category : "none");
+  const txt = document.createElement("span");
+  txt.className = "tmemo-text";
+  txt.textContent = (m.text || "").split("\n")[0];
+  row.appendChild(ln);
+  row.appendChild(cat);
+  row.appendChild(txt);
+  row.title = m.text + "\n\n" + m.file + ":" + m.line;
+  row.onclick = (e) => {
+    e.stopPropagation();
+    openPeekPermanent(m.file, m.line);
+  };
+  return row;
+}
+
+let _treeMemoByNode = new Map();
+
+// 木の末尾: ノードに属さないメモを、コードの構造で見せる区画。
+function makeLooseMemoSection(groups) {
+  const sec = document.createElement("div");
+  sec.id = "tree-loose";
+  const hdr = document.createElement("div");
+  hdr.className = "tree-loose-hdr";
+  const count = groups.reduce((n, f) => n + f.funcs.reduce((k, fn) => k + fn.memos.length, 0), 0);
+  hdr.textContent = "ノード外のメモ " + count;
+  hdr.title = "どのノードの関数にも入っていない行メモ。関数の「ノードにする」で木へ取り込めます";
+  sec.appendChild(hdr);
+  for (const f of groups) {
+    const fw = document.createElement("div");
+    fw.className = "loose-file band-" + (_bandIndex.get(f.dir) ?? 0);
+    const fh = document.createElement("div");
+    fh.className = "loose-file-hdr";
+    const sp = shortPath(f.file);
+    const cut = sp.lastIndexOf("/") + 1;
+    const d = document.createElement("span");
+    d.className = "node-sub-dir";
+    d.textContent = sp.slice(0, cut);
+    const fn = document.createElement("span");
+    fn.className = "loose-file-name";
+    fn.textContent = sp.slice(cut);
+    fh.appendChild(d);
+    fh.appendChild(fn);
+    fh.title = f.file;
+    fw.appendChild(fh);
+    for (const g of f.funcs) {
+      const gw = document.createElement("div");
+      gw.className = "loose-func";
+      if (g.name) {
+        const gh = document.createElement("div");
+        gh.className = "loose-func-hdr";
+        const nm = document.createElement("span");
+        nm.className = "loose-func-name";
+        nm.textContent = g.name;
+        nm.title = (g.detail || g.name) + "\n" + f.file + ":" + g.start_line + "-" + g.end_line;
+        nm.onclick = (e) => { e.stopPropagation(); openPeekPermanent(f.file, g.start_line); };
+        const pin = document.createElement("button");
+        pin.className = "loose-func-pin";
+        pin.textContent = "ノードにする";
+        pin.title = "この関数を木のノードにする。下のメモはそのノードの下へ移ります";
+        pin.onclick = async (e) => {
+          e.stopPropagation();
+          const nid = crypto.randomUUID?.() ?? Array.from(crypto.getRandomValues(new Uint8Array(16))).map((b) => b.toString(16).padStart(2, "0")).join("");
+          await addToGraph({ id: nid, file: f.file, line: g.start_line, text: g.detail || g.name }, "", "ref", g.name);
+        };
+        gh.appendChild(nm);
+        gh.appendChild(pin);
+        gw.appendChild(gh);
+      }
+      g.memos.forEach((m) => gw.appendChild(makeTreeMemoRow(m)));
+      fw.appendChild(gw);
+    }
+    sec.appendChild(fw);
+  }
+  return sec;
+}
+
 function renderTree() {
   const el = id("tree");
   const hasParent = new Set();
@@ -360,6 +568,14 @@ function renderTree() {
     : rootSet;
 
   _bandIndex = computeBandIndex(roots);
+  // 行メモの割り当て。関数範囲が未取得なら取りに行き、届いたら描き直す
+  const treeMemos = collectTreeMemos();
+  ensureFuncSpans(treeMemos.map((m) => m.file));
+  const anchors = Object.values(graph.nodes).map((n) => ({ id: n.id, file: n.match?.file || "", line: n.match?.line || 0 }));
+  const assigned = assignTreeMemos(treeMemos, anchors, enclosingSpan);
+  _treeMemoByNode = assigned.byNode;
+  const looseGroups = groupLooseMemos(assigned.loose, enclosingSpan, graph.root_dir);
+  for (const f of looseGroups) if (!_bandIndex.has(f.dir)) _bandIndex.set(f.dir, _bandIndex.size % BAND_COLORS);
   el.innerHTML = "";
   const frag = document.createDocumentFragment();
   roots.forEach((n) => frag.appendChild(makeNodeEl(n, 0)));
@@ -387,6 +603,7 @@ function renderTree() {
       el.appendChild(makeNodeEl(n, 0));
   });
 
+  if (looseGroups.length) el.appendChild(makeLooseMemoSection(looseGroups));
 }
 
 // ===== VIEW TOGGLE =====
@@ -1912,6 +2129,14 @@ function makeNodeEl(node, depth, visited = new Set(), parentDir) {
     memoInline.textContent = node.memo;
     wrap.appendChild(memoInline);
   }
+  // この関数の中に置かれた行メモ。ノードのメモ (説明) と違って独立した項目なので常に出す
+  const lineMemos = _treeMemoByNode.get(node.id);
+  if (lineMemos && lineMemos.length) {
+    const list = document.createElement("div");
+    list.className = "node-line-memos";
+    lineMemos.forEach((m) => list.appendChild(makeTreeMemoRow(m)));
+    wrap.appendChild(list);
+  }
   if (children.length && node.expanded !== false) {
     const ch = document.createElement("div");
     ch.className = "children";
@@ -2877,6 +3102,8 @@ async function exportNodeSnapshot() {
 
 if (typeof module !== "undefined")
   module.exports = {
+    assignTreeMemos,
+    groupLooseMemos,
     computeDepths,
     findParent,
     findGrandparent,

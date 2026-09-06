@@ -210,6 +210,41 @@ func (h *Handler) handleSymbols(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, symbols)
 }
 
+// --- /api/func-spans ---
+
+// handleFuncSpans はファイル内の関数定義の行範囲を返す。
+// /api/symbols は正規表現の軽い走査で、引数が複数行にまたがる定義を落とす。
+// 行メモをノードの関数へ結ぶ用途では取りこぼしがそのまま「結ばれない」に
+// なるので、関数本体の取得と同じ走査器を使う（GUI と MCP で答えをずらさない）。
+func (h *Handler) handleFuncSpans(w http.ResponseWriter, r *http.Request) {
+	file := r.URL.Query().Get("file")
+	if file == "" {
+		jsonErr(w, "file required", http.StatusBadRequest)
+		return
+	}
+	if !filepath.IsAbs(file) {
+		h.mu.RLock()
+		root := h.root
+		h.mu.RUnlock()
+		file = filepath.Join(root, file)
+	}
+	lines, err := search.CachedLines(file)
+	if err != nil {
+		jsonErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	type span struct {
+		Name      string `json:"name"`
+		StartLine int    `json:"start_line"`
+		EndLine   int    `json:"end_line"`
+	}
+	out := []span{}
+	for _, fr := range search.FunctionRanges(lines) {
+		out = append(out, span{Name: fr.Name, StartLine: fr.Start, EndLine: fr.End})
+	}
+	jsonOK(w, out)
+}
+
 // --- /api/definition ---
 
 // resolveDir は dir パラメータを絶対パスへ直し、存在しなければ理由を返す。

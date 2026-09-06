@@ -481,6 +481,34 @@ body.insmove-active .monaco-editor,body.insmove-active .monaco-editor .view-line
 .band-5 > .band-label{color:#d68a9a;background:#402329}
 #tree.no-bands .node{background:none}
 #tree.no-bands .band-label{display:none}
+#tree.no-bands .loose-file{background:none}
+#tree.hide-linememos .node-line-memos,#tree.hide-linememos #tree-loose{display:none}
+
+/* 木の中の行メモ。ノード直下 (その関数の中のメモ) と、末尾のノード外区画で同じ行を使う */
+.node-line-memos{margin:0 0 2px 28px}
+.tmemo{display:flex;align-items:center;gap:6px;padding:1px 6px;font-size:11px;line-height:16px;cursor:pointer;border-radius:2px;min-width:0}
+.tmemo:hover{background:rgba(255,255,255,0.05)}
+.tmemo-line{color:#6a6a6a;font-size:10px;flex-shrink:0;min-width:34px}
+.tmemo-cat{width:3px;height:12px;border-radius:1px;flex-shrink:0;background:#555}
+.tmemo-cat-draft{background:#666;opacity:0.6}
+.tmemo-cat-ok{background:#6fb56f}
+.tmemo-cat-warn{background:#c2a76d}
+.tmemo-cat-error{background:#c66}
+.tmemo-cat-note{background:#6a8db5}
+.tmemo-text{color:#b0b0b0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.tmemo-ai .tmemo-text{font-style:italic}
+#tree-loose{margin-top:14px;border-top:1px dashed #3a3a3a;padding-top:6px}
+.tree-loose-hdr{font-size:10px;color:#777;padding:0 6px 4px;letter-spacing:0.05em}
+.loose-file{padding:3px 0 3px 0;margin:2px 0;border-radius:3px}
+.loose-file-hdr{font-size:11px;padding:1px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.loose-file-name{color:#c8c8c8;font-weight:600}
+.loose-func{margin-left:14px;padding-left:8px;border-left:1px solid #484848}
+.loose-func-hdr{display:flex;align-items:center;gap:8px;padding:1px 6px;font-size:11px}
+.loose-func-name{color:#dcdcaa;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.loose-func-name:hover{text-decoration:underline}
+.loose-func-pin{background:none;border:1px solid #3a3a3a;color:#777;font-size:10px;padding:0 6px;border-radius:3px;cursor:pointer;font-family:inherit;line-height:15px;flex-shrink:0;opacity:0}
+.loose-func-hdr:hover .loose-func-pin{opacity:1}
+.loose-func-pin:hover{border-color:#666;color:#ccc}
 .node-row{
   display:inline-flex;align-items:flex-start;gap:4px;
   padding:3px 6px 3px 4px;
