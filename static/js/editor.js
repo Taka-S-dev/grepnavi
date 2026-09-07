@@ -1109,7 +1109,11 @@ async function ensureEditor() {
     const key = w + 'x' + h;
     if (key !== driftKey) { driftKey = key; driftStreak = 0; }
     if (++driftStreak > 3) return;
+    const before = monacoEditor.getLayoutInfo();
     relayout();
+    // 効いたことを見えるようにする。「保険が動いたのに直らない」と「動いていない」は
+    // 原因が別で、画面からは区別できない
+    st('エディタの描画を復旧しました (' + before.width + 'x' + before.height + ' → ' + w + 'x' + h + ')');
   }, 1000);
   // editor-state sync (MCP bridge 経由で AI が editor 状態を取れるようにする)
   if (typeof startEditorStateSync === 'function') startEditorStateSync();
