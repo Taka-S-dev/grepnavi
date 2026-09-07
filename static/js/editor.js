@@ -1099,18 +1099,27 @@ async function ensureEditor() {
   // 認識している大きさとコンテナの実寸を毎秒比べ、ずれていれば取り直す。
   // 読むのは値 2 つで、ずれていない限り layout() は呼ばない。
   let driftStreak = 0, driftKey = '';
+  // 外から読むための内部状態。デスクトップ窓には開発者ツールが無いので、
+  // 再現時に何が起きているかは /api/editor-state 経由でしか見られない
+  window._layoutWatch = { ticks: 0, skipped: '', streak: 0, recovered: 0, last: '' };
   setInterval(() => {
-    if (!monacoEditor || document.hidden || peekResizing) return;
+    const lw = window._layoutWatch;
+    lw.ticks++;
+    lw.skipped = !monacoEditor ? 'no-editor' : document.hidden ? 'hidden' : peekResizing ? 'resizing' : '';
+    if (lw.skipped) return;
     const el = id('monaco-container');
-    if (!el || !el.offsetParent) return; // エディタを閉じているとき
+    if (!el || !el.offsetParent) { lw.skipped = 'closed'; return; } // エディタを閉じているとき
     const w = el.clientWidth, h = el.clientHeight;
-    if (!layoutDrifted(w, h, monacoEditor.getLayoutInfo())) { driftStreak = 0; return; }
+    if (!layoutDrifted(w, h, monacoEditor.getLayoutInfo())) { driftStreak = 0; lw.streak = 0; return; }
     // 同じ実寸で 3 回直しても合わないなら、そのサイズでは諦める（毎秒描き直しの連打を防ぐ）
     const key = w + 'x' + h;
     if (key !== driftKey) { driftKey = key; driftStreak = 0; }
+    lw.streak = driftStreak + 1;
     if (++driftStreak > 3) return;
     const before = monacoEditor.getLayoutInfo();
     relayout();
+    lw.recovered++;
+    lw.last = before.width + 'x' + before.height + '->' + w + 'x' + h;
     // 効いたことを見えるようにする。「保険が動いたのに直らない」と「動いていない」は
     // 原因が別で、画面からは区別できない
     st('エディタの描画を復旧しました (' + before.width + 'x' + before.height + ' → ' + w + 'x' + h + ')');

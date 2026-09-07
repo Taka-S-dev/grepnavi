@@ -43,6 +43,9 @@ type EditorState struct {
 	Cursor     *CursorPosition `json:"cursor,omitempty"`
 	Selection  *SelectionRange `json:"selection,omitempty"`
 	Viewport   *Viewport       `json:"viewport,omitempty"`
+	// Layout は描画の診断値。ブラウザが組み立てたものをそのまま返す。
+	// サーバは中身を解釈しない (見たい項目は再現のたびに変わる)。
+	Layout json.RawMessage `json:"layout,omitempty"`
 }
 
 // editorStateCache は最新の EditorState とその受信時刻を保持する。
@@ -105,6 +108,9 @@ func (h *Handler) handleEditorState(w http.ResponseWriter, r *http.Request) {
 		}
 		if state.Viewport != nil {
 			resp["viewport"] = state.Viewport
+		}
+		if len(state.Layout) > 0 {
+			resp["layout"] = state.Layout
 		}
 		jsonOK(w, resp)
 	case http.MethodPut:

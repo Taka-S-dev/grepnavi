@@ -54,6 +54,26 @@
       };
     }
     if (viewport) state.viewport = viewport;
+    // 描画の診断。黒い領域が Monaco の認識ずれか、ペインの高さの問題かは、
+    // これらの数字を並べないと決められない
+    try {
+      const li = monacoEditor.getLayoutInfo();
+      const mc = document.getElementById('monaco-container');
+      const pb = document.getElementById('peek-body');
+      const pk = document.getElementById('peek');
+      const pr = document.getElementById('pane-right');
+      state.layout = {
+        monaco: [li.width, li.height],
+        container: mc ? [mc.clientWidth, mc.clientHeight] : null,
+        peek_body: pb ? pb.clientHeight : null,
+        peek: pk ? [pk.clientHeight, pk.style.height || ''] : null,
+        pane_right: pr ? pr.clientHeight : null,
+        window: [window.innerWidth, window.innerHeight, window.devicePixelRatio],
+        hidden: document.hidden,
+        resizing: (typeof peekResizing !== 'undefined') ? peekResizing : null,
+        watch: window._layoutWatch || null,
+      };
+    } catch (_) {}
     return state;
   }
 
