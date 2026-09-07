@@ -458,8 +458,8 @@ body.insmove-active .monaco-editor,body.insmove-active .monaco-editor .view-line
 .node{padding:3px 0;position:relative;border-radius:4px}
 /* 左にも 8px はみ出す。子の行と同じ位置から面が始まると「行の背景」に見え、
    「子を包む箱」に見えない。外側の縦線 (12px 左) は覆わない */
-.children > .node.band-start{margin-right:8px;margin-left:-8px;padding-left:8px}
-.children > .node.band-start::before{left:-4px;width:12px}
+.children > .node.band-own{margin-right:8px;margin-left:-8px;padding-left:8px}
+.children > .node.band-own::before{left:-4px;width:12px}
 /* 帯: 同じディレクトリの塊を同じ色の面で包む。出現順に 6 色を循環。
    面は広いので彩度は低く、カード (#252526) が上に乗っても読める濃さに留める */
 .node.band-0{background:#1c2638}
@@ -468,17 +468,12 @@ body.insmove-active .monaco-editor,body.insmove-active .monaco-editor .view-line
 .node.band-3{background:#2a2134}
 .node.band-4{background:#1b2e2f}
 .node.band-5{background:#332025}
-/* 帯の名前。面の最初の行の上に見出しとして置く。
-   行の中に入れるとノードのタグに見え、右端だとどの面の名前か目で結べず、
-   左隣だと名前の幅で行が押されてインデント (= 深さ) が嘘になる。
-   上なら帯の切り替わりで 1 行分高くなるだけで、行の位置には触らない */
+/* 帯の名前。面の最初の行のカードの右隣、同じ段に置く (graph.js の注記を参照) */
 .band-label{
-  display:block;width:max-content;margin:0 0 1px 18px;
+  display:inline-block;vertical-align:top;margin:5px 0 0 8px;
   font-size:10px;line-height:14px;padding:0 6px;border-radius:2px;
   font-family:inherit;white-space:nowrap;letter-spacing:0.03em;
 }
-/* 見出し行の分だけ、横の接続線を下の行へずらす */
-.children > .node.band-start::before{top:31px}
 .band-0 > .band-label{color:#7aa2d6;background:#1a2a44}
 .band-1 > .band-label{color:#7fbf8a;background:#1b3a25}
 .band-2 > .band-label{color:#d6a86a;background:#3d3120}

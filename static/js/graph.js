@@ -587,7 +587,11 @@ function renderTree() {
   for (const f of looseGroups) if (!_bandIndex.has(f.dir)) _bandIndex.set(f.dir, _bandIndex.size % BAND_COLORS);
   el.innerHTML = "";
   const frag = document.createDocumentFragment();
-  roots.forEach((n) => frag.appendChild(makeNodeEl(n, 0)));
+  let prevRootDir;
+  roots.forEach((n) => {
+    frag.appendChild(makeNodeEl(n, 0, new Set(), undefined, prevRootDir));
+    prevRootDir = nodeDir(n.match?.file || "", graph.root_dir);
+  });
   el.appendChild(frag);
 
   // 親が削除されて孤立したノードを追加（折りたたまれた子孫は除外）
@@ -2032,7 +2036,7 @@ function attachNodeDragDrop(row, wrap, node) {
   };
 }
 
-function makeNodeEl(node, depth, visited = new Set(), parentDir) {
+function makeNodeEl(node, depth, visited = new Set(), parentDir, prevSiblingDir) {
   if (visited.has(node.id) || depth > 30) return document.createElement("div");
   visited.add(node.id);
   const m = node.match || {};
@@ -2047,16 +2051,13 @@ function makeNodeEl(node, depth, visited = new Set(), parentDir) {
   // 別の色の面が現れ、そこが境目になる。名前は境目にだけ書く。
   const dir = nodeDir(m.file || "", graph.root_dir);
   wrap.classList.add("band-" + (_bandIndex.get(dir) ?? 0));
-  const bandStart = parentDir === undefined || dir !== parentDir;
-  if (bandStart) {
-    wrap.classList.add("band-start");
-    // 帯の名前は面の最初の行の上に見出しとして置く。行の位置 (= 深さ) には触らない
-    const tag = document.createElement("div");
-    tag.className = "band-label";
-    tag.textContent = bandLabel(dir, parentDir);
-    tag.title = dir || "(root)";
-    wrap.appendChild(tag);
-  }
+  // 親と違うディレクトリなら自分の面 (右端を内側へ寄せる)。その面の名前は
+  // 直前の兄弟が同じディレクトリでないときだけ出す: 同じディレクトリの兄弟は
+  // 一続きの面で、名前を行ごとに繰り返すと何も伝えずに幅を食う
+  const ownBand = parentDir === undefined || dir !== parentDir;
+  const bandStart = ownBand && dir !== prevSiblingDir;
+  if (ownBand) wrap.classList.add("band-own");
+  if (bandStart) wrap.classList.add("band-start");
 
   const isCollapsed = children.length > 0 && node.expanded === false;
   const row = document.createElement("div");
@@ -2132,6 +2133,16 @@ function makeNodeEl(node, depth, visited = new Set(), parentDir) {
   attachNodeDragDrop(row, wrap, node);
 
   wrap.appendChild(row);
+  if (bandStart) {
+    // 帯の名前は面の最初の行のカードの右隣、同じ段に置く。上に見出し行を挟むと
+    // 別ディレクトリの葉が並ぶルートで行ごとに 1 行増えて間延びし、行の中に入れると
+    // ノードのタグに見え、左に置くと字下げ (= 深さ) がずれる
+    const tag = document.createElement("span");
+    tag.className = "band-label";
+    tag.textContent = bandLabel(dir, parentDir);
+    tag.title = dir || "(root)";
+    wrap.appendChild(tag);
+  }
   if (node.memo && showTreeMemos) {
     const memoInline = document.createElement("div");
     memoInline.className = "node-memo-inline";
@@ -2149,9 +2160,11 @@ function makeNodeEl(node, depth, visited = new Set(), parentDir) {
   if (children.length && node.expanded !== false) {
     const ch = document.createElement("div");
     ch.className = "children";
-    children.forEach((c) =>
-      ch.appendChild(makeNodeEl(c, depth + 1, new Set(visited), dir)),
-    );
+    let prev;
+    children.forEach((c) => {
+      ch.appendChild(makeNodeEl(c, depth + 1, new Set(visited), dir, prev));
+      prev = nodeDir(c.match?.file || "", graph.root_dir);
+    });
     wrap.appendChild(ch);
   }
   return wrap;
