@@ -3,6 +3,7 @@ package api
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -11,13 +12,19 @@ import (
 // それが「索引」のラベルが出るまでの待ち時間になる。
 func TestFindCtagsBinDoesNotSpawnTwice(t *testing.T) {
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "ctags.exe")
+	name := "ctags"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	bin := filepath.Join(dir, name)
 	if err := os.WriteFile(bin, []byte("stub"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir)
 	t.Setenv("PATHEXT", ".EXE")
-	t.Setenv("USERPROFILE", dir) // Scoop のシムを探しに行かせない
+	// Scoop のシムを探しに行かせない
+	t.Setenv("USERPROFILE", dir)
+	t.Setenv("HOME", dir)
 
 	spawns := 0
 	orig := ctagsVersionProbe

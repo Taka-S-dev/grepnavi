@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -63,17 +64,22 @@ func TestOwnWriteSurvivesReload(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "g.json")
 	s := NewStore(path, t.TempDir())
 	at := time.Date(2026, 9, 11, 10, 0, 0, 123, time.Local)
-	s.RecordOwnWrite(`C:\src\SSL\ssl_lib.c`, at)
-	if !s.IsOwnWrite("c:/src/ssl/ssl_lib.c", at) {
-		t.Fatal("区切りと大小の違う同じパスを別物にしている")
+	// 同じファイルの別表記。Windows では区切りも揃える。
+	written, asked := "/src/./SSL/ssl_lib.c", "/src/ssl/ssl_lib.c"
+	if runtime.GOOS == "windows" {
+		written, asked = `C:\src\SSL\ssl_lib.c`, "c:/src/ssl/ssl_lib.c"
 	}
-	if s.IsOwnWrite("c:/src/ssl/ssl_lib.c", at.Add(time.Second)) {
+	s.RecordOwnWrite(written, at)
+	if !s.IsOwnWrite(asked, at) {
+		t.Fatal("表記の違う同じパスを別物にしている")
+	}
+	if s.IsOwnWrite(asked, at.Add(time.Second)) {
 		t.Fatal("時刻が違うのに自分の書き込み扱いにしている")
 	}
 	s.Close()
 	r := NewStore(path, t.TempDir()) // 既存の調査ファイルを読む
 	defer r.Close()
-	if !r.IsOwnWrite("c:/src/ssl/ssl_lib.c", at) {
+	if !r.IsOwnWrite(asked, at) {
 		t.Fatal("開き直したら記録が消えた")
 	}
 }
