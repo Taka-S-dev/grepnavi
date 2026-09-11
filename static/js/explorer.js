@@ -15,6 +15,12 @@ let _scrollEl = null;
 let _allItems = [];
 let _filtered  = false; // フィルタ中かどうか
 let _rendering = false; // 再入防止
+// 絞り込みの見せ方。'tree' は一致したファイルだけで木を組み直して出す (途中の
+// フォルダは全部開く)。'flat' は一致順の一覧。木のほうが「どの辺りにあるか」が
+// 一緒に読めるので既定にし、一覧はスコア順に見たいときの切り替えとして残す。
+let _filterView = 'tree';
+try { _filterView = localStorage.getItem('grepnavi-explorer-filter-view') === 'flat' ? 'flat' : 'tree'; } catch (_) {}
+let _filterCollapsed = new Set(); // 絞り込み中に手で畳んだフォルダ (通常時の _expanded とは別)
 
 // ---- tree building ----
 
@@ -97,6 +103,46 @@ function exFilter(files, query) {
   return results.sort((a, b) => b.score - a.score).slice(0, 300);
 }
 
+// 一致したファイルだけで木を組み直し、行の並びにする。matches は
+// { rel: root からの相対パス, abs, positions: 一致文字の位置 (rel 基準) }。
+// 途中のフォルダは collapsed に入っていない限り開いた状態で出す。
+function filteredTreeItems(matches, collapsed) {
+  const root = { children: {}, files: [] };
+  for (const m of matches) {
+    const parts = m.rel.split('/').filter(Boolean);
+    if (!parts.length) continue;
+    let node = root;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const d = parts[i];
+      if (!node.children[d]) node.children[d] = { children: {}, files: [], dirPath: parts.slice(0, i + 1).join('/') };
+      node = node.children[d];
+    }
+    const name = parts[parts.length - 1];
+    node.files.push({ name, abs: m.abs, positions: m.positions, nameOffset: m.rel.length - name.length });
+  }
+  const items = [];
+  (function walk(node, depth) {
+    for (const d of Object.keys(node.children).sort((a, b) => a.localeCompare(b))) {
+      const c = node.children[d];
+      const expanded = !collapsed.has(c.dirPath);
+      items.push({ type: 'dir', name: d, dirPath: c.dirPath, depth, expanded, filtered: true });
+      if (expanded) walk(c, depth + 1);
+    }
+    for (const f of node.files.slice().sort((a, b) => a.name.localeCompare(b.name))) {
+      items.push({ type: 'file', name: f.name, abs: f.abs, depth, positions: f.positions, nameOffset: f.nameOffset });
+    }
+  })(root, 0);
+  return items;
+}
+
+// 絞り込み中の上下キーはファイルだけを渡り歩く (フォルダ行は選択の対象にしない)
+function nextFileIdx(items, from, step) {
+  for (let i = from + step; i >= 0 && i < items.length; i += step) {
+    if (items[i].type !== 'dir') return i;
+  }
+  return from;
+}
+
 function highlightByPos(str, positions, offset) {
   return [...str].map((c, i) =>
     positions.has(offset + i) ? `<span class="ex-hl">${escHtml(c)}</span>` : escHtml(c)
@@ -124,8 +170,18 @@ function render() {
 function renderFiltered() {
   _filtered = true;
   const matched = exFilter(_files || [], _query);
-  _allItems = matched.map(r => ({ type: 'file-flat', abs: r.abs, positions: r.positions }));
-  if (_selIdx >= _allItems.length) _selIdx = _allItems.length - 1;
+  if (_filterView === 'tree') {
+    _allItems = filteredTreeItems(
+      matched.map(r => ({ rel: absToRel(r.abs), abs: r.abs, positions: r.positions })),
+      _filterCollapsed,
+    );
+    if (_selIdx < 0 || !_allItems[_selIdx] || _allItems[_selIdx].type === 'dir') {
+      _selIdx = _allItems.findIndex(it => it.type !== 'dir');
+    }
+  } else {
+    _allItems = matched.map(r => ({ type: 'file-flat', abs: r.abs, positions: r.positions }));
+    if (_selIdx >= _allItems.length) _selIdx = _allItems.length - 1;
+  }
   renderVirtual();
 }
 
@@ -135,7 +191,7 @@ function renderTree() {
   renderVirtual();
 }
 
-function rowH() { return _filtered ? FLAT_H : ITEM_H; }
+function rowH() { return _filtered && _filterView === 'flat' ? FLAT_H : ITEM_H; }
 
 function updateRootName() {
   const el = document.getElementById('explorer-root-name');
@@ -147,7 +203,7 @@ function updateRootName() {
 function updateStickyFolder() {
   const stickyEl = document.getElementById('explorer-sticky-folder');
   if (!stickyEl) return;
-  if (_filtered || _scrollEl.scrollTop <= 0) { stickyEl.style.display = 'none'; return; }
+  if ((_filtered && _filterView === 'flat') || _scrollEl.scrollTop <= 0) { stickyEl.style.display = 'none'; return; }
 
   const firstIdx = Math.floor(_scrollEl.scrollTop / ITEM_H);
   const firstItem = _allItems[firstIdx];
@@ -251,8 +307,9 @@ function makeItemEl(item, idx) {
       (item.expanded ? dirIconOpen(item.name) : dirIcon(item.name)) +
       `<span class="ex-name">${escHtml(item.name)}</span>`;
     el.onclick = () => {
-      if (_expanded.has(item.dirPath)) _expanded.delete(item.dirPath);
-      else _expanded.add(item.dirPath);
+      const set = item.filtered ? _filterCollapsed : _expanded;
+      if (set.has(item.dirPath)) set.delete(item.dirPath);
+      else set.add(item.dirPath);
       render();
     };
     el.oncontextmenu = e => {
@@ -265,15 +322,18 @@ function makeItemEl(item, idx) {
   } else if (item.type === 'file') {
     el.style.height = ITEM_H + 'px';
     el.style.lineHeight = ITEM_H + 'px';
-    el.className = 'ex-item ex-file' + (item.abs === _selPath ? ' ex-sel' : '');
+    const isSel = _filtered ? idx === _selIdx : item.abs === _selPath;
+    el.className = 'ex-item ex-file' + (isSel ? ' ex-sel' : '');
+    el.dataset.idx = idx;
     el.style.paddingLeft = (4 + item.depth * INDENT) + 'px';
     addGuides(el, item.depth);
     const _unopen = typeof window.isUnopenableFile === 'function' && window.isUnopenableFile(item.abs);
+    const nameHTML = item.positions ? highlightByPos(item.name, item.positions, item.nameOffset || 0) : escHtml(item.name);
     el.innerHTML +=
       `<span style="width:16px;flex-shrink:0"></span>` +
       fileIcon(item.name) +
-      `<span class="ex-name" style="${_unopen ? 'opacity:0.35' : ''}">${escHtml(item.name)}</span>`;
-    el.onclick = () => { _selPath = item.abs; openPeek(item.abs, 1); render(); };
+      `<span class="ex-name" style="${_unopen ? 'opacity:0.35' : ''}">${nameHTML}</span>`;
+    el.onclick = () => { _selIdx = idx; _selPath = item.abs; openPeek(item.abs, 1); render(); };
     el.ondblclick = () => { openPeekPermanent(item.abs, 1); };
     el.oncontextmenu = e => { e.preventDefault(); showFileCtxMenu(item.abs, e.clientX, e.clientY); };
 
@@ -534,18 +594,37 @@ window.initExplorer = async function() {
   filterEl.addEventListener('input', () => {
     _query = filterEl.value;
     _selIdx = 0;
+    _filterCollapsed.clear();
     clearEl.style.display = _query ? '' : 'none';
     render();
   });
+
+  const viewEl = document.getElementById('explorer-filter-view');
+  const syncViewBtn = () => {
+    if (!viewEl) return;
+    viewEl.innerHTML = _filterView === 'tree'
+      ? '<i class="codicon codicon-list-tree"></i>'
+      : '<i class="codicon codicon-list-ordered"></i>';
+    viewEl.title = _filterView === 'tree'
+      ? '絞り込みをツリーで表示中。クリックで一致順の一覧に切り替え'
+      : '絞り込みを一致順の一覧で表示中。クリックでツリーに切り替え';
+  };
+  syncViewBtn();
+  if (viewEl) viewEl.onclick = () => {
+    _filterView = _filterView === 'tree' ? 'flat' : 'tree';
+    try { localStorage.setItem('grepnavi-explorer-filter-view', _filterView); } catch (_) {}
+    _selIdx = 0;
+    syncViewBtn();
+    render();
+    filterEl.focus();
+  };
 
   filterEl.addEventListener('keydown', e => {
     if (_filtered && _allItems.length) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
         const prev = _selIdx;
-        _selIdx = e.key === 'ArrowDown'
-          ? Math.min(_selIdx + 1, _allItems.length - 1)
-          : Math.max(_selIdx - 1, 0);
+        _selIdx = nextFileIdx(_allItems, _selIdx, e.key === 'ArrowDown' ? 1 : -1);
         if (_selIdx === prev) return;
         const rh = rowH();
         const needsScroll = (_selIdx * rh < _scrollEl.scrollTop) ||
@@ -562,12 +641,12 @@ window.initExplorer = async function() {
       }
       if (e.key === 'Enter') {
         const it = _allItems[_selIdx];
-        if (it) { _selPath = it.abs; openPeekPermanent(it.abs, 1); }
+        if (it && it.abs) { _selPath = it.abs; openPeekPermanent(it.abs, 1); }
         return;
       }
       if (e.key === 'ArrowRight') {
         const it = _allItems[_selIdx];
-        if (it) revealFolderInTree(it.abs);
+        if (it && it.abs) revealFolderInTree(it.abs);
         return;
       }
     }
@@ -592,17 +671,15 @@ window.initExplorer = async function() {
     if (e.key === 'ArrowRight') {
       e.preventDefault();
       const it = _allItems[_selIdx];
-      if (it) revealFolderInTree(it.abs);
+      if (it && it.abs) revealFolderInTree(it.abs);
     } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
-      _selIdx = e.key === 'ArrowDown'
-        ? Math.min(_selIdx + 1, _allItems.length - 1)
-        : Math.max(_selIdx - 1, 0);
+      _selIdx = nextFileIdx(_allItems, _selIdx, e.key === 'ArrowDown' ? 1 : -1);
       scrollSelIntoView();
       renderVirtual();
     } else if (e.key === 'Enter') {
       const it = _allItems[_selIdx];
-      if (it) { _selPath = it.abs; openPeek(it.abs, 1); }
+      if (it && it.abs) { _selPath = it.abs; openPeek(it.abs, 1); }
     }
   });
 
@@ -613,6 +690,8 @@ window.initExplorer = async function() {
 
   updateRootName();
 };
+
+if (typeof module !== 'undefined') module.exports = { filteredTreeItems, nextFileIdx };
 
 window.explorerRevealFile = function(absPath) {
   if (!absPath) return;

@@ -281,6 +281,8 @@ body.search-mode #tab-nodes { display: flex; }
   display: none;
 }
 #explorer-filter-clear:hover { color: #f88; }
+#explorer-filter-view { background: none; border: none; color: #777; cursor: pointer; padding: 0 4px; font-size: 14px; display: flex; align-items: center; }
+#explorer-filter-view:hover { color: #ccc; }
 
 #explorer-tree {
   flex: 1;
