@@ -76,7 +76,7 @@ func (h *Handler) handleStructure(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]any{
 		"root":  root,
 		"map":   payload,
-		"stale": search.GtagsIsStale(),
+		"stale": search.GtagsIsStale(root),
 	})
 }
 

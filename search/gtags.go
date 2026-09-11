@@ -69,22 +69,34 @@ func GtagsAvailable(dir string) bool {
 	return GtagsInPath() && GtagsIndexed(dir)
 }
 
-// _gtagsStale は非同期staleチェックの結果（0=不明/新鮮, 1=古い）。
-var _gtagsStale int32
-
-// GtagsIsStale はインデックスが古いかどうかを返す。
-func GtagsIsStale() bool {
-	return atomic.LoadInt32(&_gtagsStale) == 1
+// staleState はルートごとの鮮度判定。1 つのプロセスで複数のルートを切り替えて
+// 使うので、判定をプロセスで 1 つにすると、別のルートで出た「古い」が切り替え先に
+// 数分残る（再判定までの間、編集していないルートに警告が出る）。
+type staleState struct {
+	stale     int32 // 0=不明/新鮮, 1=古い
+	checkedAt int64 // 判定が最後に完了した時刻 (UnixNano)。0 は未実施
 }
 
-// _gtagsStaleCheckedAt は stale 判定が最後に完了した時刻（UnixNano）。
-// 判定は起動時とここからの再実行でしか走らないため、結果とセットで
-// 「いつ時点の判定か」を返せるようにしておく。
-var _gtagsStaleCheckedAt atomic.Int64
+var _staleByRoot sync.Map // staleKey(dir) → *staleState
 
-// GtagsStaleCheckedAt は stale 判定が最後に完了した時刻を返す（未実施なら零値）。
-func GtagsStaleCheckedAt() time.Time {
-	ns := _gtagsStaleCheckedAt.Load()
+func staleKey(dir string) string {
+	return strings.ToLower(filepath.ToSlash(filepath.Clean(dir)))
+}
+
+func staleFor(dir string) *staleState {
+	v, _ := _staleByRoot.LoadOrStore(staleKey(dir), &staleState{})
+	return v.(*staleState)
+}
+
+// GtagsIsStale は dir の索引がソースより古いと判定されているかを返す。
+func GtagsIsStale(dir string) bool {
+	return atomic.LoadInt32(&staleFor(dir).stale) == 1
+}
+
+// GtagsStaleCheckedAt は dir の stale 判定が最後に完了した時刻を返す（未実施なら零値）。
+// 判定は起動時と再実行でしか走らないため、結果とセットで「いつ時点の判定か」を返す。
+func GtagsStaleCheckedAt(dir string) time.Time {
+	ns := atomic.LoadInt64(&staleFor(dir).checkedAt)
 	if ns == 0 {
 		return time.Time{}
 	}
@@ -99,7 +111,7 @@ const _gtagsStaleRecheckAfter = 5 * time.Minute
 // GtagsRefreshStaleAsync は前回判定から時間が経っていれば再判定を走らせる。
 // 判定自体はファイル走査なので同期させず、呼び出し側は直前の結果を使う。
 func GtagsRefreshStaleAsync(dir string, ownWrite func(path string, mtime time.Time) bool) {
-	last := GtagsStaleCheckedAt()
+	last := GtagsStaleCheckedAt(dir)
 	if !last.IsZero() && time.Since(last) < _gtagsStaleRecheckAfter {
 		return
 	}
@@ -141,13 +153,14 @@ func GtagsCheckStaleAsync(dir string, ownWrite func(path string, mtime time.Time
 		if !ok {
 			return // インデックスなし
 		}
+		st := staleFor(dir)
 		if newer {
-			atomic.StoreInt32(&_gtagsStale, 1)
+			atomic.StoreInt32(&st.stale, 1)
 		} else {
 			// 走査しきって新しいソースが無ければ fresh 側に戻す（再生成後の復帰）
-			atomic.StoreInt32(&_gtagsStale, 0)
+			atomic.StoreInt32(&st.stale, 0)
 		}
-		_gtagsStaleCheckedAt.Store(time.Now().UnixNano())
+		atomic.StoreInt64(&st.checkedAt, time.Now().UnixNano())
 	}()
 }
 
@@ -194,17 +207,17 @@ func gtagsSourcesNewerThanIndex(dir string, ownWrite func(path string, mtime tim
 
 // GtagsResetStale はインデックス更新後にstaleフラグをリセットする。
 // インデックスが書き換わるため、定義・参照のキャッシュも破棄する。
-func GtagsResetStale() {
-	atomic.StoreInt32(&_gtagsStale, 0)
+func GtagsResetStale(dir string) {
+	atomic.StoreInt32(&staleFor(dir).stale, 0)
 	gtagsClearResultCaches()
 	// プリロード済み定義表も古くなるので破棄し、対象環境なら作り直す
 	_gtagsPreloadGen.Add(1)
 	_gtagsDefsAll.Store(nil)
 	_gtagsPreloadMu.Lock()
-	dir := _gtagsPreloadDir
+	preloadDir := _gtagsPreloadDir
 	_gtagsPreloadMu.Unlock()
-	if dir != "" {
-		maybePreloadDefsAsync(resolveGlobalBin(), dir)
+	if preloadDir != "" {
+		maybePreloadDefsAsync(resolveGlobalBin(), preloadDir)
 	}
 }
 

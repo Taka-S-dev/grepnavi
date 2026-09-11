@@ -392,7 +392,7 @@ func (h *Handler) handleDefinition(w http.ResponseWriter, r *http.Request) {
 				}
 			case "rg":
 				// rg を gtags より先に置く設定は意図的な全文検索なのでスキップしない
-				if gtagsTried && authoritativeGtagsMiss(gtagsAnswered, search.GtagsIsStale(),
+				if gtagsTried && authoritativeGtagsMiss(gtagsAnswered, search.GtagsIsStale(hroot),
 					search.GtagsDefsPreloaded(hroot), search.GtagsQueriesDirect()) {
 					slog.Debug("definition authoritative miss, rg skipped", "word", word)
 					continue
@@ -499,7 +499,7 @@ func definitionEmptyHint(word, root string) string {
 			return "No definition for '" + word + "' - ctags has it as a #define/enum constant but without a line number. Regenerate the index with ctags --fields=+n, or grep for the #define site."
 		}
 	}
-	if reIdentifier.MatchString(word) && !search.GtagsIsStale() &&
+	if reIdentifier.MatchString(word) && !search.GtagsIsStale(root) &&
 		(search.GtagsDefsPreloaded(root) || (search.GtagsIndexed(root) && search.GtagsQueriesDirect())) {
 		return "No definition for '" + word + "' - it is not in the gtags index, so the whole-tree text scan was skipped. Update the index if it was added recently."
 	}

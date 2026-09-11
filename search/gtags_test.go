@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -172,5 +173,25 @@ func TestStaleIgnoresOwnWrites(t *testing.T) {
 	}
 	if newer, _ := gtagsSourcesNewerThanIndex(dir, own); !newer {
 		t.Fatal("自分の書き込み後の編集を見落とした")
+	}
+}
+
+// 鮮度判定はルートごと。別のルートで「古い」と出ても、切り替え先には持ち越さない。
+func TestStaleStateIsPerRoot(t *testing.T) {
+	a, b := t.TempDir(), t.TempDir()
+	atomic.StoreInt32(&staleFor(a).stale, 1)
+	if !GtagsIsStale(a) {
+		t.Fatal("a の判定が取れない")
+	}
+	if GtagsIsStale(b) {
+		t.Fatal("a の判定が b に漏れている")
+	}
+	// 区切りと大小の違う同じルートは同じ判定
+	if !GtagsIsStale(strings.ToUpper(filepath.ToSlash(a))) {
+		t.Fatal("同じルートを別物にしている")
+	}
+	GtagsResetStale(a)
+	if GtagsIsStale(a) {
+		t.Fatal("リセットが効いていない")
 	}
 }

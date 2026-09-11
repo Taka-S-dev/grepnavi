@@ -253,8 +253,8 @@ func indexStatus(root string, ownWrite func(path string, mtime time.Time) bool) 
 	gtags := map[string]any{
 		"installed":            search.GtagsInPath(),
 		"indexed":              search.GtagsIndexed(root),
-		"stale":                search.GtagsIsStale(),
-		"stale_checked_ms_ago": msAgo(search.GtagsStaleCheckedAt()),
+		"stale":                search.GtagsIsStale(root),
+		"stale_checked_ms_ago": msAgo(search.GtagsStaleCheckedAt(root)),
 		"built_ms_ago":         msAgo(search.IndexBuiltAt(root, "GTAGS")),
 	}
 	ctags := map[string]any{

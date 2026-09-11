@@ -25,7 +25,7 @@ func (h *Handler) handleGtagsStatus(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]interface{}{
 		"installed":         installed,
 		"indexed":           indexed,
-		"stale":             search.GtagsIsStale(),
+		"stale":             search.GtagsIsStale(root),
 		"bin_source":        search.GlobalBinSource(),
 		"transport":         search.GtagsTransport(),
 		"preloaded_symbols": search.GtagsPreloadedSymbols(),
@@ -44,7 +44,7 @@ func (h *Handler) handleGtagsIndex(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	search.GtagsResetStale()
+	search.GtagsResetStale(root)
 	defCacheClear()
 	jsonOK(w, map[string]bool{"ok": true})
 }
@@ -61,7 +61,7 @@ func (h *Handler) handleGtagsUpdate(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	search.GtagsResetStale()
+	search.GtagsResetStale(root)
 	defCacheClear()
 	jsonOK(w, map[string]bool{"ok": true})
 }
@@ -78,7 +78,7 @@ func (h *Handler) handleGtagsRebuild(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	search.GtagsResetStale()
+	search.GtagsResetStale(root)
 	defCacheClear()
 	jsonOK(w, map[string]bool{"ok": true})
 }
@@ -129,7 +129,7 @@ func (h *Handler) handleGtagsStream(w http.ResponseWriter, r *http.Request) {
 		sendEvent("gtags-error", err.Error())
 		return
 	}
-	search.GtagsResetStale()
+	search.GtagsResetStale(root)
 	defCacheClear()
 	if err := h.store.ClearAllDefs(); err == nil {
 		h.events.Publish("defs.invalidated", map[string]interface{}{"engine": "gtags"})
