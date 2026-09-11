@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseTransportState(t *testing.T) {
@@ -139,3 +140,37 @@ func TestWindowsToCygwinPath(t *testing.T) {
 	}
 }
 
+// 索引より新しいソースがあれば古い、ただし grepnavi 自身の書き込み
+// (デバッグ行の挿入・撤去) はそのままの更新時刻なら数えない。
+func TestStaleIgnoresOwnWrites(t *testing.T) {
+	dir := t.TempDir()
+	gtags := filepath.Join(dir, "GTAGS")
+	src := filepath.Join(dir, "a.c")
+	if err := os.WriteFile(gtags, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(gtags, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(src, []byte("int x;\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	fi, _ := os.Stat(src)
+
+	if newer, ok := gtagsSourcesNewerThanIndex(dir, nil); !ok || !newer {
+		t.Fatalf("新しいソースを見落とした: newer=%v ok=%v", newer, ok)
+	}
+	own := func(p string, mt time.Time) bool { return filepath.Base(p) == "a.c" && mt.Equal(fi.ModTime()) }
+	if newer, _ := gtagsSourcesNewerThanIndex(dir, own); newer {
+		t.Fatal("自分の書き込みを利用者の編集と数えている")
+	}
+	// その後に利用者が触れば時刻が変わるので数える
+	later := time.Now().Add(time.Minute)
+	if err := os.Chtimes(src, later, later); err != nil {
+		t.Fatal(err)
+	}
+	if newer, _ := gtagsSourcesNewerThanIndex(dir, own); !newer {
+		t.Fatal("自分の書き込み後の編集を見落とした")
+	}
+}

@@ -20,7 +20,7 @@ func (h *Handler) handleStructure(w http.ResponseWriter, r *http.Request) {
 	h.mu.RUnlock()
 
 	q := r.URL.Query()
-	search.GtagsRefreshStaleAsync(root)
+	search.GtagsRefreshStaleAsync(root, h.store.IsOwnWrite)
 
 	// brief=1 はエージェント向けの畳んだ形。UI 用の応答は openssl 全域で 47 KB
 	// あり、そのまま渡しても読まれずに終わる（このプロジェクトで実測済み:

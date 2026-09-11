@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 )
 
 // save() は s.pf を JSON にするので、ロックを手放してから呼ぶと、同時に走る
@@ -54,5 +55,25 @@ func TestSaveFailureIsReported(t *testing.T) {
 	}
 	if _, err := os.Stat(missing); err == nil {
 		t.Fatal("存在しないディレクトリに書けてしまっている")
+	}
+}
+
+// 自分が書いたソースの更新時刻は調査ファイルに残り、開き直しても同じ判定になる。
+func TestOwnWriteSurvivesReload(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "g.json")
+	s := NewStore(path, t.TempDir())
+	at := time.Date(2026, 9, 11, 10, 0, 0, 123, time.Local)
+	s.RecordOwnWrite(`C:\src\SSL\ssl_lib.c`, at)
+	if !s.IsOwnWrite("c:/src/ssl/ssl_lib.c", at) {
+		t.Fatal("区切りと大小の違う同じパスを別物にしている")
+	}
+	if s.IsOwnWrite("c:/src/ssl/ssl_lib.c", at.Add(time.Second)) {
+		t.Fatal("時刻が違うのに自分の書き込み扱いにしている")
+	}
+	s.Close()
+	r := NewStore(path, t.TempDir()) // 既存の調査ファイルを読む
+	defer r.Close()
+	if !r.IsOwnWrite("c:/src/ssl/ssl_lib.c", at) {
+		t.Fatal("開き直したら記録が消えた")
 	}
 }

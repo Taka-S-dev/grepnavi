@@ -86,6 +86,9 @@ func Load(path string) (*File, error) {
 
 func (f *File) LineCount() int { return len(f.lines) }
 
+// Path は読み込んだファイルのパス。
+func (f *File) Path() string { return f.path }
+
 // EndsWithNewline は最終行に行終端があるかを返す。
 //
 // 末尾に改行が無いファイルはその性質ごと保つ決まりだが、末尾の行を消したり

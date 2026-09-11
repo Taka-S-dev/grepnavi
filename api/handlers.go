@@ -47,7 +47,7 @@ func NewHandler(store *graph.Store, root string) *Handler {
 	h := &Handler{store: store, root: root, events: NewEventBus(), editorState: newEditorStateCache()}
 	applyProjectSettings(root)
 	if search.GtagsAvailable(root) {
-		search.GtagsCheckStaleAsync(root)
+		search.GtagsCheckStaleAsync(root, h.store.IsOwnWrite)
 		search.GtagsWarmupAsync(root)
 	}
 	if search.CtagsIndexed(root) {

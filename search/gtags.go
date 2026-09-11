@@ -98,12 +98,12 @@ const _gtagsStaleRecheckAfter = 5 * time.Minute
 
 // GtagsRefreshStaleAsync は前回判定から時間が経っていれば再判定を走らせる。
 // 判定自体はファイル走査なので同期させず、呼び出し側は直前の結果を使う。
-func GtagsRefreshStaleAsync(dir string) {
+func GtagsRefreshStaleAsync(dir string, ownWrite func(path string, mtime time.Time) bool) {
 	last := GtagsStaleCheckedAt()
 	if !last.IsZero() && time.Since(last) < _gtagsStaleRecheckAfter {
 		return
 	}
-	GtagsCheckStaleAsync(dir)
+	GtagsCheckStaleAsync(dir, ownWrite)
 }
 
 // IndexBuiltAt は dir にある索引ファイルの更新時刻を返す（無ければ零値）。
@@ -132,16 +132,36 @@ var staleSkipDirs = map[string]bool{
 	"obj": true, ".cache": true, ".vscode": true, ".idea": true,
 }
 
-func GtagsCheckStaleAsync(dir string) {
+// ownWrite は「その更新時刻は grepnavi 自身の書き込みのものか」を答える。
+// デバッグ行の挿入・撤去でもソースの更新時刻は進むが、それを利用者の編集と
+// 数えると、編集していないのに「索引が古い」と出続ける。nil なら全部数える。
+func GtagsCheckStaleAsync(dir string, ownWrite func(path string, mtime time.Time) bool) {
 	go func() {
+		newer, ok := gtagsSourcesNewerThanIndex(dir, ownWrite)
+		if !ok {
+			return // インデックスなし
+		}
+		if newer {
+			atomic.StoreInt32(&_gtagsStale, 1)
+		} else {
+			// 走査しきって新しいソースが無ければ fresh 側に戻す（再生成後の復帰）
+			atomic.StoreInt32(&_gtagsStale, 0)
+		}
+		_gtagsStaleCheckedAt.Store(time.Now().UnixNano())
+	}()
+}
+
+// gtagsSourcesNewerThanIndex は GTAGS より新しいソースが 1 件でもあるかを返す。
+// 第 2 戻り値は索引が存在したか。
+func gtagsSourcesNewerThanIndex(dir string, ownWrite func(path string, mtime time.Time) bool) (newer, ok bool) {
+	{
 		gtagsFile := filepath.Join(dir, "GTAGS")
 		info, err := os.Stat(gtagsFile)
 		if err != nil {
-			return // インデックスなし
+			return false, false
 		}
 		gtagsMtime := info.ModTime()
 
-		newer := false
 		_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return nil
@@ -160,18 +180,16 @@ func GtagsCheckStaleAsync(dir string) {
 				return nil
 			}
 			if fi.ModTime().After(gtagsMtime) {
+				if ownWrite != nil && ownWrite(path, fi.ModTime()) {
+					return nil
+				}
 				newer = true
-				atomic.StoreInt32(&_gtagsStale, 1)
 				return filepath.SkipAll
 			}
 			return nil
 		})
-		// 走査しきって新しいソースが無ければ fresh 側に戻す（再生成後の復帰）
-		if !newer {
-			atomic.StoreInt32(&_gtagsStale, 0)
-		}
-		_gtagsStaleCheckedAt.Store(time.Now().UnixNano())
-	}()
+		return newer, true
+	}
 }
 
 // GtagsResetStale はインデックス更新後にstaleフラグをリセットする。

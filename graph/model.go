@@ -167,7 +167,11 @@ type ProjectFile struct {
 	Bookmarks     map[string]string `json:"bookmarks,omitempty"`
 	// Insertions は旧 grepnavi が未知フィールドとして無視できるよう omitempty にする（後方互換）。
 	Insertions []Insertion `json:"insertions,omitempty"`
-	UpdatedAt  time.Time   `json:"updated_at"`
+	// OwnWrites は grepnavi 自身がソースを書いた直後の更新時刻 (UnixNano)。鍵はパス。
+	// 索引の鮮度判定はソースの更新時刻を見るので、デバッグ行の挿入・撤去まで
+	// 「利用者が編集した」と数えてしまう。この時刻のままのファイルは数えない。
+	OwnWrites map[string]int64 `json:"own_writes,omitempty"`
+	UpdatedAt time.Time        `json:"updated_at"`
 }
 
 // TreeMeta はツリー一覧用の軽量メタデータ。

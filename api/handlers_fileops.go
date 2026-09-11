@@ -239,10 +239,10 @@ func (h *Handler) handleGrepnavi(w http.ResponseWriter, r *http.Request) {
 // 索引が古いと定義ジャンプは古い行番号を返すが、結果自体は正常に見える。
 // 呼び出し側（特に AI クライアント）が「この位置情報は信用できるか」を
 // 判断できるよう、鮮度そのものと "いつ時点の判定か" を併せて返す。
-func indexStatus(root string) map[string]any {
+func indexStatus(root string, ownWrite func(path string, mtime time.Time) bool) map[string]any {
 	// stale 判定はファイル走査なので同期実行しない。前回結果を返しつつ、
 	// 古ければ裏で取り直す（常駐運用では起動時の判定だけでは陳腐化する）。
-	search.GtagsRefreshStaleAsync(root)
+	search.GtagsRefreshStaleAsync(root, ownWrite)
 
 	msAgo := func(t time.Time) any {
 		if t.IsZero() {
@@ -272,7 +272,7 @@ func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {
 		h.mu.RUnlock()
 		// graph は調査再開用のダイジェスト。これが無いと AI は root / graph_list /
 		// list_memos を別々に呼ぶことになるので、固定サイズの要約だけ同梱する。
-		resp := map[string]any{"root": root, "index": indexStatus(root), "graph": h.store.GetDigest(root)}
+		resp := map[string]any{"root": root, "index": indexStatus(root, h.store.IsOwnWrite), "graph": h.store.GetDigest(root)}
 		// 除外が掛かっていると grep の結果と食い違う。宣言されているときだけ
 		// 載せる（無いのが既定なので、空配列を毎回返しても意味が無い）
 		if ex := search.Excludes(); len(ex) > 0 {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -194,6 +195,32 @@ func (s *Store) saveLoop() {
 		}
 		s.saveErr.Store("")
 	}
+}
+
+// OwnWriteKey は OwnWrites の鍵。区切りと大小を揃え、同じファイルが別表記で
+// 二重に載らないようにする。
+func OwnWriteKey(path string) string {
+	return strings.ToLower(filepath.ToSlash(filepath.Clean(path)))
+}
+
+// RecordOwnWrite は grepnavi 自身がソースを書いた直後の更新時刻を覚える。
+func (s *Store) RecordOwnWrite(path string, mtime time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pf.OwnWrites == nil {
+		s.pf.OwnWrites = map[string]int64{}
+	}
+	s.pf.OwnWrites[OwnWriteKey(path)] = mtime.UnixNano()
+	_ = s.save()
+}
+
+// IsOwnWrite は path の現在の更新時刻が、grepnavi 自身の最後の書き込みのままかを返す。
+// 利用者がその後に編集していれば時刻が変わるので false になる。
+func (s *Store) IsOwnWrite(path string, mtime time.Time) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ns, ok := s.pf.OwnWrites[OwnWriteKey(path)]
+	return ok && ns == mtime.UnixNano()
 }
 
 // LastSaveError は非同期の書き込みが最後に失敗したときのメッセージ。

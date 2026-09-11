@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -115,6 +116,11 @@ func (h *Handler) EnableDesktopWindows() { h.desktopWindows = true }
 func (h *Handler) saveFile(pf *patch.File) error {
 	if err := pf.Save(); err != nil {
 		return err
+	}
+	// 書いた直後の更新時刻を覚える。索引の鮮度判定が、この書き込みを
+	// 利用者の編集と数えないため
+	if fi, err := os.Stat(pf.Path()); err == nil {
+		h.store.RecordOwnWrite(pf.Path(), fi.ModTime())
 	}
 	defCacheClear()
 	hoverCacheClear()
