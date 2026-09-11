@@ -10,16 +10,55 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"grepnavi/proc"
 	"grepnavi/search"
 )
 
+// ctagsVersionProbe は候補の実行ファイルに --version を聞く。テストで差し替える。
+var ctagsVersionProbe = func(p string) ([]byte, error) {
+	return proc.Command(p, "--version").Output()
+}
+
+// ctagsBinCache は findCtagsBin の結果。判定には ctags を起動する必要があり、
+// 常駐のセキュリティソフトがある機械では起動 1 回が秒単位になる（Scoop のシム経由だと
+// 2 プロセス）。状態表示はこれを起動時・ルート切り替え・パネルを開くたびに聞くので、
+// 毎回起動していると「索引」のラベルが出るまで数秒待たされる。
+var ctagsBinCache struct {
+	mu        sync.Mutex
+	path      string
+	universal bool
+	ok        bool
+	checkedAt time.Time
+}
+
+// ctagsMissRecheck は「見つからなかった」結果を捨てるまでの時間。
+// 起動後に ctags を入れた場合、次の確認で気づけるようにする。
+const ctagsMissRecheck = 30 * time.Second
+
 // findCtagsBin は Universal Ctags を優先して ctags バイナリのパスを返す。
 // Universal Ctags が見つからない場合は PATH 上の ctags を返す。
 // 第2戻り値は選ばれたのが Universal Ctags かどうか（対応オプションが違う）。
+// 結果は覚えておき、見つかった場合はパスがまだ存在する限り使い回す。
 func findCtagsBin() (string, bool, bool) {
+	c := &ctagsBinCache
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.ok {
+		if _, err := os.Stat(c.path); err == nil {
+			return c.path, c.universal, true
+		}
+	} else if !c.checkedAt.IsZero() && time.Since(c.checkedAt) < ctagsMissRecheck {
+		return "", false, false
+	}
+	c.path, c.universal, c.ok = detectCtagsBin()
+	c.checkedAt = time.Now()
+	return c.path, c.universal, c.ok
+}
+
+func detectCtagsBin() (string, bool, bool) {
 	// 候補パスを順に試す（Universal Ctags を優先）
 	candidates := []string{}
 
@@ -41,7 +80,7 @@ func findCtagsBin() (string, bool, bool) {
 		if _, err := os.Stat(p); err != nil {
 			continue
 		}
-		out, err := proc.Command(p, "--version").Output()
+		out, err := ctagsVersionProbe(p)
 		if err != nil {
 			continue
 		}
