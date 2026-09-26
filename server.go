@@ -33,12 +33,12 @@ func newServer(root string, rootExplicit bool, graphFile string, graphExplicit b
 	mux := http.NewServeMux()
 	h := api.NewHandler(store, effectiveRoot)
 	if isLoopbackHost(addr) {
-		// loopback バインドのときだけデバッグ仕込みAPI（ファイル書き換え）を許可する。
+		// loopback バインドのときだけデバッグ行 API（ファイル書き換え）を許可する。
 		// -host でLAN公開した場合は任意ファイル書き込みの口を開かない。
 		h.EnableFileWrites()
 		if mcpInsert {
 			// 書き込みはファイル書き換えが前提。loopback でないときは
-			// そもそも仕込み API 自体が無効なので、ここでだけ許す。
+			// そもそもデバッグ行 API 自体が無効なので、ここでだけ許す。
 			h.EnableMCPWrites()
 		}
 	}

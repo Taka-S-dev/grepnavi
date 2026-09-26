@@ -5,7 +5,7 @@
 // この cache を経由して user が今どこを見ているかを取得できる。
 //
 // 信頼性の設計:
-//   - throttle 200ms: cursor 連打で server を叩かない
+//   - throttle 200ms: cursor 連打で server を呼ばない
 //   - 値変化検知 (JSON diff): 同じ state の再送を防ぐ
 //   - heartbeat 10s: 何も操作してなくても定期的に PUT → server 側で
 //     "fresh" 判定 (20s 窓) が維持される。AI 側に「browser 接続されてる」

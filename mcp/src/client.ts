@@ -621,7 +621,7 @@ export class GrepnaviClient {
     });
     const created = (await r.json()) as { node: GraphNode; edge: unknown };
     // POST だけでは設定できないフィールド (memo / tags / badge) があれば PUT で追補。
-    // 失敗しても node 自体は残るが、AI 視点で「失敗が分からないまま設定落ち」が一番ハマるので fail-fast。
+    // 失敗しても node 自体は残るが、「失敗が分からないまま設定落ち」が一番見落としやすいので fail-fast。
     const followup: Parameters<GrepnaviClient["updateNode"]>[1] = {};
     if (args.memo && args.memo.length > 0) followup.memo = annotateMemo(args.memo);
     if (args.tags && args.tags.length > 0) followup.tags = args.tags;

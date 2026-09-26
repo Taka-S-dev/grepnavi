@@ -67,7 +67,7 @@ func TestShiftLines(t *testing.T) {
 		t.Errorf("範囲メモ: %d-%d", g.RangeMemos[0].StartLine, g.RangeMemos[0].EndLine)
 	}
 	if g.Insertions[0].Sites[0].Line != 22 {
-		t.Errorf("他の仕込みが動いていない: %d", g.Insertions[0].Sites[0].Line)
+		t.Errorf("他のデバッグ行が動いていない: %d", g.Insertions[0].Sites[0].Line)
 	}
 	if res.MemoKeyMoves[file+"::10"] != file+"::12" {
 		t.Errorf("MemoKeyMoves: %+v", res.MemoKeyMoves)

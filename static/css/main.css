@@ -201,14 +201,14 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 #btn-fzf-open:hover,#btn-line-memo-toggle:hover,#ifdef-btn:hover{color:#ccc;background:#3c3c3c}
 #btn-line-memo-toggle.on{color:#4ec9b0;border-radius:2px}
 #btn-pinned-hl-toggle.on{color:#fff;background:#094771;border-radius:2px}
-/* 仕込み残数バッジ。挿入デコレーション (overviewRuler の紫) と色を揃える。 */
+/* デバッグ行の残数バッジ。挿入デコレーション (overviewRuler の紫) と色を揃える。 */
 /* ヘッダの状態チップ共通の型。色は意味の分だけ文字に乗せる
    （紫=デバッグ行カテゴリ、黄=索引の警告、灰=平常）。ホバーの面が「押せる」の合図 */
 .pk-state{font-size:11px;color:#999;padding:2px 6px;border-radius:3px;cursor:pointer;white-space:nowrap;flex-shrink:0}
 .pk-state:hover{background:#333}
 #insertion-badge{color:#c9a0dc}
 /* マーク一覧ヘッダの「全部撤去」。破壊的操作なので memo-bulk-btn の赤ではなく
-   仕込み色 (紫) にして「別カテゴリの一括操作」だと分かるようにする。 */
+   デバッグ行の色 (紫) にして「別カテゴリの一括操作」だと分かるようにする。 */
 .memo-removeall-btn{background:rgba(160,100,220,0.10);border:1px solid #6a4a80;color:#c9a0dc;cursor:pointer;font-size:10px;padding:1px 8px;border-radius:3px;font-family:inherit}
 .memo-removeall-btn:hover{background:rgba(160,100,220,0.22);border-color:#8a5aa8}
 #ifdef-ui{border-left:1px solid #3c3c3c;border-right:1px solid #3c3c3c;padding:0 4px;margin:0 2px}
@@ -331,7 +331,7 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
 .range-memo-highlight-error { background: rgba(204,102,102,0.18); border-bottom: 2px solid rgba(204,102,102,0.7); }
 .range-memo-highlight-note  { background: rgba(106,141,181,0.16); border-bottom: 2px solid rgba(106,141,181,0.7); }
 .range-memo-overlay-item{color:#cc4444;font-style:normal;background:#2d1010;border:1px solid #7a2020;border-radius:3px;padding:0 6px}
-/* デバッグ仕込み行 (insertions.js) — line memo/bookmark と混同しないよう紫系で統一 */
+/* デバッグ行 (insertions.js) — line memo/bookmark と混同しないよう紫系で統一 */
 .insertion-line-deco{background:rgba(160,100,220,0.10)}
 .insertion-glyph{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M5 3l7 5-7 5z' fill='%23a064dc' stroke='none'/%3E%3C/svg%3E") center/12px no-repeat}
 /* 挿入先の目印。ダイアログを開いている間だけ出す。デバッグ行の紫とは別系統の
@@ -1292,7 +1292,7 @@ body.search-mode #root-chip{min-width:0}
 /* 一括操作バー。破壊的なボタンをフィルタ行から分離してここに集約する。 */
 #memo-list-action-bar{display:flex;align-items:center;gap:4px;padding:3px 8px;border-bottom:1px solid #333;flex-shrink:0}
 #memo-list-action-label{font-size:9px;color:#666;margin-right:2px;flex-shrink:0}
-/* 仕込み行はメモ（残す知見）と違い「最後に消す足場」なので、一覧上でも
+/* デバッグ行はメモ（残す知見）と違い「最後に消す足場」なので、一覧上でも
    エディタの挿入行装飾と同じ紫系でひと目で区別できるようにする。 */
 .memo-list-item-insertion:not(.memo-list-selected){background:rgba(160,100,220,0.07)}
 .memo-list-item-insertion:not(.memo-list-selected):hover{background:rgba(160,100,220,0.14)}

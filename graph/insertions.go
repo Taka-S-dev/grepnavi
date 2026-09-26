@@ -18,7 +18,7 @@ func SamePathLoose(a, b string) bool {
 	return strings.EqualFold(norm(a), norm(b))
 }
 
-// NextInsertionTag は既存の仕込み ID (GN連番) の最大+1を返す。
+// NextInsertionTag は既存のデバッグ行 ID (GN連番) の最大+1を返す。
 func (s *Store) NextInsertionTag() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -139,11 +139,11 @@ func shiftKeyedMap(m map[string]string, file string, fromLine, delta int, moves 
 // ShiftLines は file の fromLine 行目以降 (>= fromLine) を delta 行ずらす。
 // 挿入・撤去の行シフトは量が正確に分かるので、heal の推測に頼らず
 // ここで決定的に追従させる。全 tree のノード・行メモ4マップ・
-// ブックマーク・範囲メモ・他の仕込みが対象。
+// ブックマーク・範囲メモ・他のデバッグ行が対象。
 //
-// 呼び出し順の注意: 対象ファイルの既存の仕込み全ての sites もシフト対象に
+// 呼び出し順の注意: 対象ファイルの既存のデバッグ行全ての sites もシフト対象に
 // 含む。挿入をまだ AddInsertion していない時点で呼ぶこと — 登録後に呼ぶと、
-// 今追加したばかりの仕込み自身の sites まで二重にシフトされてしまう。
+// 今追加したばかりのデバッグ行自身の sites まで二重にシフトされてしまう。
 func (s *Store) ShiftLines(file string, fromLine, delta int) ShiftResult {
 	s.mu.Lock()
 	defer s.mu.Unlock()

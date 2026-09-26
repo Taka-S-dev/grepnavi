@@ -1260,7 +1260,7 @@ func TestRemoveAllDropsRestoreRecord(t *testing.T) {
 	}
 }
 
-// 移動の下準備: a.c に1行仕込んで、その記録と挿入直後のファイル内容を返す。
+// 移動の下準備: a.c に1行挿入して、その記録と挿入直後のファイル内容を返す。
 func insertOneLine(t *testing.T, h *Handler, src string, text string) graph.Insertion {
 	t.Helper()
 	body := `{"file":"` + jsonPath(src) + `","line":1,"lines":["` + text + `"]}`

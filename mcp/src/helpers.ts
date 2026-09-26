@@ -220,7 +220,7 @@ export async function callersTree(args: {
     for (const n of nodes) {
       if (!n.func) {
         // ファイルスコープの登録行 (関数ポインタテーブル等)。囲む関数が無いので
-        // 上へは辿れない — 空文字で /api/callers を叩くと 400 になるだけ
+        // 上へは辿れない — 空文字で /api/callers を呼ぶと 400 になるだけ
         n.recursion_stopped = "registration_site";
         continue;
       }

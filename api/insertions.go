@@ -1,6 +1,6 @@
 package api
 
-// デバッグ仕込み API。操作対象は grepnavi が記録している挿入行のみで、
+// デバッグ行 API。操作対象は grepnavi が記録している挿入行のみで、
 // 任意ファイル書き込みの口は作らない。-host で LAN に公開している場合は
 // EnableFileWrites が呼ばれず、全エンドポイントが 403 を返す。
 
@@ -33,13 +33,13 @@ const (
 	// mcpMaxLinesPerInsert は1回の挿入で書ける行数の上限。エージェント経由
 	// のみに掛ける。人は目で見ながら足すが、ループに入った側は止まらない。
 	mcpMaxLinesPerInsert = 20
-	// mcpMaxInsertions はエージェントが同時に置ける仕込みの総数。ここを
+	// mcpMaxInsertions はエージェントが同時に置けるデバッグ行の総数。ここを
 	// 超えたら撤去してからにさせる。撒きっぱなしを構造的に防ぐ。
 	mcpMaxInsertions = 100
 )
 
 // rejectAgent はエージェントからの操作をフラグに関係なく断る。ファイルを
-// 書き換える経路のうち、「自分が撒いた仕込みへの操作」に収まらないものに使う。
+// 書き換える経路のうち、「自分が挿入したデバッグ行への操作」に収まらないものに使う。
 func (h *Handler) rejectAgent(w http.ResponseWriter, r *http.Request, why string) bool {
 	if !isAgentRequest(r) {
 		return false
@@ -48,7 +48,7 @@ func (h *Handler) rejectAgent(w http.ResponseWriter, r *http.Request, why string
 	return true
 }
 
-// guardAgentOwns はエージェントが自分の撒いた仕込みだけを触っていることを確かめる。
+// guardAgentOwns はエージェントが自分の挿入したデバッグ行だけを触っていることを確かめる。
 // 許可されていない場合と他人の記録を指した場合は応答済みで false を返す。
 func (h *Handler) guardAgentOwns(w http.ResponseWriter, r *http.Request, id string) bool {
 	src, allowed := h.guardAgentWrite(w, r)
@@ -70,7 +70,7 @@ func (h *Handler) guardAgentOwns(w http.ResponseWriter, r *http.Request, id stri
 	return true
 }
 
-// countInsertionsBySource は指定の出所で入った仕込みの件数を数える。
+// countInsertionsBySource は指定の出所で入ったデバッグ行の件数を数える。
 func (h *Handler) countInsertionsBySource(src string) int {
 	n := 0
 	for _, ins := range h.store.GetGraphResponse().Insertions {
@@ -225,7 +225,7 @@ func (h *Handler) handleInsertions(w http.ResponseWriter, r *http.Request) {
 	}
 	if source == graph.InsertionSourceMCP {
 		// グループ必須。撒いたものを1操作で全部畳めるようにしておかないと、
-		// エージェントが散らした仕込みを人が1件ずつ探すはめになる。
+		// エージェントが散らしたデバッグ行を人が1件ずつ探すことになる。
 		if req.Group == "" {
 			jsonErr(w, "group is required for external clients (it is the unit that removes everything you planted)", http.StatusBadRequest)
 			return
@@ -260,14 +260,14 @@ func (h *Handler) handleInsertions(w http.ResponseWriter, r *http.Request) {
 	h.insMu.Lock()
 	defer h.insMu.Unlock()
 
-	// {tag} は挿入した仕込みを後から目視・grep で見分けるための連番。
+	// {tag} は挿入したデバッグ行を後から目視・grep で見分けるための連番。
 	// 採番は保存前 (NextInsertionTag は既存 Insertions の最大値+1) なので、
 	// この挿入自体がまだ登録されていない時点でも重複しない。
 	tag := h.store.NextInsertionTag()
 	lines := make([]string, len(req.Lines))
 	for i, l := range req.Lines {
 		lines[i] = strings.ReplaceAll(l, "{tag}", tag)
-		// {group} を実行出力にも埋め込めば、どのグループの仕込みが発火したか
+		// {group} を実行出力にも埋め込めば、どのグループのデバッグ行が発火したか
 		// プログラムの出力からも判別できる。
 		lines[i] = strings.ReplaceAll(lines[i], "{group}", req.Group)
 	}
@@ -287,7 +287,7 @@ func (h *Handler) handleInsertions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ShiftLines は必ず AddInsertion より先に呼ぶ: 後で呼ぶと、たった今
-	// 追加したこの仕込み自身の sites まで二重にシフトされてしまう
+	// 追加したこのデバッグ行自身の sites まで二重にシフトされてしまう
 	// （ShiftLines は対象ファイルの全 Insertions を対象にするため）。
 	shift := h.store.ShiftLines(abs, req.Line+1, len(lines))
 
@@ -1004,7 +1004,7 @@ func (h *Handler) handleInsertionsRemoveAll(w http.ResponseWriter, r *http.Reque
 			return maxSiteLine(ia) > maxSiteLine(ib)
 		})
 		for _, id := range ids {
-			// 直前の削除がこのファイルの他の仕込みの行番号もシフトしている
+			// 直前の削除がこのファイルの他のデバッグ行の行番号もシフトしている
 			// ため、ループの都度ストアから引き直す（キャッシュした行番号は使わない）。
 			ins, ok := h.findInsertion(id)
 			if !ok {

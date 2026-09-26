@@ -146,7 +146,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	// ブラウザ向け SSE push チャンネル (graph / memo 更新通知)。
 	mux.HandleFunc("/api/events", h.handleEvents)
 	mux.HandleFunc("/api/editor-state", h.handleEditorState)
-	// デバッグ仕込み。grepnavi のグラフ状態も変わるので notifyGraphChange で包む
+	// デバッグ行の挿入。grepnavi のグラフ状態も変わるので notifyGraphChange で包む
 	// （heal と違い、これらのハンドラは loadGraph を再帰的に呼ばないのでループしない）。
 	mux.HandleFunc("/api/insertions", h.notifyGraphChange(h.handleInsertions))
 	mux.HandleFunc("/api/insertions/removeall", h.notifyGraphChange(h.handleInsertionsRemoveAll))

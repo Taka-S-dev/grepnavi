@@ -777,7 +777,7 @@ async function rmJumpToSymbol(sym) {
 }
 
 // 絞り込みの一致箇所を強調する。DOM を組んで入れる（innerHTML に文字列を
-// 流し込まない）。強調は肯定条件だけ — `-` の除外語は行に存在しないのが正常
+// 渡さない）。強調は肯定条件だけ — `-` の除外語は行に存在しないのが正常
 function rmHighlight(el, text, terms) {
   if (!terms || !terms.length) {
     el.textContent = text;

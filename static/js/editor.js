@@ -1768,7 +1768,7 @@ async function ensureEditor() {
     }
   });
 
-  // Alt+P → デバッグ仕込み挿入ダイアログ (insertions.js)
+  // Alt+P → デバッグ行の挿入ダイアログ (insertions.js)
   monacoEditor.addAction({
     id: 'grepnavi-insert-debug', label: 'デバッグ行を挿入',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyP],

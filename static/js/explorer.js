@@ -516,7 +516,7 @@ function revealFolderInTree(abs) {
 
 // ---- public API ----
 
-// chunk ごとに renderTree を直叩きすると大規模 tree で collectItems が UI を詰まらせる。
+// chunk ごとに renderTree を直接呼ぶと大規模 tree で collectItems が UI を詰まらせる。
 let _incRenderTimer = null;
 function _scheduleIncrementalRender() {
   if (_incRenderTimer || !_scrollEl) return;

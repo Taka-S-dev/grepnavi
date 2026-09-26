@@ -100,7 +100,7 @@ let peekResizing = false, peekStartY = 0, peekStartH = 0;
 let fzfFiles = null;
 let fzfSelIdx = 0;
 let fzfFiltered = [];
-// fzf のモード: 'file' (Ctrl+P) | 'symbol' (Ctrl+T)。symbol は /api/symbol-search を叩く
+// fzf のモード: 'file' (Ctrl+P) | 'symbol' (Ctrl+T)。symbol は /api/symbol-search を使う
 let fzfMode = 'file';
 let fzfSymResults = [];   // symbol モードの現在の結果 (DefHit 配列)
 let fzfRefs = [];         // ref モードの参照一覧 (Reference 配列)

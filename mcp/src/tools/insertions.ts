@@ -99,7 +99,7 @@ export const handlers: Record<string, ToolHandler> = {
     const hits = selectInsertions(all, a);
 
     // グループ別の件数は全件から数える。絞り込んだ結果だけを見せると
-    // 「他にどんな仕込みがあるか」が分からず、撒き直しの判断ができない。
+    // 「他にどんなデバッグ行があるか」が分からず、入れ直しの判断ができない。
     const groups: Record<string, number> = {};
     for (const i of all) groups[i.group ?? ""] = (groups[i.group ?? ""] ?? 0) + 1;
 

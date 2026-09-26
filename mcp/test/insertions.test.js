@@ -38,7 +38,7 @@ test("list_insertions - パスは区切りと大小を無視して部分一致",
 
 // enabled:false はコメントアウト中。出力に出ないのが当然なので、
 // 「出なかった＝通らなかった」を判断するときは外せる必要がある。
-test("list_insertions - 無効な仕込みを外せる", () => {
+test("list_insertions - 無効なデバッグ行を外せる", () => {
   assert.deepEqual(ids(selectInsertions(REC, { enabled_only: true })), ["GN1", "GN9"]);
   assert.deepEqual(ids(selectInsertions(REC, { group: "path-A", enabled_only: true })), ["GN1"]);
 });

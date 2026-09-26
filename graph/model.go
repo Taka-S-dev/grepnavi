@@ -119,7 +119,7 @@ type RangeMemo struct {
 	Source    string `json:"source,omitempty"`
 }
 
-// InsertionSite はデバッグ仕込みの1挿入箇所。
+// InsertionSite はデバッグ行の1挿入箇所。
 type InsertionSite struct {
 	Line int    `json:"line"`
 	Text string `json:"text"` // 挿入した行そのもの (UTF-8、インデント込み)

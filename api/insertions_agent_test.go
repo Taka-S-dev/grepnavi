@@ -84,7 +84,7 @@ func TestAgentInsertRecordsSource(t *testing.T) {
 }
 
 // グループはエージェントの撒いた分を1操作で畳む単位。無グループを許すと、
-// 散らばった仕込みを人が1件ずつ探すことになる。
+// 散らばったデバッグ行を人が1件ずつ探すことになる。
 func TestAgentInsertRequiresGroup(t *testing.T) {
 	h, src := newAgentTestSetup(t)
 	h.EnableMCPWrites()
