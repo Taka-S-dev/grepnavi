@@ -1048,6 +1048,20 @@ async function ensureEditor() {
       'editor.wordHighlightStrongBorder':     '#ff6060',
       'editor.wordHighlightTextBackground':   '#f0c04055',
       'editor.wordHighlightTextBorder':       '#f0c040',
+      // インデントガイドをネスト深さごとに色分けし、長いブロックでも
+      // どの縦線がどの階層か追えるようにする（6色で循環）。
+      'editorIndentGuide.background1':       '#d7ba7d55',
+      'editorIndentGuide.background2':       '#c586c055',
+      'editorIndentGuide.background3':       '#4fc1ff55',
+      'editorIndentGuide.background4':       '#89d18555',
+      'editorIndentGuide.background5':       '#ce917855',
+      'editorIndentGuide.background6':       '#f4877155',
+      'editorIndentGuide.activeBackground1': '#d7ba7dcc',
+      'editorIndentGuide.activeBackground2': '#c586c0cc',
+      'editorIndentGuide.activeBackground3': '#4fc1ffcc',
+      'editorIndentGuide.activeBackground4': '#89d185cc',
+      'editorIndentGuide.activeBackground5': '#ce9178cc',
+      'editorIndentGuide.activeBackground6': '#f48771cc',
     }
   });
   monacoEditor = monaco.editor.create(id('monaco-container'), {
@@ -1074,7 +1088,7 @@ async function ensureEditor() {
     glyphMargin: true,
     hover: { above: false },
     bracketPairColorization: { enabled: true },
-    guides: { bracketPairs: true },
+    guides: { indentation: true, highlightActiveIndentation: true, bracketPairs: 'active', bracketPairsHorizontal: 'active' },
   });
   // コンテナサイズの追従は automaticLayout に任せる（手動 ResizeObserver は不要）。
   // フォント確定はコンテナサイズを変えず automaticLayout が拾わないことがあるので、
