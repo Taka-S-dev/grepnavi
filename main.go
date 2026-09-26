@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -108,7 +109,7 @@ func main() {
 	// 窓（またはブラウザ）を開くだけで終了する。windowsgui ビルドはコンソールが
 	// 無く、ポート衝突でエラー表示のないまま終了すると「ダブルクリックしたのに
 	// 何も起きない」ように見えるため、再起動操作を「窓をもう1枚開く」として扱う。
-	if grepnaviRunningAt(url) {
+	openExisting := func() {
 		slog.Info("already running, opening a window on the existing instance", "url", url)
 		if *tray {
 			if err := desktop.OpenWindow(url); err != nil {
@@ -117,6 +118,9 @@ func main() {
 		} else if !*noBrowser {
 			openBrowser(url)
 		}
+	}
+	if grepnaviRunningAt(url, 500*time.Millisecond) {
+		openExisting()
 		return
 	}
 
@@ -153,15 +157,33 @@ func main() {
 
 	// -tray: サーバをバックグラウンドで動かしトレイに常駐する。窓は必要に応じて
 	// 別プロセスの -view として開く（desktop.RunTray を参照）。
+	//
+	// ポートはトレイに入る前に同期で確保する。ListenAndServe を goroutine に任せると
+	// bind 失敗がトレイの裏で黙って os.Exit になり、コンソールの無いビルドでは
+	// 「起動しない」ようにしか見えない。
 	if *tray {
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			// 上の 500ms プローブに間に合わなかっただけの grepnavi（索引の読み込み中など）
+			// なら、今度は待ってから窓を開く。それでも違えば別のアプリが握っている。
+			if grepnaviRunningAt(url, 3*time.Second) {
+				openExisting()
+				return
+			}
+			slog.Error("listen failed", "addr", addr, "err", err)
+			desktop.ShowError(fmt.Sprintf("ポート %d を開けませんでした。別のアプリが使っています。\n\n%v", *port, err))
+			os.Exit(1)
+		}
 		go func() {
-			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 				slog.Error("server error", "err", err)
+				desktop.ShowError(fmt.Sprintf("サーバが停止しました。\n\n%v", err))
 				os.Exit(1)
 			}
 		}()
 		if err := desktop.RunTray(url); err != nil {
 			slog.Error("tray mode failed", "err", err)
+			desktop.ShowError(fmt.Sprintf("トレイに常駐できませんでした。\n\n%v", err))
 			os.Exit(1)
 		}
 		return
@@ -184,17 +206,17 @@ func absPath(p string) (string, error) {
 	return p, nil
 }
 
-// grepnaviRunningAt は url で grepnavi が応答するかを短いタイムアウトで確認する。
+// grepnaviRunningAt は url で grepnavi が timeout 以内に応答するかを確認する。
 // localhost 自己プローブ専用で、外部への通信は行わない。
 // Origin を付けるのは csrfMiddleware 対策: 既存インスタンスが -mcp なしでも、
 // localhost origin のリクエストは常に許可されるため mcp 設定に関わらず判定できる。
-func grepnaviRunningAt(url string) bool {
+func grepnaviRunningAt(url string, timeout time.Duration) bool {
 	req, err := http.NewRequest("GET", url+"/api/root", nil)
 	if err != nil {
 		return false
 	}
 	req.Header.Set("Origin", url)
-	client := &http.Client{Timeout: 500 * time.Millisecond}
+	client := &http.Client{Timeout: timeout}
 	resp, err := client.Do(req)
 	if err != nil {
 		return false

@@ -10,6 +10,7 @@ package desktop
 
 import (
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -73,6 +74,7 @@ var (
 	procGetMonitorInfoW       = user32.NewProc("GetMonitorInfoW")
 	procSystemParametersInfoW = user32.NewProc("SystemParametersInfoW")
 	procCallWindowProcW       = user32.NewProc("CallWindowProcW")
+	procMessageBoxW           = user32.NewProc("MessageBoxW")
 )
 
 const (
@@ -241,4 +243,17 @@ func enableCustomTitlebar(w webview.WebView) {
 	w.Bind("grepnaviWinClose", func() {
 		procPostMessageW.Call(hwnd, wmClose, 0, 0)
 	})
+}
+
+// ShowError は起動できなかった理由をダイアログで出す。windowsgui ビルドには
+// コンソールが無いので、stderr に書くだけでは「ダブルクリックしても何も起きない」
+// になる。タイトルは windowTitle と同じ理由で空にしている。
+func ShowError(msg string) {
+	const mbOK, mbIconError = 0x0, 0x10
+	text, _ := syscall.UTF16PtrFromString(msg)
+	title, _ := syscall.UTF16PtrFromString(windowTitle)
+	r, _, err := procMessageBoxW.Call(0, uintptr(unsafe.Pointer(text)), uintptr(unsafe.Pointer(title)), mbOK|mbIconError)
+	if r == 0 {
+		slog.Warn("message box failed", "err", err)
+	}
 }
