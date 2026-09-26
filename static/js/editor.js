@@ -1,4 +1,8 @@
 // ===== 単語ハイライト固定 =====
+// 字下げガイドの色 (深さ 1〜6 で循環)。縦線も同じ段の色を使うので、
+// ここを変えれば両方が揃って変わる。
+const INDENT_GUIDE_COLORS = ['#d7ba7d', '#c586c0', '#4fc1ff', '#89d185', '#ce9178', '#f48771'];
+
 const PINNED_HL_COLORS = [
   { chip: '#00dcff', rgba: 'rgba(0,220,255,0.25)',   border: 'rgba(0,180,255,0.9)'  },
   { chip: '#50ff78', rgba: 'rgba(80,255,120,0.25)',  border: 'rgba(50,200,80,0.9)'  },
@@ -1050,18 +1054,10 @@ async function ensureEditor() {
       'editor.wordHighlightTextBorder':       '#f0c040',
       // インデントガイドをネスト深さごとに色分けし、長いブロックでも
       // どの縦線がどの階層か追えるようにする（6色で循環）。
-      'editorIndentGuide.background1':       '#d7ba7d55',
-      'editorIndentGuide.background2':       '#c586c055',
-      'editorIndentGuide.background3':       '#4fc1ff55',
-      'editorIndentGuide.background4':       '#89d18555',
-      'editorIndentGuide.background5':       '#ce917855',
-      'editorIndentGuide.background6':       '#f4877155',
-      'editorIndentGuide.activeBackground1': '#d7ba7dcc',
-      'editorIndentGuide.activeBackground2': '#c586c0cc',
-      'editorIndentGuide.activeBackground3': '#4fc1ffcc',
-      'editorIndentGuide.activeBackground4': '#89d185cc',
-      'editorIndentGuide.activeBackground5': '#ce9178cc',
-      'editorIndentGuide.activeBackground6': '#f48771cc',
+      ...Object.fromEntries(INDENT_GUIDE_COLORS.flatMap((c, i) => [
+        [`editorIndentGuide.background${i + 1}`,       c + '55'],
+        [`editorIndentGuide.activeBackground${i + 1}`, c + 'cc'],
+      ])),
     }
   });
   monacoEditor = monaco.editor.create(id('monaco-container'), {
@@ -1722,6 +1718,19 @@ async function ensureEditor() {
     }
   });
 
+  // Alt+K → カーソルのある字下げ段に縦線を付ける/消す。右クリックメニューは
+  // 常時 12 件の上限に達しているのでキーだけにし、ヘルプに載せる。
+  monacoEditor.addAction({
+    id: 'grepnavi-toggle-ruler', label: '字下げの縦線を付ける/消す',
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyK],
+    run: ed => toggleIndentRuler(ed),
+  });
+  monacoEditor.addAction({
+    id: 'grepnavi-clear-rulers', label: '字下げの縦線を全部消す',
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyMod.Shift | monaco.KeyCode.KeyK],
+    run: ed => clearIndentRulers(ed),
+  });
+
   // Alt+H / 右クリック → 単語ハイライト固定/解除
   monacoEditor.addAction({
     id: 'grepnavi-pin-highlight', label: '単語ハイライトを固定/解除',
@@ -1894,6 +1903,65 @@ function takePickerAnchor() { return pickerAnchorPoint(true); }
 // あるので気づけず「押したのに無反応」に見える。目のある場所に出す。
 // 次の操作で消えるので、読み進める邪魔にはならない
 let _flashTimer = null;
+// ===== 字下げの縦線 =====
+// 長いブロックでは自動の字下げガイドが何段目か読み取りにくく、色分けも画面の
+// 外まで追うと見失う。読み手が「この段」と決めた位置に、ファイルを跨いでも
+// 残る 1 本の線を置けるようにする。Monaco の rulers は桁指定なので、カーソルの
+// 見かけの桁を tabSize の倍数に丸めて段に合わせる。
+let _indentRulerCols = []; // 線を置いた桁 (tabSize の倍数)。表示順は昇順
+
+// rulerColumnFor はカーソルの見かけの桁 (1 始まり) を、最も近い字下げ段の桁に丸める。
+// 0 は段 0 = 行頭なので線を置く意味がなく、呼び出し側で弾く。
+function rulerColumnFor(visibleColumn, tabSize) {
+  const ts = tabSize > 0 ? tabSize : 4;
+  return Math.round((visibleColumn - 1) / ts) * ts;
+}
+
+// rulerColorFor は col (tabSize の倍数) の段に対応するガイド色を返す。縦線は
+// 「その段のガイドを固定したもの」なので、ガイドと同じ色で、ガイドより濃く描く。
+function rulerColorFor(col, tabSize) {
+  const level = Math.max(1, Math.round(col / (tabSize > 0 ? tabSize : 4)));
+  return INDENT_GUIDE_COLORS[(level - 1) % INDENT_GUIDE_COLORS.length] + 'e0';
+}
+
+// toggleRulerCols は cols に col が無ければ足し、あれば消した新しい配列を返す。
+function toggleRulerCols(cols, col) {
+  return cols.includes(col) ? cols.filter(c => c !== col) : [...cols, col].sort((a, b) => a - b);
+}
+
+function applyIndentRulers(ed, tabSize) {
+  ed.updateOptions({ rulers: _indentRulerCols.map(column => ({ column, color: rulerColorFor(column, tabSize) })) });
+}
+
+// levelsText は「2, 3 段目」のように、いま置いている段を並べる
+function levelsText(tabSize) {
+  return _indentRulerCols.map(c => c / tabSize).join(', ') + ' 段目';
+}
+
+function toggleIndentRuler(ed) {
+  const model = ed.getModel();
+  const pos = ed.getPosition();
+  if(!model || !pos) return;
+  const tabSize = model.getOptions().tabSize;
+  const col = rulerColumnFor(ed.getVisibleColumnFromPosition(pos), tabSize);
+  if(col === 0) { flashAtCursor('行頭には縦線を置けません。字下げのある位置で押してください'); return; }
+  const had = _indentRulerCols.includes(col);
+  _indentRulerCols = toggleRulerCols(_indentRulerCols, col);
+  applyIndentRulers(ed, tabSize);
+  const rest = _indentRulerCols.length ? `（いま ${levelsText(tabSize)}）` : '';
+  flashAtCursor(had ? `縦線を消しました: ${col / tabSize} 段目${rest}`
+                    : `縦線: ${col / tabSize} 段目${rest} Alt+K でもう一度押すと消えます`);
+}
+
+function clearIndentRulers(ed) {
+  if(!_indentRulerCols.length) { flashAtCursor('縦線はありません'); return; }
+  const tabSize = ed.getModel()?.getOptions().tabSize || 4;
+  const was = levelsText(tabSize);
+  _indentRulerCols = [];
+  applyIndentRulers(ed, tabSize);
+  flashAtCursor(`縦線を全部消しました: ${was}`);
+}
+
 function flashAtCursor(text, kind) {
   document.getElementById('grepnavi-flash')?.remove();
   if(_flashTimer) clearTimeout(_flashTimer);
@@ -3549,4 +3617,4 @@ addEventListener('DOMContentLoaded', () => {
   }
 });
 
-if (typeof module !== 'undefined') module.exports = { statusGate, syncedNavLine, refFilterPredicate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane, layoutDrifted };
+if (typeof module !== 'undefined') module.exports = { statusGate, syncedNavLine, refFilterPredicate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane, layoutDrifted, rulerColumnFor, toggleRulerCols, rulerColorFor, INDENT_GUIDE_COLORS };

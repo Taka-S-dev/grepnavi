@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 // setup.js (--require) で browser globals をスタブ済み
 global.id = () => null;
 
-const { statusGate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane, layoutDrifted } = require('../static/js/editor.js');
+const { statusGate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane, layoutDrifted, rulerColumnFor, toggleRulerCols, rulerColorFor, INDENT_GUIDE_COLORS } = require('../static/js/editor.js');
 
 test('fzfMatchToken - exact match', () => {
   const r = fzfMatchToken('foobar', 'foo');
@@ -365,4 +365,29 @@ test('layoutDrifted - 広げた分を Monaco が知らなければずれ', () =>
 test('layoutDrifted - 情報が無い・コンテナが 0 なら触らない', () => {
   assert.equal(layoutDrifted(0, 0, { width: 1030, height: 508 }), false);
   assert.equal(layoutDrifted(1030, 508, null), false);
+});
+
+// 縦線はカーソルの桁ではなく字下げ段に揃える。段の途中で押しても最寄りの段に丸め、
+// 行頭 (段 0) は線を置く意味がないので 0 を返して呼び出し側に弾かせる。
+test('rulerColumnFor - 見かけの桁を最寄りの字下げ段へ丸める', () => {
+  assert.equal(rulerColumnFor(1, 4), 0);   // 行頭
+  assert.equal(rulerColumnFor(5, 4), 4);   // 1 段目の先頭
+  assert.equal(rulerColumnFor(7, 4), 8);   // 段の途中は最寄りへ
+  assert.equal(rulerColumnFor(9, 8), 8);   // tabSize 8
+  assert.equal(rulerColumnFor(5, 0), 4);   // tabSize が取れなければ 4
+});
+
+test('toggleRulerCols - 同じ段をもう一度押すと消え、並びは昇順', () => {
+  let cols = toggleRulerCols([], 8);
+  cols = toggleRulerCols(cols, 4);
+  assert.deepEqual(cols, [4, 8]);
+  assert.deepEqual(toggleRulerCols(cols, 8), [4]);
+});
+
+// 縦線の色はその段の字下げガイドと同じ。ガイドより濃く、7 段目からは一周する。
+test('rulerColorFor - その段のガイド色を濃くしたものになる', () => {
+  assert.equal(rulerColorFor(4, 4), INDENT_GUIDE_COLORS[0] + 'e0');
+  assert.equal(rulerColorFor(12, 4), INDENT_GUIDE_COLORS[2] + 'e0');
+  assert.equal(rulerColorFor(28, 4), INDENT_GUIDE_COLORS[0] + 'e0'); // 7 段目
+  assert.equal(rulerColorFor(16, 8), INDENT_GUIDE_COLORS[1] + 'e0'); // tabSize 8 の 2 段目
 });
