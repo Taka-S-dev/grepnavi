@@ -514,6 +514,7 @@ function initFloatingPeek(getHoverCtx) {
   // ===== Floating Peek ウィンドウ (カーソル前後コンテキスト) =====
   // opts.title で見出しを、opts.rect ({left, top, width, height}) で置き場所を指定できる。
   // 指定が無ければ、少しずつずらして重ねる既定の置き方になる。
+  const _FLOAT_CTX_LINES = 1000; // 浮き窓が持つ前後の行数
   async function _showFloatingCtx(file, line, opts) {
     opts = opts || {};
     const place = win => {
@@ -538,7 +539,9 @@ function initFloatingPeek(getHoverCtx) {
     win._floatFirstHit = { file, line };
 
     try {
-      const p = new URLSearchParams({ file, line, ctx: 15 });
+      // 前後を広く持つ。数十行だとすぐ端に着いて、呼び出しの前後を追えない。
+      // 1000 行ずつならたいていのファイルは全体が入り、巨大なファイルでも重くならない。
+      const p = new URLSearchParams({ file, line, ctx: _FLOAT_CTX_LINES });
       const r = await fetch('/api/snippet?' + p);
       const lines = await r.json();
       body.innerHTML = '';
