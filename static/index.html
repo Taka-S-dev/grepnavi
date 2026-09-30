@@ -562,8 +562,12 @@
       <span id="fzf-icon"><i class="codicon codicon-search"></i></span>
       <input id="fzf-input" type="text" placeholder="ファイル名を入力…" autocomplete="off" spellcheck="false">
       <span id="fzf-count"></span>
+      <button id="fzf-preview-toggle" title="プレビューの表示切り替え (Ctrl+/)"><i class="codicon codicon-file-code"></i></button>
     </div>
-    <div id="fzf-list"></div>
+    <div id="fzf-main">
+      <div id="fzf-list"></div>
+      <div id="fzf-preview"></div>
+    </div>
   </div>
 </div>
 
@@ -599,6 +603,7 @@
         <div class="help-group-title">エディタ</div>
         <div class="help-row"><kbd>Ctrl+P</kbd><span>ファイルをすばやく開く（<kbd>#</kbd>始まりでシンボル検索）</span></div>
         <div class="help-row"><kbd>Alt+Shift+T</kbd><span>シンボル名で定義へジャンプ</span></div>
+        <div class="help-row"><kbd>Ctrl+/</kbd><span>ピッカー（参照・呼び先・ファイル・シンボル）のプレビュー表示を切り替え</span></div>
         <div class="help-row"><kbd>F3</kbd> / <kbd>Shift+F3</kbd><span>次 / 前の結果へジャンプ（コードに焦点が戻る）。参照・代入・呼び先のピッカーから選んだ直後は、その一覧を順に送ります</span></div>
         <div class="help-row"><kbd>↑</kbd> / <kbd>↓</kbd> / <kbd>Enter</kbd><span>結果一覧にいるとき: 候補を選ぶ / 選んでコードへ</span></div>
         <div class="help-row"><kbd>Alt+A</kbd> / <kbd>Alt+クリック</kbd><span>カーソル位置のアクション（定義・参照・呼び先・grep）と履歴の戻る/進むを一覧。空行の上でも開き、使えない項目はグレーで残ります</span></div>

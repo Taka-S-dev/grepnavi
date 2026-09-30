@@ -704,14 +704,16 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
   width:min(920px,calc(100vw - 16px));overflow:hidden;font-size:12px;
 }
 #node-preview .np-head{display:flex;justify-content:space-between;gap:12px;padding:4px 10px;color:#9aa0a6;font-size:11px;background:#252526;border-bottom:1px solid #333}
-#node-preview .np-code{position:relative;max-height:min(60vh,600px);overflow:auto;font:13px/1.5 Consolas,"Courier New",monospace;white-space:pre;color:#d4d4d4}
+#node-preview .np-code{max-height:min(60vh,600px)}
+/* 行の並びはノードのホバーとピッカーのプレビューで共通 (utils.js loadCodePreview) */
+.np-code{position:relative;overflow:auto;font:13px/1.5 Consolas,"Courier New",monospace;white-space:pre;color:#d4d4d4}
 /* 行の背景（強調・ホバー）を横スクロールした先まで届かせる */
-#node-preview .np-lines{display:inline-block;min-width:100%;padding:4px 0}
-#node-preview .np-line{display:flex;padding-right:12px;cursor:pointer}
-#node-preview .np-line:hover{background:#ffffff12}
-#node-preview .np-line.np-match{background:#f0c04026}
-#node-preview .np-no{flex:none;width:46px;text-align:right;padding-right:12px;color:#6e7681;position:sticky;left:0;background:#1e1e1e}
-#node-preview .np-match .np-no{color:#f0c040;background:#3a3420}
+.np-lines{display:inline-block;min-width:100%;padding:4px 0}
+.np-line{display:flex;padding-right:12px;cursor:pointer}
+.np-line:hover{background:#ffffff12}
+.np-line.np-match{background:#f0c04026}
+.np-no{flex:none;width:46px;text-align:right;padding-right:12px;color:#6e7681;position:sticky;left:0;background:#1e1e1e}
+.np-match .np-no{color:#f0c040;background:#3a3420}
 #node-preview .np-memo{padding:6px 10px;border-top:1px solid #333;border-left:3px solid #f0c040;color:#ddd;white-space:pre-wrap;word-break:break-word;line-height:1.5}
 #node-preview .np-memo .codicon{color:#999;font-size:13px;vertical-align:-2px}
 
@@ -794,6 +796,29 @@ body.frameless #tree-tab-actions,body.frameless #tree-toolbar{display:none}
 #fzf-overlay.anchored.open{display:block;padding:0;background:transparent}
 #fzf-overlay.anchored #fzf-box{position:fixed;width:520px}
 #fzf-overlay.anchored #fzf-list{max-height:280px}
+/* プレビュー付き: 一覧の右に、選んでいる行の前後を出す。飛ぶ前に見分けるための
+   もので、1 行のソースだけでは決められないときに効く。狭い窓では下に回す。
+   画面の中央に大きく出す（語のそばには出さない。editor.js anchorFzfBox）。 */
+#fzf-main{display:flex;min-height:0}
+#fzf-list{flex:1 1 auto;min-width:0}
+#fzf-preview{display:none}
+#fzf-preview-toggle{background:none;border:none;color:#777;cursor:pointer;padding:0 2px;font-size:14px;display:flex;align-items:center}
+#fzf-preview-toggle:hover{color:#ccc}
+#fzf-overlay.with-preview #fzf-preview-toggle{color:#4fc1ff}
+/* 縦も中央。上端からの余白で決めると、箱の高さとの差のぶん上に寄る */
+#fzf-overlay.with-preview:not(.anchored){align-items:center;padding-top:0}
+#fzf-overlay.with-preview #fzf-box{width:min(1500px,92vw);max-width:none}
+#fzf-overlay.with-preview #fzf-main{height:min(74vh,900px)}
+#fzf-overlay.with-preview #fzf-list{flex:0 0 42%;max-height:none}
+#fzf-overlay.with-preview #fzf-preview{display:flex;flex-direction:column;flex:1 1 0;min-width:0;border-left:1px solid #333}
+#fzf-preview .fp-head{flex:none;padding:4px 10px;color:#9aa0a6;font-size:11px;background:#252526;border-bottom:1px solid #333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#fzf-preview .np-code{flex:1 1 0;min-height:0}
+#fzf-preview .fp-empty{padding:14px;color:#666;font-size:11px}
+@media (max-width:900px){
+  #fzf-overlay.with-preview #fzf-main{flex-direction:column;height:78vh}
+  #fzf-overlay.with-preview #fzf-list{flex:0 0 45%}
+  #fzf-overlay.with-preview #fzf-preview{border-left:none;border-top:1px solid #333}
+}
 .fzf-item{padding:5px 14px;font-size:12px;color:#aaa;cursor:pointer;display:flex;align-items:baseline;gap:6px;white-space:nowrap;overflow:hidden}
 .fzf-item:hover,.fzf-item.fzf-sel{background:#094771;color:#fff}
 .fzf-item .fzf-name{color:#fff;flex-shrink:0}

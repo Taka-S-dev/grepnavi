@@ -596,104 +596,11 @@ function leaveNodePreview() {
   _nodePreviewHideTimer = setTimeout(hideNodePreview, NODE_PREVIEW_LEAVE_MS);
 }
 
-// プレビュー用のマクロ名。エディタと同じ索引 (/api/ctags/macros) から取る。
-// 索引の作り直しを追いかける仕組みは持たず、短い時間だけ覚える。
-const _previewMacros = new Map(); // file → { at, set }
-async function previewMacroNames(file) {
-  const hit = _previewMacros.get(file);
-  if (hit && Date.now() - hit.at < 60000) return hit.set;
-  if (!window._ctagsIndexed || !window._ctagsIndexed()) return null;
-  try {
-    const r = await fetch("/api/ctags/macros?file=" + encodeURIComponent(file));
-    if (!r.ok) return null;
-    const d = await r.json();
-    if (!d.ready) return null;
-    const set = new Set(d.macros || []);
-    _previewMacros.set(file, { at: Date.now(), set });
-    return set;
-  } catch (_) {
-    return null;
-  }
-}
-
-// wrapTextRanges は el の文字位置 ranges ([{start,end,cls}] 昇順) を span で包む。
-// 色付け済みの HTML は字句ごとの span に分かれているので、文字列ではなく
-// テキストノードを辿って位置を合わせる。
-function wrapTextRanges(el, ranges) {
-  if (!ranges.length) return;
-  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-  const nodes = [];
-  for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n);
-  let pos = 0, ri = 0;
-  for (const node of nodes) {
-    const v = node.nodeValue;
-    const start = pos, end = pos + v.length;
-    pos = end;
-    const inside = [];
-    while (ri < ranges.length && ranges[ri].start < end) {
-      if (ranges[ri].start >= start && ranges[ri].end <= end) inside.push(ranges[ri]);
-      ri++;
-    }
-    if (!inside.length) continue;
-    const frag = document.createDocumentFragment();
-    let at = start;
-    for (const r of inside) {
-      if (r.start > at) frag.appendChild(document.createTextNode(v.slice(at - start, r.start - start)));
-      const sp = document.createElement("span");
-      sp.className = r.cls;
-      sp.textContent = v.slice(r.start - start, r.end - start);
-      frag.appendChild(sp);
-      at = r.end;
-    }
-    if (at < end) frag.appendChild(document.createTextNode(v.slice(at - start)));
-    node.parentNode.replaceChild(frag, node);
-  }
-}
-
 async function showNodePreview(anchor, node) {
   const seq = ++_nodePreviewSeq;
   const m = node.match;
-  let lines;
-  try {
-    const p = new URLSearchParams({ file: m.file, line: m.line, ctx: NODE_PREVIEW_CTX });
-    const r = await fetch("/api/snippet?" + p);
-    if (!r.ok) return;
-    lines = await r.json();
-  } catch (_) {
-    return;
-  }
-  if (seq !== _nodePreviewSeq || !anchor.isConnected) return;
-  if (!Array.isArray(lines) || !lines.length) return;
-  const { rows, focusIndent } = previewLines(lines, 400, NODE_PREVIEW_FOCUS);
-  let html = rows.map((r) => esc(r.text));
-  const lang = detectLang(m.file);
-  const isC = lang === "c" || lang === "cpp";
-  let tokens = null, macros = null;
-  if (lang && typeof loadMonaco === "function") {
-    try {
-      await loadMonaco();
-      // エディタをまだ開いていないとテーマは既定の明るいもので、暗い背景では
-      // 読めない濃い青が付く。エディタのテーマは vs-dark を継いで字句の色を
-      // 変えていないので、ここで vs-dark にしておけば同じ色になる。
-      if (!monacoEditor) monaco.editor.setTheme("vs-dark");
-      // 断片がブロックコメントの途中から始まるときは、開く記号を 1 行足して
-      // 字句解析にコメントだと分からせ、その 1 行は結果から捨てる
-      const texts = rows.map((r) => r.text);
-      const lead = isC && startsInsideBlockComment(texts) ? 1 : 0;
-      const src = (lead ? "/*\n" : "") + texts.join("\n");
-      const colored = (await monaco.editor.colorize(src, lang, {})).split("<br/>").slice(lead);
-      if (colored.length >= rows.length) html = colored;
-      if (isC) {
-        tokens = monaco.editor.tokenize(src, lang).slice(lead);
-        macros = await previewMacroNames(m.file);
-      }
-    } catch (_) {}
-    if (seq !== _nodePreviewSeq) return;
-  }
-  const code = rows
-    .map((r, i) =>
-      `<div class="np-line${r.isMatch ? " np-match" : ""}" data-line="${r.line}"><span class="np-no">${r.line}</span><span class="np-text">${html[i] || ""}</span></div>`)
-    .join("");
+  const code = await loadCodePreview(m.file, m.line, NODE_PREVIEW_CTX, { focusCtx: NODE_PREVIEW_FOCUS });
+  if (!code || seq !== _nodePreviewSeq || !anchor.isConnected) return;
   const memo = node.memo
     ? `<div class="np-memo"><i class="codicon codicon-comment"></i> ${esc(node.memo)}</div>`
     : "";
@@ -701,7 +608,7 @@ async function showNodePreview(anchor, node) {
   tt.dataset.node = node.id;
   tt.innerHTML =
     `<div class="np-head"><span>${esc(shortPath(m.file))}:${m.line}</span></div>` +
-    `<div class="np-code"><div class="np-lines">${code}</div></div>${memo}`;
+    `<div class="np-code"><div class="np-lines">${code.html}</div></div>${memo}`;
   // ラベルの右に置く。真下だと下のノードを覆い、次のノードへ動かすたびに
   // 吹き出しへ入ってしまう。右の空きが狭すぎるときだけ真下（入らなければ真上）。
   // 幅は中身の高さ（行の折り返しではなくメモの折り返し）に効くので先に決める。
@@ -709,18 +616,6 @@ async function showNodePreview(anchor, node) {
   const roomRight = window.innerWidth - 8 - (rc.right + 36);
   const beside = roomRight >= 420;
   tt.style.width = beside ? Math.min(920, roomRight) + "px" : "";
-  // C はエディタと同じく、字句の色の上にマクロと関数呼び出しの色を重ねる
-  if (tokens) {
-    tt.querySelectorAll(".np-text").forEach((el, i) => {
-      const toks = tokens[i] || [];
-      const text = rows[i].text;
-      const excluded = [];
-      toks.forEach((t, k) => {
-        if (/comment|string|number/.test(t.type)) excluded.push([t.offset, k + 1 < toks.length ? toks[k + 1].offset : text.length]);
-      });
-      wrapTextRanges(el, cIdentRanges(text, excluded, macros));
-    });
-  }
   tt.style.display = "block";
   tt.onmouseenter = () => clearTimeout(_nodePreviewHideTimer);
   tt.onmouseleave = leaveNodePreview;
@@ -730,17 +625,7 @@ async function showNodePreview(anchor, node) {
     hideNodePreview();
     openPeekPermanent(m.file, Number(ln.dataset.line));
   };
-
-  // ノードの行を縦の中央に、その前後の字下げを左端に寄せて開く
-  const box = tt.querySelector(".np-code");
-  const hit = tt.querySelector(".np-match");
-  if (hit) box.scrollTop = hit.offsetTop - (box.clientHeight - hit.offsetHeight) / 2;
-  const probe = hit && hit.querySelector(".np-text");
-  if (probe && focusIndent > 0) {
-    const text = rows.find((r) => r.isMatch).text;
-    const chW = text.length ? probe.getBoundingClientRect().width / text.length : 0;
-    box.scrollLeft = Math.max(0, (focusIndent - 1) * chW);
-  }
+  code.apply(tt.querySelector(".np-code"));
 
   const w = tt.offsetWidth, h = tt.offsetHeight;
   let left = rc.right + 36, top = rc.top - 8;

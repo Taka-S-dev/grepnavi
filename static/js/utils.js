@@ -193,6 +193,137 @@ function cIdentRanges(text, excluded, macros) {
   return out;
 }
 
+// ===== コードのプレビュー =====
+// ノードのホバーとピッカーの両方が、ファイルの一部をエディタと同じ色で出す。
+
+// プレビュー用のマクロ名。エディタと同じ索引 (/api/ctags/macros) から取る。
+// 索引の作り直しを追いかける仕組みは持たず、短い時間だけ覚える。
+const _previewMacros = new Map(); // file → { at, set }
+async function previewMacroNames(file) {
+  const hit = _previewMacros.get(file);
+  if (hit && Date.now() - hit.at < 60000) return hit.set;
+  if (!window._ctagsIndexed || !window._ctagsIndexed()) return null;
+  try {
+    const r = await fetch('/api/ctags/macros?file=' + encodeURIComponent(file));
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (!d.ready) return null;
+    const set = new Set(d.macros || []);
+    _previewMacros.set(file, { at: Date.now(), set });
+    return set;
+  } catch (_) {
+    return null;
+  }
+}
+
+// wrapTextRanges は el の文字位置 ranges ([{start,end,cls}] 昇順) を span で包む。
+// 色付け済みの HTML は字句ごとの span に分かれているので、文字列ではなく
+// テキストノードを辿って位置を合わせる。
+function wrapTextRanges(el, ranges) {
+  if (!ranges.length) return;
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n);
+  let pos = 0, ri = 0;
+  for (const node of nodes) {
+    const v = node.nodeValue;
+    const start = pos, end = pos + v.length;
+    pos = end;
+    const inside = [];
+    while (ri < ranges.length && ranges[ri].start < end) {
+      if (ranges[ri].start >= start && ranges[ri].end <= end) inside.push(ranges[ri]);
+      ri++;
+    }
+    if (!inside.length) continue;
+    const frag = document.createDocumentFragment();
+    let at = start;
+    for (const r of inside) {
+      if (r.start > at) frag.appendChild(document.createTextNode(v.slice(at - start, r.start - start)));
+      const sp = document.createElement('span');
+      sp.className = r.cls;
+      sp.textContent = v.slice(r.start - start, r.end - start);
+      frag.appendChild(sp);
+      at = r.end;
+    }
+    if (at < end) frag.appendChild(document.createTextNode(v.slice(at - start)));
+    node.parentNode.replaceChild(frag, node);
+  }
+}
+
+// loadCodePreview は file の line の前後 ctx 行を取り、行の並びの HTML を作る。
+// 返すのは { html, apply }。html を `.np-code > .np-lines` の中に入れて画面に出して
+// から apply(.np-code の要素) を呼ぶと、C の重ね色を付け、line を縦の中央に、
+// その前後の字下げを左端に寄せる（寸法を測るので、表示した後でないと効かない）。
+// opts.noMatch: line を強調も中央寄せもしない（ファイルの先頭を見せるとき）。
+async function loadCodePreview(file, line, ctx, opts) {
+  opts = opts || {};
+  let lines;
+  try {
+    const r = await fetch('/api/snippet?' + new URLSearchParams({ file, line, ctx }));
+    if (!r.ok) return null;
+    lines = await r.json();
+  } catch (_) {
+    return null;
+  }
+  if (!Array.isArray(lines) || !lines.length) return null;
+  if (opts.noMatch) lines.forEach(l => { l.is_match = false; });
+  const { rows, focusIndent } = previewLines(lines, 400, opts.focusCtx == null ? 4 : opts.focusCtx);
+  let html = rows.map(r => esc(r.text));
+  const lang = detectLang(file);
+  const isC = lang === 'c' || lang === 'cpp';
+  let tokens = null, macros = null;
+  if (lang && typeof loadMonaco === 'function') {
+    try {
+      await loadMonaco();
+      // エディタをまだ開いていないとテーマは既定の明るいもので、暗い背景では
+      // 読めない濃い青が付く。エディタのテーマは vs-dark を継いで字句の色を
+      // 変えていないので、ここで vs-dark にしておけば同じ色になる。
+      if (!monacoEditor) monaco.editor.setTheme('vs-dark');
+      // 断片がブロックコメントの途中から始まるときは、開く記号を 1 行足して
+      // 字句解析にコメントだと分からせ、その 1 行は結果から捨てる
+      const texts = rows.map(r => r.text);
+      const lead = isC && startsInsideBlockComment(texts) ? 1 : 0;
+      const src = (lead ? '/*\n' : '') + texts.join('\n');
+      const colored = (await monaco.editor.colorize(src, lang, {})).split('<br/>').slice(lead);
+      if (colored.length >= rows.length) html = colored;
+      if (isC) {
+        tokens = monaco.editor.tokenize(src, lang).slice(lead);
+        macros = await previewMacroNames(file);
+      }
+    } catch (_) {}
+  }
+  const out = rows
+    .map((r, i) =>
+      `<div class="np-line${r.isMatch ? ' np-match' : ''}" data-line="${r.line}"><span class="np-no">${r.line}</span><span class="np-text">${html[i] || ''}</span></div>`)
+    .join('');
+  return {
+    html: out,
+    apply(box) {
+      // C はエディタと同じく、字句の色の上にマクロと関数呼び出しの色を重ねる
+      if (tokens) {
+        box.querySelectorAll('.np-text').forEach((el, i) => {
+          const toks = tokens[i] || [];
+          const text = rows[i].text;
+          const excluded = [];
+          toks.forEach((t, k) => {
+            if (/comment|string|number/.test(t.type)) excluded.push([t.offset, k + 1 < toks.length ? toks[k + 1].offset : text.length]);
+          });
+          wrapTextRanges(el, cIdentRanges(text, excluded, macros));
+        });
+      }
+      const hit = box.querySelector('.np-match');
+      if (!hit) return;
+      box.scrollTop = hit.offsetTop - (box.clientHeight - hit.offsetHeight) / 2;
+      const probe = hit.querySelector('.np-text');
+      if (probe && focusIndent > 0) {
+        const text = rows.find(r => r.isMatch).text;
+        const chW = text.length ? probe.getBoundingClientRect().width / text.length : 0;
+        box.scrollLeft = Math.max(0, (focusIndent - 1) * chW);
+      }
+    },
+  };
+}
+
 if (typeof module !== "undefined") module.exports = { shortPath, labelFrom, foreignRootName, nodeDir, bandLabel, splitNodeLabel, previewLines, startsInsideBlockComment, cIdentRanges };
 
 function extractSym(text) {

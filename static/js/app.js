@@ -251,6 +251,7 @@ addEventListener('DOMContentLoaded', async () => {
     if(e.key === 'ArrowUp')    { e.preventDefault(); fzfMoveSel(-1); }
     if(e.key === 'Enter')      { fzfActivate(fzfSelIdx); }
     if(e.key === 'Escape')     { closeFzf(); }
+    if((e.ctrlKey || e.metaKey) && e.key === '/') { e.preventDefault(); fzfSetPreview(!_fzfPreviewOn); }
     // 代入一覧から一段深い見方へ。同じ問い（どこで書き換えているか）に
     // 一覧とパネルの2つの答えがあると、どちらを開くか決められない。
     // 速い方を既定にして、値まで見たいときだけ深い方へ渡す

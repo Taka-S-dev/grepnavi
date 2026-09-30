@@ -1992,7 +1992,10 @@ let _fzfAnchorPt = null;
 function anchorFzfBox(pt) {
   const ov = id('fzf-overlay'), box = id('fzf-box');
   _fzfAnchorPt = pt || null;
-  if(!pt) { ov.classList.remove('anchored'); box.style.left = box.style.top = ''; return; }
+  // プレビュー付きは中央に大きく出す。幅が広く、語のそばに出しても元のコードを
+  // 覆うので、そばに出す意味が残らない。場所が毎回変わらないほうが目が迷わない。
+  // 位置は覚えておき、プレビューを切ったらそこへ戻す。
+  if(!pt || _fzfPreviewOn) { ov.classList.remove('anchored'); box.style.left = box.style.top = ''; return; }
   ov.classList.add('anchored');
   box.style.left = pt.x + 'px';
   box.style.top  = pt.y + 'px';
@@ -2029,6 +2032,9 @@ function fzfReloadRefs(filter) {
 function fzfShowLoading(text) {
   id('fzf-count').innerHTML = '<span class="fzf-spinner"></span>検索中…';
   id('fzf-list').innerHTML = `<div class="fzf-empty"><span class="fzf-spinner"></span>${esc(text)}</div>`;
+  _fzfPreviewSeq++;
+  const pv = id('fzf-preview');
+  if(pv) pv.innerHTML = '';
 }
 
 // 失敗したときは件数欄の「検索中…」も消す。残すとまだ動いているように見える
@@ -2189,6 +2195,7 @@ function fzfRenderRefs(query) {
   list.innerHTML = '';
   if(!fzfRefsFiltered.length) {
     list.innerHTML = `<div class="fzf-empty">${fzfRefs.length ? '絞り込みに一致しません' : '参照が見つかりませんでした'}</div>`;
+    fzfSchedulePreview();
     return;
   }
   // 呼び先は全件が同じファイルなので、パスを毎行出すと幅の大半が無情報になる。
@@ -2254,6 +2261,7 @@ function fzfRenderRefs(query) {
     more.textContent = `ほか ${fzfRefsFiltered.length - 300} 件（絞り込むと出ます）`;
     list.appendChild(more);
   }
+  fzfSchedulePreview();
 }
 
 // fileScopeLabel は囲む関数が無い参照の正体を1語で表す。
@@ -2361,6 +2369,7 @@ function fzfRender(query) {
     div.onclick = () => fzfOpen(f);
     list.appendChild(div);
   });
+  fzfSchedulePreview();
 }
 
 // fzfSymbolPattern はユーザー入力を /api/symbol-search の正規表現に変換する。
@@ -2413,6 +2422,7 @@ function fzfRenderSymbols(query) {
         div.onclick = async () => { closeFzf(); openPeek(s.file, await healedSymbolLine(s)); };
         list.appendChild(div);
       });
+      fzfSchedulePreview();
     } catch {
       if(seq === fzfSymFetchSeq) list.innerHTML = '<div class="fzf-empty">検索エラー</div>';
     }
@@ -2529,7 +2539,114 @@ function fzfMoveSel(delta) {
   fzfSelIdx = Math.max(0, Math.min(items.length - 1, fzfSelIdx + delta));
   items[fzfSelIdx]?.classList.add('fzf-sel');
   items[fzfSelIdx]?.scrollIntoView({block:'nearest'});
+  fzfSchedulePreview();
 }
+
+// ===== ピッカーのプレビュー =====
+// 一覧の各行はソース 1 行しか出せない。それで決められないと、選んで飛んで、
+// 違ったら戻る、を繰り返すことになる。選んでいる行の前後を横に出して、
+// 飛ぶ前に見分けられるようにする。
+let _fzfPreviewOn = true;
+try { _fzfPreviewOn = localStorage.getItem('grepnavi-picker-preview') !== '0'; } catch (_) {}
+let _fzfPreviewTimer = null;
+let _fzfPreviewSeq = 0; // 遅れて届いた応答を捨てるための通し番号
+const _FZF_PREVIEW_DELAY_MS = 90; // 上下キーを押しっぱなしにした間は取りに行かない
+
+// fzfPreviewTarget は選んでいる行が指す場所を返す。種類ごとに持ち方が違う。
+function fzfPreviewTarget() {
+  if(fzfMode === 'ref') {
+    const r = fzfRefsFiltered[fzfSelIdx];
+    return r ? { file: r.file, line: r.line, callee: r.callee || '' } : null;
+  }
+  if(_fzfSymbolQuery(id('fzf-input').value) !== null) {
+    const s = fzfSymResults[fzfSelIdx];
+    return s ? { file: s.file, line: s.line } : null;
+  }
+  const rel = fzfFiltered[fzfSelIdx];
+  const root = (graph && graph.root_dir) || '';
+  if(!rel || !root) return null;
+  return { file: root.replace(/\\/g, '/').replace(/\/$/, '') + '/' + rel, line: 1, top: true };
+}
+
+// 呼び先の行は、選ぶとその関数の定義へ飛ぶ。見せるのも定義のほうにする
+// （呼び出し行はいま開いているファイルにあって、もう見えている）。
+const _calleeDefCache = new Map(); // 名前 → {file, line} | null
+async function calleeDefLocation(name) {
+  if(_calleeDefCache.has(name)) return _calleeDefCache.get(name);
+  let loc = null;
+  try {
+    const r = await fetch('/api/hover?' + new URLSearchParams({ word: name }));
+    if(r.ok) {
+      const hits = (await r.json()) || [];
+      const h = hits.find(h => h.kind === 'func' && !h.decl) || hits.find(h => h.kind === 'func') || hits[0];
+      if(h && h.file && h.line) loc = { file: h.file, line: h.line };
+    }
+  } catch (_) {}
+  _calleeDefCache.set(name, loc);
+  return loc;
+}
+
+function fzfSchedulePreview() {
+  if(!_fzfPreviewOn) return;
+  clearTimeout(_fzfPreviewTimer);
+  _fzfPreviewTimer = setTimeout(fzfUpdatePreview, _FZF_PREVIEW_DELAY_MS);
+}
+
+async function fzfUpdatePreview() {
+  const pv = id('fzf-preview');
+  if(!pv || !_fzfPreviewOn) return;
+  const seq = ++_fzfPreviewSeq;
+  const t = fzfPreviewTarget();
+  if(!t) { pv.innerHTML = '<div class="fp-empty">選んだ行の前後がここに出ます</div>'; return; }
+  let file = t.file, line = t.line, label = '';
+  if(t.callee) {
+    const d = await calleeDefLocation(t.callee);
+    if(seq !== _fzfPreviewSeq) return;
+    if(d) { file = d.file; line = d.line; label = '定義  '; }
+    else label = '呼び出し行（定義は見つかりません）  ';
+  }
+  const code = await loadCodePreview(file, line, t.top ? 40 : 30, { noMatch: !!t.top });
+  if(seq !== _fzfPreviewSeq) return;
+  if(!code) { pv.innerHTML = '<div class="fp-empty">プレビューを取得できませんでした</div>'; return; }
+  pv.innerHTML = `<div class="fp-head">${esc(label + shortPath(file))}${t.top ? '' : ':' + line}</div>`
+    + `<div class="np-code"><div class="np-lines">${code.html}</div></div>`;
+  const box = pv.querySelector('.np-code');
+  code.apply(box);
+  box.onclick = async e => {
+    const ln = e.target.closest('.np-line');
+    if(!ln) return;
+    closeFzf();
+    await openPeek(file, Number(ln.dataset.line));
+    focusEditorAfterJump();
+  };
+}
+
+function fzfSetPreview(on) {
+  _fzfPreviewOn = !!on;
+  try { localStorage.setItem('grepnavi-picker-preview', on ? '1' : '0'); } catch (_) {}
+  id('fzf-overlay').classList.toggle('with-preview', _fzfPreviewOn);
+  reanchorFzfBox(); // 幅が変わるので画面内に収め直す
+  if(_fzfPreviewOn) fzfUpdatePreview();
+}
+
+function initFzfPreview() {
+  id('fzf-overlay').classList.toggle('with-preview', _fzfPreviewOn);
+  id('fzf-preview-toggle').onclick = () => { fzfSetPreview(!_fzfPreviewOn); id('fzf-input').focus(); };
+  // マウスで行をなぞったら、その行を選択にしてプレビューも追従させる。
+  // 強調されている行と、横に見えているコードが食い違わないようにする。
+  id('fzf-list').addEventListener('mousemove', e => {
+    const row = e.target.closest('.fzf-item');
+    if(!row) return;
+    const items = [...id('fzf-list').querySelectorAll('.fzf-item')];
+    const idx = items.indexOf(row);
+    if(idx < 0 || idx === fzfSelIdx) return;
+    items[fzfSelIdx]?.classList.remove('fzf-sel');
+    fzfSelIdx = idx;
+    row.classList.add('fzf-sel');
+    fzfSchedulePreview();
+  });
+}
+if(typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', initFzfPreview);
 
 async function fzfOpen(relPath) {
   closeFzf();
