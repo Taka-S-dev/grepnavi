@@ -187,7 +187,7 @@ addEventListener('DOMContentLoaded', async () => {
     if(e.altKey && e.key === 'ArrowRight') { e.preventDefault(); navForward(); return; }
     // vim のタグスタックと同じキーでも戻れるようにする。ブラウザで開いているときは
     // ブラウザが新規タブに使うのでここまで届かない（その場合は Alt+T を使う）。
-    // タブを持たないデスクトップ版では届く。
+    // タブを持たないデスクトップ版向け。
     if(e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey && e.key.toLowerCase() === 't') {
       e.preventDefault();
       navPopOrigin().then(ok => { if(ok) focusEditorAfterJump(); });

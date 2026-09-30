@@ -100,7 +100,7 @@ function closePanel() {
 }
 
 // 本体の履歴が動くたびに呼ばれる。frames は古い順で { idx, file, line, text, name,
-// current, top }。current はいま見ている段、top は一番深い段（ジャンプ元ではない）。
+// current, top }。current はいま見ている段、top は最後のジャンプで着いた場所（ジャンプ元ではない）。
 window.renderJumpStackPanel = function(frames) {
   _frames = frames || [];
   render();

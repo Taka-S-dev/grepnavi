@@ -414,7 +414,7 @@ test('popOriginIndex - いまより前の一番近い印を返す', () => {
   assert.equal(popOriginIndex([{}, {}], 1), -1);
 });
 
-// スタックは履歴全体から数える: 印のある項目（ジャンプ元）と、最後に一番深い場所。
+// スタックは履歴全体から数える: 印のある項目（ジャンプ元）と、最後のジャンプで着いた場所。
 // いまいる場所より後ろの段も残す。下の段へ移動して読んでいる間に上の段が消えると、
 // 行き来できない。
 test('jumpStackFrames - 段は履歴全体から数え、いま見ている段に印を付ける', () => {
@@ -434,7 +434,7 @@ test('jumpStackFrames - 段は履歴全体から数え、いま見ている段�
   assert.deepEqual(at(1), [[0, false, false], [2, true, false], [3, false, true]]);
 });
 
-test('jumpStackFrames - 印が無ければ空、最後の項目がジャンプ元なら一番深い段は足さない', () => {
+test('jumpStackFrames - 印が無ければ空、最後の項目がジャンプ元なら着いた場所の段は足さない', () => {
   assert.deepEqual(jumpStackFrames([{ file: 'a.c', line: 1 }, { file: 'b.c', line: 2 }], 1), []);
   const h = [{ file: 'a.c', line: 1 }, { file: 'a.c', line: 5, origin: true }];
   assert.deepEqual(jumpStackFrames(h, 1).map(f => [f.idx, !!f.current, !!f.top]), [[1, true, false]]);

@@ -540,7 +540,8 @@ function initFloatingPeek(getHoverCtx) {
 
     try {
       // 前後を広く持つ。数十行だとすぐ端に着いて、呼び出しの前後を追えない。
-      // 1000 行ずつならたいていのファイルは全体が入り、巨大なファイルでも重くならない。
+      // 1000 行ずつならたいていのファイルは全体が入る。上限があるので、巨大なファイルでも
+      // 取る量は増えない。
       const p = new URLSearchParams({ file, line, ctx: _FLOAT_CTX_LINES });
       const r = await fetch('/api/snippet?' + p);
       const lines = await r.json();

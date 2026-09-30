@@ -2871,7 +2871,7 @@ let _stackCursorHooked = false;
 let _stackCursorTimer = null;
 function renderJumpStack() {
   if(typeof window === 'undefined' || typeof window.renderJumpStackPanel !== 'function') return;
-  // 一番深い段の行と名前はカーソルの位置で変わる（同じファイルの中で別の関数へ動く）
+  // 着いた場所の段の行は、その関数の中にいる間カーソルの位置で変わる
   if(monacoEditor && !_stackCursorHooked) {
     _stackCursorHooked = true;
     monacoEditor.onDidChangeCursorPosition(() => {
