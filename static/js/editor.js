@@ -1684,7 +1684,7 @@ async function ensureEditor() {
       if(!model) return;
       const word = (sel && !sel.isEmpty() ? model.getValueInRange(sel).trim() : null)
                    || model.getWordAtPosition(ed.getPosition())?.word;
-      if(word && typeof window.openCallTree === 'function') window.openCallTree(word);
+      openCallTreeFor(word);
     }
   });
 
@@ -2084,6 +2084,22 @@ function calleeRange(sel) {
   if(!sel || sel.startLineNumber === sel.endLineNumber) return null;
   const end = sel.endColumn === 1 ? sel.endLineNumber - 1 : sel.endLineNumber;
   return end > sel.startLineNumber ? { start: sel.startLineNumber, end } : null;
+}
+
+// openCallTreeFor はコールツリーを開く。2 行以上を選択していれば、その範囲を
+// 起点に呼び先を辿る木を開く（Alt+C の一覧と同じ範囲の決め方）。
+function openCallTreeFor(word) {
+  const range = calleeRange(monacoEditor?.getSelection());
+  const file = tabs[activeTabIdx]?.file;
+  if(range && file && typeof window.openCallTreeRange === 'function') {
+    window.openCallTreeRange(file, range.start, range.end);
+    return;
+  }
+  if(word && typeof window.openCallTree === 'function') window.openCallTree(word);
+}
+
+function callTreeMenuLabel() {
+  return calleeRange(monacoEditor?.getSelection()) ? '選択範囲のコールツリー' : 'コールツリー';
 }
 
 function calleeMenuLabel() {

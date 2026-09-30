@@ -7,6 +7,9 @@
 let _ctMode = 'callers'; // 'callers' | 'callees'
 let _ctShowMacros = localStorage.getItem('ct-show-macros') === '1';
 let _ctRootFunc = '';
+// 選択範囲が起点のとき { file, start, end }。関数名ではなく行の範囲から呼び先を
+// 辿る: 走査器が関数として認識できない場所や、長い関数の一部だけを見るときに使う。
+let _ctRootRange = null;
 let _ctTree = null; // ルートノード（現在のモード）
 let _ctTrees = { callers: null, callees: null }; // タブごとにツリー状態を保持
 let _ctAbort = null; // 進行中の検索キャンセル用
@@ -90,6 +93,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // 入力あり or 結果表示中 → クリア
         input.value = '';
         _ctRootFunc = '';
+        _ctRootRange = null;
         _ctTree = null;
         _ctTrees.callers = null;
         _ctTrees.callees = null;
@@ -230,18 +234,41 @@ function openCallTree(funcName) {
   }
 }
 
+function ctRangeLabel(r) {
+  return `${shortFilePath(r.file)}:L${r.start}–L${r.end}`;
+}
+
+// 選択範囲を起点に開く。範囲には「呼び出し元」が無いので Callees に切り替える。
+function openCallTreeRange(file, start, end) {
+  const panel = document.getElementById('ct-sidebar');
+  panel.classList.add('open');
+  window.closeOtherSidePanels?.(panel);
+  _ctRootRange = { file, start, end };
+  _ctTrees.callers = null;
+  _ctTrees.callees = null;
+  _ctSelKey = '';
+  _ctRootFunc = ctRangeLabel(_ctRootRange);
+  document.getElementById('ct-input').value = _ctRootFunc;
+  _ctMode = 'callees';
+  document.querySelectorAll('.ct-tab').forEach(t => t.classList.toggle('active', t.dataset.mode === 'callees'));
+  ctSearch();
+}
+
 function closeCallTree() {
   document.getElementById('ct-sidebar').classList.remove('open');
 }
 
 // ホバーパネルなど外部から呼び出せるよう公開
 window.openCallTree = openCallTree;
+window.openCallTreeRange = openCallTreeRange;
 
 // ----- search -----
 async function ctSearch() {
   const input = document.getElementById('ct-input');
   const word = input.value.trim();
   if (!word) return;
+  // 入力欄を書き換えて検索したら、範囲ではなく関数名の検索に戻る
+  if (_ctRootRange && word !== ctRangeLabel(_ctRootRange)) _ctRootRange = null;
   // ルート関数が変わったときは両タブのキャッシュをリセット
   if (word !== _ctRootFunc) {
     _ctTrees.callers = null;
@@ -270,7 +297,27 @@ async function ctSearch() {
   updateCtEngineLabel(_ctMode);
 
   try {
-    if (_ctMode === 'callers') {
+    if (_ctRootRange) {
+      if (_ctMode === 'callers') {
+        body.innerHTML = '<div class="ct-empty">選択範囲が起点のときは Callees だけを表示します</div>';
+        return;
+      }
+      const r = _ctRootRange;
+      const cRes = await fetch('/api/callees?' + new URLSearchParams({ file: r.file, line: r.start, end: r.end }), { signal });
+      if (!cRes.ok) { body.innerHTML = '<div class="ct-empty">エラー</div>'; return; }
+      const callees = await cRes.json();
+      if (!callees.length) {
+        body.innerHTML = `<div class="ct-empty">${escHtml(word)} に関数呼び出しはありません</div>`;
+        return;
+      }
+      _ctTree = {
+        func: word, file: r.file, line: r.start, isRange: true,
+        children: callees.map(c => ctCalleeNode(c, r.file)),
+        truncated: cRes.headers.get('X-Truncated') === 'true',
+        expanded: true,
+      };
+      _ctTrees.callees = _ctTree;
+    } else if (_ctMode === 'callers') {
       // 検索パネルの絞り込みは渡さない。呼び出し元は「これで全部か」を
       // 見る一覧なので、別のパネルの設定で黙って件数が減るほうが危ない
       const params = new URLSearchParams({ word });
@@ -630,6 +677,11 @@ function ctJumpToLine(file, line) {
 }
 
 async function ctJumpToFunc(node) {
+  // 範囲が起点の根は関数ではない。範囲の先頭へ戻る
+  if (node.isRange) {
+    ctJumpToLine(node.file, node.line);
+    return;
+  }
   // _defFile/_defLine: ctToggle で decl:false と確認済みの実装場所
   if (node._defFile && node._defLine) {
     ctJumpToLine(node._defFile, node._defLine);
