@@ -137,7 +137,63 @@ function splitNodeLabel(label) {
   return { head: m[1], rest: m[2] };
 }
 
-if (typeof module !== "undefined") module.exports = { shortPath, labelFrom, foreignRootName, nodeDir, bandLabel, splitNodeLabel };
+// previewLines は吹き出しに出す行を整える。タブは幅 4 に開き、極端に長い行は切る。
+// focusIndent は、ノードの行の前後 focusCtx 行に共通する字下げの幅。深いブロックの
+// 中のノードは左半分が空白になるので、呼び出し側がこの幅だけ横スクロールして
+// 開く。字下げそのものは落とさない: スクロールして外側の行を見たときに、
+// ブロックの入れ子が実物と違って見えてしまう。
+function previewLines(lines, maxLen, focusCtx) {
+  const rows = lines.map(l => {
+    let t = (l.text || '').replace(/\t/g, '    ').replace(/\s+$/, '');
+    if (maxLen && t.length > maxLen) t = t.slice(0, maxLen - 1) + '…';
+    return { line: l.line, text: t, isMatch: !!l.is_match };
+  });
+  const at = rows.findIndex(r => r.isMatch);
+  const near = at < 0 ? rows : rows.slice(Math.max(0, at - focusCtx), at + focusCtx + 1);
+  const indents = near.filter(r => r.text).map(r => r.text.match(/^ */)[0].length);
+  return { rows, focusIndent: indents.length ? Math.min(...indents) : 0 };
+}
+
+// startsInsideBlockComment は、切り出した行の並びがブロックコメントの途中から
+// 始まっているかを返す。開く /* より先に閉じる */ が現れたら途中から。
+// 途中から始まる断片をそのまま色付けすると、コメントの地の文がコードとして塗られる。
+function startsInsideBlockComment(texts) {
+  for (const t of texts) {
+    const close = t.indexOf('*/'), open = t.indexOf('/*');
+    if (close >= 0 && (open < 0 || close < open)) return true;
+    if (open >= 0) return false;
+  }
+  return false;
+}
+
+// 関数呼び出しの形をしていても名前ではない語（エディタの色付けと同じ一覧）
+const C_CALL_SKIP = new Set([
+  'if', 'else', 'while', 'for', 'switch', 'return', 'sizeof', 'typeof', 'do',
+  'case', 'break', 'continue', 'goto', 'default', 'defined', 'offsetof',
+]);
+
+// cIdentRanges は C の 1 行から、エディタが字句の色に重ねているのと同じ色を付ける
+// 範囲を返す: 索引にあるマクロ・enum メンバと、関数呼び出しの名前。excluded は
+// コメント・文字列・数値の範囲 ([開始, 終了) の組) で、そこに掛かる語は塗らない。
+// マクロは関数呼び出しの形でもマクロの色にする（エディタと同じ優先順）。
+function cIdentRanges(text, excluded, macros) {
+  const out = [];
+  const re = /[A-Za-z_]\w*/g;
+  let m;
+  while ((m = re.exec(text))) {
+    const start = m.index, end = start + m[0].length;
+    if (start > 0 && /\w/.test(text[start - 1])) continue;
+    if (excluded.some(([a, b]) => start < b && end > a)) continue;
+    if (macros && macros.has(m[0])) {
+      out.push({ start, end, cls: 'monaco-define-macro' });
+    } else if (!C_CALL_SKIP.has(m[0]) && /^\s*\(/.test(text.slice(end))) {
+      out.push({ start, end, cls: 'monaco-local-func' });
+    }
+  }
+  return out;
+}
+
+if (typeof module !== "undefined") module.exports = { shortPath, labelFrom, foreignRootName, nodeDir, bandLabel, splitNodeLabel, previewLines, startsInsideBlockComment, cIdentRanges };
 
 function extractSym(text) {
   const m = text.match(/\b([a-zA-Z_][a-zA-Z0-9_]{2,})\b/);

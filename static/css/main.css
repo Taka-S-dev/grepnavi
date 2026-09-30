@@ -695,6 +695,26 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 #memo-tooltip .mt-label{color:#f0c040;font-weight:bold;font-size:11px;margin-bottom:4px;display:flex;align-items:center;gap:4px}
 #memo-tooltip .mt-label .codicon{color:#999;font-size:13px}
 
+/* ノードのホバープレビュー (graph.js showNodePreview)。中へマウスを入れて
+   スクロールして読むので pointer-events は切らない。 */
+#node-preview{
+  position:fixed;display:none;z-index:var(--z-floating);
+  background:#1e1e1e;border:1px solid #454545;border-radius:4px;
+  box-shadow:0 4px 14px rgba(0,0,0,0.6);
+  width:min(920px,calc(100vw - 16px));overflow:hidden;font-size:12px;
+}
+#node-preview .np-head{display:flex;justify-content:space-between;gap:12px;padding:4px 10px;color:#9aa0a6;font-size:11px;background:#252526;border-bottom:1px solid #333}
+#node-preview .np-code{position:relative;max-height:min(60vh,600px);overflow:auto;font:13px/1.5 Consolas,"Courier New",monospace;white-space:pre;color:#d4d4d4}
+/* 行の背景（強調・ホバー）を横スクロールした先まで届かせる */
+#node-preview .np-lines{display:inline-block;min-width:100%;padding:4px 0}
+#node-preview .np-line{display:flex;padding-right:12px;cursor:pointer}
+#node-preview .np-line:hover{background:#ffffff12}
+#node-preview .np-line.np-match{background:#f0c04026}
+#node-preview .np-no{flex:none;width:46px;text-align:right;padding-right:12px;color:#6e7681;position:sticky;left:0;background:#1e1e1e}
+#node-preview .np-match .np-no{color:#f0c040;background:#3a3420}
+#node-preview .np-memo{padding:6px 10px;border-top:1px solid #333;border-left:3px solid #f0c040;color:#ddd;white-space:pre-wrap;word-break:break-word;line-height:1.5}
+#node-preview .np-memo .codicon{color:#999;font-size:13px;vertical-align:-2px}
+
 /* プロジェクトメニュー */
 #project-menu-wrap{position:relative;display:inline-flex}
 #btn-project-menu{background:transparent;border:1px solid #4a4a4a;color:#999;font-size:11px;padding:2px 7px;border-radius:3px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:3px}
