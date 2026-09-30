@@ -249,6 +249,15 @@ function tileRects(n, area, gap, minW) {
   return { rects, skipped: n - count };
 }
 
+// locationText は、選んだ行のパスと行の範囲を 1 行の文字列にする
+// （`C:/work/openssl/ssl/ssl_lib.c:1026-1030`）。AI への質問に貼るためのもので、
+// パスは絶対パスのまま: 相手がルートを知らなくても通じ、絶対パスを前提にした MCP のツールにも
+// そのまま渡せる。区切りは / に揃える（\ は貼った先で打ち消し文字と読まれることがある）。
+function locationText(file, startLine, endLine) {
+  const p = (file || '').replace(/\\/g, '/');
+  return endLine > startLine ? `${p}:${startLine}-${endLine}` : `${p}:${startLine}`;
+}
+
 // ===== 待っている間の表示 =====
 // setBusy は el の中身を「回る印 + text」にする。
 function setBusy(el, text) {
@@ -402,7 +411,7 @@ async function loadCodePreview(file, line, ctx, opts) {
   };
 }
 
-if (typeof module !== "undefined") module.exports = { shortPath, labelFrom, foreignRootName, nodeDir, bandLabel, splitNodeLabel, previewLines, startsInsideBlockComment, cIdentRanges, adjacentDistinctBands, previewSide, tileRects };
+if (typeof module !== "undefined") module.exports = { shortPath, labelFrom, foreignRootName, nodeDir, bandLabel, splitNodeLabel, previewLines, startsInsideBlockComment, cIdentRanges, adjacentDistinctBands, previewSide, tileRects, locationText };
 
 function extractSym(text) {
   const m = text.match(/\b([a-zA-Z_][a-zA-Z0-9_]{2,})\b/);

@@ -1168,7 +1168,7 @@ function initSearchBar() {
   });
   document.addEventListener('keydown', e => {
     if(document.querySelector('.overlay-open, #include-overlay.open, #ct-sidebar.open')) return;
-    if(e.altKey && e.key.toLowerCase() === 'c') { e.preventDefault(); id('btn-cs').click(); }
+    if(e.altKey && !e.shiftKey && e.key.toLowerCase() === 'c') { e.preventDefault(); id('btn-cs').click(); }
     if(e.altKey && e.key.toLowerCase() === 'w') { e.preventDefault(); id('btn-wb').click(); }
     if(e.altKey && e.key.toLowerCase() === 'r') { e.preventDefault(); id('btn-re').click(); }
     if(e.altKey && e.key.toLowerCase() === 'i') { e.preventDefault(); id('btn-ni').click(); }

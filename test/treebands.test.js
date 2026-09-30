@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { nodeDir, bandLabel, splitNodeLabel, adjacentDistinctBands } = require('../static/js/utils.js');
+const { nodeDir, bandLabel, splitNodeLabel, adjacentDistinctBands, locationText } = require('../static/js/utils.js');
 
 const ROOT = 'C:\\Users\\t\\work\\C\\openssl';
 
@@ -70,4 +70,11 @@ test('adjacentDistinctBands - 隣り合う別ディレクトリは必ず違う�
   assert.deepEqual(adjacentDistinctBands(['ssl', 'crypto/bio', 'apps'], bandOf, 6), [0, 1, 2]);
   // 最後の色からは先頭へ戻る
   assert.deepEqual(adjacentDistinctBands(['a', 'b'], () => 5, 6), [5, 0]);
+});
+
+// コピーするのは、フルパスと行の範囲。貼った先（AI）がルートを知らなくても通じる形にする。
+test('locationText - フルパスと行の範囲を 1 行にする', () => {
+  assert.equal(locationText('C:\\work\\openssl\\ssl\\ssl_lib.c', 1026, 1030), 'C:/work/openssl/ssl/ssl_lib.c:1026-1030'); // 区切りは / に揃える
+  assert.equal(locationText('C:/work/openssl/ssl/ssl_lib.c', 1034, 1034), 'C:/work/openssl/ssl/ssl_lib.c:1034');           // 1 行なら範囲にしない
+  assert.equal(locationText('/home/u/src/x.c', 3, 9), '/home/u/src/x.c:3-9');
 });

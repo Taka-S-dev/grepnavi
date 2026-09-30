@@ -1806,6 +1806,29 @@ async function ensureEditor() {
   // デバッグ行の上でだけ出る「書き換え / 撤去」(insertions.js)
   if (typeof registerInsertionEditorActions === 'function') registerInsertionEditorActions();
 
+  // 選んだ行のパスと行の範囲をコピーする。AI に「ここについて」と聞くときに貼る。
+  // パスは絶対パス: MCP のツールは絶対パスを前提にしていて、相対パスだと呼び先や
+  // 関数本体を引くツールが通らない。
+  monacoEditor.addAction({
+    id: 'grepnavi-copy-location', label: 'パスと行をコピー',
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyMod.Shift | monaco.KeyCode.KeyC],
+    // 選択が無いときは出さない。右クリックメニューは常時出す項目が上限に達している
+    precondition: 'editorHasSelection',
+    contextMenuGroupId: '9_cutcopypaste',
+    contextMenuOrder: 5,
+    run: ed => {
+      const sel = ed.getSelection();
+      const file = tabs[activeTabIdx]?.file;
+      if (!file || !sel) return;
+      // 行頭で終わる選択（行単位で選んだとき）は、最後の行を含めない
+      const end = sel.endColumn === 1 && sel.endLineNumber > sel.startLineNumber ? sel.endLineNumber - 1 : sel.endLineNumber;
+      const text = locationText(file, sel.startLineNumber, end);
+      navigator.clipboard.writeText(text).then(
+        () => st('コピーしました: ' + text),
+        () => st('コピーできませんでした（クリップボードを使えません）'));
+    }
+  });
+
   monacoEditor.addAction({
     id: 'grepnavi-range-memo-delete', label: '選択範囲のメモを削除',
     keybindings: [monaco.KeyCode.Delete],
