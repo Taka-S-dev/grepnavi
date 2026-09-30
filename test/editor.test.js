@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 // setup.js (--require) で browser globals をスタブ済み
 global.id = () => null;
 
-const { statusGate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane, layoutDrifted, rulerColumnFor, toggleRulerCols, rulerColorFor, INDENT_GUIDE_COLORS, calleeRange, popOriginIndex } = require('../static/js/editor.js');
+const { statusGate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane, layoutDrifted, rulerColumnFor, toggleRulerCols, rulerColorFor, INDENT_GUIDE_COLORS, calleeRange, popOriginIndex, jumpStackFrames } = require('../static/js/editor.js');
 
 test('fzfMatchToken - exact match', () => {
   const r = fzfMatchToken('foobar', 'foo');
@@ -412,4 +412,30 @@ test('popOriginIndex - いまより前の一番近い印を返す', () => {
   assert.equal(popOriginIndex(h, 2), 0); // 印のある項目にいるときは、その前の印
   assert.equal(popOriginIndex(h, 0), -1);
   assert.equal(popOriginIndex([{}, {}], 1), -1);
+});
+
+// スタックは履歴全体から数える: 印のある項目（ジャンプ元）と、最後に一番深い場所。
+// いまいる場所より後ろの段も残す。下の段へ移動して読んでいる間に上の段が消えると、
+// 行き来できない。
+test('jumpStackFrames - 段は履歴全体から数え、いま見ている段に印を付ける', () => {
+  // a.c:10 から飛んで b.c:5 に着き、b.c:20 から飛んで c.c:7 に着いた。c.c:9 は着いた後の普通の移動
+  const h = [
+    { file: 'a.c', line: 10, origin: true }, { file: 'b.c', line: 5 },
+    { file: 'b.c', line: 20, origin: true }, { file: 'c.c', line: 7 }, { file: 'c.c', line: 9 },
+  ];
+  const at = idx => jumpStackFrames(h, idx).map(f => [f.idx, !!f.current, !!f.top]);
+  // 一番下の段は「着いた場所」(3) で、履歴の最後 (4) ではない。着いた後にどこへ
+  // 移っても、この段は書き換わらない
+  assert.deepEqual(at(4), [[0, false, false], [2, false, false], [3, true, true]]);
+  assert.deepEqual(at(3), [[0, false, false], [2, false, false], [3, true, true]]);
+  // 最初のジャンプ元へ移動しても、上の 2 段は残る
+  assert.deepEqual(at(0), [[0, true, false], [2, false, false], [3, false, true]]);
+  // 段と段のあいだにいるときは、次に来るジャンプ元を見ていることにする
+  assert.deepEqual(at(1), [[0, false, false], [2, true, false], [3, false, true]]);
+});
+
+test('jumpStackFrames - 印が無ければ空、最後の項目がジャンプ元なら一番深い段は足さない', () => {
+  assert.deepEqual(jumpStackFrames([{ file: 'a.c', line: 1 }, { file: 'b.c', line: 2 }], 1), []);
+  const h = [{ file: 'a.c', line: 1 }, { file: 'a.c', line: 5, origin: true }];
+  assert.deepEqual(jumpStackFrames(h, 1).map(f => [f.idx, !!f.current, !!f.top]), [[1, true, false]]);
 });

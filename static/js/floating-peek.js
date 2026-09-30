@@ -512,12 +512,29 @@ function initFloatingPeek(getHoverCtx) {
   }
 
   // ===== Floating Peek ウィンドウ (カーソル前後コンテキスト) =====
-  async function _showFloatingCtx(file, line) {
+  // opts.title で見出しを、opts.rect ({left, top, width, height}) で置き場所を指定できる。
+  // 指定が無ければ、少しずつずらして重ねる既定の置き方になる。
+  async function _showFloatingCtx(file, line, opts) {
+    opts = opts || {};
+    const place = win => {
+      if(!opts.rect) return;
+      win.style.left = opts.rect.left + 'px';
+      win.style.top = opts.rect.top + 'px';
+      win.style.width = opts.rect.width + 'px';
+      win.style.height = opts.rect.height + 'px';
+    };
     const key = '\x00ctx:' + file + ':' + line;
-    if(_floatingWins.has(key)) { _floatBringToFront(_floatingWins.get(key)); return; }
+    if(_floatingWins.has(key)) {
+      const w = _floatingWins.get(key);
+      if(w._floatMinimized) w._floatToggleMin();
+      place(w);
+      _floatBringToFront(w);
+      return;
+    }
 
-    const title = shortPath(file) + ':' + line;
+    const title = opts.title || (shortPath(file) + ':' + line);
     const { win, body } = _createFloatWin(key, title);
+    place(win);
     win._floatFirstHit = { file, line };
 
     try {

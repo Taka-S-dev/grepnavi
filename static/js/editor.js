@@ -1232,6 +1232,8 @@ async function ensureEditor() {
   const { showFloatingDef: _showFloatingDef, showFloatingCtx: _showFloatingCtx, showFloatingSelection: _showFloatingSelection, showWordCtxMenu: _showWordCtxMenu } = initFloatingPeek(
     () => ({ word: _lastHoverWord, hit: _lastHoverHit })
   );
+  // アドオン（ジャンプスタック）が、段を浮き窓で開くのに使う
+  window.showFloatingCtx = _showFloatingCtx;
 
 
   HOVER_LANGS.forEach(lang => {
@@ -2704,6 +2706,9 @@ function syncedNavLine(entry, curFile, curLine, samePath) {
 // 履歴を移動する側（戻る/進む/一覧から選ぶ）でも、離れる前に必ず呼ぶこと。
 function navSyncCurrent() {
   const cur = navHistory[navIndex];
+  // ジャンプ元の項目は「飛んだ行」そのものが意味を持つ。段を行き来して読んで
+  // いる間にカーソルへ合わせて書き換えると、戻り先が飛んだ行からずれていく。
+  if(cur && cur.origin) return;
   const line = syncedNavLine(cur, tabs[activeTabIdx]?.file,
                              monacoEditor?.getPosition()?.lineNumber, _samePath);
   if(!line) return;
@@ -2742,6 +2747,7 @@ function navMarkOrigin() {
     cur.origin = true;
     cur.col = monacoEditor.getPosition().column; // 戻るときは桁まで戻す
   }
+  renderJumpStack();
 }
 
 // popOriginIndex は index より前で、印のある一番近い項目の位置を返す（無ければ -1）。
@@ -2752,15 +2758,29 @@ function popOriginIndex(history, index) {
   return -1;
 }
 
-// navPopOrigin は直近の「飛ぶ前」まで戻る。戻った項目の印は外す（積んだものを
-// 取り出す）ので、もう一度押すとその前に飛んだ場所へ戻る。
+// navPopOrigin は、いまいる場所から見て直近の「飛ぶ前」へ戻り、そこから上の段を畳む。
+// もう一度押すと、その前に飛んだ場所へ戻る。
 async function navPopOrigin() {
-  navSyncCurrent();
   const i = popOriginIndex(navHistory, navIndex);
   if(i < 0) { flashAtCursor('戻る先のジャンプ元がありません（定義・参照で飛ぶと積まれます）'); return false; }
-  const h = navHistory[i];
-  h.origin = false;
-  navIndex = i;
+  return navCollapseTo(i);
+}
+
+// navRestoreColumn は、ジャンプ元へ移ったあとカーソルを飛んだ桁へ置く。
+// 行だけ戻すとカーソルは行頭に着き、どの語から飛んだのかを探し直すことになる。
+function navRestoreColumn(h) {
+  if(!h.col || !monacoEditor) return;
+  const pos = monacoEditor.getPosition();
+  if(pos && pos.lineNumber === h.line) monacoEditor.setPosition({ lineNumber: h.line, column: h.col });
+}
+
+// navGoFrame は idx の段へ移動するだけで、段は畳まない。上の段も残るので、
+// 段のあいだを行き来して読み比べられる（デバッガでフレームを選ぶのと同じ）。
+async function navGoFrame(idx) {
+  const h = navHistory[idx];
+  if(!h) return false;
+  navSyncCurrent();
+  navIndex = idx;
   navSkipPush = true;
   await openPeek(h.file, h.line);
   navSkipPush = false;
@@ -2770,12 +2790,122 @@ async function navPopOrigin() {
   return true;
 }
 
-// navRestoreColumn は、ジャンプ元へ戻ったあとカーソルを飛んだ桁へ置く。
-// 行だけ戻すとカーソルは行頭に着き、どの語から飛んだのかを探し直すことになる。
-function navRestoreColumn(h) {
-  if(!h.col || !monacoEditor) return;
-  const pos = monacoEditor.getPosition();
-  if(pos && pos.lineNumber === h.line) monacoEditor.setPosition({ lineNumber: h.line, column: h.col });
+// navCollapseTo は idx の段まで畳む: その段と、それより上の段の印を全部外して、
+// idx の場所へ移る。上の段は履歴の「進む」側にも残っているので、そちらも外す
+// （外さないと、畳んだはずの段が一覧に残る）。
+async function navCollapseTo(idx) {
+  if(!navHistory[idx]) return false;
+  // 先に場所を移す。印を外してからだと、移る前の項目がカーソルに合わせて書き換わる
+  const moved = await navGoFrame(idx);
+  for(let i = idx; i < navHistory.length; i++) { if(navHistory[i]) navHistory[i].origin = false; }
+  renderJumpStack();
+  renderHistoryPicker();
+  return moved;
+}
+
+// navClearOrigins はスタックを全部畳む。いまいる場所は動かさない。
+function navClearOrigins() {
+  navHistory.forEach(h => { if(h) h.origin = false; });
+  renderJumpStack();
+  renderHistoryPicker();
+}
+
+// ===== ジャンプスタック =====
+// 定義や参照へ飛んで潜っている間、どこから来ていま何段目にいるかを一覧で見せる
+// （デバッガの呼び出し履歴と同じ見方）。潜ると 1 行増え、畳むと消える。
+// 中身は履歴の印をそのまま並べたもので、別の状態は持たない。
+// 描くのは jump-stack アドオン（window.renderJumpStackPanel）。
+
+// jumpStackFrames は積み上がっている段を古い順に返す。段は履歴全体から数える:
+// 印のある項目（ジャンプ元）と、最後のジャンプで着いた場所（top）。いまいる場所より
+// 後ろの段も含めるのは、下の段へ移動して読んでいる間も上の段を残すため。
+// top は「着いた場所」に固定し、いまいる場所にはしない: ノードや検索結果のクリックは
+// 潜ってきた経路の一部ではないので、それで一番下の段が書き換わると、その場所へ
+// ジャンプで辿り着いたように見えてしまう。
+// current はいま見ている段で、index 以降で最初のジャンプ元。最後のジャンプ元より
+// 先にいるときは top に付ける（本当に着いた関数の中にいるかは呼び出し側が確かめる）。
+function jumpStackFrames(history, index) {
+  const out = [];
+  let last = -1;
+  for(let i = 0; i < history.length; i++) {
+    if(history[i] && history[i].origin) {
+      out.push({ idx: i, file: history[i].file, line: history[i].line, text: history[i].text || '' });
+      last = i;
+    }
+  }
+  if(!out.length) return [];
+  // 着いた場所は、最後のジャンプ元のすぐ次の項目（飛んだ直後に積まれる）
+  const land = last + 1;
+  if(history[land]) {
+    out.push({ idx: land, file: history[land].file, line: history[land].line, text: history[land].text || '', top: true });
+  }
+  let cur = out.findIndex(f => !f.top && f.idx >= index);
+  if(cur < 0) cur = out.length - 1;
+  out[cur].current = true;
+  return out;
+}
+
+// 段の名前に使う「その行を囲む関数」。ファイルごとに 1 回だけ取りに行く。
+const _stackSpans = new Map(); // パス → spans | null（取得中）
+function _stackSpanKey(file) { return (file || '').replace(/\\/g, '/').toLowerCase(); }
+function stackFuncName(file, line) {
+  const key = _stackSpanKey(file);
+  if(!_stackSpans.has(key)) {
+    _stackSpans.set(key, null);
+    fetch('/api/func-spans?file=' + encodeURIComponent(file))
+      .then(r => r.ok ? r.json() : [])
+      .then(d => { _stackSpans.set(key, Array.isArray(d) ? d : []); renderJumpStack(); })
+      .catch(() => { _stackSpans.set(key, []); });
+    return '';
+  }
+  const spans = _stackSpans.get(key);
+  if(!spans) return '';
+  let best = null;
+  for(const s of spans) {
+    if(s.start_line <= line && line <= s.end_line && (!best || s.start_line > best.start_line)) best = s;
+  }
+  return best ? best.name : '';
+}
+
+let _stackCursorHooked = false;
+let _stackCursorTimer = null;
+function renderJumpStack() {
+  if(typeof window === 'undefined' || typeof window.renderJumpStackPanel !== 'function') return;
+  // 一番深い段の行と名前はカーソルの位置で変わる（同じファイルの中で別の関数へ動く）
+  if(monacoEditor && !_stackCursorHooked) {
+    _stackCursorHooked = true;
+    monacoEditor.onDidChangeCursorPosition(() => {
+      clearTimeout(_stackCursorTimer);
+      _stackCursorTimer = setTimeout(renderJumpStack, 150);
+    });
+  }
+  const frames = jumpStackFrames(navHistory, navIndex);
+  if(frames.length) {
+    // 一番下の段は「着いた場所」。その関数の中にいる間だけ、いまカーソルがある行を
+    // 出す（デバッガの「いまの行」と同じ）。別の場所へ移っていたら着いた行のままにして、
+    // どの段にも印を付けない: スタックの外にいることが分かる。
+    const top = frames[frames.length - 1];
+    if(top.top && top.current) {
+      const curFile = tabs[activeTabIdx]?.file;
+      const curLine = monacoEditor?.getPosition()?.lineNumber;
+      const landed = stackFuncName(top.file, top.line);
+      const here = curFile && curLine ? stackFuncName(curFile, curLine) : '';
+      // 関数名がまだ取れていない・関数の外に着いた場合は、同じファイルかどうかで見る
+      const inside = curFile && curLine && _samePath(curFile, top.file) && (!landed || !here || landed === here);
+      if(inside) {
+        top.line = curLine;
+        top.text = navLineText(curFile, curLine);
+      } else {
+        top.current = false;
+      }
+    }
+    frames.forEach(f => {
+      f.name = stackFuncName(f.file, f.line);
+      // 履歴に積んだ時点でファイルをまだ読めていなかった項目は、ソース行が空のまま残る
+      if(!f.text) f.text = navLineText(f.file, f.line);
+    });
+  }
+  window.renderJumpStackPanel(frames);
 }
 
 // 実際に動けたかを返す（ランチャーは動けたときだけ履歴一覧に持ち替える）
@@ -2923,6 +3053,7 @@ function updateNavButtons() {
   const b = id('btn-nav-back'), f = id('btn-nav-fwd');
   if(b) b.disabled = navIndex <= 0;
   if(f) f.disabled = navIndex >= navHistory.length - 1;
+  renderJumpStack();
 }
 
 // ===== タブ / Peek パネル =====
@@ -3865,4 +3996,4 @@ addEventListener('DOMContentLoaded', () => {
   }
 });
 
-if (typeof module !== 'undefined') module.exports = { statusGate, syncedNavLine, refFilterPredicate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane, layoutDrifted, rulerColumnFor, toggleRulerCols, rulerColorFor, INDENT_GUIDE_COLORS, calleeRange, popOriginIndex };
+if (typeof module !== 'undefined') module.exports = { statusGate, syncedNavLine, refFilterPredicate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane, layoutDrifted, rulerColumnFor, toggleRulerCols, rulerColorFor, INDENT_GUIDE_COLORS, calleeRange, popOriginIndex, jumpStackFrames };

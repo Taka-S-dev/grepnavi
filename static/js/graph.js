@@ -556,6 +556,22 @@ function makeLooseMemoSection(groups) {
   return sec;
 }
 
+// ===== ジャンプスタックをノードに追加する =====
+// keepStackAsNodes はスタックを入れ子のノードとして残す。スタックは戻ると消える
+// 一時的なものなので、辿った経路に意味があったときだけ、ここで木へ移す。
+async function keepStackAsNodes(frames) {
+  let parent = selNode && graph.nodes[selNode] ? selNode : "";
+  for (const f of frames) {
+    const nid = crypto.randomUUID?.() ?? Array.from(crypto.getRandomValues(new Uint8Array(16))).map((b) => b.toString(16).padStart(2, "0")).join("");
+    const before = selNode;
+    await addToGraph({ id: nid, file: f.file, line: f.line, text: (f.text || "").trim() || f.name || "" }, parent, "calls", f.name || "");
+    // 追加できると新しいノードが選択される。変わっていなければ失敗（エラーは状態欄に出ている）
+    if (selNode === before) return;
+    parent = selNode;
+  }
+  st(`スタックの ${frames.length} 段をノードに追加しました`);
+}
+
 // ===== ノードのホバープレビュー =====
 // ツリーは調査の地図なので「このノードは何だったか」を確かめたい場面が多いが、
 // クリックするとエディタが移動して、読んでいた場所を離れる。ラベルの上で少し
@@ -596,6 +612,16 @@ function leaveNodePreview() {
   _nodePreviewHideTimer = setTimeout(hideNodePreview, NODE_PREVIEW_LEAVE_MS);
 }
 
+// previewBounds は吹き出しを置ける横の範囲を返す。右端のパネルが開いているときは、
+// 窓の右端ではなくパネルの左端までが使える幅（超えるとパネルに重なる）。
+// 目印がパネルの中にあるときは panelLeft を返し、パネルの左へ出させる。
+function previewBounds(anchor) {
+  const own = anchor.closest(".side-panel");
+  if (own) return { winW: window.innerWidth, panelLeft: own.getBoundingClientRect().left };
+  const open = document.querySelector(".side-panel.open");
+  return { winW: open ? open.getBoundingClientRect().left : window.innerWidth, panelLeft: null };
+}
+
 async function showNodePreview(anchor, node) {
   const seq = ++_nodePreviewSeq;
   const m = node.match;
@@ -606,10 +632,12 @@ async function showNodePreview(anchor, node) {
     if (seq !== _nodePreviewSeq || !anchor.isConnected) return;
     const tip = id("node-preview");
     const rc0 = anchor.getBoundingClientRect();
+    const b0 = previewBounds(anchor);
+    const p0 = previewSide(rc0, b0.winW, b0.panelLeft);
     tip.dataset.node = "";
     tip.innerHTML = '<div class="np-head"><span><span class="gn-spinner"></span>読み込み中…</span></div>';
     tip.style.width = "auto";
-    tip.style.left = Math.min(rc0.right + 36, window.innerWidth - 140) + "px";
+    tip.style.left = (p0.side === "left" ? p0.left + p0.width - 140 : Math.min(rc0.right + 36, b0.winW - 140)) + "px";
     tip.style.top = Math.max(4, rc0.top - 8) + "px";
     tip.style.display = "block";
     busyShown = true;
@@ -629,13 +657,15 @@ async function showNodePreview(anchor, node) {
   tt.innerHTML =
     `<div class="np-head"><span>${esc(shortPath(m.file))}:${m.line}</span></div>` +
     `<div class="np-code"><div class="np-lines">${code.html}</div></div>${memo}`;
-  // ラベルの右に置く。真下だと下のノードを覆い、次のノードへ動かすたびに
-  // 吹き出しへ入ってしまう。右の空きが狭すぎるときだけ真下（入らなければ真上）。
+  // 目印の横に置く。真下だと下の行を覆い、次の行へ動かすたびに吹き出しへ入って
+  // しまう（クリックもできなくなる）。右に入らなければ左。右端のパネルの中から
+  // 出すときは、パネルを覆わないようにその左。横がどちらも狭いときだけ真下。
   // 幅は中身の高さ（行の折り返しではなくメモの折り返し）に効くので先に決める。
   const rc = anchor.getBoundingClientRect();
-  const roomRight = window.innerWidth - 8 - (rc.right + 36);
-  const beside = roomRight >= 420;
-  tt.style.width = beside ? Math.min(920, roomRight) + "px" : "";
+  const bounds = previewBounds(anchor);
+  const place = previewSide(rc, bounds.winW, bounds.panelLeft);
+  const beside = place.side !== "below";
+  tt.style.width = beside ? place.width + "px" : "";
   tt.style.display = "block";
   tt.onmouseenter = () => clearTimeout(_nodePreviewHideTimer);
   tt.onmouseleave = leaveNodePreview;
@@ -648,9 +678,9 @@ async function showNodePreview(anchor, node) {
   code.apply(tt.querySelector(".np-code"));
 
   const w = tt.offsetWidth, h = tt.offsetHeight;
-  let left = rc.right + 36, top = rc.top - 8;
+  let left = place.left, top = rc.top - 8;
   if (!beside) {
-    left = Math.max(8, Math.min(rc.left, window.innerWidth - w - 8));
+    left = Math.max(8, Math.min(rc.left, bounds.winW - w - 8));
     top = rc.bottom + 6;
     if (top + h > window.innerHeight - 8) top = rc.top - h - 6;
   }

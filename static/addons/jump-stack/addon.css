@@ -1,0 +1,114 @@
+/* ===== Jump Stack Sidebar ===== */
+
+#jst-sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 380px;
+  background: #1e1e1e;
+  border-left: 1px solid #454545;
+  box-shadow: -4px 0 16px rgba(0,0,0,.5);
+  display: flex;
+  flex-direction: column;
+  z-index: 500;
+  transform: translateX(100%);
+  transition: transform 0.2s ease;
+}
+#jst-sidebar.open { transform: translateX(0); }
+
+#jst-resizer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  cursor: ew-resize;
+  background: transparent;
+  z-index: 10;
+}
+#jst-resizer:hover { background: #007acc; }
+
+#jst-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px 6px 10px;
+  border-bottom: 1px solid #333;
+  font-size: 12px;
+  color: #ccc;
+  flex-shrink: 0;
+  min-width: 0;
+}
+/* 見出しは 1 行に収める。折り返すとボタンの文字が縦に割れる */
+#jst-title { font-weight: 600; white-space: nowrap; }
+#jst-depth { color: #4fc1ff; font-size: 11px; white-space: nowrap; }
+#jst-spacer { flex: 1; }
+#jst-header button {
+  background: none;
+  border: 1px solid #444;
+  color: #aaa;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+#jst-header button:hover:not(:disabled) { background: #333; color: #fff; }
+#jst-header button:disabled { opacity: .4; cursor: default; }
+#jst-close { border: none !important; font-size: 15px !important; padding: 0 4px !important; }
+
+#jst-body { flex: 1; overflow: auto; padding: 4px 0; min-height: 0; }
+.jst-empty { padding: 16px 12px; color: #666; font-size: 11px; line-height: 1.6; }
+
+/* 1 段 = 2 行。上が関数名と場所、下がその行のソース。深さのぶん左を下げる */
+.jst-row { padding: 3px 10px 4px 8px; cursor: pointer; border-left: 3px solid transparent; }
+/* いま見ている段は塗らない。塗ると、その段が何色（どのディレクトリ）なのかが
+   読めなくなる。左の線と枠、名前の色で示す。 */
+.jst-row.jst-cur { border-left: 3px solid #f0c040; box-shadow: inset 0 0 0 1px rgba(240,192,64,.6); }
+/* ディレクトリごとの色。ツリーの帯 (main.css .node.band-N) と同じ色 */
+.jst-band-0 { background-color: #1c2638; }
+.jst-band-1 { background-color: #1c2e22; }
+.jst-band-2 { background-color: #30281c; }
+.jst-band-3 { background-color: #2a2134; }
+.jst-band-4 { background-color: #1b2e2f; }
+.jst-band-5 { background-color: #332025; }
+.jst-row:hover { background-image: linear-gradient(rgba(255,255,255,.07), rgba(255,255,255,.07)); }
+.jst-dir { flex: none; margin-left: auto; font-size: 10px; line-height: 14px; padding: 0 6px; border-radius: 2px; letter-spacing: .03em; }
+.jst-band-0 .jst-dir { color: #7aa2d6; background: #1a2a44; }
+.jst-band-1 .jst-dir { color: #7fbf8a; background: #1b3a25; }
+.jst-band-2 .jst-dir { color: #d6a86a; background: #3d3120; }
+.jst-band-3 .jst-dir { color: #b08ad6; background: #342642; }
+.jst-band-4 .jst-dir { color: #6ac0c0; background: #1c3a3b; }
+.jst-band-5 .jst-dir { color: #d68a9a; background: #402329; }
+.jst-head { display: flex; align-items: baseline; gap: 6px; font-size: 12px; white-space: nowrap; min-width: 0; }
+.jst-mark { flex: none; width: 12px; color: #5a6b78; font-family: Consolas, monospace; }
+.jst-cur .jst-mark { color: #f0c040; }
+.jst-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: #dcdcaa; }
+.jst-cur .jst-name { color: #f0d060; font-weight: 600; }
+.jst-loc { flex: none; color: #7f8c97; font-size: 11px; }
+/* 段を浮き窓で開くボタン。行に乗せたときだけ見せる（常に出すと行が騒がしい） */
+.jst-pop { flex: none; background: none; border: none; color: #9aa0a6; cursor: pointer; font-size: 13px; line-height: 14px; padding: 0 3px; border-radius: 3px; visibility: hidden; }
+.jst-row:hover .jst-pop { visibility: visible; }
+.jst-pop:hover { color: #fff; background: #ffffff22; }
+.jst-code {
+  margin-left: 18px;
+  color: #6f7d88;
+  font: 11px/1.5 Consolas, "Courier New", monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#jst-foot {
+  flex-shrink: 0;
+  padding: 5px 10px;
+  border-top: 1px solid #333;
+  color: #666;
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

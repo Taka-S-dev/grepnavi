@@ -128,6 +128,28 @@ function bandLabel(dir, parentDir) {
   return dir + '/';
 }
 
+// adjacentDistinctBands は並んだディレクトリに色番号を割り当てる。基本は bandOf(dir)
+// （ツリーと同じ色）だが、色は count 色の使い回しなので、別のディレクトリが同じ色に
+// なることがある。隣り合う別ディレクトリが同じ色だと境目が見えないので、そのときだけ
+// 次の色へずらす。同じディレクトリが続く間は同じ色のまま。
+function adjacentDistinctBands(dirs, bandOf, count) {
+  const out = [];
+  let prevDir, prevBand = -1;
+  for(const dir of dirs) {
+    let b;
+    if(out.length && dir === prevDir) {
+      b = prevBand;
+    } else {
+      b = bandOf(dir);
+      if(b === prevBand) b = (b + 1) % count;
+    }
+    out.push(b);
+    prevDir = dir;
+    prevBand = b;
+  }
+  return out;
+}
+
 // splitNodeLabel: 「関数名 — 説明」の形のラベルを名前と説明に分ける。
 // 名前だけ太くして、目が止まる場所を作るため。区切りが無ければ全体を名前として扱う。
 function splitNodeLabel(label) {
@@ -191,6 +213,40 @@ function cIdentRanges(text, excluded, macros) {
     }
   }
   return out;
+}
+
+// previewSide は、コードの吹き出しを目印 (rc) のどちら側に出すかと、その幅・左端を決める。
+// 右に入れば右。入らなければ左。右端のパネルの中から出すときは panelLeft（パネルの
+// 左端）を渡すと、パネルを覆わないようにその左へ出す。どちらも狭ければ 'below'。
+// 下に出すのは最後の手段: 下の行を覆って、クリックできなくする。
+function previewSide(rc, winW, panelLeft) {
+  const GAP = 36, MIN = 420, MAX = 920;
+  const roomRight = winW - 8 - (rc.right + GAP);
+  if(panelLeft == null && roomRight >= MIN) {
+    return { side: 'right', width: Math.min(MAX, roomRight), left: rc.right + GAP };
+  }
+  const edge = panelLeft != null ? panelLeft - 8 : rc.left - GAP;
+  const roomLeft = edge - 8;
+  if(roomLeft >= MIN) {
+    const width = Math.min(MAX, roomLeft);
+    return { side: 'left', width, left: edge - width };
+  }
+  return { side: 'below', width: 0, left: 0 };
+}
+
+// tileRects は n 枚の窓を area ({left, top, width, height}) の中へ横一列に、重ならない
+// ように並べる矩形を返す。1 枚が minW を割るほど多いときは入る枚数だけにして、
+// 返す skipped に「先頭から何枚を省いたか」を入れる（省くのは先頭側。呼び出し側は
+// 見たい側を後ろに並べる）。
+function tileRects(n, area, gap, minW) {
+  const fit = Math.max(1, Math.floor((area.width + gap) / (minW + gap)));
+  const count = Math.min(n, fit);
+  const w = Math.floor((area.width - gap * (count - 1)) / count);
+  const rects = [];
+  for(let i = 0; i < count; i++) {
+    rects.push({ left: area.left + i * (w + gap), top: area.top, width: w, height: area.height });
+  }
+  return { rects, skipped: n - count };
 }
 
 // ===== 待っている間の表示 =====
@@ -346,7 +402,7 @@ async function loadCodePreview(file, line, ctx, opts) {
   };
 }
 
-if (typeof module !== "undefined") module.exports = { shortPath, labelFrom, foreignRootName, nodeDir, bandLabel, splitNodeLabel, previewLines, startsInsideBlockComment, cIdentRanges };
+if (typeof module !== "undefined") module.exports = { shortPath, labelFrom, foreignRootName, nodeDir, bandLabel, splitNodeLabel, previewLines, startsInsideBlockComment, cIdentRanges, adjacentDistinctBands, previewSide, tileRects };
 
 function extractSym(text) {
   const m = text.match(/\b([a-zA-Z_][a-zA-Z0-9_]{2,})\b/);

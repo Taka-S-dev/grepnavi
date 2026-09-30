@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { previewLines, startsInsideBlockComment, cIdentRanges } = require('../static/js/utils.js');
+const { previewLines, startsInsideBlockComment, cIdentRanges, previewSide, tileRects } = require('../static/js/utils.js');
 
 const L = (line, text, is_match = false) => ({ line, text, is_match });
 
@@ -54,4 +54,35 @@ test('cIdentRanges - 除外範囲に掛かる語は塗らない', () => {
   const com = [text.indexOf('/*'), text.length];
   const got = cIdentRanges(text, [str, com], null);
   assert.deepEqual(got.map(r => text.slice(r.start, r.end)), ['log']);
+});
+
+// 吹き出しは目印の横に出す。下に出すと下の行を覆い、クリックできなくなる
+// （右端のパネルの行から出したときに、実際に下の段が隠れた）。
+test('previewSide - 右に入れば右、入らなければ左、パネルの中からはパネルの左', () => {
+  // ツリーのラベル: 右に十分な空きがある
+  assert.deepEqual(previewSide({ left: 60, right: 300 }, 1400, null), { side: 'right', width: 920, left: 336 });
+  // 右が狭ければ、目印の左へ
+  assert.equal(previewSide({ left: 900, right: 1300 }, 1400, null).side, 'left');
+  // 右端のパネル (左端 1020) の中の行: 右に空きがあっても使わず、パネルの左に出す
+  const p = previewSide({ left: 1040, right: 1380 }, 1400, 1020);
+  assert.deepEqual(p, { side: 'left', width: 920, left: 1012 - 920 });
+  assert.ok(p.left + p.width <= 1020, 'パネルに重ならない');
+  // 横がどちらも狭い窓だけ、下に出す
+  assert.equal(previewSide({ left: 60, right: 300 }, 500, null).side, 'below');
+});
+
+// 並べて見比べるための配置。重ねると見比べられないので、横一列で重ならないこと。
+test('tileRects - 横一列に重ならず並べ、入りきらない分は先頭側を省く', () => {
+  const area = { left: 12, top: 64, width: 996, height: 500 };
+  const { rects, skipped } = tileRects(3, area, 8, 320);
+  assert.equal(skipped, 0);
+  assert.deepEqual(rects.map(r => [r.left, r.width]), [[12, 326], [346, 326], [680, 326]]);
+  for (let i = 1; i < rects.length; i++) assert.ok(rects[i].left >= rects[i - 1].left + rects[i - 1].width, '重ならない');
+  assert.ok(rects[2].left + rects[2].width <= area.left + area.width, '領域からはみ出さない');
+  // 6 段を幅 996 に: 320px を保てるのは 3 枚まで。先頭の 3 段を省く
+  const many = tileRects(6, area, 8, 320);
+  assert.equal(many.rects.length, 3);
+  assert.equal(many.skipped, 3);
+  // 1 枚なら領域いっぱい
+  assert.deepEqual(tileRects(1, area, 8, 320).rects, [{ left: 12, top: 64, width: 996, height: 500 }]);
 });

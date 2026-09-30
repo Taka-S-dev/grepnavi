@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { nodeDir, bandLabel, splitNodeLabel } = require('../static/js/utils.js');
+const { nodeDir, bandLabel, splitNodeLabel, adjacentDistinctBands } = require('../static/js/utils.js');
 
 const ROOT = 'C:\\Users\\t\\work\\C\\openssl';
 
@@ -54,4 +54,20 @@ test('splitNodeLabel - 区切りが無ければ全体が名前', () => {
   // 関数名中のハイフンや "->" は区切りではない
   assert.deepEqual(splitNodeLabel('s->method->ssl_read'), { head: 's->method->ssl_read', rest: '' });
   assert.deepEqual(splitNodeLabel(''), { head: '', rest: '' });
+});
+
+// 色は 6 色の使い回しなので、別のディレクトリが同じ色になることがある。
+// スタックの一覧は「どこでモジュールをまたいだか」を見るものなので、隣り合う
+// 別ディレクトリが同じ色では境目が消える（実際に ssl/ と crypto/bio/ が同じ青で並んだ）。
+test('adjacentDistinctBands - 隣り合う別ディレクトリは必ず違う色にする', () => {
+  const bandOf = d => ({ 'ssl/statem': 4, 'ssl': 0, 'crypto/bio': 0, 'apps': 1 })[d];
+  // ssl と crypto/bio はどちらも 0。隣り合うので後ろをずらす
+  assert.deepEqual(adjacentDistinctBands(['ssl/statem', 'ssl', 'crypto/bio', 'crypto/bio', 'crypto/bio'], bandOf, 6),
+    [4, 0, 1, 1, 1]);
+  // 衝突しなければツリーと同じ色のまま
+  assert.deepEqual(adjacentDistinctBands(['ssl', 'apps', 'ssl'], bandOf, 6), [0, 1, 0]);
+  // ずらした色が次のディレクトリとぶつかったら、そちらもずらす
+  assert.deepEqual(adjacentDistinctBands(['ssl', 'crypto/bio', 'apps'], bandOf, 6), [0, 1, 2]);
+  // 最後の色からは先頭へ戻る
+  assert.deepEqual(adjacentDistinctBands(['a', 'b'], () => 5, 6), [5, 0]);
 });
