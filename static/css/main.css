@@ -775,6 +775,7 @@ body.frameless #tree-tab-actions,body.frameless #tree-toolbar{display:none}
 .hist-row:hover{background:#094771;color:#fff}
 .hist-cur{background:#3a3d1e}
 .hist-cur .hist-step{color:#e0d060;font-weight:600}
+.hist-origin .hist-step::after{content:' ◆';color:#4fc1ff}
 .hist-step{flex:0 0 46px;color:#7a7a7a;font-variant-numeric:tabular-nums}
 .hist-loc{flex:0 0 auto;max-width:44%;color:#8a9a7a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hist-code{flex:1 1 auto;min-width:0;color:#7f9f6f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

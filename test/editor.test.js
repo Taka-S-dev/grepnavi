@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 // setup.js (--require) で browser globals をスタブ済み
 global.id = () => null;
 
-const { statusGate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane, layoutDrifted, rulerColumnFor, toggleRulerCols, rulerColorFor, INDENT_GUIDE_COLORS, calleeRange } = require('../static/js/editor.js');
+const { statusGate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane, layoutDrifted, rulerColumnFor, toggleRulerCols, rulerColorFor, INDENT_GUIDE_COLORS, calleeRange, popOriginIndex } = require('../static/js/editor.js');
 
 test('fzfMatchToken - exact match', () => {
   const r = fzfMatchToken('foobar', 'foo');
@@ -402,4 +402,14 @@ test('calleeRange - 2 行以上にまたがる選択だけを範囲にする', (
   // 行頭で終わる選択（行単位で選んだとき）は、最後の行を含めない
   assert.deepEqual(calleeRange(sel(10, 1, 14, 1)), { start: 10, end: 13 });
   assert.equal(calleeRange(sel(10, 1, 11, 1)), null);
+});
+
+// ジャンプ元へ戻る: いまより前で、印のある一番近い項目へ。いまいる項目の印は
+// 数えない（そこから飛んで戻ってきた直後に押しても、その場に留まらない）。
+test('popOriginIndex - いまより前の一番近い印を返す', () => {
+  const h = [{ origin: true }, {}, { origin: true }, {}, {}];
+  assert.equal(popOriginIndex(h, 4), 2);
+  assert.equal(popOriginIndex(h, 2), 0); // 印のある項目にいるときは、その前の印
+  assert.equal(popOriginIndex(h, 0), -1);
+  assert.equal(popOriginIndex([{}, {}], 1), -1);
 });

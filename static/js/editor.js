@@ -1468,6 +1468,10 @@ async function ensureEditor() {
     if(e.event.ctrlKey) {
       if(!word) return;
       e.event.preventDefault();
+      // クリックした語へカーソルを置いてから飛ぶ。置かないとカーソルは前の場所に
+      // 残り、履歴とジャンプ元の記録がそちらの行になる（戻ったときにクリックした
+      // 行ではなく、その前にいた行へ着く）
+      monacoEditor.setPosition(pos);
       jumpToDefinition(word.word, _tagContextAt(monacoEditor.getModel(), pos.lineNumber, word.startColumn));
     }
     // Alt+クリック → その場でジャンプランチャー。マウスを持った手だけで
@@ -1677,7 +1681,7 @@ async function ensureEditor() {
   // 右クリック → コールツリーで検索
   monacoEditor.addAction({
     id: 'grepnavi-calltree', label: 'コールツリーで検索',
-    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyT],
+    keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyU],
     run: ed => {
       const sel = ed.getSelection();
       const model = ed.getModel();
@@ -2248,7 +2252,7 @@ function fzfRenderRefs(query) {
       setRefStepList(fzfRefsFiltered, i);
       closeFzf();
       if(ref.callee) await jumpToDefinition(ref.callee);
-      else await openPeek(ref.file, ref.line);
+      else { navMarkOrigin(); await openPeek(ref.file, ref.line); }
       focusEditorAfterJump();
     };
     list.appendChild(div);
@@ -2431,7 +2435,7 @@ function fzfRenderSymbols(query) {
                       + `<span class="fzf-name">${fzfHighlight(s.name || s.text || '', query)}</span>`
                       + `<span class="fzf-dir">${esc(rel)}:${s.line}</span>`;
         // Enter (fzfActivate) と同じく、飛ぶ1件だけ索引のずれを補正してから開く
-        div.onclick = async () => { closeFzf(); openPeek(s.file, await healedSymbolLine(s)); };
+        div.onclick = async () => { closeFzf(); navMarkOrigin(); openPeek(s.file, await healedSymbolLine(s)); };
         list.appendChild(div);
       });
       fzfSchedulePreview();
@@ -2513,7 +2517,7 @@ async function fzfActivate(idx) {
     closeFzf();
     // 呼び先を選んだときは「呼び出し行」ではなくその関数の定義を見たい
     if(ref.callee) await jumpToDefinition(ref.callee);
-    else await openPeek(ref.file, ref.line);
+    else { navMarkOrigin(); await openPeek(ref.file, ref.line); }
     focusEditorAfterJump();
     return;
   }
@@ -2521,6 +2525,7 @@ async function fzfActivate(idx) {
     const s = fzfSymResults[idx];
     if(s) {
       closeFzf();
+      navMarkOrigin();
       await openPeek(s.file, await healedSymbolLine(s));
       focusEditorAfterJump();
     }
@@ -2634,6 +2639,7 @@ async function fzfUpdatePreview() {
     const ln = e.target.closest('.np-line');
     if(!ln) return;
     closeFzf();
+    if(fzfMode === 'ref' || _fzfSymbolQuery(id('fzf-input').value) !== null) navMarkOrigin();
     await openPeek(file, Number(ln.dataset.line));
     focusEditorAfterJump();
   };
@@ -2717,6 +2723,61 @@ function navPush(file, line) {
   updateNavButtons();
 }
 
+// ===== ジャンプ元へ戻る =====
+// 戻る (Alt+Z) は通った場所を 1 つずつ辿る。定義へ飛んだ先で何か所か見て回ると、
+// 飛ぶ前の場所へ戻るのに何度も押すことになる。定義・参照・シンボルで飛ぶときに
+// 飛ぶ前の項目へ印を付けておき、直近の印まで一気に戻れるようにする（vim の
+// タグスタックと同じ）。別の入れ物は持たず履歴の上に印を置くので、戻った後も
+// 進む (Alt+X) で先へ行け、履歴一覧とも食い違わない。
+
+// navMarkOrigin は、いまいる場所の履歴項目に「ここから飛んだ」印を付ける。
+// 飛ぶことが決まった直前に呼ぶ（探しただけで飛ばなかった場所には付けない）。
+function navMarkOrigin() {
+  const file = tabs[activeTabIdx]?.file;
+  const line = monacoEditor?.getPosition()?.lineNumber;
+  if(!file || !line) return;
+  navPush(file, line); // いまの場所を項目にする（同じ場所なら増えない）
+  const cur = navHistory[navIndex];
+  if(cur && _samePath(cur.file, file)) {
+    cur.origin = true;
+    cur.col = monacoEditor.getPosition().column; // 戻るときは桁まで戻す
+  }
+}
+
+// popOriginIndex は index より前で、印のある一番近い項目の位置を返す（無ければ -1）。
+function popOriginIndex(history, index) {
+  for(let i = index - 1; i >= 0; i--) {
+    if(history[i] && history[i].origin) return i;
+  }
+  return -1;
+}
+
+// navPopOrigin は直近の「飛ぶ前」まで戻る。戻った項目の印は外す（積んだものを
+// 取り出す）ので、もう一度押すとその前に飛んだ場所へ戻る。
+async function navPopOrigin() {
+  navSyncCurrent();
+  const i = popOriginIndex(navHistory, navIndex);
+  if(i < 0) { flashAtCursor('戻る先のジャンプ元がありません（定義・参照で飛ぶと積まれます）'); return false; }
+  const h = navHistory[i];
+  h.origin = false;
+  navIndex = i;
+  navSkipPush = true;
+  await openPeek(h.file, h.line);
+  navSkipPush = false;
+  navRestoreColumn(h);
+  updateNavButtons();
+  renderHistoryPicker();
+  return true;
+}
+
+// navRestoreColumn は、ジャンプ元へ戻ったあとカーソルを飛んだ桁へ置く。
+// 行だけ戻すとカーソルは行頭に着き、どの語から飛んだのかを探し直すことになる。
+function navRestoreColumn(h) {
+  if(!h.col || !monacoEditor) return;
+  const pos = monacoEditor.getPosition();
+  if(pos && pos.lineNumber === h.line) monacoEditor.setPosition({ lineNumber: h.line, column: h.col });
+}
+
 // 実際に動けたかを返す（ランチャーは動けたときだけ履歴一覧に持ち替える）
 async function navBack() {
   if(navIndex <= 0) { flashAtCursor('これより前の履歴はありません'); return false; }
@@ -2783,7 +2844,7 @@ function openHistoryPicker() {
 
   const foot = document.createElement('div');
   foot.className = 'hist-foot';
-  foot.textContent = 'Z / X または ↑ ↓ で移動、クリックでその場所へ、Esc で閉じる';
+  foot.textContent = 'Z / X または ↑ ↓ で移動、T でジャンプ元（◆）へ、クリックでその場所へ、Esc で閉じる';
   panel.appendChild(foot);
 
   document.body.appendChild(panel);
@@ -2809,6 +2870,7 @@ function openHistoryPicker() {
     }
     if(k === 'z' || k === 'arrowup')   { e.preventDefault(); e.stopPropagation(); navBack().then(focusEditorAfterJump); return; }
     if(k === 'x' || k === 'arrowdown') { e.preventDefault(); e.stopPropagation(); navForward().then(focusEditorAfterJump); return; }
+    if(k === 't') { e.preventDefault(); e.stopPropagation(); navPopOrigin().then(focusEditorAfterJump); return; }
   };
   document.addEventListener('keydown', _histKeyHandler, true);
   setTimeout(() => document.addEventListener('mousedown', _histOutside, true), 0);
@@ -2839,6 +2901,11 @@ function renderHistoryPicker() {
     const step = document.createElement('span');
     step.className = 'hist-step';
     step.textContent = i === navIndex ? '● 現在' : (i < navIndex ? '← ' : '→ ') + Math.abs(i - navIndex);
+    // ジャンプ元へ戻る (Alt+T) の行き先。どこへ戻るのかを押す前に見られるようにする
+    if(h.origin && i < navIndex) {
+      row.classList.add('hist-origin');
+      row.title = 'ここから定義・参照へ飛んだ場所（Alt+T で戻る先）';
+    }
     const loc = document.createElement('span');
     loc.className = 'hist-loc';
     loc.textContent = shortPath(h.file) + ':' + h.line;
@@ -3379,7 +3446,7 @@ function showDefPeek(hits, word, pixelPos) {
     row.innerHTML = `<span class="def-peek-loc">${esc(shortPath(h.file))}:${h.line}</span>` +
       (h.healed ? `<span class="def-peek-healed" title="索引の行番号と実際の位置がずれていたため、行の内容が一致する場所へ調整しました">調整</span>` : '') +
       `<span class="def-peek-txt">${esc((h.text || '').trim())}</span>`;
-    row.onclick = async () => { closeDefPeek(); if(typeof window.recordJump === 'function') window.recordJump(word, null, null, h.file, h.line); await openPeekPermanent(h.file, h.line); monacoEditor.focus(); };
+    row.onclick = async () => { closeDefPeek(); if(typeof window.recordJump === 'function') window.recordJump(word, null, null, h.file, h.line); navMarkOrigin(); await openPeekPermanent(h.file, h.line); monacoEditor.focus(); };
     row.onmouseenter = () => { rows[sel].classList.remove('def-peek-sel'); sel = i; rows[sel].classList.add('def-peek-sel'); };
     list.appendChild(row);
     return row;
@@ -3392,7 +3459,7 @@ function showDefPeek(hits, word, pixelPos) {
     if (e.key === 'Escape')    { e.preventDefault(); e.stopPropagation(); closeDefPeek(); monacoEditor.focus(); return; }
     if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); rows[sel].classList.remove('def-peek-sel'); sel = (sel + 1) % hits.length; rows[sel].classList.add('def-peek-sel'); rows[sel].scrollIntoView({block:'nearest'}); return; }
     if (e.key === 'ArrowUp')   { e.preventDefault(); e.stopPropagation(); rows[sel].classList.remove('def-peek-sel'); sel = (sel - 1 + hits.length) % hits.length; rows[sel].classList.add('def-peek-sel'); rows[sel].scrollIntoView({block:'nearest'}); return; }
-    if (e.key === 'Enter')     { e.preventDefault(); e.stopPropagation(); const h = hits[sel]; closeDefPeek(); if(typeof window.recordJump === 'function') window.recordJump(word, null, null, h.file, h.line); await openPeekPermanent(h.file, h.line); monacoEditor.focus(); return; }
+    if (e.key === 'Enter')     { e.preventDefault(); e.stopPropagation(); const h = hits[sel]; closeDefPeek(); if(typeof window.recordJump === 'function') window.recordJump(word, null, null, h.file, h.line); navMarkOrigin(); await openPeekPermanent(h.file, h.line); monacoEditor.focus(); return; }
   };
   document.addEventListener('keydown', _defKeyHandler);
 
@@ -3527,6 +3594,7 @@ async function jumpToDefinition(word, tagCtx = '') {
   if(hits.length === 1) {
     stMine(`定義: ${shortPath(hits[0].file)}:${hits[0].line}${_engLabel}` + (hits[0].healed ? _healedNote : ''));
     if(typeof window.recordJump === 'function') window.recordJump(word, curFile, curLine, hits[0].file, hits[0].line);
+    navMarkOrigin();
     await openPeekPermanent(hits[0].file, hits[0].line);
     return;
   }
@@ -3797,4 +3865,4 @@ addEventListener('DOMContentLoaded', () => {
   }
 });
 
-if (typeof module !== 'undefined') module.exports = { statusGate, syncedNavLine, refFilterPredicate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane, layoutDrifted, rulerColumnFor, toggleRulerCols, rulerColorFor, INDENT_GUIDE_COLORS, calleeRange };
+if (typeof module !== 'undefined') module.exports = { statusGate, syncedNavLine, refFilterPredicate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane, layoutDrifted, rulerColumnFor, toggleRulerCols, rulerColorFor, INDENT_GUIDE_COLORS, calleeRange, popOriginIndex };

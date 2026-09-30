@@ -185,12 +185,22 @@ addEventListener('DOMContentLoaded', async () => {
     // 開いたままジャンプして回る使い方を想定。どのアドオンともキーは衝突しない）
     if(e.altKey && e.key === 'ArrowLeft')  { e.preventDefault(); navBack(); return; }
     if(e.altKey && e.key === 'ArrowRight') { e.preventDefault(); navForward(); return; }
+    // vim のタグスタックと同じキーでも戻れるようにする。ブラウザで開いているときは
+    // ブラウザが新規タブに使うのでここまで届かない（その場合は Alt+T を使う）。
+    // タブを持たないデスクトップ版では届く。
+    if(e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey && e.key.toLowerCase() === 't') {
+      e.preventDefault();
+      navPopOrigin().then(ok => { if(ok) focusEditorAfterJump(); });
+      return;
+    }
     // Ctrl+Z の位置がそのまま「戻る」になるので、ランチャー(Alt+A)の
     // Z / X と同じ文字で覚えられる
     if(e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
       const k = e.key.toLowerCase();
       if(k === 'z') { e.preventDefault(); navBack(); return; }
       if(k === 'x') { e.preventDefault(); navForward(); return; }
+      // 直近のジャンプ元まで一気に戻る（定義・参照で飛ぶ前の場所）
+      if(k === 't') { e.preventDefault(); navPopOrigin().then(ok => { if(ok) focusEditorAfterJump(); }); return; }
     }
     // 挿入ダイアログは背面を触れるので、Escape を押す時点でフォーカスが
     // エディタやピークにあることが多い。閉じる順は「ピーク → ダイアログ」で、
@@ -216,7 +226,7 @@ addEventListener('DOMContentLoaded', async () => {
       if(!refStepJump(e.shiftKey ? -1 : 1)) jumpResult(e.shiftKey ? -1 : 1);
     }
     if((e.ctrlKey || e.metaKey) && e.key === 'p') { e.preventDefault(); openFzf('file'); }
-    // Ctrl+T はブラウザ予約 (新規タブ) で奪えず、Alt+T は移動系（コールツリー）に
+    // Ctrl+T はブラウザ予約 (新規タブ) で奪えず、Alt+T は移動系（ジャンプ元へ戻る）に
     // 譲ったので Alt+Shift+T。Ctrl+P 内の `#` プレフィックスでも入れる
     if(e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 't') { e.preventDefault(); openFzf('symbol'); }
     if((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'O') { e.preventDefault(); showFileBrowser('open-file'); }

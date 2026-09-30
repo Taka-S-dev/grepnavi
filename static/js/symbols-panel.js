@@ -1,7 +1,7 @@
 // ===== シンボル検索パネル =====
 // grep 検索（本文の全文検索）とは別の、名前で引くライブサーチ。
 // 打鍵ごとに /api/symbol-search を呼び、種別チップで関数だけ・構造体だけ等に絞る。
-// バックエンドは ctags 索引（Alt+T のシンボルクイックオープンと同じ）。
+// バックエンドは ctags 索引（Alt+Shift+T のシンボルクイックオープンと同じ）。
 
 const SYM_KINDS = [
   { kind: '',            label: 'すべて' },
@@ -366,7 +366,7 @@ function _symMakeRow(s, withLoc) {
   row.appendChild(loc);
   row.title = s.file + ':' + s.line + '\n' + (s.text || '');
   row.onclick = async () => {
-    // 索引の行番号は編集でずれるので、飛ぶ1件だけ決定時に補正する（Alt+T と同じ規約）
+    // 索引の行番号は編集でずれるので、飛ぶ1件だけ決定時に補正する（Alt+Shift+T と同じ規約）
     openPeek(s.file, await healedSymbolLine(s));
   };
   return row;

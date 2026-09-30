@@ -687,7 +687,7 @@ function initFloatingPeek(getHoverCtx) {
       addItem('codicon-file-code',   'その場で定義を見る', () => _showFloatingDef(word), 'e', w);
       addItem('codicon-search',      'grep',           () => grepSearchWord(word), 'g', w);
       if(typeof window.openCallTree === 'function') {
-        addItem('codicon-list-tree', callTreeMenuLabel(), () => openCallTreeFor(word), 't',
+        addItem('codicon-list-tree', callTreeMenuLabel(), () => openCallTreeFor(word), 'u',
                 calleeRange(monacoEditor?.getSelection()) ? undefined : w);
       }
       if(typeof window.openStateMachine === 'function') {
@@ -700,6 +700,10 @@ function initFloatingPeek(getHoverCtx) {
                        && navIndex >= navHistory.length - 1;
         addItem('codicon-arrow-left',  '戻る', () => navBack(),    'z', {disabled: noBack});
         addItem('codicon-arrow-right', '進む', () => navForward(), 'x', {disabled: noFwd});
+        if(typeof navPopOrigin === 'function') {
+          addItem('codicon-arrow-left', 'ジャンプ元へ戻る', () => navPopOrigin(), 't',
+                  {disabled: popOriginIndex(navHistory, navIndex) < 0});
+        }
         // 連続して動かしたいときは一覧側（V）に入る。Z / X は1段だけ
         if(typeof openHistoryPicker === 'function') {
           if(typeof openRefStepList === 'function') {
@@ -728,7 +732,7 @@ function initFloatingPeek(getHoverCtx) {
     addItem('codicon-file-code',   'その場で定義を見る',  () => _showFloatingDef(word), 'e');
     addItem('codicon-search',      'grep',               () => grepSearchWord(word), 'g');
     if(typeof window.openCallTree === 'function') {
-      addItem('codicon-list-tree', callTreeMenuLabel(), () => openCallTreeFor(word), 't');
+      addItem('codicon-list-tree', callTreeMenuLabel(), () => openCallTreeFor(word), 'u');
     }
     if(typeof window.openStateMachine === 'function') {
       addItem('codicon-git-merge', 'この語に何が入るか',  () => window.openStateMachine(word), 's');
