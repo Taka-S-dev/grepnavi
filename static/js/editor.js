@@ -1107,8 +1107,10 @@ async function ensureEditor() {
   // 上の取り直しをすり抜けて「広げた分が黒いまま」になることが、デスクトップ窓で
   // まれにある（条件は特定できていない）。原因を当てにいく代わりに、Monaco が
   // 認識している大きさとコンテナの実寸を毎秒比べ、ずれていれば取り直す。
-  // 読むのは値 2 つで、ずれていない限り layout() は呼ばない。
-  let driftStreak = 0, driftKey = '';
+  // 大きさが合っているときは、行が下端まで描かれているかも見る（大きさは合って
+  // いるのに黒い場合があり、大きさの比較では見つからない）。どちらも読むだけで、
+  // 異常が無い限り何も描き直さない。
+  let driftStreak = 0, driftKey = '', gapStreak = 0;
   // 外から読むための内部状態。デスクトップ窓には開発者ツールが無いので、
   // 再現時に何が起きているかは /api/editor-state 経由でしか見られない
   window._layoutWatch = { ticks: 0, skipped: '', streak: 0, recovered: 0, last: '' };
@@ -1120,7 +1122,23 @@ async function ensureEditor() {
     const el = id('monaco-container');
     if (!el || !el.offsetParent) { lw.skipped = 'closed'; return; } // エディタを閉じているとき
     const w = el.clientWidth, h = el.clientHeight;
-    if (!layoutDrifted(w, h, monacoEditor.getLayoutInfo())) { driftStreak = 0; lw.streak = 0; return; }
+    if (!layoutDrifted(w, h, monacoEditor.getLayoutInfo())) {
+      driftStreak = 0; lw.streak = 0;
+      // 大きさの認識は合っている。それでも下が黒いことがあるので、行が表示領域の
+      // 下端まで描かれているかを別に見る（大きさだけ比べても、この場合は見つからない）
+      const snap = layoutRenderSnapshot();
+      if (!snap || !viewportUncovered(snap)) { gapStreak = 0; return; }
+      // 1 回目は見送る: ファイルを開いた直後など、行がまだ並んでいない一瞬を拾わないため。
+      // 3 回描き直しても埋まらないなら、その状態では諦める（毎秒の描き直しを防ぐ）
+      gapStreak++;
+      if (gapStreak < 2 || gapStreak > 4) return;
+      // まず描き直させる。次の点検でも埋まっていなければ、表示を組み直す
+      try { if (gapStreak === 2) monacoEditor.render(true); else rebuildEditorView(); } catch (_) {}
+      lw.uncovered = (lw.uncovered || 0) + 1;
+      lw.lastUncovered = snap;
+      st('エディタを描き直しました (下 ' + snap.lastLineGap + 'px に行が描かれていませんでした)');
+      return;
+    }
     // 同じ実寸で 3 回直しても合わないなら、そのサイズでは諦める（毎秒描き直しの連打を防ぐ）
     const key = w + 'x' + h;
     if (key !== driftKey) { driftKey = key; driftStreak = 0; }
@@ -3183,6 +3201,129 @@ async function openPeek(file, line, {permanent = false} = {}) {
   monacoEditor.layout();
 }
 
+// layoutRenderSnapshot は「行がどこまで描かれているか」を測る。下が黒く欠ける症状は、
+// Monaco の大きさの認識がずれている場合・認識は合っているのに行を描いていない場合・
+// 行は描かれているのに画面へ出ていない場合があり、大きさを比べるだけでは区別できない。
+// 読むだけで、何も書き換えない。
+function layoutRenderSnapshot() {
+  const el = id('monaco-container');
+  if (!el || !monacoEditor) return null;
+  const rc = el.getBoundingClientRect();
+  const size = sel => {
+    const e = el.querySelector(sel);
+    if (!e) return null;
+    const r = e.getBoundingClientRect();
+    return [Math.round(r.width), Math.round(r.height)];
+  };
+  const lines = el.querySelectorAll('.view-lines .view-line');
+  let maxBottom = 0;
+  lines.forEach(l => { const b = l.getBoundingClientRect().bottom; if (b > maxBottom) maxBottom = b; });
+  const li = monacoEditor.getLayoutInfo();
+  const lineHeight = monacoEditor.getOption(monaco.editor.EditorOption.lineHeight);
+  const model = monacoEditor.getModel();
+  const modelLines = model ? model.getLineCount() : 0;
+  const ranges = monacoEditor.getVisibleRanges() || [];
+  const mm = el.querySelector('.minimap canvas');
+  return {
+    container: [Math.round(rc.width), Math.round(rc.height)],
+    monaco: [li.width, li.height],
+    editor: size('.monaco-editor'),
+    guard: size('.overflow-guard'),
+    scrollable: size('.monaco-scrollable-element.editor-scrollable'),
+    viewLines: size('.view-lines'),
+    lineCount: lines.length,
+    // エディタ領域の下端から、描かれている最後の行までの空き (px)
+    lastLineGap: lines.length ? Math.round(rc.bottom - maxBottom) : null,
+    lineHeight,
+    scrollTop: Math.round(monacoEditor.getScrollTop()),
+    // 最後の行の下端（中身の座標）。ファイルの終わりより下は空いていて正しい
+    linesEnd: modelLines ? Math.round(monacoEditor.getTopForLineNumber(modelLines) + lineHeight) : 0,
+    visible: ranges.length ? [ranges[0].startLineNumber, ranges[ranges.length - 1].endLineNumber] : null,
+    modelLines,
+    minimap: mm ? [mm.width, mm.height] : null,
+    dpr: window.devicePixelRatio,
+  };
+}
+
+// viewportUncovered は、行が描かれるはずの場所が空いているかを返す。
+// ファイルの終わりが表示領域の途中に来ているときの空きは正しいので、その分は引く。
+// 2 行ぶんまでは許す: 行の途中でスクロールが止まっているだけの隙間を数えないため。
+function viewportUncovered(snap) {
+  if (!snap || snap.lastLineGap == null || !(snap.lineHeight > 0)) return false;
+  const height = snap.container[1];
+  const expectedGap = Math.max(0, height - (snap.linesEnd - snap.scrollTop));
+  return snap.lastLineGap - expectedGap > snap.lineHeight * 2;
+}
+
+// redrawVerdict は、測った値から「何が起きていたか」を 1 文にする。
+function redrawVerdict(snap) {
+  if (!snap) return '状態を測れませんでした';
+  if (layoutDrifted(snap.container[0], snap.container[1], { width: snap.monaco[0], height: snap.monaco[1] })) {
+    return `Monaco の大きさの認識がずれていました (${snap.monaco[0]}x${snap.monaco[1]} / 実寸 ${snap.container[0]}x${snap.container[1]})`;
+  }
+  if (viewportUncovered(snap)) return `下 ${snap.lastLineGap}px に行が描かれていませんでした`;
+  return '大きさも行の描画も正常でした（画面への表示側の問題）';
+}
+
+// rebuildEditorView は行の表示を一から組み直す。描き直しを頼むだけでは、Monaco が
+// 「もう描いた」と覚えている行は描かれ直さない。表示位置とカーソルは保つ。
+function rebuildEditorView() {
+  const model = monacoEditor.getModel();
+  if (!model) return;
+  const view = monacoEditor.saveViewState();
+  monacoEditor.setModel(null);
+  monacoEditor.setModel(model);
+  if (view) monacoEditor.restoreViewState(view);
+  // モデルを載せ直すと消える装飾がある（タブを切り替えたときと同じ一式を付け直す）
+  const tab = tabs[activeTabIdx];
+  if (tab && tab.model === model) reapplyEditorDecorations(tab);
+}
+
+// redrawEditor はエディタの描画をやり直す（下が黒く欠けたときに押す）。
+// 押した時点の状態を先に測って記録する: 黒くなる条件が特定できていないので、
+// 起きている瞬間の値が一番の手掛かりになる。続けて押すと、次の手を試す。
+let _redrawStep = 0, _redrawAt = 0;
+function redrawEditor() {
+  if (!monacoEditor) return;
+  const now = Date.now();
+  _redrawStep = now - _redrawAt < 15000 ? _redrawStep + 1 : 1;
+  _redrawAt = now;
+  const before = layoutRenderSnapshot();
+  const el = id('monaco-container');
+  let did;
+  if (_redrawStep === 1) {
+    monacoEditor.layout();
+    monacoEditor.render(true);
+    did = '配置と描画をやり直しました';
+  } else {
+    // 1 回目で直らなかったとき: 領域ごといったん外してブラウザに描き直させ、
+    // 行の表示も組み直す
+    el.style.display = 'none';
+    void el.offsetHeight;
+    el.style.display = '';
+    monacoEditor.layout();
+    rebuildEditorView();
+    did = _redrawStep === 2 ? '領域ごと描き直しました' : '領域ごと描き直しました（直らなければ Ctrl+R で再読み込みを）';
+  }
+  const lw = window._layoutWatch || (window._layoutWatch = {});
+  const rec = { at: new Date().toISOString(), step: _redrawStep, verdict: redrawVerdict(before), before };
+  lw.manual = (lw.manual || []).concat([rec]).slice(-5);
+  const send = () => { if (typeof window.pushEditorStateNow === 'function') window.pushEditorStateNow(); };
+  requestAnimationFrame(() => {
+    rec.after = layoutRenderSnapshot();
+    // 行が描かれていない状態は測れるので、直ったかどうかもここで確かめられる。
+    // 埋まっていなければ、押し直しを待たずに表示を組み直す
+    if (viewportUncovered(rec.after)) {
+      rebuildEditorView();
+      rec.rebuilt = true;
+      requestAnimationFrame(() => { rec.after = layoutRenderSnapshot(); send(); });
+      return;
+    }
+    send();
+  });
+  st(`${did} — ${rec.verdict}`);
+}
+
 // layoutDrifted は Monaco が認識している大きさとコンテナの実寸が食い違って
 // いるかを返す。1px までは揺れとして無視する: コンテナは小数ピクセルを取りうるが
 // Monaco は整数で持つので、そこを「ずれ」と数えると毎秒 layout() が走ってしまう。
@@ -3384,6 +3525,21 @@ async function switchTab(idx) {
   // エラータブはオーバーレイで中央に大きく表示。通常タブは消す。
   if (tab.error) showFileErrorOverlay(tab);
   else           hideFileErrorOverlay();
+  reapplyEditorDecorations(tab);
+  renderTabs();
+  // エクスプローラパネルが表示中なら連動してファイルを選択
+  if(document.getElementById('explorer-panel')?.classList.contains('visible')) {
+    window.explorerRevealFile?.(tab.file);
+  }
+  monacoEditor.layout();
+  // タブ切替で active_file が変わったため editor-state を即時 push する。
+  if (typeof bumpEditorStateSync === 'function') bumpEditorStateSync();
+}
+
+// reapplyEditorDecorations は、エディタにモデルを載せ直したあとで付け直す装飾をまとめる。
+// タブの切り替えと、表示の組み直し (rebuildEditorView) の両方が同じ一式を必要とする:
+// 片方にだけ足すと、もう片方でその装飾が消えたままになる。
+function reapplyEditorDecorations(tab) {
   refreshGraphDecorations();
   refreshLineMemoDecorations();
   refreshRangeMemoDecorations();
@@ -3398,14 +3554,6 @@ async function switchTab(idx) {
   // 条件が残っていれば移った先にも効かせる（装飾はモデルごとなので、
   // 以前はファイルを移るたび適用を押し直す必要があった）
   else if (typeof _ifdefConds !== 'undefined' && _ifdefConds.length) applyIfdefHighlight();
-  renderTabs();
-  // エクスプローラパネルが表示中なら連動してファイルを選択
-  if(document.getElementById('explorer-panel')?.classList.contains('visible')) {
-    window.explorerRevealFile?.(tab.file);
-  }
-  monacoEditor.layout();
-  // タブ切替で active_file が変わったため editor-state を即時 push する。
-  if (typeof bumpEditorStateSync === 'function') bumpEditorStateSync();
 }
 
 function closeTab(idx) {
@@ -3996,4 +4144,4 @@ addEventListener('DOMContentLoaded', () => {
   }
 });
 
-if (typeof module !== 'undefined') module.exports = { statusGate, syncedNavLine, refFilterPredicate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane, layoutDrifted, rulerColumnFor, toggleRulerCols, rulerColorFor, INDENT_GUIDE_COLORS, calleeRange, popOriginIndex, jumpStackFrames };
+if (typeof module !== 'undefined') module.exports = { statusGate, syncedNavLine, refFilterPredicate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane, layoutDrifted, viewportUncovered, redrawVerdict, rulerColumnFor, toggleRulerCols, rulerColorFor, INDENT_GUIDE_COLORS, calleeRange, popOriginIndex, jumpStackFrames };

@@ -72,6 +72,8 @@
         hidden: document.hidden,
         resizing: (typeof peekResizing !== 'undefined') ? peekResizing : null,
         watch: window._layoutWatch || null,
+        // 行がどこまで描かれているか。大きさが合っているのに黒いときの手掛かり
+        render: (typeof layoutRenderSnapshot === 'function') ? layoutRenderSnapshot() : null,
       };
     } catch (_) {}
     return state;
@@ -91,6 +93,9 @@
       body: key,
     }).catch(() => { /* network エラーは無視。次回 push で復帰 */ });
   }
+
+  // 再描画ボタンが、記録した状態をすぐ送るのに使う
+  window.pushEditorStateNow = () => _push(true);
 
   function _schedulePush() {
     clearTimeout(_pushTimer);

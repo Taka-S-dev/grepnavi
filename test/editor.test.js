@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 // setup.js (--require) で browser globals をスタブ済み
 global.id = () => null;
 
-const { statusGate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane, layoutDrifted, rulerColumnFor, toggleRulerCols, rulerColorFor, INDENT_GUIDE_COLORS, calleeRange, popOriginIndex, jumpStackFrames } = require('../static/js/editor.js');
+const { statusGate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane, layoutDrifted, viewportUncovered, redrawVerdict, rulerColumnFor, toggleRulerCols, rulerColorFor, INDENT_GUIDE_COLORS, calleeRange, popOriginIndex, jumpStackFrames } = require('../static/js/editor.js');
 
 test('fzfMatchToken - exact match', () => {
   const r = fzfMatchToken('foobar', 'foo');
@@ -438,4 +438,28 @@ test('jumpStackFrames - 印が無ければ空、最後の項目がジャンプ�
   assert.deepEqual(jumpStackFrames([{ file: 'a.c', line: 1 }, { file: 'b.c', line: 2 }], 1), []);
   const h = [{ file: 'a.c', line: 1 }, { file: 'a.c', line: 5, origin: true }];
   assert.deepEqual(jumpStackFrames(h, 1).map(f => [f.idx, !!f.current, !!f.top]), [[1, true, false]]);
+});
+
+// 下が黒く欠ける症状には、大きさの認識は合っているのに行が描かれていない場合がある。
+// 大きさを比べるだけの点検では見つからないので、行が下端まで届いているかを別に見る。
+test('viewportUncovered - 行が描かれるはずの場所が空いているときだけ真', () => {
+  const base = { container: [800, 600], monaco: [800, 600], lineHeight: 20, scrollTop: 0, linesEnd: 5000 };
+  // 下端まで描かれている（隙間は 1 行未満）
+  assert.equal(viewportUncovered({ ...base, lastLineGap: 8 }), false);
+  // 広げた 250px に行が無い
+  assert.equal(viewportUncovered({ ...base, lastLineGap: 250 }), true);
+  // ファイルの終わりが途中に来ている: 行は 300px までしか無いので、下 300px の空きは正しい
+  assert.equal(viewportUncovered({ ...base, linesEnd: 300, lastLineGap: 300 }), false);
+  // 終わり近くまでスクロールしている場合も同じ
+  assert.equal(viewportUncovered({ ...base, scrollTop: 4700, linesEnd: 5000, lastLineGap: 300 }), false);
+  // 行が 1 本も無い（測れない）ときは判定しない
+  assert.equal(viewportUncovered({ ...base, lastLineGap: null }), false);
+});
+
+test('redrawVerdict - 測った値から何が起きていたかを言い分ける', () => {
+  const ok = { container: [800, 600], monaco: [800, 600], lineHeight: 20, scrollTop: 0, linesEnd: 5000, lastLineGap: 4 };
+  assert.match(redrawVerdict({ ...ok, monaco: [800, 350] }), /大きさの認識がずれ/);
+  assert.match(redrawVerdict({ ...ok, lastLineGap: 250 }), /行が描かれていません/);
+  assert.match(redrawVerdict(ok), /表示側の問題/);
+  assert.match(redrawVerdict(null), /測れません/);
 });

@@ -88,6 +88,6 @@
 | `/api/reveal` | エクスプローラでファイルを表示 |
 | `/api/new-window` | 新しいウィンドウ（別インスタンス）を起動 |
 | `/api/has-ignore` | ルートに .gitignore 等があるか（除外マーカー表示用） |
-| `/api/editor-state` | 開いているファイル・カーソル位置（MCP 用） |
+| `/api/editor-state` | 開いているファイル・カーソル位置（MCP 用）。`layout` は描画の診断値で、項目は予告なく変わる |
 | `/api/events` | グラフ変更通知（SSE） |
 | `/api/memstats` | メモリ使用量の診断 |
