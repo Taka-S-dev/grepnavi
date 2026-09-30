@@ -2024,6 +2024,19 @@ function fzfReloadRefs(filter) {
   }, 180);
 }
 
+// ピッカーが結果を待っている間の表示。参照は大きいツリーで 10 秒を超えることが
+// あり、文字だけだと止まっているのか動いているのか分からない。
+function fzfShowLoading(text) {
+  id('fzf-count').innerHTML = '<span class="fzf-spinner"></span>検索中…';
+  id('fzf-list').innerHTML = `<div class="fzf-empty"><span class="fzf-spinner"></span>${esc(text)}</div>`;
+}
+
+// 失敗したときは件数欄の「検索中…」も消す。残すとまだ動いているように見える
+function fzfShowFailure(text) {
+  id('fzf-count').textContent = '';
+  id('fzf-list').innerHTML = `<div class="fzf-empty">${esc(text)}</div>`;
+}
+
 async function openRefPicker(word, assignOnly, filter) {
   if(!word) { flashAtCursor('語の上ではありません', 'warn'); return; }
   if(word.length < 2) { flashAtCursor(`参照を探せません: ${word} は1文字です`, 'warn'); return; }
@@ -2039,8 +2052,7 @@ async function openRefPicker(word, assignOnly, filter) {
     ? ' / Alt+S で何が入るか' : '';
   id('fzf-input').placeholder = (assignOnly ? `${word} への代入` : `${word} の参照`)
     + ` を絞り込む（空白で AND / -語 で除外 / path:… でパスだけ${deeper}）`;
-  id('fzf-count').textContent = '検索中…';
-  id('fzf-list').innerHTML = '<div class="fzf-empty">参照を検索しています…</div>';
+  fzfShowLoading(assignOnly ? '代入を検索しています…' : '参照を検索しています…');
   // 絞り込みでの再問い合わせでは、位置と入力欄とフォーカスをそのままにする
   if(filter === undefined) {
     anchorFzfBox(takePickerAnchor());
@@ -2058,7 +2070,7 @@ async function openRefPicker(word, assignOnly, filter) {
     if(assignOnly) params.set('assign', '1');
     if(filter) params.set('filter', filter);
     const r = await fetch('/api/references?' + params.toString());
-    if(!r.ok) { id('fzf-list').innerHTML = '<div class="fzf-empty">参照の検索に失敗しました</div>'; return; }
+    if(!r.ok) { fzfShowFailure('参照の検索に失敗しました'); return; }
     const engine = r.headers.get('X-Engine') || '';
     fzfRefs = (await r.json()) || [];
     // 索引ベース（gtags）か字面（rg）かで結果の性質が変わるので明示する
@@ -2069,7 +2081,7 @@ async function openRefPicker(word, assignOnly, filter) {
     fzfRenderRefs(id('fzf-input').value);
     reanchorFzfBox();
   } catch {
-    id('fzf-list').innerHTML = '<div class="fzf-empty">参照の検索に失敗しました</div>';
+    fzfShowFailure('参照の検索に失敗しました');
   }
 }
 
@@ -2118,8 +2130,7 @@ async function openCalleePicker() {
   id('fzf-overlay').classList.add('open');
   id('fzf-input').value = '';
   id('fzf-input').placeholder = '呼び先を絞り込む（空白で AND / -語 で除外 / path:… でパスだけ）';
-  id('fzf-count').textContent = '検索中…';
-  id('fzf-list').innerHTML = '<div class="fzf-empty">呼び先を探しています…</div>';
+  fzfShowLoading('呼び先を探しています…');
   anchorFzfBox(takePickerAnchor());
   setTimeout(() => id('fzf-input').focus(), 30);
   try {
@@ -2128,7 +2139,7 @@ async function openCalleePicker() {
     const p = new URLSearchParams({ file: tab.file, line: String(line) });
     if(range) p.set('end', String(range.end));
     const r = await fetch('/api/callees?' + p.toString());
-    if(!r.ok) { id('fzf-list').innerHTML = '<div class="fzf-empty">呼び先を取得できませんでした</div>'; return; }
+    if(!r.ok) { fzfShowFailure('呼び先を取得できませんでした'); return; }
     const hits = (await r.json()) || [];
     if(fzfMode !== 'ref') return;
     const calleeTruncated = r.headers.get('X-Truncated') === 'true';
@@ -2161,7 +2172,7 @@ async function openCalleePicker() {
     fzfRenderRefs(id('fzf-input').value);
     reanchorFzfBox();
   } catch {
-    id('fzf-list').innerHTML = '<div class="fzf-empty">呼び先を取得できませんでした</div>';
+    fzfShowFailure('呼び先を取得できませんでした');
   }
 }
 
