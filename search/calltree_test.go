@@ -504,3 +504,52 @@ func TestCalleeMarksMemberCalls(t *testing.T) {
 		t.Errorf("Text が呼び出し行でない: %q", hits[0].Text)
 	}
 }
+
+// 走査器が関数を認識できないときの出口。範囲は呼び出し側が決めるので、
+// 範囲の外の呼び出しは、同じ関数の中にあっても返さない。
+func TestFindCalleesInRangeOnlyLooksAtGivenLines(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "a.c")
+	src := `DEFINE_HANDLER(on_read)
+{
+	prepare(ctx);
+	if (ctx->ready) {
+		do_read(ctx); /* helper() はコメント */
+		s->method->ssl_read(s);
+	}
+	cleanup(ctx);
+}
+`
+	if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hits, truncated, err := FindCalleesInRange(file, 4, 7, "")
+	if err != nil || truncated {
+		t.Fatalf("err=%v truncated=%v", err, truncated)
+	}
+	got := map[string]int{}
+	indirect := map[string]bool{}
+	for _, h := range hits {
+		got[h.Name] = h.CallLine
+		indirect[h.Name] = h.Indirect
+	}
+	if got["do_read"] != 5 || got["ssl_read"] != 6 || !indirect["ssl_read"] {
+		t.Errorf("範囲内の呼び出しが取れていない: %v indirect=%v", got, indirect)
+	}
+	for _, outside := range []string{"prepare", "cleanup", "helper", "DEFINE_HANDLER"} {
+		if _, ok := got[outside]; ok {
+			t.Errorf("%s は範囲の外（またはコメント）なのに返っている: %v", outside, got)
+		}
+	}
+}
+
+// ファイルの端を越える範囲は、ある行だけを見る。
+func TestFindCalleesInRangeClampsToFile(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "a.c")
+	if err := os.WriteFile(file, []byte("a();\nb();\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hits, _, err := FindCalleesInRange(file, 0, 99, "")
+	if err != nil || len(hits) != 2 {
+		t.Fatalf("hits=%v err=%v", hits, err)
+	}
+}

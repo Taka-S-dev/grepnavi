@@ -2077,9 +2077,23 @@ async function openRefPicker(word, assignOnly, filter) {
 // 「いま読んでいる関数が何を呼んでいるか」は読み進める途中で何度も要るのに、
 // コールツリーのサイドバーを開いて検索するのは手数が多い。カーソル位置の
 // 関数の呼び先だけを、参照ピッカーと同じ操作で出す。
+// calleeRange は選択から「呼び先を見る範囲」を決める。2 行以上にまたがる選択だけを
+// 範囲として扱う: 1 行の中の選択は語を選んだだけのことが多く、それで関数全体の
+// 呼び先が出なくなると困る。行頭で終わる選択は、その行を含めない。
+function calleeRange(sel) {
+  if(!sel || sel.startLineNumber === sel.endLineNumber) return null;
+  const end = sel.endColumn === 1 ? sel.endLineNumber - 1 : sel.endLineNumber;
+  return end > sel.startLineNumber ? { start: sel.startLineNumber, end } : null;
+}
+
+function calleeMenuLabel() {
+  return calleeRange(monacoEditor?.getSelection()) ? '選択範囲の呼び先' : 'いまいる関数の呼び先';
+}
+
 async function openCalleePicker() {
   const tab = tabs[activeTabIdx];
-  const line = monacoEditor?.getPosition()?.lineNumber;
+  const range = calleeRange(monacoEditor?.getSelection());
+  const line = range ? range.start : monacoEditor?.getPosition()?.lineNumber;
   if(!tab || !line) { flashAtCursor('先にファイルを開いてください', 'warn'); return; }
   fzfMode = 'ref';
   fzfRefWord = ''; // 入力しても参照の再問い合わせに戻らないようにする
@@ -2096,6 +2110,7 @@ async function openCalleePicker() {
     // 囲んでいる関数の解決はサーバ側が行う（シグネチャがマクロ戻り値や
     // 複数行でもブレースブロックの実測で当てるため、カーソル行のまま渡す）
     const p = new URLSearchParams({ file: tab.file, line: String(line) });
+    if(range) p.set('end', String(range.end));
     const r = await fetch('/api/callees?' + p.toString());
     if(!r.ok) { id('fzf-list').innerHTML = '<div class="fzf-empty">呼び先を取得できませんでした</div>'; return; }
     const hits = (await r.json()) || [];
@@ -2103,7 +2118,8 @@ async function openCalleePicker() {
     const calleeTruncated = r.headers.get('X-Truncated') === 'true';
     // どの関数の呼び先なのかを見せる。カーソル位置の語ではなく囲む関数を
     // 使うので、名前が出ていないと別の関数の結果だと誤解される
-    const encl = r.headers.get('X-Func') || '';
+    // 範囲で聞いたときは範囲を名乗る。関数名を出すと関数全体の結果だと読まれる
+    const encl = range ? `L${range.start}–L${range.end}` : (r.headers.get('X-Func') || '');
     if(encl) id('fzf-input').placeholder = `${encl} の呼び先を絞り込む`;
     // 呼び出し行へ飛ぶのではなく、選んだ関数の定義へ飛びたいので、
     // Reference 形ではなく「名前 + 呼び出し行」を持たせて活性化時に解決する
@@ -2120,7 +2136,9 @@ async function openCalleePicker() {
     if(!fzfRefs.length) {
       id('fzf-count').textContent = '';
       id('fzf-list').innerHTML = '<div class="fzf-empty">'
-        + (encl ? `${encl} は関数を呼んでいません` : 'カーソルが関数の中にありません')
+        + (range ? `${encl} に関数呼び出しはありません`
+           : encl ? `${encl} は関数を呼んでいません`
+           : 'カーソルが関数の中にありません。範囲を選択して Alt+C を押すと、その範囲の呼び先を出せます')
         + '</div>';
       return;
     }
@@ -3617,4 +3635,4 @@ addEventListener('DOMContentLoaded', () => {
   }
 });
 
-if (typeof module !== 'undefined') module.exports = { statusGate, syncedNavLine, refFilterPredicate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane, layoutDrifted, rulerColumnFor, toggleRulerCols, rulerColorFor, INDENT_GUIDE_COLORS };
+if (typeof module !== 'undefined') module.exports = { statusGate, syncedNavLine, refFilterPredicate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane, layoutDrifted, rulerColumnFor, toggleRulerCols, rulerColorFor, INDENT_GUIDE_COLORS, calleeRange };

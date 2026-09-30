@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 // setup.js (--require) で browser globals をスタブ済み
 global.id = () => null;
 
-const { statusGate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane, layoutDrifted, rulerColumnFor, toggleRulerCols, rulerColorFor, INDENT_GUIDE_COLORS } = require('../static/js/editor.js');
+const { statusGate, fzfMatchToken, fzfScore, fzfFilter, buildDefinitionParams, extractFuncName, _isDefAnchored, hasInternalEditorPane, layoutDrifted, rulerColumnFor, toggleRulerCols, rulerColorFor, INDENT_GUIDE_COLORS, calleeRange } = require('../static/js/editor.js');
 
 test('fzfMatchToken - exact match', () => {
   const r = fzfMatchToken('foobar', 'foo');
@@ -390,4 +390,16 @@ test('rulerColorFor - その段のガイド色を濃くしたものになる', (
   assert.equal(rulerColorFor(12, 4), INDENT_GUIDE_COLORS[2] + 'e0');
   assert.equal(rulerColorFor(28, 4), INDENT_GUIDE_COLORS[0] + 'e0'); // 7 段目
   assert.equal(rulerColorFor(16, 8), INDENT_GUIDE_COLORS[1] + 'e0'); // tabSize 8 の 2 段目
+});
+
+// 呼び先を範囲で聞くのは 2 行以上の選択だけ。1 行の中の選択は語を選んだだけの
+// ことが多く、それで関数全体の呼び先が出なくなると困る。
+test('calleeRange - 2 行以上にまたがる選択だけを範囲にする', () => {
+  const sel = (sl, sc, el, ec) => ({ startLineNumber: sl, startColumn: sc, endLineNumber: el, endColumn: ec });
+  assert.equal(calleeRange(null), null);
+  assert.equal(calleeRange(sel(10, 5, 10, 20)), null);
+  assert.deepEqual(calleeRange(sel(10, 5, 14, 3)), { start: 10, end: 14 });
+  // 行頭で終わる選択（行単位で選んだとき）は、最後の行を含めない
+  assert.deepEqual(calleeRange(sel(10, 1, 14, 1)), { start: 10, end: 13 });
+  assert.equal(calleeRange(sel(10, 1, 11, 1)), null);
 });

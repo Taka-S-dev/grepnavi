@@ -679,7 +679,7 @@ function initFloatingPeek(getHoverCtx) {
         addItem('codicon-references', '参照を検索',    () => openRefPicker(word), 'r', w);
       }
       if(typeof openCalleePicker === 'function') {
-        addItem('codicon-call-outgoing', 'いまいる関数の呼び先', () => openCalleePicker(), 'c');
+        addItem('codicon-call-outgoing', calleeMenuLabel(), () => openCalleePicker(), 'c');
       }
       if(typeof openAssignPicker === 'function') {
         addItem('codicon-edit', 'この語への代入', () => openAssignPicker(word), 'w', w);
@@ -719,7 +719,7 @@ function initFloatingPeek(getHoverCtx) {
       addItem('codicon-references', '参照を検索',        () => openRefPicker(word), 'r');
     }
     if(typeof openCalleePicker === 'function') {
-      addItem('codicon-call-outgoing', 'いまいる関数の呼び先', () => openCalleePicker(), 'c');
+      addItem('codicon-call-outgoing', calleeMenuLabel(), () => openCalleePicker(), 'c');
     }
     if(typeof openAssignPicker === 'function') {
       addItem('codicon-edit', 'この語への代入', () => openAssignPicker(word), 'w');

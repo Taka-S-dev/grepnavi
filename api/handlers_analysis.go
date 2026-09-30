@@ -816,7 +816,19 @@ func (h *Handler) handleCallees(w http.ResponseWriter, r *http.Request) {
 	h.mu.RLock()
 	root := h.root
 	h.mu.RUnlock()
-	hits, funcName, truncated, err := search.FindCallees(r.Context(), file, line, root)
+	// end があれば line〜end の行だけを見る（囲む関数を解決しない）。走査器が
+	// 関数を認識できないときの出口で、範囲は呼び出し側が決める。
+	var (
+		hits      []search.CalleeHit
+		funcName  string
+		truncated bool
+		err       error
+	)
+	if end, _ := strconv.Atoi(q.Get("end")); end >= line && line > 0 {
+		hits, truncated, err = search.FindCalleesInRange(file, line, end, root)
+	} else {
+		hits, funcName, truncated, err = search.FindCallees(r.Context(), file, line, root)
+	}
 	if err != nil {
 		jsonErr(w, err.Error(), http.StatusInternalServerError)
 		return

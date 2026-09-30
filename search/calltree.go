@@ -298,27 +298,52 @@ func FindCallees(_ context.Context, file string, line int, root string) ([]Calle
 		return nil, funcName, false, nil
 	}
 
-	seen := map[string]bool{}
-	var result []CalleeHit
-
-	// body の i 行目は元ファイルの (line + i) 行目に対応する
-	// （extractBraceBlock は startLine から順に行を append する）。
-	// 判定はコード部分だけで行う: ブロックコメントや文字列内の foo() を拾わない。
-	code := codeOnlyLines(lines)
 	// 本体が始まる { より前はシグネチャ。ここを走査すると関数自身が自分の
 	// 呼び出し先になり、sparse 注釈や引数の型名まで候補に混ざる。
+	bodyLines := strings.Split(body, "\n")
 	bodyStart := 0
-	for i, l := range strings.Split(body, "\n") {
+	for i, l := range bodyLines {
 		if strings.Contains(l, "{") {
 			bodyStart = i
 			break
 		}
 	}
-	for i := range strings.Split(body, "\n") {
-		if i < bodyStart {
-			continue
-		}
-		srcIdx := line - 1 + i
+	// body の i 行目は元ファイルの (line + i) 行目に対応する
+	// （extractBraceBlock は startLine から順に行を append する）。
+	result := scanCallees(lines, line+bodyStart, line+len(bodyLines)-1)
+	return annotateCalleeKinds(result, root), funcName, truncated, nil
+}
+
+// FindCalleesInRange は startLine〜endLine（1 始まり・両端含む）の行にある呼び出しを返す。
+// 囲む関数を走査器が認識できないとき（マクロで定義された関数、#ifdef でブレースの
+// 対応が崩れる関数）の出口で、どこを見るかは呼び出し側が決める。関数の一部だけ
+// （1 つの分岐、1 つの case）を見るのにも使う。
+func FindCalleesInRange(file string, startLine, endLine int, root string) ([]CalleeHit, bool, error) {
+	lines, err := CachedLines(file)
+	if err != nil {
+		return nil, false, err
+	}
+	if startLine < 1 {
+		startLine = 1
+	}
+	if endLine > len(lines) {
+		endLine = len(lines)
+	}
+	truncated := false
+	if endLine-startLine+1 > analysisBlockMaxLines {
+		endLine, truncated = startLine+analysisBlockMaxLines-1, true
+	}
+	return annotateCalleeKinds(scanCallees(lines, startLine, endLine), root), truncated, nil
+}
+
+// scanCallees は firstLine〜lastLine（1 始まり・両端含む）から呼び出しを拾う。
+// 判定はコード部分だけで行う: ブロックコメントや文字列内の foo() を拾わない。
+func scanCallees(lines []string, firstLine, lastLine int) []CalleeHit {
+	code := codeOnlyLines(lines)
+	seen := map[string]bool{}
+	var result []CalleeHit
+	for ln := firstLine; ln <= lastLine; ln++ {
+		srcIdx := ln - 1
 		if srcIdx < 0 || srcIdx >= len(code) {
 			continue
 		}
@@ -337,8 +362,8 @@ func FindCallees(_ context.Context, file string, line int, root string) ([]Calle
 			}
 			hit := CalleeHit{
 				Name:     name,
-				CallLine: line + i,
-				Text:     callSiteText(lines, line+i),
+				CallLine: ln,
+				Text:     callSiteText(lines, ln),
 			}
 			// 重複は名前と形の組で見る。`read(fd)` と `f_op->read(` は同じ名前でも
 			// 別の呼び先なので、片方を先に見たからといってもう片方を捨てない
@@ -355,7 +380,7 @@ func FindCallees(_ context.Context, file string, line int, root string) ([]Calle
 			result = append(result, hit)
 		}
 	}
-	return annotateCalleeKinds(result, root), funcName, truncated, nil
+	return result
 }
 
 // annotateCalleeKinds は ctags 索引で分かる範囲の種別を付ける（候補は落とさない）。

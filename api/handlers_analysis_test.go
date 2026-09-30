@@ -226,3 +226,35 @@ func TestHandleFuncSpans(t *testing.T) {
 		t.Errorf("空の file が %d を返した（400 のはず）", rec.Code)
 	}
 }
+
+// end を付けた /api/callees は囲む関数を解決せず、その行の範囲だけを見る。
+func TestHandleCalleesRange(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "a.c")
+	src := "int f(void)\n{\n\tfirst();\n\tsecond();\n\tthird();\n}\n"
+	if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := &Handler{root: dir}
+	get := func(query string) (names []string, fn string) {
+		rec := httptest.NewRecorder()
+		h.handleCallees(rec, httptest.NewRequest("GET", "/api/callees?file="+url.QueryEscape(file)+query, nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+		}
+		var hits []search.CalleeHit
+		if err := json.Unmarshal(rec.Body.Bytes(), &hits); err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range hits {
+			names = append(names, c.Name)
+		}
+		return names, rec.Header().Get("X-Func")
+	}
+	if names, fn := get("&line=4&end=4"); len(names) != 1 || names[0] != "second" || fn != "" {
+		t.Errorf("範囲指定: names=%v X-Func=%q", names, fn)
+	}
+	if names, fn := get("&line=4"); len(names) != 3 || fn != "f" {
+		t.Errorf("範囲なしは囲む関数全体: names=%v X-Func=%q", names, fn)
+	}
+}
