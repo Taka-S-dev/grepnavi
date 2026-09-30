@@ -599,8 +599,28 @@ function leaveNodePreview() {
 async function showNodePreview(anchor, node) {
   const seq = ++_nodePreviewSeq;
   const m = node.match;
+  // すぐ取れるときは何も挟まない。遅い置き場（ネットワーク越しなど）で待たされた
+  // ときだけ、止まっていないことを見せる
+  let busyShown = false;
+  const busyT = setTimeout(() => {
+    if (seq !== _nodePreviewSeq || !anchor.isConnected) return;
+    const tip = id("node-preview");
+    const rc0 = anchor.getBoundingClientRect();
+    tip.dataset.node = "";
+    tip.innerHTML = '<div class="np-head"><span><span class="gn-spinner"></span>読み込み中…</span></div>';
+    tip.style.width = "auto";
+    tip.style.left = Math.min(rc0.right + 36, window.innerWidth - 140) + "px";
+    tip.style.top = Math.max(4, rc0.top - 8) + "px";
+    tip.style.display = "block";
+    busyShown = true;
+  }, 300);
   const code = await loadCodePreview(m.file, m.line, NODE_PREVIEW_CTX, { focusCtx: NODE_PREVIEW_FOCUS });
-  if (!code || seq !== _nodePreviewSeq || !anchor.isConnected) return;
+  clearTimeout(busyT);
+  if (seq !== _nodePreviewSeq) return;
+  if (!code || !anchor.isConnected) {
+    if (busyShown) id("node-preview").style.display = "none";
+    return;
+  }
   const memo = node.memo
     ? `<div class="np-memo"><i class="codicon codicon-comment"></i> ${esc(node.memo)}</div>`
     : "";
@@ -2669,7 +2689,7 @@ async function doExpand() {
   const lbl = id("expand-lbl").value.trim() || "ref";
   const glob = id("expand-glob").value.trim();
   const dir = id("dir").value.trim();
-  st("展開中...");
+  const stopBusy = stBusy("展開中...");
   try {
     const r = await fetch("/api/graph/expand", {
       method: "POST",
@@ -2683,6 +2703,7 @@ async function doExpand() {
       }),
     });
     const d = await r.json();
+    stopBusy();
     if (d.error) {
       st("エラー: " + d.error);
       return;
@@ -2705,6 +2726,7 @@ async function doExpand() {
     stGraph();
     st(`展開: ${(d.new_nodes || []).length}件追加`);
   } catch (e) {
+    stopBusy();
     st("展開エラー: " + e.message);
   }
 }

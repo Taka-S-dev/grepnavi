@@ -830,7 +830,8 @@ body.frameless #tree-tab-actions,body.frameless #tree-toolbar{display:none}
 .fzf-kind-define{background:#3d2d1d;color:#d7ba7d}
 .fzf-kind-typedef,.fzf-kind-struct,.fzf-kind-enum,.fzf-kind-union{background:#1d2d3d;color:#9cdcfe}
 .fzf-empty{padding:14px;font-size:11px;color:#666;text-align:center}
-.fzf-spinner{display:inline-block;width:10px;height:10px;border:2px solid #555;border-top-color:#9ab;border-radius:50%;animation:gtags-spin 0.7s linear infinite;margin-right:6px;vertical-align:-1px}
+/* 待っている間に出す回る印。文字だけだと、止まっているのか動いているのか分からない */
+.gn-spinner,.fzf-spinner{display:inline-block;width:10px;height:10px;border:2px solid #555;border-top-color:#9ab;border-radius:50%;animation:gtags-spin 0.7s linear infinite;margin-right:6px;vertical-align:-1px}
 
 /* ===== ノードフィールド編集モーダル（共通基底）。サイズは ID で個別上書き ===== */
 .node-modal{

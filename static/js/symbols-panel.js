@@ -125,7 +125,7 @@ function _symbolsRenderNoIndex() {
     btn.onclick = () => {
       window._ctagsRunIndex?.();
       btn.disabled = true;
-      btn.textContent = '生成中…';
+      btn.innerHTML = '<span class="gn-spinner"></span>生成中…';
       // 生成の進捗表示は ctags.js のコンソールに任せ、完了したら自動で一覧に切り替える
       clearInterval(_symWaitTimer);
       let waited = 0;
@@ -281,13 +281,21 @@ async function _symbolsFetch() {
   const params = new URLSearchParams({ pattern: pattern || '.', limit: '100' });
   if (path) params.set('path', path);
   if (_symKind) params.set('kind', _symKind);
+  // すぐ返るときは何も出さない（打鍵のたびに点滅する）。待たされたときだけ出す
+  const busyT = setTimeout(() => { if (seq === _symSeq) setBusy(status, '検索中…'); }, 200);
+  const clearBusy = () => {
+    clearTimeout(busyT);
+    if (seq === _symSeq && status.querySelector('.gn-spinner')) status.textContent = '';
+  };
   let d;
   try {
     const r = await fetch('/api/symbol-search?' + params);
     d = await r.json();
   } catch (_) {
+    clearBusy();
     return;
   }
+  clearBusy();
   if (seq !== _symSeq) return; // 打鍵が先に進んでいる
   if (d.hint) {
     _symbolsRenderNoIndex();

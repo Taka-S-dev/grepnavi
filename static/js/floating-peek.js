@@ -316,7 +316,7 @@ function initFloatingPeek(getHoverCtx) {
 
     const body = document.createElement('div');
     body.style.cssText = 'overflow:auto;padding:8px;color:#aaa;font:12px monospace;flex:1';
-    body.textContent = '読み込み中...';
+    body.innerHTML = '<span class="gn-spinner"></span>読み込み中...';
 
     win._floatMinimized = false;
     win._floatToggleMin = () => {

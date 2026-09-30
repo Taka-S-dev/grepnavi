@@ -1860,20 +1860,26 @@ async function openFzf(mode = 'file') {
   fzfMode = mode;
   fzfRefWord = '';
   fzfRefs = []; fzfRefsFiltered = []; // 参照ピッカーの残りを持ち越さない
-  if(mode === 'file' && !fzfFiles) {
-    try {
-      const r = await fetch('/api/files');
-      fzfFiles = await r.json();
-    } catch { fzfFiles = []; }
-  }
   id('fzf-overlay').classList.add('open');
   anchorFzfBox(null); // ファイル/シンボル検索は語に紐づかないので中央のまま
   id('fzf-input').value = '';
   id('fzf-input').placeholder = mode === 'symbol'
     ? 'シンボル名を入力… (例: recipe save)'
     : 'ファイル名を入力… (#始まりでシンボル検索)';
-  fzfRender('');
   setTimeout(() => id('fzf-input').focus(), 30);
+  // ファイル一覧は初回だけ取りに行く。大きいツリーでは数秒かかるので、箱を先に
+  // 出して待っている間を見せる（取り終わるまで何も出ないと、押せていないように見える）
+  if(mode === 'file' && !fzfFiles) {
+    fzfShowLoading('ファイル一覧を読み込んでいます…');
+    let files;
+    try {
+      const r = await fetch('/api/files');
+      files = await r.json();
+    } catch { files = []; }
+    fzfFiles = files;
+    if(fzfMode !== mode || !id('fzf-overlay').classList.contains('open')) return; // 待つ間に閉じた・別のピッカーへ移った
+  }
+  fzfRender(id('fzf-input').value); // 待っている間に打った分を反映する
 }
 
 function closeFzf() {
@@ -2354,6 +2360,7 @@ function fzfRender(query) {
   const symQuery = _fzfSymbolQuery(query);
   if(symQuery !== null) { fzfRenderSymbols(symQuery); return; }
   const list = id('fzf-list');
+  if(!fzfFiles) return; // 一覧を取りに行っている最中（openFzf が取り終えてから描く）
   fzfFiltered = fzfFilter(fzfFiles, query, 100);
   id('fzf-count').textContent = `${fzfFiltered.length} / ${fzfFiles.length}`;
   fzfSelIdx = 0;
@@ -2395,9 +2402,14 @@ function fzfRenderSymbols(query) {
   clearTimeout(_fzfSymTimer);
   _fzfSymTimer = setTimeout(async () => {
     const seq = ++fzfSymFetchSeq;
+    // すぐ返るときは何も出さない（打鍵のたびに点滅する）。待たされたときだけ出す
+    const busyT = setTimeout(() => {
+      if(seq === fzfSymFetchSeq) id('fzf-count').innerHTML = '<span class="fzf-spinner"></span>検索中…';
+    }, 200);
     try {
       const r = await fetch('/api/symbol-search?' + new URLSearchParams({pattern, limit: '100'}));
       const d = await r.json();
+      clearTimeout(busyT);
       if(seq !== fzfSymFetchSeq) return; // 古い応答は捨てる
       fzfSymResults = d.symbols || [];
       fzfSelIdx = 0;
@@ -2424,7 +2436,8 @@ function fzfRenderSymbols(query) {
       });
       fzfSchedulePreview();
     } catch {
-      if(seq === fzfSymFetchSeq) list.innerHTML = '<div class="fzf-empty">検索エラー</div>';
+      clearTimeout(busyT);
+      if(seq === fzfSymFetchSeq) fzfShowFailure('検索エラー');
     }
   }, 120);
 }
@@ -2598,14 +2611,19 @@ async function fzfUpdatePreview() {
   const seq = ++_fzfPreviewSeq;
   const t = fzfPreviewTarget();
   if(!t) { pv.innerHTML = '<div class="fp-empty">選んだ行の前後がここに出ます</div>'; return; }
+  // すぐ取れるときは前の内容を残したまま差し替える。待たされたときだけ印を出す
+  const busyT = setTimeout(() => {
+    if(seq === _fzfPreviewSeq) pv.innerHTML = '<div class="fp-empty"><span class="gn-spinner"></span>読み込み中…</div>';
+  }, 250);
   let file = t.file, line = t.line, label = '';
   if(t.callee) {
     const d = await calleeDefLocation(t.callee);
-    if(seq !== _fzfPreviewSeq) return;
+    if(seq !== _fzfPreviewSeq) { clearTimeout(busyT); return; }
     if(d) { file = d.file; line = d.line; label = '定義  '; }
     else label = '呼び出し行（定義は見つかりません）  ';
   }
   const code = await loadCodePreview(file, line, t.top ? 40 : 30, { noMatch: !!t.top });
+  clearTimeout(busyT);
   if(seq !== _fzfPreviewSeq) return;
   if(!code) { pv.innerHTML = '<div class="fp-empty">プレビューを取得できませんでした</div>'; return; }
   pv.innerHTML = `<div class="fp-head">${esc(label + shortPath(file))}${t.top ? '' : ':' + line}</div>`

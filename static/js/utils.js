@@ -193,6 +193,28 @@ function cIdentRanges(text, excluded, macros) {
   return out;
 }
 
+// ===== 待っている間の表示 =====
+// setBusy は el の中身を「回る印 + text」にする。
+function setBusy(el, text) {
+  el.textContent = '';
+  const s = document.createElement('span');
+  s.className = 'gn-spinner';
+  el.appendChild(s);
+  el.appendChild(document.createTextNode(text));
+}
+
+// stBusy は状態欄に回る印付きで text を出し、止める関数を返す。
+// 結果の文言を出す前に必ず止めること（止めないと次のコマで上書きされる）。
+function stBusy(text) {
+  let i = 0;
+  st(SPINNER_FRAMES[0] + ' ' + text);
+  const t = setInterval(() => {
+    i = (i + 1) % SPINNER_FRAMES.length;
+    st(SPINNER_FRAMES[i] + ' ' + text);
+  }, 80);
+  return () => clearInterval(t);
+}
+
 // ===== コードのプレビュー =====
 // ノードのホバーとピッカーの両方が、ファイルの一部をエディタと同じ色で出す。
 

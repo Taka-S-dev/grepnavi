@@ -30,7 +30,7 @@ function renderLabel(loading) {
   if (!label) return;
   if (loading) {
     label.style.display = '';
-    label.textContent = 'マクロ読込中...';
+    label.innerHTML = '<span class="gn-spinner"></span>マクロ読込中';
     label.style.color = '#888';
   } else {
     label.style.display = 'none';

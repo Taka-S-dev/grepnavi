@@ -138,7 +138,7 @@ async function rmLoad(focus, opts) {
   _rmAbort = new AbortController();
   document.getElementById('rm-bar').textContent = '';
   const body = document.getElementById('rm-body');
-  rmMsg(body, '読み込み中…');
+  rmMsg(body, '読み込み中…', true);
   rmRenderCrumbs();
   try {
     const url = _rmFocus
@@ -653,7 +653,7 @@ function rmMoreChip(chips, e, shown, hl) {
   more.title = 'クリックで残りのシンボルを全部表示';
   more.onclick = async () => {
     more.onclick = null;
-    more.textContent = '…読込中';
+    more.innerHTML = '<span class="gn-spinner"></span>読込中';
     const params = { from: e.from, to: e.to };
     if (_rmFocus) params.focus = _rmFocus;
     try {
@@ -716,7 +716,7 @@ async function rmToggleSites(chips, chip, sym, from) {
   chip.classList.add('on');
   const box = document.createElement('div');
   box.className = 'rm-sites';
-  box.textContent = '検索中…';
+  box.innerHTML = '<span class="gn-spinner"></span>検索中…';
   chip.after(box);
 
   // 出すのはこのエッジぶんだけ = 参照している側（from）の中の行に限る。
@@ -878,7 +878,7 @@ async function rmOpenChildPicker(anchor, path) {
   box.id = 'rm-picker';
   box.innerHTML =
     `<input id="rm-picker-filter" type="text" spellcheck="false" placeholder="絞り込み">` +
-    `<div id="rm-picker-list" class="rm-picker-msg">読み込み中…</div>`;
+    `<div id="rm-picker-list" class="rm-picker-msg"><span class="gn-spinner"></span>読み込み中…</div>`;
   document.body.appendChild(box);
   const r = anchor.getBoundingClientRect();
   box.style.left = Math.min(r.left, window.innerWidth - box.offsetWidth - 8) + 'px';
@@ -964,11 +964,17 @@ function rmRenderFooter(d) {
   }
 }
 
-function rmMsg(body, text) {
+// busy を付けると回る印を添える（待っている間の表示に使う）
+function rmMsg(body, text, busy) {
   body.textContent = '';
   const div = document.createElement('div');
   div.className = 'rm-msg';
-  div.textContent = text;
+  if (busy) {
+    const s = document.createElement('span');
+    s.className = 'gn-spinner';
+    div.appendChild(s);
+  }
+  div.appendChild(document.createTextNode(text));
   body.appendChild(div);
 }
 

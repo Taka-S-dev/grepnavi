@@ -196,6 +196,7 @@
 }
 .ct-expander:hover { color: #ccc; }
 .ct-expander.loading { color: #444; }
+.ct-expander .gn-spinner { width: 7px; height: 7px; margin: 0; }
 
 .ct-func {
   color: #dcdcaa;

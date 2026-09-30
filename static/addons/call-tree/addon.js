@@ -283,7 +283,7 @@ async function ctSearch() {
   const signal = _ctAbort.signal;
 
   const body = document.getElementById('ct-body');
-  body.innerHTML = '<div class="ct-empty">検索中...</div>';
+  body.innerHTML = '<div class="ct-empty"><span class="gn-spinner"></span>検索中...</div>';
   // 前回の件数が残ると新しい検索結果の件数と誤読される
   _ctTree = null;
   ctUpdateCount();
@@ -500,7 +500,7 @@ function makeNodeEl(node, depth, isCycle = false) {
     exp.style.opacity = '0.4';
   } else {
     exp.textContent = node.expanded ? '▼' : '▶';
-    if (node.loading) { exp.textContent = '…'; exp.classList.add('loading'); }
+    if (node.loading) { exp.innerHTML = '<span class="gn-spinner"></span>'; exp.classList.add('loading'); }
     exp.onclick = () => ctToggle(node, el);
   }
 
