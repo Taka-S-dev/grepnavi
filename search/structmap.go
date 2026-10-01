@@ -40,6 +40,11 @@ type StructEdge struct {
 	// SymsCapped は見本が打ち切られたこと。シンボル名で絞り込むとき、この行は
 	// 見本の範囲でしか判定できない（一致するのに落ちる可能性がある）
 	SymsCapped bool `json:"syms_capped,omitempty"`
+	// Other はフォーカスの外側（外から の From、外へ の To）を、フォーカスと
+	// 枝分かれした直後の段で畳んだ名前。From / To は深さで畳むので、2 段目の
+	// モジュールを向くと相手が ssl/ssl_lib.c のようなファイルまで割れる。
+	// 「どのモジュールと関係があるか」を読むときはこちらで束ねる
+	Other string `json:"other,omitempty"`
 }
 
 // StructOmitted は集計から外れたものの数。黙って落とさず、外れた事実を返す。
@@ -369,11 +374,18 @@ func focusFrom(t *structTables, module string) *StructFocus {
 			files++
 		}
 	}
+	inc, outg := finish(incoming), finish(outgoing)
+	for i := range inc {
+		inc[i].Other = siblingGroup(inc[i].From, module)
+	}
+	for i := range outg {
+		outg[i].Other = siblingGroup(outg[i].To, module)
+	}
 	return &StructFocus{
 		Module:    module,
 		Internal:  finish(internal),
-		Incoming:  finish(incoming),
-		Outgoing:  finish(outgoing),
+		Incoming:  inc,
+		Outgoing:  outg,
 		Omitted:   t.omitted(),
 		Files:     files,
 		FilesOpen: len(openFiles),
@@ -582,6 +594,21 @@ func childrenFrom(t *structTables, parent string) []StructChild {
 	return out
 }
 
+// siblingGroup は rel を、module と枝分かれした直後の段で畳む
+// （module=crypto/bio なら ssl/ssl_lib.c → ssl、crypto/x509/x.c → crypto/x509）。
+// 固定の深さで畳むと、浅い相手はファイルまで割れ、深い相手は祖先に溶ける。
+// 分かれ目の直下こそが、今いる場所から見た「隣のモジュール」になる。
+// 分かれ目にファイルが直接置かれていれば、そのファイルがそのまま出る。
+func siblingGroup(rel, module string) string {
+	segs := strings.Split(rel, "/")
+	msegs := strings.Split(module, "/")
+	i := 0
+	for i < len(segs)-1 && i < len(msegs) && segs[i] == msegs[i] {
+		i++
+	}
+	return strings.Join(segs[:i+1], "/")
+}
+
 func structGroup(rel string, depth int) string {
 	segs := strings.Split(rel, "/")
 	if len(segs)-1 < depth {
@@ -596,11 +623,11 @@ var ErrRefMapNotBuilt = errors.New("reference map not built")
 
 // RefMapStatus は参照マップの状態。UI が「作りますか」を出すための材料。
 type RefMapStatus struct {
-	Indexed   bool  `json:"indexed"`             // gtags 索引があるか
-	Built     bool  `json:"built"`               // 使える表があるか
-	Stale     bool  `json:"stale"`               // 表はあるが索引が更新されている
-	IndexMB   int64 `json:"index_mb"`            // 索引の大きさ
-	EstimateS int   `json:"estimate_seconds"`    // 生成にかかる見込み
+	Indexed   bool  `json:"indexed"`          // gtags 索引があるか
+	Built     bool  `json:"built"`            // 使える表があるか
+	Stale     bool  `json:"stale"`            // 表はあるが索引が更新されている
+	IndexMB   int64 `json:"index_mb"`         // 索引の大きさ
+	EstimateS int   `json:"estimate_seconds"` // 生成にかかる見込み
 }
 
 // RefMapStat は参照マップの状態を返す。

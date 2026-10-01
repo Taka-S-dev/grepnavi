@@ -10,6 +10,9 @@ let _rmFocus = '';     // '' = 全体図
 let _rmData = null;   // 直近の応答（タブ切り替えの再描画で再取得しない）
 let _rmTab = 'in';    // フォーカスビューの面（in / mid / out）
 let _rmFilter = '';   // フォーカスビューの絞り込み（面をまたいで効く）
+// 外から / 外へ の束ね方。'other' = 相手のまとまりごと（どのモジュールと
+// 関係があるか）、'entry' = こちら側の入口ごと（公開面がどこか）
+let _rmGroupBy = 'other';
 let _rmAbort = null;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -130,6 +133,7 @@ function rmUpdateNavButtons() {
 async function rmLoad(focus, opts) {
   _rmFocus = focus || '';
   _rmClosed = new Set(); // 畳み状態は今いる場所のもの。移ったら持ち越さない
+  _rmOpened = new Set();
   if (!opts || !opts.fromHistory) rmHistPush(_rmFocus);
   rmUpdateNavButtons();
   _rmTab = 'in';
@@ -459,10 +463,31 @@ function rmRenderFocus(m) {
       b.onclick = () => { _rmTab = key; render(); };
       tabsEl.appendChild(b);
     }
+    // 束ね方の切り替えは 外から / 外へ だけ。内部 は相手が無い（両側とも中）
+    if (active[0] !== 'mid') {
+      const sw = document.createElement('span');
+      sw.className = 'rm-groupby';
+      for (const [key, label, title] of [
+        ['other', '相手ごと', '相手のまとまりごとに束ねる: どのモジュールと関係があるか'],
+        ['entry', active[0] === 'in' ? '入口ごと' : '一覧', active[0] === 'in'
+          ? 'この中の入口ごとに束ねる: 外から使われる面がどこか'
+          : '相手を束ねず、使っている先を 1 行ずつ'],
+      ]) {
+        const b = document.createElement('button');
+        b.className = 'rm-tab' + (key === _rmGroupBy ? ' active' : '');
+        b.textContent = label;
+        b.title = title;
+        b.onclick = () => { _rmGroupBy = key; render(); };
+        sw.appendChild(b);
+      }
+      tabsEl.appendChild(sw);
+    }
     secEl.textContent = '';
     // 絞り込み中は畳まない。一致した行が畳まれた中に隠れると、何件と言われても
     // 見えないままになる
-    if (active[0] === 'out' && active[4].length) {
+    if (active[0] !== 'mid' && _rmGroupBy === 'other' && active[4].length) {
+      rmGroupedByOther(secEl, active[0], active[4], { hl: must, forceOpen: !!filtering });
+    } else if (active[0] === 'out' && active[4].length) {
       // 外へ は from が全行このまとまり自身。行ごとに自分の名前を繰り返さず、
       // 他の面と同じ文の形にする（「X を使っている」の逆で「X が使っている」）。
       const total = active[4].reduce((n, e) => n + e.count, 0);
@@ -523,7 +548,74 @@ function rmRenderFocus(m) {
 // 畳んで得がないとき（束が全部1行）は束ねない。見出しだけ増えて行数が倍になる。
 let _rmClosed = new Set();
 
-function rmGroupKey(to) { return _rmFocus + '|' + _rmTab + '|' + to; }
+function rmGroupKey(to) { return _rmFocus + '|' + _rmTab + '|' + _rmGroupBy + '|' + to; }
+
+// 相手のまとまりごとに束ねる（外から / 外へ）。見出しが相手のモジュールで、
+// 中の行はこちら側の入口（外から）か、相手の中の実装（外へ）。
+// 行の名前が見出しと同じ（相手が 1 段で割れない）ときは繰り返さない。
+// 束は閉じて始める: この見せ方の目的は「どのモジュールと、どれだけ」を
+// 一覧することで、apps/ の 158 行を先頭で開くと見出しの並びが読めない
+let _rmOpened = new Set();
+
+function rmGroupedByOther(sec, face, edges, opts) {
+  const hl = (opts && opts.hl) || [];
+  const forceOpen = !!(opts && opts.forceOpen);
+  const groups = new Map();
+  for (const e of edges) {
+    const k = e.other || (face === 'in' ? e.from : e.to);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(e);
+  }
+  const order = [...groups.entries()]
+    .map(([other, rows]) => [other, rows, rows.reduce((n, e) => n + e.count, 0)])
+    .sort((a, b) => b[2] - a[2] || a[0].localeCompare(b[0]));
+  for (const [other, rows, total] of order) {
+    const key = rmGroupKey(other);
+    // 相手がそれ以上割れない（行が 1 本で名前が見出しと同じ）ときは開閉を
+    // 付けず、シンボルの見本を見出しの下にそのまま出す。開いても同じ名前が
+    // もう一度出るだけの束にしない
+    const side = e => (face === 'in' ? e.from : e.to);
+    const leaf = rows.length === 1 && side(rows[0]) === other;
+    const open = leaf || forceOpen || _rmOpened.has(key);
+    const head = document.createElement('div');
+    head.className = 'rm-group' + (open ? ' open' : '');
+    const caret = document.createElement('span');
+    caret.className = 'rm-group-caret';
+    caret.textContent = leaf ? '' : open ? '▾' : '▸';
+    head.appendChild(caret);
+    head.appendChild(rmName(other, hl));
+    const phrase = document.createElement('span');
+    phrase.className = 'rm-group-phrase';
+    // 外から: 「ssl/ が使っている N か所」。外へ: 「ssl/ を使っている N か所」
+    // （主語は今いるまとまり）。向きは助詞だけで変わるので、タブ名と合わせて読む
+    phrase.textContent = (face === 'in' ? ' が使っている ' : ' を使っている ') + `${rows.length} か所（参照 ${total}）`;
+    phrase.title = '参照 = 参照の組数（シンボル × 参照元ファイル）';
+    head.appendChild(phrase);
+    if (!leaf) {
+      head.onclick = (ev) => {
+        if (ev.target.closest('.rm-name')) return;
+        if (_rmOpened.has(key)) _rmOpened.delete(key);
+        else _rmOpened.add(key);
+        rmRerender();
+      };
+    }
+    sec.appendChild(head);
+    if (!open) continue;
+    const inner = document.createElement('div');
+    inner.className = 'rm-group-body';
+    sec.appendChild(inner);
+    for (const e of rows) {
+      const sameAsHead = side(e) === other;
+      rmEdgeRows(inner, [e], x => `${x.count}`, {
+        hl,
+        hideFrom: face === 'out' || sameAsHead,
+        // 外へ で相手がファイルそのもの（crypto/mem.c）なら、行き先も見出しと同じ
+        hideTo: face === 'out' && sameAsHead,
+        chipsOnly: leaf,
+      });
+    }
+  }
+}
 
 function rmGroupedRows(sec, edges, opts) {
   const hl = (opts && opts.hl) || [];
@@ -583,9 +675,14 @@ function rmGroupedRows(sec, edges, opts) {
 function rmEdgeRows(sec, edges, countOf, opts) {
   const noChips = opts && opts.noChips;
   const hideTo = opts && opts.hideTo;     // 行き先は見出しに出ているので繰り返さない
-  const hideFrom = opts && opts.hideFrom; // 参照元が見出し（外へ タブ）のときの逆版
+  const hideFrom = opts && opts.hideFrom; // 参照元が見出し（外へ タブ・相手ごと）のときの逆版
+  const chipsOnly = opts && opts.chipsOnly; // 名前も件数も見出しにある: 見本だけ出す
   const hl = (opts && opts.hl) || [];
   for (const e of edges) {
+    if (chipsOnly) {
+      rmChips(sec, e, hl);
+      continue;
+    }
     const row = document.createElement('div');
     row.className = 'rm-row';
     if (!hideFrom) row.appendChild(rmName(e.from, hl));
@@ -604,20 +701,23 @@ function rmEdgeRows(sec, edges, countOf, opts) {
     cnt.title = '参照の組数（シンボル × 参照元ファイル）';
     row.appendChild(cnt);
     sec.appendChild(row);
-    if (!noChips && e.symbols && e.symbols.length) {
-      const chips = document.createElement('div');
-      chips.className = 'rm-chips';
-      // `a` のような短い名前は見本として情報が無いので、他があれば落とす。
-      // ただし絞り込みに一致した名前は必ず残す — 一致したから出ている行なのに
-      // その名前が見えないと、なぜ出ているのか分からない
-      const matched = x => hl.length && hl.some(t => x.toLowerCase().includes(t));
-      const named = e.symbols.filter(x => x.length >= 3 || matched(x));
-      const syms = named.length ? named : e.symbols;
-      for (const s of syms) rmSymChip(chips, e, s, hl);
-      if (e.syms_capped) rmMoreChip(chips, e, syms, hl);
-      sec.appendChild(chips);
-    }
+    if (!noChips) rmChips(sec, e, hl);
   }
+}
+
+function rmChips(sec, e, hl) {
+  if (!e.symbols || !e.symbols.length) return;
+  const chips = document.createElement('div');
+  chips.className = 'rm-chips';
+  // `a` のような短い名前は見本として情報が無いので、他があれば落とす。
+  // ただし絞り込みに一致した名前は必ず残す — 一致したから出ている行なのに
+  // その名前が見えないと、なぜ出ているのか分からない
+  const matched = x => hl.length && hl.some(t => x.toLowerCase().includes(t));
+  const named = e.symbols.filter(x => x.length >= 3 || matched(x));
+  const syms = named.length ? named : e.symbols;
+  for (const s of syms) rmSymChip(chips, e, s, hl);
+  if (e.syms_capped) rmMoreChip(chips, e, syms, hl);
+  sec.appendChild(chips);
 }
 
 function rmSymChip(chips, e, s, hl) {

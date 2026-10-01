@@ -144,6 +144,63 @@ func TestFocusDeeperModule(t *testing.T) {
 	}
 }
 
+// 相手のまとまり (Other) は深さではなく、フォーカスと分かれた直後の段で畳む。
+func TestFocusOtherIsSiblingAtSplit(t *testing.T) {
+	tt := mkTables(map[string]string{
+		"bio_new":  "crypto/bio/bio_lib.c",
+		"x509_cmp": "crypto/x509/cmp.c",
+		"ssl_new":  "ssl/ssl_lib.c",
+	}, 0, [][2]string{
+		{"bio_new", "ssl/ssl_lib.c"},        // ssl のファイル → 相手は ssl
+		{"bio_new", "ssl/statem/statem.c"},  // ssl の下の下 → 相手は ssl
+		{"bio_new", "crypto/x509/cmp.c"},    // 同じ crypto の隣 → 相手は crypto/x509
+		{"bio_new", "crypto/mem.c"},         // 分かれ目に直接あるファイル → そのまま
+		{"x509_cmp", "crypto/bio/b_sock.c"}, // 外へ: 相手は crypto/x509
+		{"ssl_new", "crypto/bio/b_sock.c"},  // 外へ: 相手は ssl
+	})
+	f := focusFrom(tt, "crypto/bio")
+	in := map[string]string{}
+	for _, e := range f.Incoming {
+		in[e.From] = e.Other
+	}
+	want := map[string]string{
+		"ssl/ssl_lib.c": "ssl", "ssl/statem": "ssl", "crypto/x509": "crypto/x509", "crypto/mem.c": "crypto/mem.c",
+	}
+	for from, other := range want {
+		if in[from] != other {
+			t.Errorf("incoming %s: other = %q, want %q (all %+v)", from, in[from], other, f.Incoming)
+		}
+	}
+	out := map[string]string{}
+	for _, e := range f.Outgoing {
+		out[e.To] = e.Other
+	}
+	if out["crypto/x509"] != "crypto/x509" || out["ssl/ssl_lib.c"] != "ssl" {
+		t.Errorf("outgoing other = %+v", f.Outgoing)
+	}
+	// 内部の行には付かない
+	for _, e := range f.Internal {
+		if e.Other != "" {
+			t.Errorf("internal edge has other: %+v", e)
+		}
+	}
+}
+
+func TestSiblingGroup(t *testing.T) {
+	cases := [][3]string{
+		{"net/core/dev.c", "drivers/net/ethernet/intel", "net"},
+		{"drivers/net/ethernet/broadcom/b.c", "drivers/net/ethernet/intel", "drivers/net/ethernet/broadcom"},
+		{"drivers/net/dummy.c", "drivers/net/ethernet/intel", "drivers/net/dummy.c"},
+		{"util.c", "core", "util.c"},
+		{"net", "core", "net"}, // 既に畳まれたラベル
+	}
+	for _, c := range cases {
+		if got := siblingGroup(c[0], c[1]); got != c[2] {
+			t.Errorf("siblingGroup(%q, %q) = %q, want %q", c[0], c[1], got, c[2])
+		}
+	}
+}
+
 // 自動畳みは、シェアの大きい塊から重い子を取り出して同格に並べる。
 func TestAdaptiveGroupsSplitsHeavyDirs(t *testing.T) {
 	// big/hot が全体の大半を占め、big/cold と small は軽い
