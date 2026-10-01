@@ -3314,10 +3314,18 @@ function redrawEditor() {
   const before = layoutRenderSnapshot();
   const el = id('monaco-container');
   let did;
+  // 大きさも行の描画もそろっているのに黒いときは、ページの中では直せない
+  // （描いたものを画面に出す側の問題）。デスクトップ窓なら、窓の大きさを一瞬だけ
+  // 変えて WebView2 に描画領域を取り直させる。最小化→復元で直るのと同じ経路
+  const displaySide = before && !viewportUncovered(before)
+    && !layoutDrifted(before.container[0], before.container[1], { width: before.monaco[0], height: before.monaco[1] });
+  const canNudge = typeof window.grepnaviWinRepaint === 'function';
+  let nudged = false;
   if (_redrawStep === 1) {
     monacoEditor.layout();
     monacoEditor.render(true);
     did = '配置と描画をやり直しました';
+    if (displaySide && canNudge) { window.grepnaviWinRepaint(); nudged = true; did = '窓の描画領域を取り直させました'; }
   } else {
     // 1 回目で直らなかったとき: 領域ごといったん外してブラウザに描き直させ、
     // 行の表示も組み直す
@@ -3326,10 +3334,12 @@ function redrawEditor() {
     el.style.display = '';
     monacoEditor.layout();
     rebuildEditorView();
-    did = _redrawStep === 2 ? '領域ごと描き直しました' : '領域ごと描き直しました（直らなければ Ctrl+R で再読み込みを）';
+    if (canNudge) { window.grepnaviWinRepaint(); nudged = true; }
+    did = _redrawStep === 2 ? '領域ごと描き直しました'
+      : '領域ごと描き直しました（直らなければ窓を最小化して戻すか、Ctrl+R で再読み込みを）';
   }
   const lw = window._layoutWatch || (window._layoutWatch = {});
-  const rec = { at: new Date().toISOString(), step: _redrawStep, verdict: redrawVerdict(before), before };
+  const rec = { at: new Date().toISOString(), step: _redrawStep, verdict: redrawVerdict(before), nudged, before };
   lw.manual = (lw.manual || []).concat([rec]).slice(-5);
   const send = () => { if (typeof window.pushEditorStateNow === 'function') window.pushEditorStateNow(); };
   requestAnimationFrame(() => {

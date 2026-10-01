@@ -243,6 +243,21 @@ func enableCustomTitlebar(w webview.WebView) {
 	w.Bind("grepnaviWinClose", func() {
 		procPostMessageW.Call(hwnd, wmClose, 0, 0)
 	})
+	// エディタの下が黒く欠けたときの最後の手。ページの中からは直せない症状がある:
+	// DOM も Monaco の描画もそろっているのに画面に出ない（WebView2 の合成側）。
+	// 窓の大きさが変わると WebView2 は描画領域を取り直すので、幅を 1px 広げてすぐ
+	// 戻して、それを起こす。最小化→復元で直るという観察と同じ経路を、見た目を
+	// 変えずに通す。
+	w.Bind("grepnaviWinRepaint", func() {
+		const swpNoMove, swpNoZOrder, swpNoActivate = 0x0002, 0x0004, 0x0010
+		var r winRect
+		if ret, _, _ := procGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&r))); ret == 0 {
+			return
+		}
+		cx, cy := uintptr(r.right-r.left), uintptr(r.bottom-r.top)
+		procSetWindowPos.Call(hwnd, 0, 0, 0, cx+1, cy, swpNoMove|swpNoZOrder|swpNoActivate)
+		procSetWindowPos.Call(hwnd, 0, 0, 0, cx, cy, swpNoMove|swpNoZOrder|swpNoActivate)
+	})
 }
 
 // ShowError は起動できなかった理由をダイアログで出す。windowsgui ビルドには
