@@ -1049,7 +1049,9 @@ function rmGroupedByOther(sec, face, edges, opts) {
     // もう一度出るだけの束にしない
     const side = e => (face === 'in' ? e.from : e.to);
     const leaf = rows.length === 1 && side(rows[0]) === other;
-    const open = leaf || forceOpen || _rmOpened.has(key);
+    // 絞り込み中は開いて始める（一致した行が畳まれて見えないのを防ぐ）が、
+    // 自分で畳んだものはそのまま畳んでおく
+    const open = leaf || (forceOpen ? !_rmClosed.has(key) : _rmOpened.has(key));
     const head = document.createElement('div');
     head.className = 'rm-group' + (open ? ' open' : '');
     const caret = document.createElement('span');
@@ -1067,8 +1069,8 @@ function rmGroupedByOther(sec, face, edges, opts) {
     if (!leaf) {
       head.onclick = (ev) => {
         if (ev.target.closest('.rm-name')) return;
-        if (_rmOpened.has(key)) _rmOpened.delete(key);
-        else _rmOpened.add(key);
+        if (open) { _rmOpened.delete(key); _rmClosed.add(key); }
+        else { _rmOpened.add(key); _rmClosed.delete(key); }
         rmRerender();
       };
     }
@@ -1092,7 +1094,6 @@ function rmGroupedByOther(sec, face, edges, opts) {
 
 function rmGroupedRows(sec, edges, opts) {
   const hl = (opts && opts.hl) || [];
-  const forceOpen = !!(opts && opts.forceOpen);
   const groups = new Map();
   for (const e of edges) {
     if (!groups.has(e.to)) groups.set(e.to, []);
@@ -1108,7 +1109,8 @@ function rmGroupedRows(sec, edges, opts) {
 
   for (const [to, rows, total] of order) {
     const key = rmGroupKey(to);
-    const open = forceOpen || !_rmClosed.has(key);
+    // 絞り込み中も開いて始めるだけで、自分で畳んだものは畳んだまま
+    const open = !_rmClosed.has(key);
     const head = document.createElement('div');
     head.className = 'rm-group' + (open ? ' open' : '');
 
