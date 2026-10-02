@@ -750,7 +750,7 @@ function rmDrawGraph(m) {
     <span class="rm-hint">内部の参照 ${edges.length} 本 · 使う側 → 使われる側（${vertical ? '上から下' : '左から右'}）· <span class="rm-graph-back">赤</span> は戻る参照 · 入口 / 中核 / 末端 は参照の数から · 乗せると繋がりだけ残る · クリックで固定 · ダブルクリックで開く</span>
     <span id="rm-graph-pin"></span>
     <span id="rm-graph-spacer"></span>
-    <label id="rm-graph-min" title="参照がこれより少ない線を隠す。太い線（主な依存）だけ残して骨格を見る">線 ≥ <input type="range" min="1" max="${Math.max(2, maxCount)}" value="1"><span>1</span></label>
+    <label id="rm-graph-min" title="参照の数がこれより少ない線を隠す。太い線（主な依存）だけ残して骨格を見る">細い線を隠す: 参照 ≥ <input type="range" min="1" max="${Math.max(2, maxCount)}" value="1"><span>1</span></label>
     <button class="rm-graph-zoom" data-d="-1" title="間隔を詰める (Ctrl+ホイール)">−</button><span id="rm-graph-spread">${_rmGraphSpread.toFixed(1)}×</span><button class="rm-graph-zoom" data-d="1" title="間隔を広げる (Ctrl+ホイール)">＋</button>
     <button id="rm-graph-close" title="図を閉じてツリーに戻る (Esc)">×</button></div>
     <div id="rm-graph-body"></div>`;
