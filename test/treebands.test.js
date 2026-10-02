@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { nodeDir, bandLabel, splitNodeLabel, adjacentDistinctBands, locationText } = require('../static/js/utils.js');
+const { nodeDir, bandLabel, splitNodeLabel, adjacentDistinctBands, locationText, layerGraph } = require('../static/js/utils.js');
 
 const ROOT = 'C:\\Users\\t\\work\\C\\openssl';
 
@@ -77,4 +77,35 @@ test('locationText - フルパスと行の範囲を 1 行にする', () => {
   assert.equal(locationText('C:\\work\\openssl\\ssl\\ssl_lib.c', 1026, 1030), 'C:/work/openssl/ssl/ssl_lib.c:1026-1030'); // 区切りは / に揃える
   assert.equal(locationText('C:/work/openssl/ssl/ssl_lib.c', 1034, 1034), 'C:/work/openssl/ssl/ssl_lib.c:1034');           // 1 行なら範囲にしない
   assert.equal(locationText('/home/u/src/x.c', 3, 9), '/home/u/src/x.c:3-9');
+});
+
+// モジュールの内部を層に並べる。使う側が左、使われる側が右。循環は戻り辺として
+// 外し、残りが一方向に流れる並びになること。
+test('layerGraph - 使う側を左、使われる側を右に並べ、循環は戻り辺にする', () => {
+  const g = layerGraph([
+    { from: 'bss_file.c', to: 'bio_lib.c' },
+    { from: 'b_sock.c', to: 'b_addr.c' },
+    { from: 'b_addr.c', to: 'bio_lib.c' },
+    { from: 'b_sock.c', to: 'bio_lib.c' },
+  ]);
+  assert.equal(g.col.get('bss_file.c'), 0);
+  assert.equal(g.col.get('b_sock.c'), 0);
+  assert.equal(g.col.get('b_addr.c'), 1);
+  assert.equal(g.col.get('bio_lib.c'), 2);   // 使う側の最大列 + 1
+  assert.deepEqual(g.back, []);
+  assert.deepEqual(g.cols.map(c => c.length), [2, 1, 1]);
+
+  // 相互参照: 片方が戻り辺になり、残りで層が組める
+  const c = layerGraph([
+    { from: 'a.c', to: 'b.c' },
+    { from: 'b.c', to: 'a.c' },
+    { from: 'b.c', to: 'core.c' },
+  ]);
+  assert.equal(c.back.length, 1);
+  assert.equal(c.col.get('core.c'), 2);
+  assert.equal(Math.abs(c.col.get('a.c') - c.col.get('b.c')), 1);
+
+  // 自己参照は無視し、辺が無いときは空
+  assert.deepEqual(layerGraph([]).cols, []);
+  assert.deepEqual(layerGraph([{ from: 'x.c', to: 'x.c' }]).cols, [['x.c']]);
 });

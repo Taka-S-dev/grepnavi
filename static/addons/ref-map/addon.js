@@ -204,6 +204,13 @@ async function rmLoad(focus, opts) {
     _rmRoot = d.root || '';
     _rmData = d;
     rmRerender();
+    // 図を開いたまま別のまとまりへ移ったら、図もそのまとまりに描き直す。
+    // 前の図が残ると、戻して開き直す 2 クリックが毎回要る。全体図（まとまり無し）へ
+    // 戻ったときは描くものが無いので閉じる
+    if (document.getElementById('rm-graph')) {
+      if (_rmFocus && d.map && d.map.internal) { _rmGraphPin = null; rmOpenGraph(d.map); }
+      else rmCloseGraph();
+    }
   } catch (e) {
     if (e.name !== 'AbortError') rmMsg(body, '取得に失敗: ' + e.message);
   }
@@ -538,6 +545,15 @@ function rmRenderFocus(m) {
       b.onclick = () => { _rmTab = key; render(); };
       tabsEl.appendChild(b);
     }
+    // 内部を図で見る。線を太い順に読むより、層か絡まりかは形のほうが速い
+    if (m.internal.length) {
+      const g = document.createElement('button');
+      g.className = 'rm-tab rm-graph-btn' + (document.getElementById('rm-graph') ? ' active' : '');
+      g.textContent = '図';
+      g.title = '内部の参照を図で見る（開いていればもう一度で閉じる）: 使う側が左、使われる側が右。戻る矢印（赤）が相互参照。絞り込みは図にも効く';
+      g.onclick = () => { if (document.getElementById('rm-graph')) rmCloseGraph(); else rmOpenGraph(m); };
+      tabsEl.appendChild(g);
+    }
     // 束ね方の切り替えは 外から / 外へ だけ。内部 は相手が無い（両側とも中）
     if (active[0] !== 'mid') {
       const sw = document.createElement('span');
@@ -608,11 +624,368 @@ function rmRenderFocus(m) {
       secEl.appendChild(d);
     }
   };
-  document.getElementById('rm-filter').oninput = e => { _rmFilter = e.target.value; render(); };
+  document.getElementById('rm-filter').oninput = e => { _rmFilter = e.target.value; render(); rmGraphRefresh(); };
   render();
 }
 
 
+
+// ===== 内部を図で見る =====
+// ノードは「内部」タブと同じ単位（ファイルかサブディレクトリ）、矢印は内部の参照。
+// 左から右へ層に並べる: 誰にも使われないものが左、使われるだけの土台が右。
+// 参照は左→右に流れ、右→左へ戻る矢印（相互参照）だけ赤くする。力学配置は
+// 50 本で線が絡んで構造が読めなくなるので使わない。
+// 外との出入りはノードの端に数字で出す。外のまとまりまで描くと一気に増える。
+//
+// 図はツリーの区画（エディタの上）に出し、エディタは隠さない。初見のモジュールは
+// 図で当たりを付けてはコードを読み、また図に戻る、を繰り返して把握するので、
+// 図とコードが同時に見えていないと往復のたびに開き直すことになる。
+// 開いているファイルのノードには印を付け、いま図のどこを読んでいるかを示す。
+let _rmGraphSpread = 1; // 間隔の倍率（＋/− と Ctrl+ホイール）
+let _rmGraphData = null;
+// 参照の無いファイルも並べるために、まとまりの直下の一覧を 1 回取ってから描く。
+// 図は「このフォルダに何があるか」の俯瞰にも使うので、線の無いファイルが
+// 無いように見えてはいけない（engines/ は 7 ファイル中 3 つがエラー表で参照 0）
+const _rmGraphKids = {};
+function rmOpenGraph(m) {
+  if (_rmGraphKids[m.module]) { rmDrawGraph(m); return; }
+  fetch('/api/structure/children?' + new URLSearchParams({ path: m.module }))
+    .then(r => r.ok ? r.json() : { children: [] })
+    .then(d => { _rmGraphKids[m.module] = (d.children || []).map(c => c.path); })
+    .catch(() => { _rmGraphKids[m.module] = []; })
+    .then(() => { if (_rmGraphData === m || _rmFocus === m.module) rmDrawGraph(m); });
+}
+
+function rmDrawGraph(m) {
+  const keep = document.getElementById('rm-graph-body');
+  const scroll = keep ? [keep.scrollLeft, keep.scrollTop] : null;
+  rmCloseGraph();
+  _rmGraphData = m;
+  const edges = m.internal.filter(e => e.from !== e.to);
+  const { cols, col, back } = layerGraph(edges);
+  const isBack = new Set(back.map(([a, b]) => a + '\u0000' + b));
+  // 外からの件数（入口の太さ）。内部の線が無いが外から使われるファイルも並べる
+  const inCount = new Map();
+  for (const e of m.incoming) inCount.set(e.to, (inCount.get(e.to) || 0) + e.count);
+  for (const n of inCount.keys()) if (!col.has(n)) { col.set(n, cols.length); (cols[cols.length] || (cols[cols.length] = [])).push(n); }
+  // 参照が 1 本も無いファイル・サブフォルダは最後の列（行）に薄く並べる
+  const idle = new Set();
+  for (const p of _rmGraphKids[m.module] || []) {
+    if (col.has(p)) continue;
+    idle.add(p);
+    col.set(p, cols.length);
+    (cols[cols.length] || (cols[cols.length] = [])).push(p);
+  }
+  const names = [...col.keys()];
+  // 役割: 数字から機械的に付ける。入口 = 外から使われる、中核 = 内部の 3 つ以上
+  // から使われる、末端 = 内部を使うだけで使われない。初見のモジュールでは
+  // 「このファイルが何をするか」を名前から当てるより、これと提供している関数名のほうが早い
+  const usersOf = new Map(), usesOf = new Map();
+  for (const e of edges) {
+    usersOf.set(e.to, (usersOf.get(e.to) || 0) + 1);
+    usesOf.set(e.from, (usesOf.get(e.from) || 0) + 1);
+  }
+  const roleOf = n => {
+    const r = [];
+    if (inCount.get(n)) r.push('入口');
+    if ((usersOf.get(n) || 0) >= 3) r.push('中核');
+    if (!usersOf.get(n) && usesOf.get(n)) r.push('末端');
+    return r;
+  };
+  // 提供している関数: 外から一番太い参照の見本から 3 つ。見本は名前順なので
+  // 「代表」ではなく「外から使われているものの例」
+  const offers = n => {
+    const best = m.incoming.filter(e => e.to === n).sort((a, b) => b.count - a.count)[0];
+    return best ? (best.symbols || []).filter(s => s.length >= 3).slice(0, 3) : [];
+  };
+
+  // 列の中の並び: 隣の列の相手の位置の平均に寄せて、交差を減らす（1 往復）
+  const pos = new Map();
+  cols.forEach(c => c.forEach((n, i) => pos.set(n, i)));
+  const neighbors = n => edges.filter(e => e.from === n || e.to === n).map(e => e.from === n ? e.to : e.from);
+  for (let pass = 0; pass < 2; pass++) {
+    cols.forEach(c => {
+      c.sort((a, b) => {
+        const bary = n => { const ns = neighbors(n); return ns.length ? ns.reduce((s, x) => s + pos.get(x), 0) / ns.length : pos.get(n); };
+        return bary(a) - bary(b) || a.localeCompare(b);
+      });
+      c.forEach((n, i) => pos.set(n, i));
+    });
+  }
+
+  // 向きは形で決める: 層の数が 1 層あたりのノード数より多い（鎖が長い）
+  // モジュールは、左から右だと横に伸び切って縦が空くので、上から下へ流す
+  const W = 200, H = 40, PAD = 24;
+  const widest = Math.max(...cols.map(c => c.length));
+  const vertical = cols.length > widest;
+  const GX = (vertical ? 24 : 64) * _rmGraphSpread, GY = (vertical ? 44 : 10) * _rmGraphSpread;
+  const x = n => vertical ? PAD + pos.get(n) * (W + GX) : PAD + col.get(n) * (W + GX);
+  const y = n => vertical ? PAD + 20 + col.get(n) * (H + GY) : PAD + 20 + pos.get(n) * (H + GY);
+  const width = vertical ? PAD * 2 + widest * (W + GX) + 80 : PAD * 2 + cols.length * W + (cols.length - 1) * GX;
+  const height = vertical ? PAD * 2 + 20 + cols.length * (H + GY) : PAD * 2 + 20 + widest * (H + GY);
+
+  const maxCount = Math.max(1, ...edges.map(e => e.count));
+  // 線の出口と入口をノードの辺に散らす。同じノードから出る線が全部ノードの中央から
+  // 出ると 1 本に重なって、どの線をクリックしたか分からない（siphash/ から真下の
+  // evp/ へ行く線と、ずっと下の mem_clr.c へ行く線が同じ x を通っていた）。
+  // 相手の位置の順に並べるので、線が交差して出ることもない
+  const fwd = edges.filter(e => !isBack.has(e.from + '\u0000' + e.to));
+  const portOf = (name, list, keyOf) => {
+    const sorted = list.slice().sort((a, b) => keyOf(a) - keyOf(b));
+    const m = new Map();
+    sorted.forEach((e, i) => m.set(e, (i + 1) / (sorted.length + 1)));
+    return m;
+  };
+  const outPort = new Map(), inPort = new Map();
+  for (const n of names) {
+    const outs = fwd.filter(e => e.from === n), ins = fwd.filter(e => e.to === n);
+    const key = vertical ? (e => x(e.to) - x(e.from)) : (e => y(e.to) - y(e.from));
+    const keyIn = vertical ? (e => x(e.from) - x(e.to)) : (e => y(e.from) - y(e.to));
+    for (const [e, t] of portOf(n, outs, key)) outPort.set(e, t);
+    for (const [e, t] of portOf(n, ins, keyIn)) inPort.set(e, t);
+  }
+  const overlay = document.createElement('div');
+  overlay.id = 'rm-graph';
+  overlay.innerHTML = `<div id="rm-graph-head"><span class="rm-name rm-mod">${rmEsc(m.module)}/</span>
+    <span class="rm-hint">内部の参照 ${edges.length} 本 · 使う側 → 使われる側（${vertical ? '上から下' : '左から右'}）· <span class="rm-graph-back">赤</span> は戻る参照 · 入口 / 中核 / 末端 は参照の数から · 乗せると繋がりだけ残る · クリックで固定 · ダブルクリックで開く</span>
+    <span id="rm-graph-pin"></span>
+    <span id="rm-graph-spacer"></span>
+    <label id="rm-graph-min" title="参照がこれより少ない線を隠す。太い線（主な依存）だけ残して骨格を見る">線 ≥ <input type="range" min="1" max="${Math.max(2, maxCount)}" value="1"><span>1</span></label>
+    <button class="rm-graph-zoom" data-d="-1" title="間隔を詰める (Ctrl+ホイール)">−</button><span id="rm-graph-spread">${_rmGraphSpread.toFixed(1)}×</span><button class="rm-graph-zoom" data-d="1" title="間隔を広げる (Ctrl+ホイール)">＋</button>
+    <button id="rm-graph-close" title="図を閉じてツリーに戻る (Esc)">×</button></div>
+    <div id="rm-graph-body"></div>`;
+  const pane = document.getElementById('pane-tree');
+  pane.appendChild(overlay);
+  overlay.querySelector('#rm-graph-close').onclick = rmCloseGraph;
+  overlay.querySelectorAll('.rm-graph-zoom').forEach(b => { b.onclick = () => rmGraphSpread(+b.dataset.d); });
+  overlay.querySelector('#rm-graph-body').addEventListener('wheel', e => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    rmGraphSpread(e.deltaY < 0 ? 1 : -1);
+  }, { passive: false });
+
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('width', width);
+  svg.setAttribute('height', height);
+  svg.innerHTML = `<defs>
+    <marker id="rm-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#8ab4f8"/></marker>
+    <marker id="rm-arrow-back" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#e5484d"/></marker>
+  </defs>`;
+  for (const e of edges) {
+    const backEdge = isBack.has(e.from + '\u0000' + e.to);
+    const path = document.createElementNS(svgNS, 'path');
+    let d;
+    // 何層またぐか。1 層先なら素直に結び、遠いほど横（縦）へ膨らませて、
+    // 途中のノードの上を通らないようにする
+    const span = Math.abs(col.get(e.to) - col.get(e.from));
+    const bulge = span > 1 ? Math.min(span - 1, 4) * 18 : 0;
+    const po = outPort.get(e) ?? 0.5, pi = inPort.get(e) ?? 0.5;
+    if (vertical) {
+      const x1 = x(e.from) + W * (0.15 + 0.7 * po), y1 = y(e.from) + H;
+      const x2 = x(e.to) + W * (0.15 + 0.7 * pi), y2 = y(e.to);
+      if (backEdge) {
+        // 下→上: 右側を回って戻す
+        const bx = Math.max(x(e.from), x(e.to)) + W + 50;
+        d = `M${x(e.from) + W},${y1 - H / 2} C${bx},${y1 - H / 2} ${bx},${y2 + H / 2} ${x(e.to) + W},${y2 + H / 2}`;
+      } else {
+        const my = (y1 + y2) / 2;
+        const side = x2 >= x1 ? 1 : -1; // 相手の側へ膨らむ
+        d = `M${x1},${y1} C${x1 + side * bulge},${my} ${x2 - side * bulge},${my} ${x2},${y2}`;
+      }
+    } else {
+      const x1 = x(e.from) + W, y1 = y(e.from) + H * (0.2 + 0.6 * po);
+      const x2 = x(e.to), y2 = y(e.to) + H * (0.2 + 0.6 * pi);
+      if (backEdge) {
+        // 右→左: 2 つのノードのうち下のほうの、さらに下をくぐらせて戻す
+        const dip = Math.max(y1, y2) + H * 1.6;
+        d = `M${x1 - W},${y1 + H / 2} C${x1 - W - 40},${dip} ${x2 + W + 40},${dip} ${x2 + W},${y2 + H / 2}`;
+      } else {
+        const mx = (x1 + x2) / 2;
+        const side = y2 >= y1 ? 1 : -1;
+        d = `M${x1},${y1} C${mx},${y1 + side * bulge} ${mx},${y2 - side * bulge} ${x2},${y2}`;
+      }
+    }
+    path.setAttribute('d', d);
+    path.setAttribute('class', 'rm-graph-edge' + (backEdge ? ' rm-graph-edge-back' : ''));
+    path.dataset.from = e.from; path.dataset.to = e.to; path.dataset.count = e.count;
+    path.dataset.hay = rmEdgeHaystack(e);
+    path.setAttribute('stroke-width', (1 + 5 * Math.sqrt(e.count / maxCount)).toFixed(1));
+    path.setAttribute('marker-end', backEdge ? 'url(#rm-arrow-back)' : 'url(#rm-arrow)');
+    const title = document.createElementNS(svgNS, 'title');
+    title.textContent = `${e.from} → ${e.to}: ${e.count}\n` + (e.symbols || []).join(', ') + (e.syms_capped ? ' …' : '');
+    path.appendChild(title);
+    // 矢印をクリック: 内部タブをその組で絞り込む（チップで関数へ飛べる）
+    // 図は閉じない: 矢印を次々にクリックして把握していく使い方を止めないため。
+    // 選んだ矢印に印を付け、側のパネルの「内部」をその組に絞り込む
+    path.onclick = () => {
+      svg.querySelectorAll('.rm-graph-edge-sel').forEach(p => p.classList.remove('rm-graph-edge-sel'));
+      path.classList.add('rm-graph-edge-sel');
+      svg.appendChild(path); // 手前に出す（他の線の下に隠れない。帯はノードの下のまま）
+      // 側のパネルだけをこの組に絞る。この絞り込みは図には効かせない —
+      // 線を選ぶたびに図全体が薄くなり、固定を外しても戻らないように見える
+      _rmTab = 'mid'; _rmFilter = _rmFilterByArrow = rmLeaf(e.from) + ' ' + rmLeaf(e.to); rmRerender();
+    };
+    svg.appendChild(path);
+    // 当たり判定だけの太い透明な帯。見た目の線は 1〜6px で狙いにくい
+    const hit = document.createElementNS(svgNS, 'path');
+    hit.setAttribute('d', d);
+    hit.setAttribute('class', 'rm-graph-hit');
+    hit.appendChild(title.cloneNode(true));
+    hit.onclick = () => path.onclick();
+    hit.onmouseenter = () => path.classList.add('rm-graph-edge-hover');
+    hit.onmouseleave = () => path.classList.remove('rm-graph-edge-hover');
+    svg.appendChild(hit);
+  }
+  for (const n of names) {
+    const g = document.createElementNS(svgNS, 'g');
+    g.setAttribute('class', 'rm-graph-node' + (rmIsFile(n) ? ' rm-graph-file' : ' rm-graph-dir') + (idle.has(n) ? ' rm-graph-idle' : ''));
+    g.setAttribute('transform', `translate(${x(n)},${y(n)})`);
+    const inN = inCount.get(n) || 0;
+    const roles = idle.has(n) ? ['参照なし'] : roleOf(n), sym = offers(n);
+    g.dataset.name = n;
+    g.innerHTML = `<rect width="${W}" height="${H}" rx="4"/>
+      <text x="8" y="15" class="rm-graph-label">${rmEsc(rmLeaf(n))}${rmIsFile(n) ? '' : '/'}</text>
+      <text x="${W - 6}" y="15" text-anchor="end" class="rm-graph-role">${rmEsc(roles.join('・'))}${inN ? ` ${inN}` : ''}</text>
+      <text x="8" y="31" class="rm-graph-sym">${rmEsc(sym.join(', '))}</text>`;
+    const t = document.createElementNS(svgNS, 'title');
+    t.textContent = n + (inN ? `\n外から ${inN}` : '') + (roles.length ? `\n${roles.join('・')}` : '')
+      + (sym.length ? `\n外から使われる例: ${sym.join(', ')}` : '') + (rmIsFile(n) ? '\nクリックで開く' : '\nクリックで降りる');
+    g.appendChild(t);
+    g.onmouseenter = () => { if (!_rmGraphPin) rmGraphFocus(svg, n); };
+    g.onmouseleave = () => { if (!_rmGraphPin) rmGraphFocus(svg, null); };
+    // 線が多いと、乗せている間だけでは追い切れない。クリックで固定し、もう一度で
+    // 外す。ファイルを開くのはダブルクリックに分ける: 固定のたびに下のエディタが
+    // 切り替わると、固定したことより開いたことに目が行って、固定に気付けない
+    g.onclick = () => {
+      _rmGraphPin = _rmGraphPin === n ? null : n;
+      rmGraphFocus(svg, _rmGraphPin);
+      rmGraphPinLabel(_rmGraphPin);
+    };
+    g.ondblclick = () => {
+      if (rmIsFile(n)) { if (typeof openPeek === 'function' && _rmRoot) openPeek(_rmRoot.replace(/\\/g, '/') + '/' + n, 1); }
+      else { rmCloseGraph(); rmLoad(n); }
+    };
+    svg.appendChild(g);
+  }
+  // 細い線を隠す
+  const minIn = overlay.querySelector('#rm-graph-min input');
+  minIn.oninput = () => {
+    const min = +minIn.value;
+    overlay.querySelector('#rm-graph-min span').textContent = String(min);
+    svg.querySelectorAll('.rm-graph-edge').forEach(p => p.classList.toggle('rm-graph-edge-thin', +p.dataset.count < min));
+  };
+  if (_rmGraphMin > 1) { minIn.value = String(Math.min(_rmGraphMin, +minIn.max)); minIn.oninput(); }
+  minIn.onchange = () => { _rmGraphMin = +minIn.value; };
+  // 背景のクリックでは固定を外さない: 細い線を狙って外れたクリックで
+  // 見ていた状態が消えるのは、外したいときより圧倒的に多い。外すのは
+  // 固定したノードの再クリック・ヘッダの「外す」・Esc の 3 つ
+  overlay.querySelector('#rm-graph-pin').onclick = () => { _rmGraphPin = null; rmGraphFocus(svg, null); rmGraphPinLabel(null); };
+  overlay.querySelector('#rm-graph-body').appendChild(svg);
+  if (_rmGraphPin && names.includes(_rmGraphPin)) rmGraphFocus(svg, _rmGraphPin); else _rmGraphPin = null;
+  rmGraphPinLabel(_rmGraphPin);
+  if (scroll) { const b = overlay.querySelector('#rm-graph-body'); b.scrollLeft = scroll[0]; b.scrollTop = scroll[1]; }
+  // ツリーの区画を図に明け渡す（閉じたら戻す）
+  _rmGraphHidden = ['tree', 'graph-view', 'tree-toolbar', 'drop-root', 'indent-guide']
+    .map(i => document.getElementById(i)).filter(Boolean)
+    .map(el => [el, el.style.display]);
+  for (const [el] of _rmGraphHidden) el.style.display = 'none';
+  document.addEventListener('keydown', _rmGraphKey);
+  document.addEventListener('grepnavi:active-file-changed', _rmGraphMarkCurrent);
+  _rmGraphMarkCurrent();
+  document.querySelectorAll('.rm-graph-btn').forEach(b => b.classList.add('active'));
+}
+
+let _rmGraphPin = null; // 固定して見ているノード
+let _rmFilterByArrow = ''; // 線のクリックで入れた絞り込み（図には効かせない）
+function rmGraphPinLabel(name) {
+  const el = document.getElementById('rm-graph-pin');
+  if (!el) return;
+  el.textContent = '';
+  if (!name) return;
+  el.appendChild(document.createTextNode(`固定: ${rmLeaf(name)} `));
+  const off = document.createElement('button');
+  off.className = 'rm-graph-zoom';
+  off.textContent = '外す';
+  off.title = '固定を外す (Esc)';
+  el.appendChild(off);
+}
+let _rmGraphMin = 1;    // これより細い線は隠す
+
+// 1 つのノードに絡む線と相手だけを残し、他を薄くする。線が多いとき、
+// 「このファイルはどこと繋がっているか」はこれで読む
+// 固定したノード（name）と、側のパネルの絞り込みの両方で線を選ぶ。
+// 絞り込みはパネルと同じ当たり判定（パス + シンボルの見本）なので、
+// パネルで残った行と図で残る線が一致する
+function rmGraphFocus(svg, name) {
+  const { must, not } = _rmFilter === _rmFilterByArrow ? { must: [], not: [] } : rmFilterTerms();
+  const filtering = must.length || not.length;
+  const hitHay = hay => must.every(t => hay.includes(t)) && !not.some(t => hay.includes(t));
+  svg.classList.toggle('rm-graph-focus', !!name || !!filtering);
+  const near = new Set();
+  svg.querySelectorAll('.rm-graph-edge').forEach(p => {
+    const touches = !name || p.dataset.from === name || p.dataset.to === name;
+    const matches = !filtering || hitHay(p.dataset.hay || '');
+    const on = (!!name || !!filtering) && touches && matches;
+    p.classList.toggle('rm-graph-edge-on', on);
+    if (on) { near.add(p.dataset.from); near.add(p.dataset.to); }
+  });
+  svg.querySelectorAll('.rm-graph-node').forEach(g => {
+    g.classList.toggle('rm-graph-node-on', (!!name || !!filtering) && (g.dataset.name === name || near.has(g.dataset.name)));
+    g.classList.toggle('rm-graph-node-pin', !!name && g.dataset.name === name);
+  });
+}
+
+// 絞り込みが変わったら、開いている図にも当て直す
+function rmGraphRefresh() {
+  const svg = document.querySelector('#rm-graph svg');
+  if (svg) rmGraphFocus(svg, _rmGraphPin);
+}
+
+// 間隔を 1 段広げる/詰める（0.5×〜3×）。描き直すが、スクロール位置は保つ
+function rmGraphSpread(dir) {
+  const next = Math.min(3, Math.max(0.5, Math.round((_rmGraphSpread + dir * 0.25) * 4) / 4));
+  if (next === _rmGraphSpread || !_rmGraphData) return;
+  _rmGraphSpread = next;
+  const hidden = _rmGraphHidden; // 閉じて開き直す間、ツリーを一瞬出さない
+  _rmGraphHidden = [];
+  rmDrawGraph(_rmGraphData);
+  _rmGraphHidden = hidden;
+}
+
+let _rmGraphHidden = [];
+function rmCloseGraph() {
+  const g = document.getElementById('rm-graph');
+  if (!g) return;
+  g.remove();
+  document.querySelectorAll('.rm-graph-btn').forEach(b => b.classList.remove('active'));
+  for (const [el, disp] of _rmGraphHidden) el.style.display = disp;
+  _rmGraphHidden = [];
+  document.removeEventListener('keydown', _rmGraphKey);
+  document.removeEventListener('grepnavi:active-file-changed', _rmGraphMarkCurrent);
+}
+function _rmGraphKey(e) {
+  if (e.key !== 'Escape') return;
+  e.stopPropagation();
+  // 固定中の Esc は固定を外すだけ。図ごと閉じるのは次の Esc
+  const svg = document.querySelector('#rm-graph svg');
+  if (_rmGraphPin && svg) { _rmGraphPin = null; rmGraphFocus(svg, null); rmGraphPinLabel(null); return; }
+  rmCloseGraph();
+}
+// 開いているファイルのノードに印を付ける。図を見ながらコードを読むとき、
+// いま図のどこにいるかを見失わないため
+function _rmGraphMarkCurrent() {
+  const g = document.getElementById('rm-graph');
+  if (!g) return;
+  const file = (typeof tabs !== 'undefined' && tabs[activeTabIdx] && tabs[activeTabIdx].file) || '';
+  const rel = file ? rmRel(file) : '';
+  g.querySelectorAll('.rm-graph-node').forEach(n => {
+    const name = n.dataset.name || '';
+    n.classList.toggle('rm-graph-cur', !!rel && (rel === name || rel.startsWith(name + '/')));
+  });
+}
+function rmIsFile(name) { return /\.[A-Za-z0-9]+$/.test(name.split('/').pop()); }
+function rmLeaf(name) { return name.split('/').pop(); }
 
 // ===== 行き先ごとに畳む =====
 // 外からの参照は「同じ入口に、外の別々のところが来る」形になりやすい

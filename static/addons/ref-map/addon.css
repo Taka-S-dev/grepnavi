@@ -287,7 +287,63 @@
   white-space: nowrap;
 }
 .rm-site-more { color: #666; padding: 2px; }
+
+/* ===== 内部を図で見る（ツリーの区画に出す。エディタは隠さない） ===== */
+#rm-graph {
+  position: absolute; inset: 0; z-index: 5;
+  background: #1e1e1e;
+  display: flex; flex-direction: column;
+}
+#rm-graph-head {
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+  padding: 5px 10px; background: #252526; border-bottom: 1px solid #454545;
+  font-size: 12px; color: #ccc; white-space: nowrap; overflow: hidden;
+}
+#rm-graph-head .rm-hint { padding: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; }
+#rm-graph-spacer { flex: 1; }
+#rm-graph-close { background: none; border: none; color: #aaa; font-size: 16px; cursor: pointer; flex-shrink: 0; }
+#rm-graph-close:hover { color: #fff; }
+#rm-graph-body { flex: 1; min-height: 0; overflow: auto; }
+.rm-graph-edge { fill: none; stroke: #8ab4f8; stroke-opacity: .5; cursor: pointer; }
+.rm-graph-edge:hover { stroke-opacity: 1; }
+.rm-graph-edge-back { stroke: #e5484d; stroke-opacity: .8; }
+.rm-graph-back { color: #e5484d; }
+.rm-graph-node { cursor: pointer; }
+.rm-graph-node rect { fill: #2d2d30; stroke: #5a5a5a; }
+.rm-graph-node:hover rect { stroke: #8ab4f8; }
+.rm-graph-dir rect { stroke: #c9a227; }
+/* 開いているファイル */
+.rm-graph-cur rect { stroke: #f0c040; stroke-width: 2; fill: #3a3520; }
+.rm-graph-label { fill: #d4d4d4; font: 12px Consolas, "Courier New", monospace; }
+.rm-graph-dir .rm-graph-label { fill: #e8c45a; }
+.rm-graph-role { fill: #9aa0a6; font: 10px sans-serif; }
+.rm-graph-sym { fill: #6f7d88; font: 10px Consolas, "Courier New", monospace; }
+.rm-graph-edge-sel { stroke: #f0c040 !important; stroke-opacity: 1 !important; }
+.rm-graph-zoom { background: none; border: 1px solid #444; color: #aaa; font-size: 12px; padding: 0 6px; border-radius: 3px; cursor: pointer; flex-shrink: 0; }
+.rm-graph-zoom:hover { background: #333; color: #fff; }
+#rm-graph-spread { color: #888; font-size: 11px; min-width: 3em; text-align: center; flex-shrink: 0; }
+/* 乗せた / 固定したノードの線だけ残す */
+/* 薄くする線は太さも 1px に落とす。太いまま薄くすると、何本も重なった所で
+   濃さが足し算になって、関係ない束がはっきり見えてしまう */
+/* stroke-opacity ではなく opacity: 矢じり（marker）は線の透明度を継がないので、
+   線だけ薄くすると矢じりが濃いまま残る */
+/* 矢じりは消す: 同じノードに集まる矢じりが何十個も重なると、薄くしても濃く見える */
+.rm-graph-focus .rm-graph-edge:not(.rm-graph-edge-on) { opacity: .08; stroke-width: 1px; marker-end: none; }
+.rm-graph-focus .rm-graph-edge-on { stroke-opacity: 1; }
+.rm-graph-focus .rm-graph-node:not(.rm-graph-node-on) { opacity: .3; }
+.rm-graph-node-pin rect { stroke: #8ab4f8; stroke-width: 2; }
+.rm-graph-edge-thin { display: none; }
+#rm-graph-min { display: flex; align-items: center; gap: 4px; color: #888; font-size: 11px; flex-shrink: 0; }
+#rm-graph-min input { width: 70px; }
+#rm-graph-min span { min-width: 1.5em; }
+#rm-graph-pin { color: #8ab4f8; font-size: 11px; white-space: nowrap; flex-shrink: 0; }
 /* 畳まれた行き先の中の、ファイルの見出し（チップの前に置く） */
 .rm-chip-file { color: #9cdcfe; font: 11px Consolas, "Courier New", monospace; margin: 0 2px 0 6px; cursor: pointer; }
 .rm-chip-file:first-child { margin-left: 0; }
 .rm-chip-file:hover { text-decoration: underline; }
+/* 線の当たり判定（透明・太い）。ノードより下に描くので、ノードのクリックは奪わない */
+.rm-graph-hit { fill: none; stroke: transparent; stroke-width: 12px; cursor: pointer; pointer-events: stroke; }
+.rm-graph-edge-hover { stroke-opacity: 1 !important; }
+/* 参照の無いファイル: 在ることだけ分かればよいので薄く、枠は点線 */
+.rm-graph-idle rect { stroke-dasharray: 3 3; }
+.rm-graph-idle .rm-graph-label, .rm-graph-idle .rm-graph-role { fill: #777; }

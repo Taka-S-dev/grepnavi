@@ -411,7 +411,71 @@ async function loadCodePreview(file, line, ctx, opts) {
   };
 }
 
-if (typeof module !== "undefined") module.exports = { shortPath, labelFrom, foreignRootName, nodeDir, bandLabel, splitNodeLabel, previewLines, startsInsideBlockComment, cIdentRanges, adjacentDistinctBands, previewSide, tileRects, locationText };
+// layerGraph は「使う側 → 使われる側」の辺の集合を、左から右へ流れる層に並べる。
+// 誰にも使われないノードが列 0、使う側の最大列 + 1 がそのノードの列。参照が
+// 一方向なら全部左→右に流れ、構造が層になっているかが形で読める。
+// 循環（相互参照）は戻り辺として外し、back に返す。描く側はそれを右→左の
+// 赤い矢印にして「絡まり」だけを目立たせる。
+// 戻り辺は少ないほど図が読めるので、選び方は「使う側を前、使われる側を後ろ」に
+// 並べる貪欲法（Eades–Lin–Smyth）: 使われるだけのノードを後ろへ、使うだけの
+// ノードを前へ送り、残りは (使う − 使われる) が最大のものを前に出す。並びに
+// 逆らう辺が戻り辺。深さ優先の訪問順で決めると、全員が相互参照している
+// モジュールで意味のない 1 本の鎖ができ、残りが全部赤になる。
+// 返り値: { cols: [[name, ...], ...], col: Map(name → 列), back: [[from, to], ...] }
+function layerGraph(edges) {
+  const nodes = new Set();
+  for (const e of edges) { nodes.add(e.from); nodes.add(e.to); }
+  const names = [...nodes].sort();
+  const simple = edges.filter(e => e.from !== e.to);
+  const alive = new Set(names);
+  const outDeg = n => simple.filter(e => e.from === n && alive.has(e.to)).length;
+  const inDeg = n => simple.filter(e => e.to === n && alive.has(e.from)).length;
+  const front = [], tail = [];
+  while (alive.size) {
+    let moved = true;
+    while (moved) {
+      moved = false;
+      for (const n of [...alive]) {
+        if (outDeg(n) === 0) { tail.unshift(n); alive.delete(n); moved = true; }
+      }
+      for (const n of [...alive]) {
+        if (alive.has(n) && inDeg(n) === 0) { front.push(n); alive.delete(n); moved = true; }
+      }
+    }
+    if (!alive.size) break;
+    let best = null, bestD = -Infinity;
+    for (const n of alive) {
+      const d = outDeg(n) - inDeg(n);
+      if (d > bestD) { best = n; bestD = d; }
+    }
+    front.push(best); alive.delete(best);
+  }
+  const rank = new Map([...front, ...tail].map((n, i) => [n, i]));
+  const back = new Set();
+  for (const e of simple) if (rank.get(e.from) > rank.get(e.to)) back.add(e.from + '\u0000' + e.to);
+  const isBack = (a, b) => back.has(a + '\u0000' + b);
+  // 戻り辺を除いた向きで、使う側の最大列 + 1
+  const users = new Map(names.map(n => [n, []]));
+  for (const e of edges) if (!isBack(e.from, e.to) && e.from !== e.to) users.get(e.to).push(e.from);
+  const col = new Map();
+  const colOf = n => {
+    if (col.has(n)) return col.get(n);
+    col.set(n, 0); // 循環は戻り辺で切ってあるので再入しないが、念のための番人
+    let c = 0;
+    for (const u of users.get(n)) c = Math.max(c, colOf(u) + 1);
+    col.set(n, c);
+    return c;
+  };
+  for (const n of names) colOf(n);
+  const cols = [];
+  for (const n of names) {
+    const c = col.get(n);
+    (cols[c] || (cols[c] = [])).push(n);
+  }
+  return { cols, col, back: [...back].map(k => k.split('\u0000')) };
+}
+
+if (typeof module !== "undefined") module.exports = { shortPath, labelFrom, foreignRootName, nodeDir, bandLabel, splitNodeLabel, previewLines, startsInsideBlockComment, cIdentRanges, adjacentDistinctBands, previewSide, tileRects, locationText, layerGraph };
 
 function extractSym(text) {
   const m = text.match(/\b([a-zA-Z_][a-zA-Z0-9_]{2,})\b/);
