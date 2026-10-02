@@ -1534,7 +1534,7 @@ function rmRenderFooter(d) {
   }
   // 落とした理由ごとに数を出す。黙って消すと「元から関係が無かった」と読めてしまう。
   if (omitted && omitted.static_refs > 0) {
-    parts.push(`static 定義への他ファイル参照 ${omitted.static_refs} 件は除外（名前が一致しただけで、C の規則上ありえない）`);
+    parts.push(`static 定義・.c 内の #define への他ファイル参照 ${omitted.static_refs} 件は除外（名前が一致しただけで、C の規則上ありえない）`);
   }
   if (omitted && omitted.header_refs > 0) {
     parts.push(`ヘッダに現れた名前 ${omitted.header_refs} 件は不算入（プロトタイプ宣言は実装の利用ではない）`);

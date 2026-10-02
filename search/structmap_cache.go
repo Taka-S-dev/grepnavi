@@ -25,7 +25,7 @@ import (
 // エッジをパス2本ずつで書くと数倍に膨らむ）。
 
 const (
-	refMapCacheMagic = "grepnavi-refmap\t5"
+	refMapCacheMagic = "grepnavi-refmap\t6"
 	refMapCacheFile  = ".grepnavi-refmap"
 )
 

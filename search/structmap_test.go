@@ -689,3 +689,74 @@ func TestFocusEdgesCarrySymbolFiles(t *testing.T) {
 		t.Errorf("pairs = %v", pairs)
 	}
 }
+
+func TestStructDefIsMacro(t *testing.T) {
+	dict := map[byte]string{'d': "define", 't': "typedef"}
+	for img, want := range map[string]bool{
+		"@n 12 # @d @n":        true, // `# define X`（字下げ付き）
+		"@n 103 #  @d @n":      true,
+		"@n 5 #@d @n(a) (a)":   true,
+		"@n 56 # undef @n":     true,
+		"@n 7 int @n(void)":    false,
+		"@n 9 static int @n;":  false,
+		"@n 3 @t struct x @n;": false,
+	} {
+		if got := structDefIsMacro(img, dict); got != want {
+			t.Errorf("%q: got %v, want %v", img, got, want)
+		}
+	}
+}
+
+// .c の中の #define は他の翻訳単位から見えない。名前が一致した他ファイルの参照を
+// その .c への線にしない（openssl: apps/vms_term_sock.c の `# define OPENSSL_SYS_VMS`
+// が、ヘッダの同名マクロを使う全ファイルからの入口に見えていた）。
+func TestMacroInImplFileIsFileLocal(t *testing.T) {
+	if !GtagsInPath() {
+		t.Skip("gtags なし")
+	}
+	dir := t.TempDir()
+	write := func(rel, body string) {
+		p := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+			t.Fatal(err)
+		}
+		mustWrite(t, p, body)
+	}
+	write("include/os.h", "#define SYS_VMS 1\n")
+	write("apps/vms.c", "#include \"os.h\"\n# define SYS_VMS 1\n# define WINNT 4\nint vms_run(void) { return SYS_VMS + WINNT; }\n")
+	write("ssl/s.c", "#include \"os.h\"\nint s_run(void) { return SYS_VMS + WINNT; }\n")
+	write("core/c.c", "int core_fn(void) { return 1; }\n")
+	write("ssl/t.c", "int core_fn(void);\nint t_run(void) { return core_fn(); }\n")
+
+	if err := GtagsBuildIndex(context.Background(), dir); err != nil {
+		t.Fatalf("gtags: %v", err)
+	}
+	InvalidateStructCache()
+	defer InvalidateStructCache()
+	if err := BuildRefMap(context.Background(), dir, nil); err != nil {
+		t.Fatal(err)
+	}
+	o, err := StructMapOverview(context.Background(), dir, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range o.Edges {
+		if e.To == "apps" {
+			t.Errorf("ssl → apps の線ができている（.c 内のマクロを他ファイルの参照先にした）: %+v", e)
+		}
+	}
+	// ssl/s.c の SYS_VMS と WINNT が、apps/vms.c のマクロへの参照として外れる
+	if o.Omitted.StaticRefs != 2 {
+		t.Errorf("static_refs = %d, want 2", o.Omitted.StaticRefs)
+	}
+	// 本物の線は残る
+	found := false
+	for _, e := range o.Edges {
+		if e.From == "ssl" && e.To == "core" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("ssl → core が無い: %+v", o.Edges)
+	}
+}

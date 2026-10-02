@@ -59,8 +59,10 @@ type StructOmitted struct {
 	// SameNameRefs はそれによって地図に出ていない参照の数。シンボル数だけでは
 	// 地図全体のどれくらいが欠けているかが分からない
 	SameNameRefs int `json:"same_name_refs"`
-	// StaticRefs は static 定義を名前一致で指していた他ファイルからの参照。
-	// C の規則の上でありえない結び付きなので落としている
+	// StaticRefs は static 定義か、.c の中の #define / #undef を名前一致で指して
+	// いた他ファイルからの参照。どちらもファイルの外から見えないので、C の規則の
+	// 上でありえない結び付き（実測: openssl の apps/vms_term_sock.c にある
+	// `# define OPENSSL_SYS_VMS` が、ツリー中から使われる入口に見えていた）
 	StaticRefs int `json:"static_refs"`
 	// HeaderRefs はヘッダに現れた名前。プロトタイプ宣言が大半で、実装を
 	// 使っている側ではないので数えていない
@@ -847,6 +849,12 @@ func buildStructTables(ctx context.Context, root string) (*structTables, error) 
 			return
 		}
 		isStatic, _ := structDefKind(image, dict)
+		// .c の中の #define / #undef は static と同じ扱い: 他の翻訳単位は .c を
+		// include しないので、その名前は外から見えない。ヘッダに同名のマクロが
+		// あれば他所が指すのはそちら。無ければ（SDK のマクロなど）ツリー外
+		if structDefIsMacro(image, dict) {
+			isStatic = true
+		}
 		if v, seen := allStatic[sym]; !seen {
 			allStatic[sym] = isStatic
 		} else if v && !isStatic {
@@ -1005,6 +1013,17 @@ func structDefKind(image string, dict map[byte]string) (isStatic, isFunc bool) {
 	isFunc = strings.Contains(strings.ReplaceAll(src, " ", ""), "@n(")
 	return isStatic, isFunc
 }
+
+// structDefIsMacro は定義行が #define / #undef かを返す（`# define X` の字下げ付きも含む）。
+func structDefIsMacro(image string, dict map[byte]string) bool {
+	m := reStructDefImage.FindStringSubmatch(image)
+	if m == nil {
+		return false
+	}
+	return reStructDefine.MatchString(expandImage(m[1], dict))
+}
+
+var reStructDefine = regexp.MustCompile(`^\s*#\s*(define|undef)\b`)
 
 // structEntry は1レコードを シンボル / ファイル番号 / 残り (行番号と、GTAGS なら
 // 定義行のソース) に割る。
