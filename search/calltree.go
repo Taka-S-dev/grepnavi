@@ -17,13 +17,13 @@ const (
 
 // CallSite はコール関係の1件。
 type CallSite struct {
-	Func     string `json:"func"`           // 関数名
-	File     string `json:"file"`           // ファイルパス
-	Line     int    `json:"line"`           // 関数定義行（1-indexed）
-	CallLine int    `json:"call_line"`      // 実際の呼び出し行（callersのみ）
-	Indirect bool   `json:"indirect"`       // 関数ポインタ経由の参照
+	Func     string `json:"func"`             // 関数名
+	File     string `json:"file"`             // ファイルパス
+	Line     int    `json:"line"`             // 関数定義行（1-indexed）
+	CallLine int    `json:"call_line"`        // 実際の呼び出し行（callersのみ）
+	Indirect bool   `json:"indirect"`         // 関数ポインタ経由の参照
 	Assign   bool   `json:"assign,omitempty"` // その語へ書き込んでいる行
-	Text     string `json:"text,omitempty"` // 呼び出し行のソース（呼び出しか否かを呼び出し側で判断できるように）
+	Text     string `json:"text,omitempty"`   // 呼び出し行のソース（呼び出しか否かを呼び出し側で判断できるように）
 }
 
 // _callSiteTextMax は返す呼び出し行の最大長。
@@ -287,9 +287,28 @@ func FindCallees(_ context.Context, file string, line int, root string) ([]Calle
 	// 関数の途中の行を渡されても答えられるようにする。読んでいる最中に
 	// 「この関数は何を呼んでいるか」を聞くとき、カーソルは本体の中にある
 	funcName := ""
-	if sp, ok := enclosingSpan(scanFuncSpans(codeOnlyLines(lines)), line); ok {
-		line, funcName = sp.Start, sp.Name
+	code := codeOnlyLines(lines)
+	if sp, ok := enclosingSpan(scanFuncSpans(code), line); ok {
+		// 範囲が分かっているなら、その中の `{` から閉じまでを見る。Start から
+		// ブロックを切り出し直すと、直前に `DECLARE_X(...)` のようなマクロ呼び出しが
+		// 続いているとき Start がそこまで遡っていて、`{` が探索範囲（20 行）の外に
+		// 出て「プロトタイプ」と判定される（実測: openssl engines/e_padlock.c の
+		// padlock_ciphers は 17 行のマクロ呼び出しの後にあり、呼び先が 0 件だった）
+		first := sp.Start
+		for ln := sp.Start; ln <= sp.End && ln <= len(code); ln++ {
+			if strings.Contains(code[ln-1], "{") {
+				first = ln
+				break
+			}
+		}
+		last, truncated := sp.End, false
+		if last-first+1 > analysisBlockMaxLines {
+			last, truncated = first+analysisBlockMaxLines-1, true
+		}
+		return annotateCalleeKinds(scanCallees(lines, first, last), root), sp.Name, truncated, nil
 	}
+	// 走査器が関数を認識できない行（マクロで定義された関数など）は、その行から
+	// ブロックを切り出して見る。
 	// 表示用の 200 行上限だと 500 行級の関数で後半の呼び出しが黙って消える。
 	// 一覧は全件そろっていることに意味があるので解析用の上限で切り出し、
 	// それでも足りなければ打ち切ったことを返す
@@ -394,7 +413,17 @@ func annotateCalleeKinds(hits []CalleeHit, root string) []CalleeHit {
 			continue
 		}
 		if !hits[i].Indirect {
+			// 同じ名前にマクロと関数の両方があるときは関数とする。コールツリーは
+			// 既定でマクロを隠すので、索引の先頭がたまたま #define だと本物の
+			// 関数呼び出しが一覧から消える（実測: openssl の tags で 107 名、
+			// linux drivers/scsi で 32 名が両方の種別を持つ）
 			hits[i].Kind = defs[0].Kind
+			for _, d := range defs {
+				if d.Kind == "func" {
+					hits[i].Kind = "func"
+					break
+				}
+			}
 			continue
 		}
 		// メンバ呼び出しの名前で索引を引くと、同名の関数（`read`）が先に立つ。
@@ -409,4 +438,3 @@ func annotateCalleeKinds(hits []CalleeHit, root string) []CalleeHit {
 	}
 	return hits
 }
-

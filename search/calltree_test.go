@@ -553,3 +553,67 @@ func TestFindCalleesInRangeClampsToFile(t *testing.T) {
 		t.Fatalf("hits=%v err=%v", hits, err)
 	}
 }
+
+// 直前にマクロ呼び出し（`DECLARE_X(...)` の列）が続く関数でも呼び先が出る。
+// 走査器はその列を関数の始まりと取るので、始まりからブロックを切り出し直すと
+// `{` が探索範囲の外に出て 0 件になっていた（openssl engines/e_padlock.c）。
+func TestFindCalleesAfterMacroInvocations(t *testing.T) {
+	var src []string
+	for i := 0; i < 17; i++ {
+		src = append(src, "DECLARE_AES_EVP(128, ecb, ECB)")
+	}
+	src = append(src,
+		"",
+		"static int",
+		"padlock_ciphers(ENGINE *e, const EVP_CIPHER **cipher, const int **nids,",
+		"                int nid)",
+		"{",
+		"    if (!cipher) {",
+		"        *nids = padlock_cipher_nids;",
+		"        return padlock_cipher_nids_num;",
+		"    }",
+		"    *cipher = padlock_aes_128_ecb();",
+		"    return 1;",
+		"}",
+	)
+	f := filepath.Join(t.TempDir(), "e_padlock.c")
+	if err := os.WriteFile(f, []byte(strings.Join(src, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hits, name, _, err := FindCallees(t.Context(), f, 24, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "padlock_ciphers" {
+		t.Errorf("enclosing = %q", name)
+	}
+	names := map[string]bool{}
+	for _, h := range hits {
+		names[h.Name] = true
+	}
+	if !names["padlock_aes_128_ecb"] || names["DECLARE_AES_EVP"] {
+		t.Errorf("callees = %v, want padlock_aes_128_ecb and no DECLARE_AES_EVP", names)
+	}
+}
+
+// 同名のマクロと関数が両方索引にある名前は、関数として種別を付ける。
+// コールツリーは既定で define を隠すので、#define が先に並んでいるだけで
+// 本物の関数呼び出しが消えてしまう。
+func TestCalleeKindPrefersFuncOverDefine(t *testing.T) {
+	dir := t.TempDir()
+	tags := "!_TAG_FILE_FORMAT\t2\t/extended/\n" +
+		"!_TAG_FILE_SORTED\t1\t/0=unsorted, 1=sorted, 2=foldcase/\n" +
+		"CRYPTO_memcmp\tinclude/crypto.h\t/^# define CRYPTO_memcmp(a, b, n) memcmp(a, b, n)$/;\"\td\tline:3\n" +
+		"CRYPTO_memcmp\tsrc/mem.c\t/^int CRYPTO_memcmp(const void *a, const void *b, size_t n)$/;\"\tf\tline:10\n" +
+		"ONLY_MACRO\tinclude/crypto.h\t/^# define ONLY_MACRO(x) (x)$/;\"\td\tline:4\n"
+	if err := os.WriteFile(filepath.Join(dir, "tags"), []byte(tags), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hits := annotateCalleeKinds([]CalleeHit{{Name: "CRYPTO_memcmp"}, {Name: "ONLY_MACRO"}}, dir)
+	if hits[0].Kind != "func" {
+		t.Errorf("CRYPTO_memcmp kind = %q, want func (a function exists besides the macro)", hits[0].Kind)
+	}
+	if hits[1].Kind != "define" {
+		t.Errorf("ONLY_MACRO kind = %q, want define", hits[1].Kind)
+	}
+}
