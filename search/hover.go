@@ -3,6 +3,8 @@ package search
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -34,11 +36,23 @@ type HoverHit struct {
 //  1. ヘッダ（*.h,*.hpp）のみ検索 → struct/enum/define/typedef はここで完結
 //  2. func の宣言しか見つからなかった場合、ソースファイルも追加検索して定義本体を取得
 //
+// HoverScope は「どこから見た語か」。File は呼び出し元（開いているファイルや
+// 呼び出しを見つけたファイル）、Chain はそのインクルード先の集合。同じ名前の
+// 定義が複数あるとき、ここに近いものを先に出す。
+type HoverScope struct {
+	File  string
+	Chain map[string]bool
+}
+
 // 戻り値の第2要素は使用したエンジン名（"gtags" / "ctags" / "rg"）。
-func FindHover(ctx context.Context, word, dir, glob, root string, includeChain ...map[string]bool) ([]HoverHit, string, error) {
-	chain := map[string]bool{}
-	if len(includeChain) > 0 && includeChain[0] != nil {
-		chain = includeChain[0]
+func FindHover(ctx context.Context, word, dir, glob, root string, scopes ...HoverScope) ([]HoverHit, string, error) {
+	var scope HoverScope
+	if len(scopes) > 0 {
+		scope = scopes[0]
+	}
+	chain := scope.Chain
+	if chain == nil {
+		chain = map[string]bool{}
 	}
 	if root == "" {
 		root = dir
@@ -93,16 +107,65 @@ func FindHover(ctx context.Context, word, dir, glob, root string, includeChain .
 			return nil, engine, ctx.Err()
 		}
 
+		// 呼び出し元のファイル（とそのインクルード先）は先に別で引く。全体検索は
+		// 実態 5 件で打ち切るので、同じ名前の定義がそれより多いと（curl の
+		// docs/examples の main は数百）呼び出し元の定義が集合に入らず、後の
+		// 並べ替えでは救えない
 		seen := map[string]bool{}
+		if scope.File != "" || len(chain) > 0 {
+			// 呼び出し元のファイルは必ず入れ、インクルード先は 64 件まで
+			// （curl の例題は curl.h 経由で数百ファイルに広がる）
+			// インクルード先はルート相対の ID で来る（include/curl/curl.h）。
+			// 絶対パスにしてから渡す — 相対のまま rg に渡すと作業ディレクトリ
+			// 基準で解釈されて失敗し、呼び出し元ファイルの分まで捨てていた
+			// 呼び出し元ファイルとインクルード先は別々に引く: 無いファイルが
+			// 1 つ混じると rg がその呼び出しごと失敗し、呼び出し元の分まで消える
+			rest := make([]string, 0, len(chain))
+			for f := range chain {
+				if !filepath.IsAbs(f) {
+					f = filepath.Join(root, f)
+				}
+				if filepath.Clean(f) == filepath.Clean(scope.File) {
+					continue
+				}
+				if _, err := os.Stat(f); err == nil {
+					rest = append(rest, f)
+				}
+			}
+			sort.Strings(rest)
+			if len(rest) > 64 {
+				rest = rest[:64]
+			}
+			groups := [][]string{}
+			if scope.File != "" {
+				groups = append(groups, []string{scope.File})
+			}
+			if len(rest) > 0 {
+				groups = append(groups, rest)
+			}
+			for _, files := range groups {
+				own, err := findDefinitionsInFiles(ctx, word, files)
+				if err != nil {
+					continue
+				}
+				for _, h := range own {
+					key := fmt.Sprintf("%s:%d", filepath.Clean(h.File), h.Line)
+					if !seen[key] {
+						seen[key] = true
+						hits = append(hits, h)
+					}
+				}
+			}
+		}
 		for _, h := range r1.hits {
-			key := fmt.Sprintf("%s:%d", h.File, h.Line)
+			key := fmt.Sprintf("%s:%d", filepath.Clean(h.File), h.Line)
 			if !seen[key] {
 				seen[key] = true
 				hits = append(hits, h)
 			}
 		}
 		for _, h := range r2.hits {
-			key := fmt.Sprintf("%s:%d", h.File, h.Line)
+			key := fmt.Sprintf("%s:%d", filepath.Clean(h.File), h.Line)
 			if !seen[key] {
 				seen[key] = true
 				hits = append(hits, h)
@@ -207,6 +270,11 @@ func FindHover(ctx context.Context, word, dir, glob, root string, includeChain .
 			funcDecls = append(funcDecls, h)
 		}
 	}
+	// 2 件に絞る前に、呼び出し元ファイル（インクルードチェーン）の定義を先頭へ。
+	// 絞ってから並べ替えると、同名の static 関数が 3 ファイル以上にあるとき
+	// 呼び出し元の定義が先に切られて、並べ替える相手が残らない
+	// （実測: linux drivers/net の iwl_led_brightness_set は mvm/mld/dvm の 3 つ）
+	preferScope(funcDefs, scope)
 	if len(funcDefs) > 2 {
 		funcDefs = funcDefs[:2]
 	}
@@ -257,15 +325,34 @@ func FindHover(ctx context.Context, word, dir, glob, root string, includeChain .
 	// 置換部が定数式の #define は計算値も出す（enum メンバの計算値と同じ表示経路）
 	annotateDefineValues(ctx, result, word, dir, glob)
 
-	// インクルードチェーン内のファイルを先頭に並べる
-	if len(chain) > 0 {
-		sort.SliceStable(result, func(i, j int) bool {
-			inI := chain[result[i].File]
-			inJ := chain[result[j].File]
-			return inI && !inJ
-		})
-	}
+	preferScope(result, scope)
 	return result, engine, nil
+}
+
+// preferScope は候補を「呼び出し元のファイル → そのインクルード先 → それ以外」の
+// 順に並べる（安定）。区切りの向きを揃えてから比べる: 呼び出し側は / 区切りで
+// 渡してくることがあり、索引は OS の区切りで返すので、そのままでは同じファイルが
+// 別物に見えて優先が効かない
+func preferScope(hits []HoverHit, scope HoverScope) {
+	if (scope.File == "" && len(scope.Chain) == 0) || len(hits) < 2 {
+		return
+	}
+	own := filepath.Clean(scope.File)
+	chainN := make(map[string]bool, len(scope.Chain))
+	for f := range scope.Chain {
+		chainN[filepath.Clean(f)] = true
+	}
+	rank := func(h HoverHit) int {
+		f := filepath.Clean(h.File)
+		switch {
+		case scope.File != "" && f == own:
+			return 0
+		case chainN[f]:
+			return 1
+		}
+		return 2
+	}
+	sort.SliceStable(hits, func(i, j int) bool { return rank(hits[i]) < rank(hits[j]) })
 }
 
 // extractBraceBlock は startLine（1-indexed）からブレースブロックを抽出する。

@@ -344,6 +344,10 @@ async function ctSearch() {
       // まず定義を探して file:line を取得
       const hoverParams = new URLSearchParams({ word });
       if (dir) hoverParams.set('dir', dir);
+      // 開いているファイルを添える: 同名の static 関数が複数あるとき、hover は
+      // そのファイルとインクルード先の定義を先頭に並べる
+      const curFile = (typeof tabs !== 'undefined' && tabs[activeTabIdx] && tabs[activeTabIdx].file) || '';
+      if (curFile) hoverParams.set('file', curFile);
       const hRes = await fetch('/api/hover?' + hoverParams, { signal });
       let defFile = '', defLine = 0;
       if (hRes.ok) {
@@ -617,6 +621,10 @@ async function ctToggle(node, el) {
     if (!node.file) {
       const hoverParams = new URLSearchParams({ word: node.func });
       if (dir) hoverParams.set('dir', dir);
+      // 呼び出しを見つけたファイルを添える。同名の static 関数（linux の probe /
+      // show など）が別ファイルにもあるとき、呼び出し元と同じファイルの定義を
+      // 先に取るためで、これが無いと別ファイルの同名関数を展開してしまう
+      if (node.callFile) hoverParams.set('file', node.callFile);
       const hRes = await fetch('/api/hover?' + hoverParams).catch(() => null);
       if (hRes && hRes.ok) {
         const hHits = await hRes.json();

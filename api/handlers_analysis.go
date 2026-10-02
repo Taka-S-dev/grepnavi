@@ -728,7 +728,7 @@ func (h *Handler) handleHover(w http.ResponseWriter, r *http.Request) {
 	tInc := time.Since(t0)
 	ctx, cancel := context.WithTimeout(r.Context(), _hoverSearchTimeout)
 	defer cancel()
-	hits, hoverEngine, err := search.FindHover(ctx, word, dir, glob, hroot, includeChain)
+	hits, hoverEngine, err := search.FindHover(ctx, word, dir, glob, hroot, search.HoverScope{File: file, Chain: includeChain})
 	slog.Debug("hover", "word", word, "hits", len(hits), "engine", hoverEngine, "include", tInc, "search", time.Since(t0)-tInc, "total", time.Since(t0))
 	if err != nil {
 		if ctx.Err() != nil {

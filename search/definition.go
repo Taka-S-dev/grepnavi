@@ -152,7 +152,6 @@ func FindDefinitionsSmart(ctx context.Context, word, currentFile, root, glob str
 	return collectNearest(ctx, cancel, ch, total, t0)
 }
 
-
 // levelResult は1つの探索レベルの結果。
 type levelResult struct {
 	level int
@@ -270,10 +269,10 @@ func findSiblingCFiles(ctx context.Context, root string, hFiles []string) []stri
 	return result
 }
 
-// findDefinitionsInFiles は特定ファイルリストだけを対象に定義検索する。
-func findDefinitionsInFiles(ctx context.Context, word string, files []string) ([]DefHit, error) {
-	esc := regexp.QuoteMeta(word)
-	combined := `(?:` +
+// definitionPattern は word（正規表現エスケープ済み）の定義行を 1 回の rg で
+// 全種類まとめて拾うパターン。
+func definitionPattern(esc string) string {
+	return `(?:` +
 		`#\s*define\s+` + esc + `\b` +
 		`|^\s*(?:typedef\s+)?(?:struct|union)\s+` + esc + `\s*(?:\{|$)` +
 		`|^\s*(?:typedef\s+)?enum\s+` + esc + `\s*(?:\{|$)` +
@@ -281,7 +280,48 @@ func findDefinitionsInFiles(ctx context.Context, word string, files []string) ([
 		`|^\s*\}\s*` + esc + `\s*;` +
 		`|^\s+` + esc + `\b\s*[,=]` +
 		`|^[^\s#/*].*\b` + esc + `\s*\(` +
+		// 戻り値型を前の行に置く書き方（GNU 流）。名前が列 0 から始まるので
+		// 上の「型 名前(」の形には当たらない。列 0 の `名前(` はファイルスコープの
+		// マクロ呼び出し（`DECLARE_X(...)` の列）でもあるので、拾った後に
+		// gnuDefinitionLine で前の行を見て選り分ける
+		`|^` + esc + `\s*\(` +
 		`)`
+}
+
+// gnuDefinitionLine は、列 0 の `名前(` 行が関数定義の名前行かを前の行で判定する。
+//
+//	static int                      ← 型だけの行（末尾は識別子か *）
+//	padlock_ciphers(ENGINE *e, ...) ← この行
+//
+// 前の行が `;` `}` `\` で終わる・`#` で始まる・それ自体が列 0 の `識別子(...)`
+// （マクロ呼び出しの列）なら、この行は定義の名前行ではない。前の行が無ければ
+// 判定できないので定義として残す。
+func gnuDefinitionLine(file string, line int) bool {
+	lines, err := CachedLines(file)
+	if err != nil || line < 2 || line > len(lines) {
+		return true
+	}
+	for i := line - 2; i >= 0 && i >= line-4; i-- {
+		prev := stripLineComment(strings.TrimSpace(lines[i]))
+		if prev == "" {
+			return false // 空行の直後に名前だけの行が来る定義は無い（型の行が要る）
+		}
+		if strings.HasSuffix(prev, "*/") {
+			continue // 直前のコメント行は飛ばして型の行を見る
+		}
+		if strings.HasPrefix(prev, "#") || strings.HasSuffix(prev, ";") ||
+			strings.HasSuffix(prev, "}") || strings.HasSuffix(prev, "\\") {
+			return false
+		}
+		return !reSignatureStart.MatchString(prev)
+	}
+	return true
+}
+
+// findDefinitionsInFiles は特定ファイルリストだけを対象に定義検索する。
+func findDefinitionsInFiles(ctx context.Context, word string, files []string) ([]DefHit, error) {
+	esc := regexp.QuoteMeta(word)
+	combined := definitionPattern(esc)
 	matches, err := Search(ctx, Options{
 		Pattern:       combined,
 		Files:         files,
@@ -302,6 +342,9 @@ func findDefinitionsInFiles(ctx context.Context, word string, files []string) ([
 			continue
 		}
 		seen[key] = true
+		if reSignatureStart.MatchString(m.Text) && !gnuDefinitionLine(m.File, m.Line) {
+			continue
+		}
 		results = append(results, DefHit{
 			File: m.File,
 			Line: m.Line,
@@ -326,15 +369,7 @@ func FindDefinitionsN(ctx context.Context, word, dir, glob string, maxPerQuery i
 	esc := regexp.QuoteMeta(word)
 
 	// 全定義パターンを OR で結合（1回の rg 呼び出しで全種類を検索）
-	combined := `(?:` +
-		`#\s*define\s+` + esc + `\b` +
-		`|^\s*(?:typedef\s+)?(?:struct|union)\s+` + esc + `\s*(?:\{|$)` +
-		`|^\s*(?:typedef\s+)?enum\s+` + esc + `\s*(?:\{|$)` +
-		`|\btypedef\b.+\b` + esc + `\b\s*;` +
-		`|^\s*\}\s*` + esc + `\s*;` +
-		`|^\s+` + esc + `\b\s*[,=]` +
-		`|^[^\s#/*].*\b` + esc + `\s*\(` +
-		`)`
+	combined := definitionPattern(esc)
 
 	t1 := time.Now()
 	opts := Options{
@@ -360,6 +395,9 @@ func FindDefinitionsN(ctx context.Context, word, dir, glob string, maxPerQuery i
 			return nil
 		}
 		seen[key] = true
+		if reSignatureStart.MatchString(m.Text) && !gnuDefinitionLine(m.File, m.Line) {
+			return nil
+		}
 		hit := DefHit{
 			File: m.File,
 			Line: m.Line,
@@ -367,7 +405,11 @@ func FindDefinitionsN(ctx context.Context, word, dir, glob string, maxPerQuery i
 			Kind: classifyLineKind(m.Text),
 		}
 		results = append(results, hit)
-		if isDefinitionHit(hit) {
+		// 字下げされた `名前,` は enum のメンバーと分類されるが、関数ポインタの
+		// 表（ops 構造体の初期化子）に並ぶ関数名も同じ形をしている。これを
+		// 実態と数えると、表の行が 5 つ並んだ時点で rg を止めてしまい、その後に
+		// ある本物の関数定義に届かない（実測: curl の rtmp_disconnect）
+		if isDefinitionHit(hit) && hit.Kind != "enum_member" {
 			defCount++
 			if defCount >= maxPerQuery {
 				return errDone // 実態を maxPerQuery 件確認した時点で rg を kill

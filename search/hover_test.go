@@ -1,6 +1,8 @@
 package search
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -307,44 +309,44 @@ func TestComputeEnumValue(t *testing.T) {
 		{"implicit sequence from = 0", sslEarlyData, 1, 7, 6, true},
 		{"first member without assignment", []string{"enum {", "A,", "B,", "}"}, 1, 1, 0, true},
 		{
-			name:      "explicit value resets counter",
-			lines:     []string{"enum {", "A = 5,", "B,", "C,", "}"},
-			firstIdx:  1, memberIdx: 3, want: 7, ok: true,
+			name:     "explicit value resets counter",
+			lines:    []string{"enum {", "A = 5,", "B,", "C,", "}"},
+			firstIdx: 1, memberIdx: 3, want: 7, ok: true,
 		},
 		{
-			name:      "hex literal",
-			lines:     []string{"enum {", "A = 0x10,", "B,", "}"},
-			firstIdx:  1, memberIdx: 2, want: 17, ok: true,
+			name:     "hex literal",
+			lines:    []string{"enum {", "A = 0x10,", "B,", "}"},
+			firstIdx: 1, memberIdx: 2, want: 17, ok: true,
 		},
 		{
-			name:      "negative literal",
-			lines:     []string{"enum {", "A = -1,", "B,", "}"},
-			firstIdx:  1, memberIdx: 2, want: 0, ok: true,
+			name:     "negative literal",
+			lines:    []string{"enum {", "A = -1,", "B,", "}"},
+			firstIdx: 1, memberIdx: 2, want: 0, ok: true,
 		},
 		{
-			name:      "comment and blank lines are skipped",
-			lines:     []string{"enum {", "A, /* first */", "", "// note", "B,", "}"},
-			firstIdx:  1, memberIdx: 4, want: 1, ok: true,
+			name:     "comment and blank lines are skipped",
+			lines:    []string{"enum {", "A, /* first */", "", "// note", "B,", "}"},
+			firstIdx: 1, memberIdx: 4, want: 1, ok: true,
 		},
 		{
-			name:      "expression assignment gives up",
-			lines:     []string{"enum {", "A = (1 << 3),", "B,", "}"},
-			firstIdx:  1, memberIdx: 2, ok: false,
+			name:     "expression assignment gives up",
+			lines:    []string{"enum {", "A = (1 << 3),", "B,", "}"},
+			firstIdx: 1, memberIdx: 2, ok: false,
 		},
 		{
-			name:      "macro assignment gives up",
-			lines:     []string{"enum {", "A = BASE_VAL,", "B,", "}"},
-			firstIdx:  1, memberIdx: 2, ok: false,
+			name:     "macro assignment gives up",
+			lines:    []string{"enum {", "A = BASE_VAL,", "B,", "}"},
+			firstIdx: 1, memberIdx: 2, ok: false,
 		},
 		{
-			name:      "preprocessor branch gives up",
-			lines:     []string{"enum {", "A,", "#ifdef FOO", "B,", "#endif", "C,", "}"},
-			firstIdx:  1, memberIdx: 5, ok: false,
+			name:     "preprocessor branch gives up",
+			lines:    []string{"enum {", "A,", "#ifdef FOO", "B,", "#endif", "C,", "}"},
+			firstIdx: 1, memberIdx: 5, ok: false,
 		},
 		{
-			name:      "multiple members on one line gives up",
-			lines:     []string{"enum {", "A, B,", "C,", "}"},
-			firstIdx:  1, memberIdx: 2, ok: false,
+			name:     "multiple members on one line gives up",
+			lines:    []string{"enum {", "A, B,", "C,", "}"},
+			firstIdx: 1, memberIdx: 2, ok: false,
 		},
 	}
 
@@ -490,5 +492,50 @@ func TestChaseDefineExprRefs(t *testing.T) {
 	}
 	if chained > 4 {
 		t.Errorf("展開カードが上限を超えた: %d 枚", chained)
+	}
+}
+
+// 同名の static 関数が 3 ファイル以上にあるとき、呼び出し元ファイルの定義が
+// 2 件の上限で先に切られないこと（並べ替えは絞る前に効く）。
+func TestHoverPrefersChainBeforeCap(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a", "b", "c"} {
+		src := "static void led_set(int v)\n{\n    (void)v;\n}\n"
+		if err := os.WriteFile(filepath.Join(dir, name+".c"), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := filepath.Join(dir, "c.c")
+	// 呼び出し元を / 区切りで渡しても効くこと
+	chain := map[string]bool{filepath.ToSlash(want): true}
+	hits, _, err := FindHover(t.Context(), "led_set", dir, "*.c", dir, HoverScope{Chain: chain})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) == 0 || filepath.Clean(hits[0].File) != filepath.Clean(want) {
+		t.Fatalf("first hit = %+v, want %s first", hits, want)
+	}
+}
+
+// 同名の関数が全体検索の打ち切り（5 件）より多くのファイルにあっても、
+// 呼び出し元ファイルの定義が候補に入り、先頭に来る（curl docs/examples の main）。
+func TestHoverFindsCallerFileBeyondCap(t *testing.T) {
+	requireRg(t)
+	dir := t.TempDir()
+	for _, name := range []string{"a", "b", "c", "d", "e", "f", "g", "h"} {
+		src := "int main(void)\n{\n    return 0;\n}\n"
+		if err := os.WriteFile(filepath.Join(dir, name+".c"), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := filepath.Join(dir, "h.c")
+	// インクルード先はルート相対の ID で渡される。相対のままでも壊れないこと
+	chain := map[string]bool{want: true, "a.c": true, "include/missing.h": true}
+	hits, _, err := FindHover(t.Context(), "main", dir, "*.c", dir, HoverScope{File: want, Chain: chain})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) == 0 || filepath.Clean(hits[0].File) != filepath.Clean(want) {
+		t.Fatalf("first hit = %+v, want %s first", hits, want)
 	}
 }

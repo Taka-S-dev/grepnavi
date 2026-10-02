@@ -376,3 +376,88 @@ func TestPreferDefinitionHitsDemotesGeneratedHtml(t *testing.T) {
 		t.Errorf("HTML が落ちている: %+v", got)
 	}
 }
+
+// 戻り値型を前の行に置く定義（GNU 流）は、名前が列 0 から始まる。
+// 「型 名前(」を探す形には当たらないので、列 0 の `名前(` も候補に入れ、
+// 前の行でマクロ呼び出しの列（DECLARE_X(...)）と選り分ける。
+func TestGnuDefinitionLine(t *testing.T) {
+	src := []string{
+		"static int",                          // 1
+		"padlock_ciphers(ENGINE *e, int nid)", // 2: 定義
+		"{",                                   // 3
+		"}",                                   // 4
+		"DECLARE_AES_EVP(128, ecb, ECB)",      // 5
+		"DECLARE_AES_EVP(192, ecb, ECB)",      // 6: マクロ呼び出しの列
+		"",                                    // 7
+		"const STACK_OF(PKCS12_SAFEBAG) *",    // 8
+		"PKCS12_SAFEBAG_get0_safes(const PKCS12_SAFEBAG *bag)", // 9: 定義
+		"/* comment */",                       // 10
+		"void __acquires(&lock->lock)",        // 11
+		"__libeth_xdpsq_lock(struct lock *l)", // 12: 定義（注釈行の次）
+		"#endif",                              // 13
+		"foo(1, 2)",                           // 14: 前が #
+		"",                                    // 15
+		"bar(3)",                              // 16: 前が空行
+	}
+	f := filepath.Join(t.TempDir(), "gnu.c")
+	if err := os.WriteFile(f, []byte(strings.Join(src, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want := map[int]bool{2: true, 6: false, 9: true, 12: true, 14: false, 16: false}
+	for line, w := range want {
+		if got := gnuDefinitionLine(f, line); got != w {
+			t.Errorf("line %d (%s): got %v, want %v", line, src[line-1], got, w)
+		}
+	}
+}
+
+// 列 0 から始まる GNU 流の定義が rg の経路で見つかる（openssl の
+// PKCS12_SAFEBAG_get0_safes は gtags も ctags も取りこぼし、rg にも当たらなかった）。
+func TestFindDefinitionsGnuStyle(t *testing.T) {
+	dir := t.TempDir()
+	src := "const STACK_OF(PKCS12_SAFEBAG) *\nPKCS12_SAFEBAG_get0_safes(const PKCS12_SAFEBAG *bag)\n{\n    return NULL;\n}\n" +
+		"DECLARE_AES_EVP(128, ecb, ECB)\nDECLARE_AES_EVP(192, ecb, ECB)\n"
+	if err := os.WriteFile(filepath.Join(dir, "a.c"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hits, err := FindDefinitionsN(t.Context(), "PKCS12_SAFEBAG_get0_safes", dir, "*.c", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].Line != 2 || hits[0].Kind != "func" {
+		t.Fatalf("hits = %+v, want a.c:2 func", hits)
+	}
+	// マクロ呼び出しの列は定義ではない
+	hits, err = FindDefinitionsN(t.Context(), "DECLARE_AES_EVP", dir, "*.c", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 0 {
+		t.Fatalf("DECLARE_AES_EVP hits = %+v, want none", hits)
+	}
+}
+
+// 関数ポインタの表に名前が 5 回以上並んでいても、その後の関数定義に届く。
+// 表の行は字下げされた `名前,` で enum メンバーと見分けが付かず、これを実態と
+// 数えると上限で rg が止まっていた（curl lib/curl_rtmp.c の rtmp_disconnect）。
+func TestFindDefinitionsReachesPastInitializerRows(t *testing.T) {
+	dir := t.TempDir()
+	var src []string
+	for i := 0; i < 6; i++ {
+		src = append(src, "static const struct Curl_handler h"+string(rune('a'+i))+" = {", "  rtmp_disconnect,", "};")
+	}
+	src = append(src, "static CURLcode rtmp_disconnect(struct Curl_easy *data,", "                                bool dead)", "{", "  return CURLE_OK;", "}")
+	if err := os.WriteFile(filepath.Join(dir, "a.c"), []byte(strings.Join(src, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hits, err := FindDefinitionsN(t.Context(), "rtmp_disconnect", dir, "*.c", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range hits {
+		if h.Kind == "func" && h.Line == 19 {
+			return
+		}
+	}
+	t.Fatalf("function definition at line 19 not found: %+v", hits)
+}
