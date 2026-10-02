@@ -1,0 +1,2 @@
+const STACK_OF(PKCS12_SAFEBAG) *PKCS12_SAFEBAG_get0_safes(const PKCS12_SAFEBAG *bag);
+int PKCS12_SAFEBAG_get_nid(const PKCS12_SAFEBAG *bag);
