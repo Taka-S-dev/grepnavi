@@ -24,6 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <button id="rm-fwd" title="次へ進む (Alt+→)" disabled>&#8594;</button>
         <span id="rm-crumbs"></span>
         <span id="rm-spacer"></span>
+        <button id="rm-here" title="いま開いているファイルのまとまりを開く">このファイル</button>
         <button id="rm-close" title="閉じる">×</button>
       </div>
       <div id="rm-bar"></div>
@@ -49,6 +50,13 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   document.getElementById('rm-close').onclick = () => closeRefMap();
+  // 読んでいる場所から「このモジュールは誰に使われているか」へ 1 クリックで行く。
+  // 調査中はこの問いが一番多く、名前を打つより速い
+  document.getElementById('rm-here').onclick = () => {
+    const dir = rmCurrentFileDir();
+    if (dir === null) { st('開いているファイルがルートの中にありません'); return; }
+    rmLoad(dir);
+  };
   document.getElementById('rm-back').onclick = () => rmHistGo(-1);
   document.getElementById('rm-fwd').onclick = () => rmHistGo(1);
 
@@ -87,6 +95,30 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('mouseup', up);
   });
 });
+
+// rmCurrentFileDir はエディタで開いているファイルの、ルート相対のディレクトリ。
+// ルート直下なら ''（全体図）。開いていない・ルートの外なら null
+function rmCurrentFileDir() {
+  const file = (typeof tabs !== 'undefined' && tabs[activeTabIdx] && tabs[activeTabIdx].file) || '';
+  if (!file || !_rmRoot) return null;
+  const rel = rmRel(file);
+  if (rel === file) return null; // ルートの外（rmRel は切れなかったら元のまま返す）
+  const i = rel.lastIndexOf('/');
+  return i < 0 ? '' : rel.slice(0, i);
+}
+
+// 実装を持つ全ディレクトリ。全体図の絞り込みで、地図に出ていないまとまりにも
+// 当てるために 1 回だけ取る（表は読み込み済みなので安い）
+let _rmDirs = null;
+async function rmAllDirs() {
+  if (_rmDirs) return _rmDirs;
+  try {
+    const r = await fetch('/api/structure/dirs');
+    if (!r.ok) return [];
+    _rmDirs = (await r.json()).dirs || [];
+  } catch (_) { return []; }
+  return _rmDirs;
+}
 
 function openRefMap(focus) {
   const panel = document.getElementById('rm-sidebar');
@@ -344,6 +376,42 @@ function rmRenderOverview(m) {
       secM.appendChild(row);
     });
 
+    // 地図に出ていないまとまり。全体図は被参照順の 40 件に絞られるので、小さな
+    // まとまりは行が無く、名前で探しても 0 件になっていた。絞り込み中だけ、
+    // ツリー全体から一致するディレクトリを別の節で出す
+    if (filtering) {
+      const shown = new Set(rows.map(([name]) => name));
+      const secD = rmSection(body, 'まとまり — 地図に出ていないもの');
+      secD.dataset.pending = '1';
+      rmAllDirs().then(dirs => {
+        if (document.getElementById('rm-filter')?.value !== _rmFilter) return; // 入力が進んだ
+        const hit = dirs.filter(d => !shown.has(d.path) && hitName(d.path));
+        secD.dataset.pending = '';
+        if (!hit.length) { secD.remove(); return; }
+        hit.slice(0, 40).forEach(d => {
+          const row = document.createElement('div');
+          row.className = 'rm-row rm-clickable';
+          const nm = document.createElement('span');
+          nm.className = 'rm-name rm-mod';
+          rmHighlight(nm, d.path, must);
+          nm.appendChild(document.createTextNode('/'));
+          row.appendChild(nm);
+          const meta = document.createElement('span');
+          meta.className = 'rm-meta';
+          meta.textContent = `実装 ${d.files} ファイル`;
+          row.appendChild(meta);
+          row.onclick = () => rmLoad(d.path);
+          secD.appendChild(row);
+        });
+        if (hit.length > 40) {
+          const more = document.createElement('div');
+          more.className = 'rm-msg';
+          more.textContent = `ほか ${hit.length - 40} 件（絞り込みを足して減らす）`;
+          secD.appendChild(more);
+        }
+      });
+    }
+
     // 全体図では普段チップを出さない。方向感を掴む画面に見本を並べると壁になる。
     // ただし絞り込み中は出す — 絞り込みはシンボル名にも当たるので、チップを
     // 伏せたままだと「パスのどこにも無い語で行が残る」状態になり、理由が見えない
@@ -353,7 +421,14 @@ function rmRenderOverview(m) {
       : '太い参照（上位15）');
     rmEdgeRows(secE, edges.slice(0, 15), e => `${e.count}`, { noChips: !filtering, hl: must });
   };
-  document.getElementById('rm-filter').oninput = e => { _rmFilter = e.target.value; render(); };
+  const filter = document.getElementById('rm-filter');
+  filter.oninput = e => { _rmFilter = e.target.value; render(); };
+  // Enter で先頭の候補を開く。候補が 1 つに絞れたら、クリックに持ち替えずに済む
+  filter.onkeydown = e => {
+    if (e.key !== 'Enter') return;
+    const first = body.querySelector('.rm-row.rm-clickable');
+    if (first) { e.preventDefault(); first.click(); }
+  };
   render();
 }
 

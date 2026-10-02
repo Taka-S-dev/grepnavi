@@ -55,6 +55,8 @@
 #rm-sidebar:focus { outline: none; }
 
 #rm-crumbs { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#rm-here { background: none; border: 1px solid #444; color: #aaa; font-size: 11px; padding: 1px 7px; border-radius: 3px; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+#rm-here:hover { background: #333; color: #fff; }
 .rm-crumb { color: #4fc1ff; cursor: pointer; }
 .rm-crumb:hover { text-decoration: underline; }
 

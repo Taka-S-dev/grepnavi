@@ -642,3 +642,27 @@ func TestBuildKeepsAllEdgeSymbols(t *testing.T) {
 		t.Errorf("incoming = %+v, want 見本 %d 件 + syms_capped", f.Incoming, structEdgeSymbolsMax)
 	}
 }
+
+// 全ディレクトリの一覧は深さに関係なく、実装を持つものを全部返す。
+func TestStructAllDirs(t *testing.T) {
+	dirs := allDirsFrom(tablesForTest())
+	got := map[string]int{}
+	for _, d := range dirs {
+		got[d.Path] = d.Files
+	}
+	want := map[string]int{"core": 2, "net": 1, "net/tcp": 1}
+	if len(got) != len(want) {
+		t.Fatalf("dirs = %+v, want %v", dirs, want)
+	}
+	for p, n := range want {
+		if got[p] != n {
+			t.Errorf("%s = %d files, want %d", p, got[p], n)
+		}
+	}
+	// パス順
+	for i := 1; i < len(dirs); i++ {
+		if dirs[i-1].Path > dirs[i].Path {
+			t.Errorf("not sorted: %s > %s", dirs[i-1].Path, dirs[i].Path)
+		}
+	}
+}

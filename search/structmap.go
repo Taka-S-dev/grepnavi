@@ -609,6 +609,39 @@ func siblingGroup(rel, module string) string {
 	return strings.Join(segs[:i+1], "/")
 }
 
+// StructDir は実装ファイルを配下に持つディレクトリ 1 件。
+type StructDir struct {
+	Path  string `json:"path"`
+	Files int    `json:"files"` // 配下（孫以下も含む）の実装ファイル数
+}
+
+// StructAllDirs は実装ファイルを持つディレクトリを深さに関係なく全部返す
+// （パス順）。全体図は被参照順に絞られるので、小さなまとまりは行が無く、
+// 名前で探しても出てこない。移動のための一覧なので絞らない。
+func StructAllDirs(ctx context.Context, root string) ([]StructDir, error) {
+	t, err := structTablesFor(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	return allDirsFrom(t), nil
+}
+
+func allDirsFrom(t *structTables) []StructDir {
+	count := map[string]int{}
+	for _, f := range t.implFiles {
+		segs := strings.Split(f, "/")
+		for i := 1; i < len(segs); i++ {
+			count[strings.Join(segs[:i], "/")]++
+		}
+	}
+	out := make([]StructDir, 0, len(count))
+	for p, n := range count {
+		out = append(out, StructDir{Path: p, Files: n})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
+}
+
 func structGroup(rel string, depth int) string {
 	segs := strings.Split(rel, "/")
 	if len(segs)-1 < depth {
