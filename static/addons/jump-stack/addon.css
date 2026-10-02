@@ -42,7 +42,6 @@
 }
 /* 見出しは 1 行に収める。折り返すとボタンの文字が縦に割れる */
 #jst-title { font-weight: 600; white-space: nowrap; }
-#jst-depth { color: #4fc1ff; font-size: 11px; white-space: nowrap; }
 #jst-spacer { flex: 1; }
 #jst-header button {
   background: none;

@@ -16,15 +16,14 @@ document.addEventListener('DOMContentLoaded', () => {
       <div id="jst-resizer"></div>
       <div id="jst-header">
         <span id="jst-title">Jump Stack</span>
-        <span id="jst-depth"></span>
         <span id="jst-spacer"></span>
         <button id="jst-tile" title="並べて開く — いまの段を、浮き窓で横に並べて開く（呼ぶ側と呼ばれる側を見比べる）"><span class="jst-ico">⧉</span><span class="jst-lbl">並べて開く</span></button>
         <button id="jst-keep" title="ノードに追加 — いまのスタックの各段を、入れ子のノードとして調査ツリーに追加する（選択中のノードがあればその下）"><span class="jst-ico">＋</span><span class="jst-lbl">ノードに追加</span></button>
-        <button id="jst-clear" title="クリア — スタックを全部畳む（いまいる場所は動かない）"><span class="jst-ico">⌫</span><span class="jst-lbl">クリア</span></button>
+        <button id="jst-clear" title="全部畳む — スタックを空にする（いまいる場所は動かない）"><span class="jst-ico">⌫</span><span class="jst-lbl">全部畳む</span></button>
         <button id="jst-close">×</button>
       </div>
       <div id="jst-body"></div>
-      <div id="jst-foot">クリック: その段へ移動　ダブルクリック: そこまで畳む　Alt+T: 1 段戻る</div>
+      <div id="jst-foot">クリック: その段へ移動 ・ ダブルクリック: そこまで畳む ・ Alt+T: 1 段戻る</div>
     </div>
   `);
 
@@ -128,7 +127,6 @@ function render() {
   }
   const body = document.getElementById('jst-body');
   if (!body) return;
-  document.getElementById('jst-depth').textContent = depth ? `${depth} 段` : '';
   document.getElementById('jst-tile').disabled = !_frames.length;
   document.getElementById('jst-keep').disabled = !_frames.length;
   document.getElementById('jst-clear').disabled = !_frames.length;
