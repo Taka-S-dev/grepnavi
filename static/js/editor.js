@@ -3285,7 +3285,9 @@ function redrawVerdict(snap) {
     return `Monaco の大きさの認識がずれていました (${snap.monaco[0]}x${snap.monaco[1]} / 実寸 ${snap.container[0]}x${snap.container[1]})`;
   }
   if (viewportUncovered(snap)) return `下 ${snap.lastLineGap}px に行が描かれていませんでした`;
-  return '大きさも行の描画も正常でした（画面への表示側の問題）';
+  // 「正常」とは言わない。ここで測れるのは Monaco の認識と DOM だけで、画面の
+  // 画素は見えていない。黒いのに「正常」と出ると、判定が外れたように読まれる
+  return 'ページの中（大きさ・行の DOM）に異常なし → 画面に出す側の問題';
 }
 
 // rebuildEditorView は行の表示を一から組み直す。描き直しを頼むだけでは、Monaco が

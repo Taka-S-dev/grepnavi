@@ -460,6 +460,6 @@ test('redrawVerdict - 測った値から何が起きていたかを言い分け�
   const ok = { container: [800, 600], monaco: [800, 600], lineHeight: 20, scrollTop: 0, linesEnd: 5000, lastLineGap: 4 };
   assert.match(redrawVerdict({ ...ok, monaco: [800, 350] }), /大きさの認識がずれ/);
   assert.match(redrawVerdict({ ...ok, lastLineGap: 250 }), /行が描かれていません/);
-  assert.match(redrawVerdict(ok), /表示側の問題/);
+  assert.match(redrawVerdict(ok), /画面に出す側の問題/);
   assert.match(redrawVerdict(null), /測れません/);
 });
