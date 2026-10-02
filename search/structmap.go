@@ -40,6 +40,10 @@ type StructEdge struct {
 	// SymsCapped は見本が打ち切られたこと。シンボル名で絞り込むとき、この行は
 	// 見本の範囲でしか判定できない（一致するのに落ちる可能性がある）
 	SymsCapped bool `json:"syms_capped,omitempty"`
+	// SymbolFiles は Symbols と同じ並びで、各シンボルの定義ファイル（ルート相対）。
+	// 行き先がまとまり（statem/）に畳まれているとき、その中のどのファイルかは
+	// これでしか分からない。飛んで初めて分かるのでは、図を見ながら読む往復が増える
+	SymbolFiles []string `json:"symbol_files,omitempty"`
 	// Other はフォーカスの外側（外から の From、外へ の To）を、フォーカスと
 	// 枝分かれした直後の段で畳んだ名前。From / To は深さで畳むので、2 段目の
 	// モジュールを向くと相手が ssl/ssl_lib.c のようなファイルまで割れる。
@@ -167,7 +171,7 @@ func overviewAuto(t *structTables) *StructOverview {
 		if from == to {
 			continue
 		}
-		accumulate(agg, from, to, e)
+		accumulate(agg, from, to, e, p.def)
 	}
 	return &StructOverview{Edges: finish(agg), Omitted: t.omitted()}
 }
@@ -286,7 +290,7 @@ func overviewFrom(t *structTables, depth int) *StructOverview {
 		if from == to {
 			continue
 		}
-		accumulate(agg, from, to, e)
+		accumulate(agg, from, to, e, p.def)
 	}
 	return &StructOverview{Edges: finish(agg), Omitted: t.omitted()}
 }
@@ -357,15 +361,15 @@ func focusFrom(t *structTables, module string) *StructFocus {
 		switch {
 		case sin && din:
 			if a, b := inside(p.src), inside(p.def); a != b {
-				accumulate(internal, a, b, e)
+				accumulate(internal, a, b, e, p.def)
 			}
 		case din:
 			// 入口はモジュール内の「どこに刺さるか」を1段深くまで見せる。
 			// 外から刺さる先の偏りが、そのモジュールの公開面をそのまま表す
-			accumulate(incoming, structGroup(p.src, depth), inside(p.def), e)
+			accumulate(incoming, structGroup(p.src, depth), inside(p.def), e, p.def)
 			openFiles[p.def] = true
 		case sin:
-			accumulate(outgoing, module, structGroup(p.def, depth), e)
+			accumulate(outgoing, module, structGroup(p.def, depth), e, p.def)
 		}
 	}
 	files := 0
@@ -396,13 +400,14 @@ type structEdgeAcc struct {
 	count  int
 	capped bool // 見本を打ち切った（シンボル名での絞り込みが取りこぼしうる）
 	syms   []string
+	files  map[string]string // シンボル → 定義ファイル
 }
 
-func accumulate(agg map[[2]string]*structEdgeAcc, from, to string, e *structFileEdge) {
+func accumulate(agg map[[2]string]*structEdgeAcc, from, to string, e *structFileEdge, def string) {
 	k := [2]string{from, to}
 	a := agg[k]
 	if a == nil {
-		a = &structEdgeAcc{}
+		a = &structEdgeAcc{files: map[string]string{}}
 		agg[k] = a
 	}
 	a.count += e.count
@@ -415,6 +420,7 @@ func accumulate(agg map[[2]string]*structEdgeAcc, from, to string, e *structFile
 			break
 		}
 		a.syms = append(a.syms, s)
+		a.files[s] = def
 	}
 }
 
@@ -424,7 +430,11 @@ func finish(agg map[[2]string]*structEdgeAcc) []StructEdge {
 		// 見本は名前順（頻度は持っていない。全数を保持しないため）
 		syms := append([]string(nil), a.syms...)
 		sort.Strings(syms)
-		out = append(out, StructEdge{From: k[0], To: k[1], Count: a.count, Symbols: syms, SymsCapped: a.capped})
+		files := make([]string, len(syms))
+		for i, s := range syms {
+			files[i] = a.files[s]
+		}
+		out = append(out, StructEdge{From: k[0], To: k[1], Count: a.count, Symbols: syms, SymsCapped: a.capped, SymbolFiles: files})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Count != out[j].Count {
@@ -454,7 +464,32 @@ func StructEdgeSymbols(ctx context.Context, root, focus, from, to string) ([]str
 	return edgeSymbolsFrom(t, focus, from, to), nil
 }
 
+// StructEdgeSymbolFiles は StructEdgeSymbols と同じ並びで、各シンボルの定義ファイル。
+func StructEdgeSymbolFiles(ctx context.Context, root, focus, from, to string) ([]string, []string, error) {
+	t, err := structTablesFor(ctx, root)
+	if err != nil {
+		return nil, nil, err
+	}
+	pairs := edgeSymbolPairsFrom(t, focus, from, to)
+	syms := make([]string, len(pairs))
+	files := make([]string, len(pairs))
+	for i, p := range pairs {
+		syms[i], files[i] = p[0], p[1]
+	}
+	return syms, files, nil
+}
+
 func edgeSymbolsFrom(t *structTables, focus, from, to string) []string {
+	pairs := edgeSymbolPairsFrom(t, focus, from, to)
+	syms := make([]string, len(pairs))
+	for i, p := range pairs {
+		syms[i] = p[0]
+	}
+	return syms
+}
+
+// edgeSymbolPairsFrom は (シンボル, 定義ファイル) を名前順で返す。
+func edgeSymbolPairsFrom(t *structTables, focus, from, to string) [][2]string {
 	var member func(src, def string) bool
 	if focus == "" {
 		// 全体図と同じ自動畳み。
@@ -487,21 +522,21 @@ func edgeSymbolsFrom(t *structTables, focus, from, to string) []string {
 			return false
 		}
 	}
-	set := map[string]bool{}
+	set := map[string]string{}
 	for p, e := range t.edges {
 		if !member(p.src, p.def) {
 			continue
 		}
 		for _, s := range e.syms {
-			set[s] = true
+			set[s] = p.def
 		}
 	}
-	syms := make([]string, 0, len(set))
-	for s := range set {
-		syms = append(syms, s)
+	out := make([][2]string, 0, len(set))
+	for s, f := range set {
+		out = append(out, [2]string{s, f})
 	}
-	sort.Strings(syms)
-	return syms
+	sort.Slice(out, func(i, j int) bool { return out[i][0] < out[j][0] })
+	return out
 }
 
 // StructChild は1階層下のまとまり1件。地図の行が被参照順で 40 個に絞られ、

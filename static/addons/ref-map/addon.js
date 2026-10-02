@@ -780,7 +780,7 @@ function rmEdgeRows(sec, edges, countOf, opts) {
   }
 }
 
-function rmChips(sec, e, hl) {
+function rmChips(sec, e, hl, before) {
   if (!e.symbols || !e.symbols.length) return;
   const chips = document.createElement('div');
   chips.className = 'rm-chips';
@@ -790,9 +790,29 @@ function rmChips(sec, e, hl) {
   const matched = x => hl.length && hl.some(t => x.toLowerCase().includes(t));
   const named = e.symbols.filter(x => x.length >= 3 || matched(x));
   const syms = named.length ? named : e.symbols;
-  for (const s of syms) rmSymChip(chips, e, s, hl);
+  // 行き先がまとまり（statem/）に畳まれているときは、中のどのファイルかを
+  // 見出しにしてファイルごとに並べる。行き先がファイルならその名前と同じなので出さない
+  const fileOf = s => { const i = e.symbols.indexOf(s); return (e.symbol_files && i >= 0 && e.symbol_files[i]) || ''; };
+  const byFile = e.symbol_files && !rmIsFile(e.to);
+  if (byFile) {
+    const groups = new Map();
+    for (const s of syms) { const f = fileOf(s); if (!groups.has(f)) groups.set(f, []); groups.get(f).push(s); }
+    for (const [f, list] of groups) {
+      if (f) {
+        const lab = document.createElement('span');
+        lab.className = 'rm-chip-file';
+        lab.textContent = rmLeaf(f) + ':';
+        lab.title = f + ' を開く';
+        lab.onclick = () => { if (typeof openPeek === 'function' && _rmRoot) openPeek(_rmRoot.replace(/\\/g, '/') + '/' + f, 1); };
+        chips.appendChild(lab);
+      }
+      for (const s of list) rmSymChip(chips, e, s, hl);
+    }
+  } else {
+    for (const s of syms) rmSymChip(chips, e, s, hl);
+  }
   if (e.syms_capped) rmMoreChip(chips, e, syms, hl);
-  sec.appendChild(chips);
+  if (before) sec.insertBefore(chips, before); else sec.appendChild(chips);
 }
 
 function rmSymChip(chips, e, s, hl) {
@@ -835,13 +855,13 @@ function rmMoreChip(chips, e, shown, hl) {
       const r = await fetch('/api/structure/edge-symbols?' + new URLSearchParams(params));
       const d = await r.json();
       if (!r.ok || !Array.isArray(d.symbols)) throw new Error(d.error || r.statusText);
-      const have = new Set(shown);
-      more.remove();
-      for (const s of d.symbols) {
-        if (!have.has(s)) rmSymChip(chips, e, s, hl);
-      }
+      // 全量で描き直す（ファイルごとの並びを保つため、足すのではなく作り直す）
       e.symbols = d.symbols;
+      e.symbol_files = Array.isArray(d.files) ? d.files : undefined;
       e.syms_capped = false;
+      const parent = chips.parentNode, next = chips.nextSibling;
+      chips.remove();
+      rmChips(parent, e, hl, next);
     } catch (err) {
       st('シンボルの取得に失敗: ' + err.message);
       more.textContent = '…';

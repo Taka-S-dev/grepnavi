@@ -666,3 +666,26 @@ func TestStructAllDirs(t *testing.T) {
 		}
 	}
 }
+
+// 行き先がまとまりに畳まれていても、各シンボルがその中のどのファイルにあるかが分かる。
+func TestFocusEdgesCarrySymbolFiles(t *testing.T) {
+	f := focusFrom(tablesForTest(), "core")
+	// net → core/init.c: core_init / core_step はどちらも core/init.c
+	e := f.Incoming[0]
+	if len(e.SymbolFiles) != len(e.Symbols) {
+		t.Fatalf("symbol_files = %v, symbols = %v", e.SymbolFiles, e.Symbols)
+	}
+	for i, s := range e.Symbols {
+		if e.SymbolFiles[i] != "core/init.c" {
+			t.Errorf("%s defined in %q, want core/init.c", s, e.SymbolFiles[i])
+		}
+	}
+	syms, files, err := StructEdgeSymbolFiles(context.Background(), "", "core", "net", "core/init.c")
+	_ = syms
+	_ = files
+	_ = err // ルート無しでは表が無い。関数の形だけ確かめる
+	pairs := edgeSymbolPairsFrom(tablesForTest(), "core", "net", "core/init.c")
+	if len(pairs) != 2 || pairs[0][1] != "core/init.c" {
+		t.Errorf("pairs = %v", pairs)
+	}
+}

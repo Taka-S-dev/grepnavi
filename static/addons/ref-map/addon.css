@@ -287,3 +287,7 @@
   white-space: nowrap;
 }
 .rm-site-more { color: #666; padding: 2px; }
+/* 畳まれた行き先の中の、ファイルの見出し（チップの前に置く） */
+.rm-chip-file { color: #9cdcfe; font: 11px Consolas, "Courier New", monospace; margin: 0 2px 0 6px; cursor: pointer; }
+.rm-chip-file:first-child { margin-left: 0; }
+.rm-chip-file:hover { text-decoration: underline; }

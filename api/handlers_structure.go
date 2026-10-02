@@ -131,7 +131,7 @@ func (h *Handler) handleStructureEdgeSymbols(w http.ResponseWriter, r *http.Requ
 	h.mu.RUnlock()
 
 	q := r.URL.Query()
-	syms, err := search.StructEdgeSymbols(r.Context(), root, q.Get("focus"), q.Get("from"), q.Get("to"))
+	syms, files, err := search.StructEdgeSymbolFiles(r.Context(), root, q.Get("focus"), q.Get("from"), q.Get("to"))
 	if errors.Is(err, search.ErrRefMapNotBuilt) {
 		w.WriteHeader(http.StatusConflict)
 		jsonOK(w, map[string]any{"root": root, "status": search.RefMapStat(root)})
@@ -141,7 +141,7 @@ func (h *Handler) handleStructureEdgeSymbols(w http.ResponseWriter, r *http.Requ
 		jsonErr(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	jsonOK(w, map[string]any{"symbols": syms})
+	jsonOK(w, map[string]any{"symbols": syms, "files": files})
 }
 
 // GET /api/structure/status … 表があるか、無いなら生成にどれくらいかかるか
