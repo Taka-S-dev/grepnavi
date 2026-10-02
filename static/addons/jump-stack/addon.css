@@ -59,6 +59,18 @@
 #jst-header button:hover:not(:disabled) { background: #333; color: #fff; }
 #jst-header button:disabled { opacity: .4; cursor: default; }
 #jst-close { border: none !important; font-size: 15px !important; padding: 0 4px !important; }
+#jst-header .jst-ico { display: none; }
+/* 詰めた表示（幅 300px 未満）: ボタンは記号だけ、段は 1 行、脚注なし */
+#jst-sidebar.narrow #jst-header .jst-ico { display: inline; }
+#jst-sidebar.narrow #jst-header .jst-lbl { display: none; }
+#jst-sidebar.narrow #jst-header button { padding: 1px 5px; }
+#jst-sidebar.narrow .jst-code { display: none; }
+#jst-sidebar.narrow #jst-foot { display: none; }
+#jst-sidebar.narrow .jst-row { padding-top: 2px; padding-bottom: 2px; }
+/* 狭いときはディレクトリの名札を出さない。残す優先は 名前 > 場所 > 名札で、
+   ディレクトリは行の色と、行に乗せたときの説明で分かる */
+#jst-sidebar.narrow .jst-dir { display: none; }
+#jst-sidebar.narrow #jst-body { overflow-x: hidden; }
 
 #jst-body { flex: 1; overflow: auto; padding: 4px 0; min-height: 0; }
 .jst-empty { padding: 16px 12px; color: #666; font-size: 11px; line-height: 1.6; }

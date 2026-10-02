@@ -18,9 +18,9 @@ document.addEventListener('DOMContentLoaded', () => {
         <span id="jst-title">Jump Stack</span>
         <span id="jst-depth"></span>
         <span id="jst-spacer"></span>
-        <button id="jst-tile" title="いまの段を、浮き窓で横に並べて開く（呼ぶ側と呼ばれる側を見比べる）">並べて開く</button>
-        <button id="jst-keep" title="いまのスタックの各段を、入れ子のノードとして調査ツリーに追加する（選択中のノードがあればその下）">ノードに追加</button>
-        <button id="jst-clear" title="スタックを全部畳む（いまいる場所は動かない）">クリア</button>
+        <button id="jst-tile" title="並べて開く — いまの段を、浮き窓で横に並べて開く（呼ぶ側と呼ばれる側を見比べる）"><span class="jst-ico">⧉</span><span class="jst-lbl">並べて開く</span></button>
+        <button id="jst-keep" title="ノードに追加 — いまのスタックの各段を、入れ子のノードとして調査ツリーに追加する（選択中のノードがあればその下）"><span class="jst-ico">＋</span><span class="jst-lbl">ノードに追加</span></button>
+        <button id="jst-clear" title="クリア — スタックを全部畳む（いまいる場所は動かない）"><span class="jst-ico">⌫</span><span class="jst-lbl">クリア</span></button>
         <button id="jst-close">×</button>
       </div>
       <div id="jst-body"></div>
@@ -48,12 +48,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const resizer = document.getElementById('jst-resizer');
   const sidebar = document.getElementById('jst-sidebar');
+  // 狭いモニタで縮めて使えるように、幅に応じて詰めた表示へ切り替える:
+  // ボタンは記号だけ、段は 1 行（ソース行を出さない）、脚注も出さない。
+  // 幅はドラッグのたびに変わるので、監視して付け外しする
+  new ResizeObserver(() => {
+    const narrow = sidebar.offsetWidth < JST_NARROW_WIDTH;
+    if (sidebar.classList.contains('narrow') === narrow) return;
+    sidebar.classList.toggle('narrow', narrow);
+    render(); // 段の字下げ幅が変わる
+  }).observe(sidebar);
   resizer.addEventListener('mousedown', e => {
     e.preventDefault();
     const startX = e.clientX;
     const startW = sidebar.offsetWidth;
     const onMove = e => {
-      sidebar.style.width = Math.max(240, Math.min(900, startW + startX - e.clientX)) + 'px';
+      sidebar.style.width = Math.max(JST_MIN_WIDTH, Math.min(900, startW + startX - e.clientX)) + 'px';
     };
     const onUp = () => {
       document.removeEventListener('mousemove', onMove);
@@ -101,6 +110,9 @@ function closePanel() {
 
 // 本体の履歴が動くたびに呼ばれる。frames は古い順で { idx, file, line, text, name,
 // current, top }。current はいま見ている段、top は最後のジャンプで着いた場所（ジャンプ元ではない）。
+const JST_MIN_WIDTH = 180;    // これより狭いと場所（file:line）が切れる
+const JST_NARROW_WIDTH = 300; // これより狭ければ詰めた表示
+
 window.renderJumpStackPanel = function(frames) {
   _frames = frames || [];
   render();
@@ -141,7 +153,9 @@ function render() {
   _frames.forEach((f, depthIdx) => {
     const row = document.createElement('div');
     row.className = 'jst-row' + (f.current ? ' jst-cur' : '');
-    row.style.paddingLeft = (8 + depthIdx * 14) + 'px';
+    // 深さの字下げ。狭いときは半分にして、深い段でも名前が残るようにする
+    const indent = document.getElementById('jst-sidebar').classList.contains('narrow') ? 7 : 14;
+    row.style.paddingLeft = (8 + depthIdx * indent) + 'px';
     const dir = bandsOn ? dirs[depthIdx] : '';
     if (bandsOn) row.classList.add('jst-band-' + bands[depthIdx]);
 
@@ -167,6 +181,7 @@ function render() {
     pop.ondblclick = e => e.stopPropagation();
     head.appendChild(pop);
     // ディレクトリ名は、前の段と変わった行にだけ出す（そこがモジュールの境目）
+    if (bandsOn) row.title = (dir || '(root)') + '\n' + f.file;
     if (bandsOn && dir !== prevDir) {
       const tag = document.createElement('span');
       tag.className = 'jst-dir';
