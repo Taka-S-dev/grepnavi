@@ -1,0 +1,97 @@
+/* ===== ハイライト一覧 Sidebar ===== */
+
+#hll-sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 420px;
+  background: #1e1e1e;
+  border-left: 1px solid #454545;
+  box-shadow: -4px 0 16px rgba(0,0,0,.5);
+  display: flex;
+  flex-direction: column;
+  z-index: 500;
+  transform: translateX(100%);
+  transition: transform 0.2s ease;
+}
+#hll-sidebar.open { transform: translateX(0); }
+
+#hll-resizer {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  cursor: ew-resize;
+  z-index: 10;
+}
+#hll-resizer:hover { background: #007acc; }
+
+#hll-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px 6px 10px;
+  border-bottom: 1px solid #333;
+  font-size: 12px; color: #ccc;
+  flex-shrink: 0;
+}
+#hll-title { font-weight: 600; white-space: nowrap; }
+#hll-scope { color: #777; font-size: 11px; white-space: nowrap; }
+#hll-spacer { flex: 1; }
+#hll-close { background: none; border: none; color: #aaa; font-size: 15px; cursor: pointer; padding: 0 4px; }
+#hll-close:hover { color: #fff; }
+
+#hll-body { flex: 1; overflow: auto; padding: 4px 0 12px; min-height: 0; }
+.hll-empty { padding: 16px 12px; color: #666; font-size: 11px; line-height: 1.6; }
+
+/* 語の見出し: 左にその色の帯 */
+.hll-word {
+  display: flex; align-items: center; gap: 8px;
+  cursor: pointer;
+  padding: 6px 10px 4px 8px;
+  margin-top: 6px;
+  border-left: 3px solid var(--hl, #888);
+  font-size: 12px;
+}
+.hll-word:first-child { margin-top: 0; }
+.hll-chip {
+  font-family: Consolas, "Courier New", monospace;
+  padding: 0 6px; border: 1px solid; border-radius: 3px;
+  color: #eee; cursor: pointer;
+}
+.hll-chip:hover { filter: brightness(1.2); }
+.hll-count { color: #7f8c97; font-size: 11px; }
+.hll-spacer { flex: 1; }
+.hll-btn {
+  background: none; border: 1px solid #444; color: #aaa;
+  font-size: 11px; padding: 1px 7px; border-radius: 3px; cursor: pointer; white-space: nowrap;
+}
+.hll-btn:hover { background: #333; color: #fff; }
+.hll-x { border: none; font-size: 14px; padding: 0 4px; }
+
+.hll-file {
+  display: flex; align-items: center; gap: 8px;
+  cursor: pointer;
+  padding: 4px 10px 2px 14px;
+  color: #9cdcfe; font: 11px Consolas, "Courier New", monospace;
+}
+
+/* 1 行 = 行番号・囲む関数・その行 */
+.hll-row {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 2px 10px 2px 18px;
+  cursor: pointer;
+  font: 11px/1.5 Consolas, "Courier New", monospace;
+  white-space: nowrap; overflow: hidden;
+  border-left: 3px solid transparent;
+}
+.hll-row:hover { background: rgba(255,255,255,.06); }
+.hll-row.hll-cur { border-left-color: #f0c040; background: rgba(240,192,64,.08); }
+.hll-line { flex: none; width: 4ch; text-align: right; color: #7f8c97; }
+.hll-fn { flex: none; max-width: 30%; overflow: hidden; text-overflow: ellipsis; color: #dcdcaa; }
+.hll-fn:empty { display: none; }
+.hll-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: #c8c8c8; }
+.hll-hit { color: #fff; border-radius: 2px; }
+.hll-caret { color: #777; font-size: 10px; width: 10px; flex-shrink: 0; }
+.hll-word:hover, .hll-file:hover { background: rgba(255,255,255,.04); }
+.hll-pop { flex: none; background: none; border: none; color: #9aa0a6; cursor: pointer; font-size: 13px; line-height: 14px; padding: 0 3px; border-radius: 3px; visibility: hidden; }
+.hll-row:hover .hll-pop { visibility: visible; }
+.hll-pop:hover { color: #fff; background: #ffffff22; }
