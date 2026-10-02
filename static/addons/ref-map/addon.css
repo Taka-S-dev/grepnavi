@@ -347,3 +347,8 @@
 /* 参照の無いファイル: 在ることだけ分かればよいので薄く、枠は点線 */
 .rm-graph-idle rect { stroke-dasharray: 3 3; }
 .rm-graph-idle .rm-graph-label, .rm-graph-idle .rm-graph-role { fill: #777; }
+/* 外からの入口。固定したノードにだけ出す */
+.rm-graph-ext { display: none; }
+.rm-graph-node-pin .rm-graph-ext { display: block; }
+.rm-graph-ext path { stroke: #e8c45a; stroke-width: 2; stroke-dasharray: 4 3; fill: none; }
+.rm-graph-ext text { fill: #e8c45a; font: 11px sans-serif; }

@@ -770,6 +770,7 @@ function rmDrawGraph(m) {
   svg.setAttribute('height', height);
   svg.innerHTML = `<defs>
     <marker id="rm-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#8ab4f8"/></marker>
+    <marker id="rm-arrow-ext" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#e8c45a"/></marker>
     <marker id="rm-arrow-back" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#e5484d"/></marker>
   </defs>`;
   for (const e of edges) {
@@ -844,10 +845,20 @@ function rmDrawGraph(m) {
     const inN = inCount.get(n) || 0;
     const roles = idle.has(n) ? ['参照なし'] : roleOf(n), sym = offers(n);
     g.dataset.name = n;
+    // 外からの参照は図の中に線を持たない（外のまとまりまで描くと一気に増える）ので、
+    // 固定したときだけ、まとまりの外から来る点線の矢印と相手を添える。これが無いと
+    // 内部の線の束が「外から入ってきている」ように読める
+    // 相手はまとまりごとに合計して多い順（apps/ の 46 ファイルが 1 件ずつ並ばないように）
+    const byOther = new Map();
+    for (const e of m.incoming) if (e.to === n) { const k = e.other || e.from; byOther.set(k, (byOther.get(k) || 0) + e.count); }
+    const outsiders = [...byOther.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k.split('/').pop() + (rmIsFile(k) ? '' : '/'));
+    const ext = inN ? (vertical
+      ? `<g class="rm-graph-ext"><path d="M-34,${H / 2} L-4,${H / 2}" marker-end="url(#rm-arrow-ext)"/><text x="-38" y="${H / 2 + 4}" text-anchor="end">外から ${inN}（${rmEsc([...new Set(outsiders)].slice(0, 3).join(' '))}）</text></g>`
+      : `<g class="rm-graph-ext"><path d="M${W / 2},-30 L${W / 2},-4" marker-end="url(#rm-arrow-ext)"/><text x="${W / 2 + 6}" y="-18">外から ${inN}（${rmEsc([...new Set(outsiders)].slice(0, 3).join(' '))}）</text></g>`) : '';
     g.innerHTML = `<rect width="${W}" height="${H}" rx="4"/>
       <text x="8" y="15" class="rm-graph-label">${rmEsc(rmLeaf(n))}${rmIsFile(n) ? '' : '/'}</text>
       <text x="${W - 6}" y="15" text-anchor="end" class="rm-graph-role">${rmEsc(roles.join('・'))}${inN ? ` ${inN}` : ''}</text>
-      <text x="8" y="31" class="rm-graph-sym">${rmEsc(sym.join(', '))}</text>`;
+      <text x="8" y="31" class="rm-graph-sym">${rmEsc(sym.join(', '))}</text>${ext}`;
     const t = document.createElementNS(svgNS, 'title');
     t.textContent = n + (inN ? `\n外から ${inN}` : '') + (roles.length ? `\n${roles.join('・')}` : '')
       + (sym.length ? `\n外から使われる例: ${sym.join(', ')}` : '') + (rmIsFile(n) ? '\nクリックで開く' : '\nクリックで降りる');
@@ -861,6 +872,18 @@ function rmDrawGraph(m) {
       _rmGraphPin = _rmGraphPin === n ? null : n;
       rmGraphFocus(svg, _rmGraphPin);
       rmGraphPinLabel(_rmGraphPin);
+      // 固定したファイルに「外から」を絞る: 図は内部しか描かないので、外から
+      // 入ってくる参照はここで見る。外すときは絞り込みも戻す
+      if (_rmGraphPin) {
+        // 外から使われていないファイルなら、内部の面を開く（0 件の面を見せない）
+        _rmTab = m.incoming.some(e => e.to === n) ? 'in' : 'mid';
+        _rmFilter = _rmFilterByArrow = rmLeaf(n);
+      } else if (_rmFilter === _rmFilterByArrow) { _rmFilter = _rmFilterByArrow = ''; }
+      rmRerender();
+      rmGraphPinLabel(_rmGraphPin, _rmGraphPin && {
+        inner: edges.filter(e => e.from === n || e.to === n).length,
+        outside: inCount.get(n) || 0,
+      });
     };
     g.ondblclick = () => {
       if (rmIsFile(n)) { if (typeof openPeek === 'function' && _rmRoot) openPeek(_rmRoot.replace(/\\/g, '/') + '/' + n, 1); }
@@ -898,12 +921,14 @@ function rmDrawGraph(m) {
 
 let _rmGraphPin = null; // 固定して見ているノード
 let _rmFilterByArrow = ''; // 線のクリックで入れた絞り込み（図には効かせない）
-function rmGraphPinLabel(name) {
+function rmGraphPinLabel(name, counts) {
   const el = document.getElementById('rm-graph-pin');
   if (!el) return;
   el.textContent = '';
   if (!name) return;
-  el.appendChild(document.createTextNode(`固定: ${rmLeaf(name)} `));
+  // 図の線は内部だけなので、外からの数を並べて「線 = 内部」と読めるようにする
+  const detail = counts ? `（内部の線 ${counts.inner} · 外から ${counts.outside}）` : '';
+  el.appendChild(document.createTextNode(`固定: ${rmLeaf(name)}${detail} `));
   const off = document.createElement('button');
   off.className = 'rm-graph-zoom';
   off.textContent = '外す';
