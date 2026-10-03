@@ -147,8 +147,12 @@
 .rm-tab.active { color: #fff; border-bottom-color: #007acc; }
 .rm-tab:disabled { color: #555; cursor: default; }
 .rm-dir { vertical-align: -1px; margin-right: 4px; }
-/* 束ね方（相手ごと / 入口ごと）。面タブと同じ見た目で、右端に寄せて区別する */
-.rm-groupby { margin-left: auto; display: flex; gap: 2px; }
+/* 束ね方（呼び出し元ごと / 呼び出し先ごと）。面タブの下の行に右寄せで置く:
+   同じ行だと、狭いパネルでタブの文字が縦に潰れる */
+.rm-tabs { flex-wrap: wrap; }
+.rm-tab { white-space: nowrap; }
+.rm-groupby { flex: 1 0 100%; display: flex; gap: 2px; justify-content: flex-end; align-items: center; }
+.rm-groupby::before { content: "束ね方:"; color: #777; font-size: 11px; margin-right: 4px; }
 .rm-groupby .rm-tab { font-size: 11px; padding: 2px 6px 4px; white-space: nowrap; }
 
 .rm-sec-title {

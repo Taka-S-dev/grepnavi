@@ -11,7 +11,7 @@ let _rmData = null;   // 直近の応答（タブ切り替えの再描画で再�
 let _rmTab = 'in';    // フォーカスビューの面（in / mid / out）
 let _rmFilter = '';   // フォーカスビューの絞り込み（面をまたいで効く）
 // 外から / 外へ の束ね方。'other' = 相手のまとまりごと（どのモジュールと
-// 関係があるか）、'entry' = こちら側の入口ごと（公開面がどこか）
+// 関係があるか）、'entry' = こちら側のファイルごと（公開面がどこか）
 let _rmGroupBy = 'other';
 let _rmAbort = null;
 
@@ -559,10 +559,15 @@ function rmRenderFocus(m) {
       const sw = document.createElement('span');
       sw.className = 'rm-groupby';
       for (const [key, label, title] of [
-        ['other', '相手ごと', '相手のまとまりごとに束ねる: どのモジュールと関係があるか'],
-        ['entry', active[0] === 'in' ? '入口ごと' : '一覧', active[0] === 'in'
-          ? 'この中の入口ごとに束ねる: 外から使われる面がどこか'
-          : '相手を束ねず、使っている先を 1 行ずつ'],
+        // ラベルは「呼び出し元 / 呼び出し先」。数えているのは関数の呼び出しだけでなく
+        // グローバル変数の読み書きも含むが、コールツリーと同じ語にして読み替えを
+        // 不要にする。差は説明文で補う
+        ['other', active[0] === 'in' ? '呼び出し元ごと' : '呼び出し先ごと', active[0] === 'in'
+          ? '使っている外のまとまりごとに束ねる: 誰に使われているか（関数の呼び出しのほか、グローバル変数の読み書きも含む）'
+          : '使っている先の、外のまとまりごとに束ねる: 何に頼っているか（関数の呼び出しのほか、グローバル変数の読み書きも含む）'],
+        ['entry', active[0] === 'in' ? '呼び出し先ごと' : 'まとめない', active[0] === 'in'
+          ? '使われているこの中のファイルごとに束ねる: 外への窓口がどこか'
+          : '束ねず、使っている先を 1 行ずつ'],
       ]) {
         const b = document.createElement('button');
         b.className = 'rm-tab' + (key === _rmGroupBy ? ' active' : '');
@@ -1150,7 +1155,7 @@ function rmGroupedRows(sec, edges, opts) {
 function rmEdgeRows(sec, edges, countOf, opts) {
   const noChips = opts && opts.noChips;
   const hideTo = opts && opts.hideTo;     // 行き先は見出しに出ているので繰り返さない
-  const hideFrom = opts && opts.hideFrom; // 参照元が見出し（外へ タブ・相手ごと）のときの逆版
+  const hideFrom = opts && opts.hideFrom; // 参照元が見出し（外へ タブ・外のまとまりごと）のときの逆版
   const chipsOnly = opts && opts.chipsOnly; // 名前も件数も見出しにある: 見本だけ出す
   const hl = (opts && opts.hl) || [];
   for (const e of edges) {
