@@ -680,7 +680,7 @@ func TestFocusEdgesCarrySymbolFiles(t *testing.T) {
 			t.Errorf("%s defined in %q, want core/init.c", s, e.SymbolFiles[i])
 		}
 	}
-	syms, files, err := StructEdgeSymbolFiles(context.Background(), "", "core", "net", "core/init.c")
+	syms, files, err := StructEdgeSymbolFiles(context.Background(), "", "core", "net", "core/init.c", false)
 	_ = syms
 	_ = files
 	_ = err // ルート無しでは表が無い。関数の形だけ確かめる
@@ -758,5 +758,43 @@ func TestMacroInImplFileIsFileLocal(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("ssl → core が無い: %+v", o.Edges)
+	}
+}
+
+// ファイル単位では、サブディレクトリを畳まずに中のファイルどうしの線を返す。
+func TestFocusFileLevel(t *testing.T) {
+	tt := mkTables(map[string]string{
+		"x509_cmp": "crypto/x509/cmp.c",
+		"bn_add":   "crypto/bn/add.c",
+		"mem_new":  "crypto/mem.c",
+	}, 0, [][2]string{
+		{"bn_add", "crypto/x509/cmp.c"},   // x509/cmp.c → bn/add.c
+		{"x509_cmp", "crypto/x509/vfy.c"}, // 同じサブディレクトリの中: 畳んだ表では消える線
+		{"mem_new", "crypto/bn/add.c"},    // bn/add.c → mem.c
+		{"x509_cmp", "ssl/s.c"},           // 外から
+	})
+	f := focusFromAt(tt, "crypto", true)
+	got := map[string]bool{}
+	for _, e := range f.Internal {
+		got[e.From+"->"+e.To] = true
+	}
+	for _, want := range []string{"crypto/x509/cmp.c->crypto/bn/add.c", "crypto/x509/vfy.c->crypto/x509/cmp.c", "crypto/bn/add.c->crypto/mem.c"} {
+		if !got[want] {
+			t.Errorf("internal に %s が無い: %v", want, got)
+		}
+	}
+	if len(f.Incoming) != 1 || f.Incoming[0].To != "crypto/x509/cmp.c" {
+		t.Errorf("incoming = %+v, want ssl → crypto/x509/cmp.c", f.Incoming)
+	}
+	if len(f.AllFiles) != 3 {
+		t.Errorf("all_files = %v, want 実装 3 ファイル", f.AllFiles)
+	}
+	// 畳んだ版は今までどおり
+	if g := focusFrom(tt, "crypto"); len(g.AllFiles) != 0 || len(g.Internal) != 2 {
+		t.Errorf("folded: all_files=%v internal=%+v", g.AllFiles, g.Internal)
+	}
+	// 残りのシンボルも同じ畳み方で引ける
+	if p := edgeSymbolPairsAt(tt, "crypto", "crypto/x509/vfy.c", "crypto/x509/cmp.c", true); len(p) != 1 || p[0][0] != "x509_cmp" {
+		t.Errorf("edge symbols = %v", p)
 	}
 }

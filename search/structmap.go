@@ -92,6 +92,9 @@ type StructFocus struct {
 	// 組数の和からは復元できない。出せない数は出さない。
 	Files     int `json:"files"`      // 実装ファイル数
 	FilesOpen int `json:"files_open"` // うち外から参照されるもの
+	// AllFiles はファイル単位で返したときの、配下の実装ファイル全部（深さを問わない）。
+	// 参照に現れないファイルも図に並べるために要る
+	AllFiles []string `json:"all_files,omitempty"`
 }
 
 // structEdgeSymbolsMax は応答の1エッジに添える見本シンボルの数。表は全数を
@@ -341,7 +344,23 @@ func StructMapFocus(ctx context.Context, root, module string) (*StructFocus, err
 	return focusFrom(t, module), nil
 }
 
+// StructMapFocusFiles は StructMapFocus のファイル単位版。モジュールの中を 1 段で
+// 畳まず、サブディレクトリの中のファイルまで 1 つずつ出す。サブディレクトリを
+// またぐ呼び出しの階層を 1 枚で見るためのもので、中が大きいモジュールでは
+// 行も線も数百になる（呼び出し側が件数を見て使い分ける）。
+func StructMapFocusFiles(ctx context.Context, root, module string) (*StructFocus, error) {
+	t, err := structTablesFor(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	return focusFromAt(t, module, true), nil
+}
+
 func focusFrom(t *structTables, module string) *StructFocus {
+	return focusFromAt(t, module, false)
+}
+
+func focusFromAt(t *structTables, module string, fileLevel bool) *StructFocus {
 	module = strings.Trim(filepath.ToSlash(module), "/")
 	depth := len(strings.Split(module, "/"))
 	inMod := func(rel string) bool {
@@ -353,6 +372,9 @@ func focusFrom(t *structTables, module string) *StructFocus {
 	// （平坦なモジュールでは depth+1 = ファイルなので、これまでどおりファイルが出る）。
 	// もう1段はクリックで降りる。
 	inside := func(rel string) string { return structGroup(rel, depth+1) }
+	if fileLevel {
+		inside = func(rel string) string { return rel }
+	}
 
 	internal := map[[2]string]*structEdgeAcc{}
 	incoming := map[[2]string]*structEdgeAcc{}
@@ -387,7 +409,7 @@ func focusFrom(t *structTables, module string) *StructFocus {
 	for i := range outg {
 		outg[i].Other = siblingGroup(outg[i].To, module)
 	}
-	return &StructFocus{
+	f := &StructFocus{
 		Module:    module,
 		Internal:  finish(internal),
 		Incoming:  inc,
@@ -396,6 +418,14 @@ func focusFrom(t *structTables, module string) *StructFocus {
 		Files:     files,
 		FilesOpen: len(openFiles),
 	}
+	if fileLevel {
+		for _, p := range t.implFiles {
+			if inMod(p) {
+				f.AllFiles = append(f.AllFiles, p)
+			}
+		}
+	}
+	return f
 }
 
 type structEdgeAcc struct {
@@ -467,12 +497,12 @@ func StructEdgeSymbols(ctx context.Context, root, focus, from, to string) ([]str
 }
 
 // StructEdgeSymbolFiles は StructEdgeSymbols と同じ並びで、各シンボルの定義ファイル。
-func StructEdgeSymbolFiles(ctx context.Context, root, focus, from, to string) ([]string, []string, error) {
+func StructEdgeSymbolFiles(ctx context.Context, root, focus, from, to string, fileLevel bool) ([]string, []string, error) {
 	t, err := structTablesFor(ctx, root)
 	if err != nil {
 		return nil, nil, err
 	}
-	pairs := edgeSymbolPairsFrom(t, focus, from, to)
+	pairs := edgeSymbolPairsAt(t, focus, from, to, fileLevel)
 	syms := make([]string, len(pairs))
 	files := make([]string, len(pairs))
 	for i, p := range pairs {
@@ -492,6 +522,12 @@ func edgeSymbolsFrom(t *structTables, focus, from, to string) []string {
 
 // edgeSymbolPairsFrom は (シンボル, 定義ファイル) を名前順で返す。
 func edgeSymbolPairsFrom(t *structTables, focus, from, to string) [][2]string {
+	return edgeSymbolPairsAt(t, focus, from, to, false)
+}
+
+// edgeSymbolPairsAt の fileLevel は、エッジを表示していた画面がファイル単位
+// （StructMapFocusFiles）だったかどうか。畳み方が違うとラベルが一致しない
+func edgeSymbolPairsAt(t *structTables, focus, from, to string, fileLevel bool) [][2]string {
 	var member func(src, def string) bool
 	if focus == "" {
 		// 全体図と同じ自動畳み。
@@ -511,6 +547,9 @@ func edgeSymbolPairsFrom(t *structTables, focus, from, to string) [][2]string {
 			return rel == module || strings.HasPrefix(rel, module+"/")
 		}
 		inside := func(rel string) string { return structGroup(rel, depth+1) }
+		if fileLevel {
+			inside = func(rel string) string { return rel }
+		}
 		member = func(src, def string) bool {
 			sin, din := inMod(src), inMod(def)
 			switch {

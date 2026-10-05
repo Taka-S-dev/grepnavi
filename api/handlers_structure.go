@@ -32,7 +32,12 @@ func (h *Handler) handleStructure(w http.ResponseWriter, r *http.Request) {
 	var err error
 	if focus := q.Get("focus"); focus != "" {
 		var f *search.StructFocus
-		if f, err = search.StructMapFocus(r.Context(), root, focus); err == nil {
+		// files=1 はモジュールの中を畳まず、ファイル単位で返す（図をファイル単位で見る用）
+		focusFn := search.StructMapFocus
+		if q.Get("files") == "1" {
+			focusFn = search.StructMapFocusFiles
+		}
+		if f, err = focusFn(r.Context(), root, focus); err == nil {
 			payload = f
 			if brief {
 				payload = map[string]any{
@@ -131,7 +136,7 @@ func (h *Handler) handleStructureEdgeSymbols(w http.ResponseWriter, r *http.Requ
 	h.mu.RUnlock()
 
 	q := r.URL.Query()
-	syms, files, err := search.StructEdgeSymbolFiles(r.Context(), root, q.Get("focus"), q.Get("from"), q.Get("to"))
+	syms, files, err := search.StructEdgeSymbolFiles(r.Context(), root, q.Get("focus"), q.Get("from"), q.Get("to"), q.Get("files") == "1")
 	if errors.Is(err, search.ErrRefMapNotBuilt) {
 		w.WriteHeader(http.StatusConflict)
 		jsonOK(w, map[string]any{"root": root, "status": search.RefMapStat(root)})

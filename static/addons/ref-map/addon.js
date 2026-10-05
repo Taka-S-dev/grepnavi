@@ -178,7 +178,7 @@ async function rmLoad(focus, opts) {
   rmRenderCrumbs();
   try {
     const url = _rmFocus
-      ? '/api/structure?' + new URLSearchParams({ focus: _rmFocus })
+      ? '/api/structure?' + new URLSearchParams(_rmFileLevel ? { focus: _rmFocus, files: '1' } : { focus: _rmFocus })
       : '/api/structure'; // depth なし = 自動畳み（大きな塊は中の重い部分を取り出す）
     const r = await fetch(url, { signal: _rmAbort.signal });
     const d = await r.json();
@@ -652,7 +652,26 @@ let _rmGraphData = null;
 // 図は「このフォルダに何があるか」の俯瞰にも使うので、線の無いファイルが
 // 無いように見えてはいけない（engines/ は 7 ファイル中 3 つがエラー表で参照 0）
 const _rmGraphKids = {};
+// 図と一覧の単位。false = モジュールの 1 段下（サブディレクトリは 1 つの箱）、
+// true = ファイル単位（サブディレクトリの中まで 1 ファイルずつ）。サブディレクトリを
+// またぐ呼び出しの階層を 1 枚で見たいときに使う
+let _rmFileLevel = false;
+const RM_GRAPH_MAX_NODES = 250; // これを超えると線が読めず、描くのも重い
+
 function rmOpenGraph(m) {
+  if (_rmFileLevel) {
+    const n = (m.all_files || []).length;
+    if (n > RM_GRAPH_MAX_NODES) {
+      // 多すぎるときは描かずに戻す。数百ノードは線が読めないうえ、配置の計算も重い
+      st(`ファイル単位は ${n} ファイルあり、図にするには多すぎます（上限 ${RM_GRAPH_MAX_NODES}）。サブディレクトリに降りてから切り替えてください`);
+      _rmFileLevel = false;
+      rmLoad(_rmFocus, { fromHistory: true });
+      return;
+    }
+    _rmGraphKids[m.module + '|files'] = m.all_files || [];
+    rmDrawGraph(m);
+    return;
+  }
   if (_rmGraphKids[m.module]) { rmDrawGraph(m); return; }
   fetch('/api/structure/children?' + new URLSearchParams({ path: m.module }))
     .then(r => r.ok ? r.json() : { children: [] })
@@ -675,7 +694,7 @@ function rmDrawGraph(m) {
   for (const n of inCount.keys()) if (!col.has(n)) { col.set(n, cols.length); (cols[cols.length] || (cols[cols.length] = [])).push(n); }
   // 参照が 1 本も無いファイル・サブフォルダは最後の列（行）に薄く並べる
   const idle = new Set();
-  for (const p of _rmGraphKids[m.module] || []) {
+  for (const p of _rmGraphKids[m.module + (_rmFileLevel ? '|files' : '')] || []) {
     if (col.has(p)) continue;
     idle.add(p);
     col.set(p, cols.length);
@@ -755,6 +774,7 @@ function rmDrawGraph(m) {
     <span class="rm-hint">内部の参照 ${edges.length} 本 · 使う側 → 使われる側（${vertical ? '上から下' : '左から右'}）· <span class="rm-graph-back">赤</span> は戻る参照 · 入口 / 中核 / 末端 は参照の数から · 乗せると繋がりだけ残る · クリックで固定 · ダブルクリックで開く</span>
     <span id="rm-graph-pin"></span>
     <span id="rm-graph-spacer"></span>
+    <button id="rm-graph-files" class="rm-graph-zoom${_rmFileLevel ? ' on' : ''}" title="サブディレクトリを 1 つの箱にまとめず、中のファイルまで 1 つずつ描く（右の一覧も同じ単位になる）">ファイル単位</button>
     <label id="rm-graph-min" title="参照の数がこれより少ない線を隠す。太い線（主な依存）だけ残して骨格を見る">細い線を隠す: 参照 ≥ <input type="range" min="1" max="${Math.max(2, maxCount)}" value="1"><span>1</span></label>
     <button class="rm-graph-zoom" data-d="-1" title="間隔を詰める (Ctrl+ホイール)">−</button><span id="rm-graph-spread">${_rmGraphSpread.toFixed(1)}×</span><button class="rm-graph-zoom" data-d="1" title="間隔を広げる (Ctrl+ホイール)">＋</button>
     <button id="rm-graph-close" title="図を閉じてツリーに戻る (Esc)">×</button></div>
@@ -762,13 +782,26 @@ function rmDrawGraph(m) {
   const pane = document.getElementById('pane-tree');
   pane.appendChild(overlay);
   overlay.querySelector('#rm-graph-close').onclick = rmCloseGraph;
-  overlay.querySelectorAll('.rm-graph-zoom').forEach(b => { b.onclick = () => rmGraphSpread(+b.dataset.d); });
+  overlay.querySelectorAll('.rm-graph-zoom[data-d]').forEach(b => { b.onclick = () => rmGraphSpread(+b.dataset.d); });
+  // 単位の切り替え。取り直して、図も右の一覧も同じ単位にする（履歴には積まない）
+  overlay.querySelector('#rm-graph-files').onclick = () => {
+    _rmFileLevel = !_rmFileLevel;
+    _rmGraphPin = null;
+    rmLoad(_rmFocus, { fromHistory: true });
+  };
   overlay.querySelector('#rm-graph-body').addEventListener('wheel', e => {
     if (!e.ctrlKey) return;
     e.preventDefault();
     rmGraphSpread(e.deltaY < 0 ? 1 : -1);
   }, { passive: false });
 
+  // サブディレクトリの色（現れた順に割り当てる）
+  const _subColors = new Map();
+  const SUB_PALETTE = ['#4fc1ff', '#89d185', '#d7ba7d', '#c586c0', '#ce9178', '#f48771', '#3cc8c8', '#ffb8d0'];
+  const subDirColor = d => {
+    if (!_subColors.has(d)) _subColors.set(d, SUB_PALETTE[_subColors.size % SUB_PALETTE.length]);
+    return _subColors.get(d);
+  };
   const svgNS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(svgNS, 'svg');
   svg.setAttribute('width', width);
@@ -849,6 +882,16 @@ function rmDrawGraph(m) {
     g.setAttribute('transform', `translate(${x(n)},${y(n)})`);
     const inN = inCount.get(n) || 0;
     const roles = idle.has(n) ? ['参照なし'] : roleOf(n), sym = offers(n);
+    // ファイル単位では、どのサブディレクトリのファイルかを名前（statem/statem.c）と
+    // 左の色の帯で示す。帯の色はサブディレクトリごと（直下のファイルは帯なし）
+    const sub = n.startsWith(m.module + '/') ? n.slice(m.module.length + 1) : n;
+    const subDir = sub.includes('/') ? sub.slice(0, sub.lastIndexOf('/')) : '';
+    const nodeLabel = x => {
+      if (!_rmFileLevel) return rmLeaf(x);
+      return sub.length > 26 ? '…' + sub.slice(-25) : sub;
+    };
+    const dirBar = () => (_rmFileLevel && subDir)
+      ? `<rect class="rm-graph-dirbar" width="5" height="${H}" rx="2" style="fill:${subDirColor(subDir)}"/>` : '';
     g.dataset.name = n;
     // 外からの参照は図の中に線を持たない（外のまとまりまで描くと一気に増える）ので、
     // 固定したときだけ、まとまりの外から来る点線の矢印と相手を添える。これが無いと
@@ -861,7 +904,7 @@ function rmDrawGraph(m) {
       ? `<g class="rm-graph-ext"><path d="M-34,${H / 2} L-4,${H / 2}" marker-end="url(#rm-arrow-ext)"/><text x="-38" y="${H / 2 + 4}" text-anchor="end">外から ${inN}（${rmEsc([...new Set(outsiders)].slice(0, 3).join(' '))}）</text></g>`
       : `<g class="rm-graph-ext"><path d="M${W / 2},-30 L${W / 2},-4" marker-end="url(#rm-arrow-ext)"/><text x="${W / 2 + 6}" y="-18">外から ${inN}（${rmEsc([...new Set(outsiders)].slice(0, 3).join(' '))}）</text></g>`) : '';
     g.innerHTML = `<rect width="${W}" height="${H}" rx="4"/>
-      <text x="8" y="15" class="rm-graph-label">${rmEsc(rmLeaf(n))}${rmIsFile(n) ? '' : '/'}</text>
+      ${dirBar(n)}<text x="${_rmFileLevel ? 12 : 8}" y="15" class="rm-graph-label">${rmEsc(nodeLabel(n))}${rmIsFile(n) ? '' : '/'}</text>
       <text x="${W - 6}" y="15" text-anchor="end" class="rm-graph-role">${rmEsc(roles.join('・'))}${inN ? ` ${inN}` : ''}</text>
       <text x="8" y="31" class="rm-graph-sym">${rmEsc(sym.join(', '))}</text>${ext}`;
     const t = document.createElementNS(svgNS, 'title');
@@ -1256,6 +1299,7 @@ function rmMoreChip(chips, e, shown, hl) {
     more.innerHTML = '<span class="gn-spinner"></span>読込中';
     const params = { from: e.from, to: e.to };
     if (_rmFocus) params.focus = _rmFocus;
+    if (_rmFocus && _rmFileLevel) params.files = '1';
     try {
       const r = await fetch('/api/structure/edge-symbols?' + new URLSearchParams(params));
       const d = await r.json();
