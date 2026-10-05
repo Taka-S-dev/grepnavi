@@ -387,3 +387,20 @@
 .rm-legend-ops { color: #9aa0a6; }
 #rm-graph-legend-close { position: absolute; top: 4px; right: 6px; background: none; border: none; color: #aaa; font-size: 15px; cursor: pointer; padding: 0 4px; }
 #rm-graph-legend-close:hover { color: #fff; }
+/* チップを開いたときの「呼んでいる行」。チップから枠でつなぎ、何の一覧かを見出しで言う */
+.rm-sites { border-left: 2px solid #0e639c; background: #1a2530; border-radius: 0 4px 4px 0; padding: 4px 6px; }
+.rm-sites-head {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  color: #c8d4de; background: #1a2530; padding: 3px 2px 4px; border-bottom: 1px solid #2c4256;
+}
+.rm-sites-head .rm-chip { cursor: pointer; flex-shrink: 0; }
+.rm-sites-close { margin-left: auto; background: none; border: none; color: #aaa; font-size: 14px; cursor: pointer; padding: 0 4px; }
+.rm-sites-close:hover { color: #fff; }
+.rm-sites-file { display: flex; gap: 8px; color: #9cdcfe; font: 11px Consolas, "Courier New", monospace; padding: 3px 2px 1px; }
+.rm-sites-file span { color: #7f8c97; }
+.rm-site { align-items: baseline; gap: 8px; padding-left: 10px; }
+.rm-site-line { flex: none; width: 4ch; text-align: right; color: #7f8c97; }
+.rm-site-fn { flex: none; max-width: 38%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #dcdcaa; }
+.rm-site-fn:empty { display: none; }
+.rm-site-hit { color: #fff; background: rgba(14,99,156,.55); border-radius: 2px; }

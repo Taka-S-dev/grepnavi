@@ -1330,7 +1330,7 @@ function rmSymChip(chips, e, s, hl) {
   // パスに一致が無い行が「なぜ出ているのか」分からないまま並ぶ
   rmHighlight(chip, s, hl);
   chip.title = s + '\nクリック: 定義へ（' + e.to + '）'
-    + '\nAlt+クリック: 参照している行（' + e.from + ' 内）';
+    + '\nAlt+クリック: この関数を呼んでいる行を一覧（いま見ているまとまりの中）';
   chip.onclick = ev => {
     // 主動作は定義へ、Alt はそこから広げる探索 — エディタの
     // Ctrl+クリック（定義ジャンプ）/ Alt+クリック（ジャンプランチャー）と
@@ -1407,7 +1407,7 @@ function rmName(name, hl) {
   return el;
 }
 
-const RM_SITES_MAX = 50;
+const RM_SITES_MAX = 100;
 
 // 参照している行をチップの下に出す。検索パネルは別の作業のための場所なので、
 // そこを書き換えずにこのパネルの中で完結させる。
@@ -1423,34 +1423,99 @@ async function rmToggleSites(chips, chip, sym, from) {
   box.innerHTML = '<span class="gn-spinner"></span>検索中…';
   chip.after(box);
 
-  // 出すのはこのエッジぶんだけ = 参照している側（from）の中の行に限る。
-  // from がファイルのときは、親ディレクトリで引くと兄弟ファイルの参照まで
-  // 混ざるので、パスでそのファイルに絞る
+  // 探す範囲は、いま見ているまとまりの中の全部。この行の参照元だけに絞ると、
+  // 同じ関数を呼ぶ別のファイルの行を見るたびに、行ごとに開き直すことになる。
+  // 全体図（まとまり無し）ではこの行の参照元に限る（ツリー全体は参照パネルの仕事）
   const isFile = /\.[A-Za-z0-9]+$/.test(from.split('/').pop());
-  const dir = isFile ? from.split('/').slice(0, -1).join('/') : from;
-  const params = { word: sym, dir, limit: String(RM_SITES_MAX) };
-  if (isFile) params.filter = 'path:' + from;
+  const scope = _rmFocus || (isFile ? from.split('/').slice(0, -1).join('/') : from);
+  // 多めに取ってから絞る: ツリーに置かれた生成物（doxygen の html、cscope.out、
+  // ctags.out）にも名前は出てくるので、そのまま上限で切ると本物の行が押し出される
+  const params = { word: sym, dir: scope, limit: String(RM_SITES_MAX * 4) };
+  if (!_rmFocus && isFile) params.filter = 'path:' + from;
+  const scopeLabel = _rmFocus ? _rmFocus + '/ の中' : from + ' 内';
   try {
     const r = await fetch('/api/references?' + new URLSearchParams(params));
-    const refs = await r.json();
+    let refs = await r.json();
     box.textContent = '';
+    if (Array.isArray(refs)) {
+      refs = refs.filter(x => {
+        // C のソースだけ。生成物の中の一致は呼び出しではない
+        if (!/\.(c|cc|cpp|cxx|h|hh|hpp|hxx)$/i.test(x.file || '')) return false;
+        const t = x.text || '';
+        // 定義の行そのもの（字下げなしで、囲む関数が自分自身）と、プロトタイプ宣言
+        // （字下げなしで `名前(…);`）は「呼んでいる行」ではない
+        if (/^\S/.test(t) && (x.func === sym || /\)\s*;\s*$/.test(t))) return false;
+        return true;
+      }).slice(0, RM_SITES_MAX);
+    }
     if (!r.ok || !Array.isArray(refs) || !refs.length) {
-      box.textContent = from + ' 内に参照行が見つかりません';
+      box.textContent = `${sym} を呼んでいる行は ${scopeLabel}に見つかりません`;
       return;
     }
+    // 何の一覧かを先に言う。これが無いと、並んだ行が呼び出し箇所だと分からない
+    const byFile = new Map();
     for (const ref of refs) {
-      const row = document.createElement('div');
-      row.className = 'rm-site';
-      const where = document.createElement('span');
-      where.className = 'rm-site-at';
-      where.textContent = rmRel(ref.file) + ':' + ref.line + (ref.func ? ' ' + ref.func : '');
-      row.appendChild(where);
-      const text = document.createElement('span');
-      text.className = 'rm-site-text';
-      text.textContent = (ref.text || '').trim();
-      row.appendChild(text);
-      row.onclick = () => { if (typeof openPeek === 'function') openPeek(ref.file, ref.line); };
-      box.appendChild(row);
+      const rel = rmRel(ref.file);
+      if (!byFile.has(rel)) byFile.set(rel, []);
+      byFile.get(rel).push(ref);
+    }
+    // 見出しは開いたチップと同じ見た目の名前で始め、スクロールしても上に残す。
+    // 一覧が長いとチップが画面の外へ流れて、何を開いたのか分からなくなる
+    const head = document.createElement('div');
+    head.className = 'rm-sites-head';
+    const name = document.createElement('span');
+    name.className = 'rm-chip on';
+    name.textContent = sym;
+    name.title = '定義へ';
+    name.onclick = () => rmJumpToSymbol(sym);
+    const close = document.createElement('button');
+    close.className = 'rm-sites-close';
+    close.textContent = '×';
+    close.title = '閉じる';
+    close.onclick = () => { box.remove(); chip.classList.remove('on'); chip.scrollIntoView({ block: 'nearest' }); };
+    head.append(name, ` を呼んでいる行（${scopeLabel}）: ${refs.length}${refs.length >= RM_SITES_MAX ? '+' : ''} 件 / ${byFile.size} ファイル`, close);
+    box.appendChild(head);
+    // この行の参照元を先頭に、残りは件数の多い順
+    const order = [...byFile.entries()].sort((x, y) =>
+      ((y[0] === from) - (x[0] === from)) || (y[1].length - x[1].length) || x[0].localeCompare(y[0]));
+    for (const [rel, list] of order) {
+      const fh = document.createElement('div');
+      fh.className = 'rm-sites-file';
+      fh.textContent = rel + (rel === from ? '（この行の参照元）' : '');
+      const n = document.createElement('span');
+      n.textContent = String(list.length);
+      fh.appendChild(n);
+      box.appendChild(fh);
+      for (const ref of list) {
+        const row = document.createElement('div');
+        row.className = 'rm-site';
+        const ln = document.createElement('span');
+        ln.className = 'rm-site-line';
+        ln.textContent = ref.line;
+        row.appendChild(ln);
+        // 囲む関数とその行のコードは別の列・別の色にする。続けて並べると
+        // `tls_construct_client_hello || !ssl_version_supported(…` が 1 つの式に見える
+        const fn = document.createElement('span');
+        fn.className = 'rm-site-fn';
+        fn.textContent = ref.func || '';
+        row.appendChild(fn);
+        const text = document.createElement('span');
+        text.className = 'rm-site-text';
+        const code = (ref.text || '').trim();
+        const at = code.indexOf(sym);
+        if (at >= 0) {
+          const hit = document.createElement('span');
+          hit.className = 'rm-site-hit';
+          hit.textContent = sym;
+          text.append(code.slice(0, at), hit, code.slice(at + sym.length));
+        } else {
+          text.textContent = code;
+        }
+        row.appendChild(text);
+        row.title = rel + ':' + ref.line;
+        row.onclick = () => { if (typeof openPeek === 'function') openPeek(ref.file, ref.line); };
+        box.appendChild(row);
+      }
     }
     if (refs.length >= RM_SITES_MAX) {
       const more = document.createElement('div');
