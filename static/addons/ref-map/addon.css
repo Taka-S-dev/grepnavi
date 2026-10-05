@@ -361,3 +361,10 @@
 .rm-graph-ext text { fill: #e8c45a; font: 11px sans-serif; }
 .rm-graph-zoom.on { background: #0e4f7a; border-color: #1c7ec0; color: #fff; }
 .rm-graph-dirbar { stroke: none !important; }
+/* 役割。位置（最初の層 = 起点 / 最後の層 = 土台）に加えて、色でも見分ける */
+.rm-role-entry { fill: #89d185; color: #89d185; }
+.rm-role-top { fill: #4fc1ff; color: #4fc1ff; }
+.rm-role-base { fill: #c586c0; color: #c586c0; }
+.rm-graph-top rect:not(.rm-graph-dirbar) { fill: #22303c; stroke: #3d6e91; }
+.rm-graph-base rect:not(.rm-graph-dirbar) { fill: #30263a; stroke: #7d5a8f; }
+.rm-graph-cap { fill: #9aa0a6; font: 11px sans-serif; }

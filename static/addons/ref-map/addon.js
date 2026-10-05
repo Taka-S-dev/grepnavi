@@ -686,7 +686,7 @@ function rmDrawGraph(m) {
   rmCloseGraph();
   _rmGraphData = m;
   const edges = m.internal.filter(e => e.from !== e.to);
-  const { cols, col, back } = layerGraph(edges);
+  const { cols, col, back } = layerGraph(edges, { sinksLast: true });
   const isBack = new Set(back.map(([a, b]) => a + '\u0000' + b));
   // 外からの件数（入口の太さ）。内部の線が無いが外から使われるファイルも並べる
   const inCount = new Map();
@@ -701,9 +701,13 @@ function rmDrawGraph(m) {
     (cols[cols.length] || (cols[cols.length] = [])).push(p);
   }
   const names = [...col.keys()];
-  // 役割: 数字から機械的に付ける。入口 = 外から使われる、中核 = 内部の 3 つ以上
-  // から使われる、末端 = 内部を使うだけで使われない。初見のモジュールでは
-  // 「このファイルが何をするか」を名前から当てるより、これと提供している関数名のほうが早い
+  // 役割: 参照の向きから機械的に付ける。図の目的は「どこから処理が始まり、どこが
+  // 土台のライブラリか」を掴むことなので、語もそれに合わせる:
+  //   起点 = 中の誰にも使われず、他を使う（層の最初。処理の始まる側）
+  //   土台 = 使われるだけで、中の何も使わない（層の最後。末端のライブラリ）
+  //   中核 = 3 つ以上から使われ、自分も他を使う（途中の要）
+  //   入口 = まとまりの外から使われる（層のどこにでもいる）
+  // 名前から当てるより、これと提供している関数名のほうが早い
   const usersOf = new Map(), usesOf = new Map();
   for (const e of edges) {
     usersOf.set(e.to, (usersOf.get(e.to) || 0) + 1);
@@ -712,8 +716,9 @@ function rmDrawGraph(m) {
   const roleOf = n => {
     const r = [];
     if (inCount.get(n)) r.push('入口');
-    if ((usersOf.get(n) || 0) >= 3) r.push('中核');
-    if (!usersOf.get(n) && usesOf.get(n)) r.push('末端');
+    if (!usersOf.get(n) && usesOf.get(n)) r.push('起点');
+    else if (usersOf.get(n) && !usesOf.get(n)) r.push('土台');
+    else if ((usersOf.get(n) || 0) >= 3) r.push('中核');
     return r;
   };
   // 提供している関数: 外から一番太い参照の見本から 3 つ。見本は名前順なので
@@ -771,7 +776,7 @@ function rmDrawGraph(m) {
   const overlay = document.createElement('div');
   overlay.id = 'rm-graph';
   overlay.innerHTML = `<div id="rm-graph-head"><span class="rm-name rm-mod">${rmEsc(m.module)}/</span>
-    <span class="rm-hint">内部の参照 ${edges.length} 本 · 使う側 → 使われる側（${vertical ? '上から下' : '左から右'}）· <span class="rm-graph-back">赤</span> は戻る参照 · 入口 / 中核 / 末端 は参照の数から · 乗せると繋がりだけ残る · クリックで固定 · ダブルクリックで開く</span>
+    <span class="rm-hint">内部の参照 ${edges.length} 本 · 使う側 → 使われる側（${vertical ? '上から下' : '左から右'}）· <span class="rm-graph-back">赤</span> は戻る参照 · <span class="rm-role-top">起点</span> 呼ぶだけ / <span class="rm-role-base">土台</span> 呼ばれるだけ / <span class="rm-role-entry">入口</span> 外から使われる · 乗せると繋がりだけ残る · クリックで固定 · ダブルクリックで開く</span>
     <span id="rm-graph-pin"></span>
     <span id="rm-graph-spacer"></span>
     <button id="rm-graph-files" class="rm-graph-zoom${_rmFileLevel ? ' on' : ''}" title="サブディレクトリを 1 つの箱にまとめず、中のファイルまで 1 つずつ描く（右の一覧も同じ単位になる）">ファイル単位</button>
@@ -795,6 +800,7 @@ function rmDrawGraph(m) {
     rmGraphSpread(e.deltaY < 0 ? 1 : -1);
   }, { passive: false });
 
+  const ROLE_CLASS = { '入口': 'rm-role-entry', '起点': 'rm-role-top', '土台': 'rm-role-base' };
   // サブディレクトリの色（現れた順に割り当てる）
   const _subColors = new Map();
   const SUB_PALETTE = ['#4fc1ff', '#89d185', '#d7ba7d', '#c586c0', '#ce9178', '#f48771', '#3cc8c8', '#ffb8d0'];
@@ -811,6 +817,23 @@ function rmDrawGraph(m) {
     <marker id="rm-arrow-ext" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#e8c45a"/></marker>
     <marker id="rm-arrow-back" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#e5484d"/></marker>
   </defs>`;
+  // 流れの両端に見出し。位置（最初の層 / 最後の層）が何を意味するかを図の中に書く
+  const cap = (tx, ty, text, anchor) => {
+    const t = document.createElementNS(svgNS, 'text');
+    t.setAttribute('x', tx); t.setAttribute('y', ty);
+    t.setAttribute('class', 'rm-graph-cap');
+    if (anchor) t.setAttribute('text-anchor', anchor);
+    t.textContent = text;
+    svg.appendChild(t);
+  };
+  const lastCol = cols.length - 1 - (idle.size ? 1 : 0);
+  if (vertical) {
+    cap(PAD, PAD + 10, '▼ 起点（ここから呼ぶ）');
+    cap(PAD, PAD + 20 + lastCol * (H + GY) + H + 16, '▲ 土台（呼ばれるだけ）');
+  } else {
+    cap(PAD, PAD + 10, '起点（ここから呼ぶ） ▶');
+    cap(PAD + lastCol * (W + GX) + W, PAD + 10, '▶ 土台（呼ばれるだけ）', 'end');
+  }
   for (const e of edges) {
     const backEdge = isBack.has(e.from + '\u0000' + e.to);
     const path = document.createElementNS(svgNS, 'path');
@@ -878,7 +901,9 @@ function rmDrawGraph(m) {
   }
   for (const n of names) {
     const g = document.createElementNS(svgNS, 'g');
-    g.setAttribute('class', 'rm-graph-node' + (rmIsFile(n) ? ' rm-graph-file' : ' rm-graph-dir') + (idle.has(n) ? ' rm-graph-idle' : ''));
+    const rolesOfN = idle.has(n) ? [] : roleOf(n);
+    g.setAttribute('class', 'rm-graph-node' + (rmIsFile(n) ? ' rm-graph-file' : ' rm-graph-dir') + (idle.has(n) ? ' rm-graph-idle' : '')
+      + (rolesOfN.includes('起点') ? ' rm-graph-top' : '') + (rolesOfN.includes('土台') ? ' rm-graph-base' : ''));
     g.setAttribute('transform', `translate(${x(n)},${y(n)})`);
     const inN = inCount.get(n) || 0;
     const roles = idle.has(n) ? ['参照なし'] : roleOf(n), sym = offers(n);
@@ -905,7 +930,7 @@ function rmDrawGraph(m) {
       : `<g class="rm-graph-ext"><path d="M${W / 2},-30 L${W / 2},-4" marker-end="url(#rm-arrow-ext)"/><text x="${W / 2 + 6}" y="-18">外から ${inN}（${rmEsc([...new Set(outsiders)].slice(0, 3).join(' '))}）</text></g>`) : '';
     g.innerHTML = `<rect width="${W}" height="${H}" rx="4"/>
       ${dirBar(n)}<text x="${_rmFileLevel ? 12 : 8}" y="15" class="rm-graph-label">${rmEsc(nodeLabel(n))}${rmIsFile(n) ? '' : '/'}</text>
-      <text x="${W - 6}" y="15" text-anchor="end" class="rm-graph-role">${rmEsc(roles.join('・'))}${inN ? ` ${inN}` : ''}</text>
+      <text x="${W - 6}" y="15" text-anchor="end" class="rm-graph-role">${roles.map(r => `<tspan class="${ROLE_CLASS[r] || ''}">${rmEsc(r)}</tspan>`).join('・')}${inN ? ` ${inN}` : ''}</text>
       <text x="8" y="31" class="rm-graph-sym">${rmEsc(sym.join(', '))}</text>${ext}`;
     const t = document.createElementNS(svgNS, 'title');
     t.textContent = n + (inN ? `\n外から ${inN}` : '') + (roles.length ? `\n${roles.join('・')}` : '')

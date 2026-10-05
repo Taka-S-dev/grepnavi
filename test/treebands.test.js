@@ -109,3 +109,21 @@ test('layerGraph - 使う側を左、使われる側を右に並べ、循環は�
   assert.deepEqual(layerGraph([]).cols, []);
   assert.deepEqual(layerGraph([{ from: 'x.c', to: 'x.c' }]).cols, [['x.c']]);
 });
+
+// 土台（使われるだけ）を最後の列に揃える。浅い所からしか使われない土台も
+// 途中の列に残さない: 「最初の列 = 起点、最後の列 = 土台」と位置で読めるように。
+test('layerGraph sinksLast - 使われるだけのノードは最後の列に揃う', () => {
+  const edges = [
+    { from: 'main.c', to: 'util.c' },     // util.c は深さ 1 の土台
+    { from: 'main.c', to: 'mid.c' },
+    { from: 'mid.c', to: 'core.c' },
+    { from: 'core.c', to: 'base.c' },     // base.c は深さ 3 の土台
+  ];
+  const plain = layerGraph(edges);
+  assert.equal(plain.col.get('util.c'), 1);
+  const g = layerGraph(edges, { sinksLast: true });
+  assert.equal(g.col.get('main.c'), 0);
+  assert.equal(g.col.get('util.c'), g.col.get('base.c'));
+  assert.equal(g.col.get('base.c'), g.cols.length - 1);
+  assert.ok(g.cols.every(c => c.length > 0), '空の列を残さない');
+});

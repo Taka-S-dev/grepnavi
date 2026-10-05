@@ -422,7 +422,7 @@ async function loadCodePreview(file, line, ctx, opts) {
 // 逆らう辺が戻り辺。深さ優先の訪問順で決めると、全員が相互参照している
 // モジュールで意味のない 1 本の鎖ができ、残りが全部赤になる。
 // 返り値: { cols: [[name, ...], ...], col: Map(name → 列), back: [[from, to], ...] }
-function layerGraph(edges) {
+function layerGraph(edges, opts) {
   const nodes = new Set();
   for (const e of edges) { nodes.add(e.from); nodes.add(e.to); }
   const names = [...nodes].sort();
@@ -467,12 +467,24 @@ function layerGraph(edges) {
     return c;
   };
   for (const n of names) colOf(n);
+  // sinksLast: 使われるだけのノード（土台）を最後の列に揃える。深さだけで列を決めると、
+  // 浅い所からしか使われない土台が途中の列に置かれ、「最後の列 = 土台」と読めない
+  if (opts && opts.sinksLast) {
+    const hasOut = new Set();
+    for (const e of edges) if (!isBack(e.from, e.to) && e.from !== e.to) hasOut.add(e.from);
+    let last = 0;
+    for (const c of col.values()) last = Math.max(last, c);
+    for (const n of names) if (!hasOut.has(n) && users.get(n).length) col.set(n, last);
+  }
   const cols = [];
   for (const n of names) {
     const c = col.get(n);
     (cols[c] || (cols[c] = [])).push(n);
   }
-  return { cols, col, back: [...back].map(k => k.split('\u0000')) };
+  // 途中の列が空になることがある（土台だけだった列）。詰める
+  const packed = cols.filter(c => c && c.length);
+  packed.forEach((c, i) => c.forEach(n => col.set(n, i)));
+  return { cols: packed, col, back: [...back].map(k => k.split('\u0000')) };
 }
 
 if (typeof module !== "undefined") module.exports = { shortPath, labelFrom, foreignRootName, nodeDir, bandLabel, splitNodeLabel, previewLines, startsInsideBlockComment, cIdentRanges, adjacentDistinctBands, previewSide, tileRects, locationText, layerGraph };
