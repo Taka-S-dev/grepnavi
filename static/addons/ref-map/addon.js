@@ -961,7 +961,7 @@ function rmDrawGraph(m) {
     };
     g.ondblclick = () => {
       if (rmIsFile(n)) { if (typeof openPeek === 'function' && _rmRoot) openPeek(_rmRoot.replace(/\\/g, '/') + '/' + n, 1); }
-      else { rmCloseGraph(); rmLoad(n); }
+      else rmLoad(n); // 図は閉じない: 開いている図は移動先のまとまりに描き直される
     };
     svg.appendChild(g);
   }
