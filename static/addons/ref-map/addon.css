@@ -368,3 +368,22 @@
 .rm-graph-top rect:not(.rm-graph-dirbar) { fill: #22303c; stroke: #3d6e91; }
 .rm-graph-base rect:not(.rm-graph-dirbar) { fill: #30263a; stroke: #7d5a8f; }
 .rm-graph-cap { fill: #9aa0a6; font: 11px sans-serif; }
+/* 凡例（図の右上に重ねる） */
+#rm-graph-legend {
+  position: absolute; top: 44px; right: 22px; z-index: 6;
+  width: 430px; max-width: calc(100% - 44px); max-height: calc(100% - 60px); overflow: auto;
+  background: rgba(30,30,30,.96); border: 1px solid #454545; border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.5);
+  padding: 8px 12px 10px; font-size: 11px; color: #c8c8c8; line-height: 1.5;
+}
+.rm-legend-h { color: #888; margin: 6px 0 3px; border-bottom: 1px solid #333; }
+.rm-legend-h:first-child { margin-top: 0; }
+.rm-legend-row { display: flex; align-items: center; gap: 10px; margin: 2px 0; }
+.rm-legend-row > svg, .rm-legend-badge { flex: 0 0 96px; }
+.rm-legend-badge { text-align: center; color: #9aa0a6; }
+.rm-legend-row b { font-weight: 600; }
+.rm-legend-sub { margin-right: 10px; white-space: nowrap; }
+.rm-legend-sub i { display: inline-block; width: 5px; height: 12px; border-radius: 2px; margin-right: 4px; vertical-align: -2px; }
+.rm-legend-ops { color: #9aa0a6; }
+#rm-graph-legend-close { position: absolute; top: 4px; right: 6px; background: none; border: none; color: #aaa; font-size: 15px; cursor: pointer; padding: 0 4px; }
+#rm-graph-legend-close:hover { color: #fff; }

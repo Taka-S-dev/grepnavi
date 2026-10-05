@@ -776,9 +776,10 @@ function rmDrawGraph(m) {
   const overlay = document.createElement('div');
   overlay.id = 'rm-graph';
   overlay.innerHTML = `<div id="rm-graph-head"><span class="rm-name rm-mod">${rmEsc(m.module)}/</span>
-    <span class="rm-hint">内部の参照 ${edges.length} 本 · 使う側 → 使われる側（${vertical ? '上から下' : '左から右'}）· <span class="rm-graph-back">赤</span> は戻る参照 · <span class="rm-role-top">起点</span> 呼ぶだけ / <span class="rm-role-base">土台</span> 呼ばれるだけ / <span class="rm-role-entry">入口</span> 外から使われる · 乗せると繋がりだけ残る · クリックで固定 · ダブルクリックで開く</span>
+    <span class="rm-hint">内部の参照 ${edges.length} 本 · ${vertical ? '上から下' : '左から右'}へ「使う側 → 使われる側」</span>
     <span id="rm-graph-pin"></span>
     <span id="rm-graph-spacer"></span>
+    <button id="rm-graph-legend-btn" class="rm-graph-zoom" title="箱の色・線の色・操作の説明を出す / 隠す">凡例</button>
     <button id="rm-graph-files" class="rm-graph-zoom${_rmFileLevel ? ' on' : ''}" title="サブディレクトリを 1 つの箱にまとめず、中のファイルまで 1 つずつ描く（右の一覧も同じ単位になる）">ファイル単位</button>
     <label id="rm-graph-min" title="参照の数がこれより少ない線を隠す。太い線（主な依存）だけ残して骨格を見る">細い線を隠す: 参照 ≥ <input type="range" min="1" max="${Math.max(2, maxCount)}" value="1"><span>1</span></label>
     <button class="rm-graph-zoom" data-d="-1" title="間隔を詰める (Ctrl+ホイール)">−</button><span id="rm-graph-spread">${_rmGraphSpread.toFixed(1)}×</span><button class="rm-graph-zoom" data-d="1" title="間隔を広げる (Ctrl+ホイール)">＋</button>
@@ -978,6 +979,40 @@ function rmDrawGraph(m) {
   // 固定したノードの再クリック・ヘッダの「外す」・Esc の 3 つ
   overlay.querySelector('#rm-graph-pin').onclick = () => { _rmGraphPin = null; rmGraphFocus(svg, null); rmGraphPinLabel(null); };
   overlay.querySelector('#rm-graph-body').appendChild(svg);
+  // 凡例。ヘッダの 1 行には収まらないので、見本つきで図の右上に重ねる。
+  // 見本は実物と同じクラスで描く（説明の色と図の色がずれないように）
+  const legend = document.createElement('div');
+  legend.id = 'rm-graph-legend';
+  const box = (cls, label, extra) => `<svg width="92" height="26"><g class="rm-graph-node ${cls}"><rect x="1" y="1" width="90" height="24" rx="4"/>${extra || ''}<text x="8" y="17" class="rm-graph-label">${label}</text></g></svg>`;
+  const line = cls => `<svg width="46" height="14"><path class="rm-graph-edge ${cls}" d="M2,7 L40,7" stroke-width="2"/></svg>`;
+  const subs = [..._subColors.entries()].map(([d, c]) => `<span class="rm-legend-sub"><i style="background:${c}"></i>${rmEsc(d)}/</span>`).join('');
+  legend.innerHTML = `
+    <button id="rm-graph-legend-close" title="凡例を閉じる（ヘッダの「凡例」でまた出せる）">×</button>
+    <div class="rm-legend-h">箱</div>
+    <div class="rm-legend-row">${box('rm-graph-top', 'file.c')}<span><b class="rm-role-top">起点</b> 中の誰にも使われず、他を使う。処理が始まる側（最初の層）</span></div>
+    <div class="rm-legend-row">${box('rm-graph-base', 'file.c')}<span><b class="rm-role-base">土台</b> 使われるだけ。末端のライブラリ（最後の層）</span></div>
+    <div class="rm-legend-row">${box('', 'file.c')}<span>途中のファイル。<b>中核</b> = 3 つ以上から使われ、自分も使う</span></div>
+    <div class="rm-legend-row">${box('rm-graph-idle', 'file.c')}<span>参照なし（在ることだけ示す）</span></div>
+    <div class="rm-legend-row">${box('rm-graph-dir', 'sub/')}<span>サブディレクトリ（中身をまとめた箱。ダブルクリックで中へ）</span></div>
+    <div class="rm-legend-row"><span class="rm-legend-badge"><b class="rm-role-entry">入口</b> 543</span><span>まとまりの外から使われる。数字は外からの参照数</span></div>
+    ${subs ? `<div class="rm-legend-row"><span class="rm-legend-badge">左の帯</span><span>サブディレクトリ: ${subs}</span></div>` : ''}
+    <div class="rm-legend-h">線（まとまりの中の参照だけ）</div>
+    <div class="rm-legend-row">${line('')}<span>使う側 → 使われる側。太いほど参照が多い</span></div>
+    <div class="rm-legend-row">${line('rm-graph-edge-back')}<span>戻る参照（相互参照 = 絡まり）</span></div>
+    <div class="rm-legend-row"><svg width="46" height="14" class="rm-graph-ext" style="display:block"><path d="M2,7 L40,7"/></svg><span>外からの参照（固定したノードにだけ出る）</span></div>
+    <div class="rm-legend-h">操作</div>
+    <div class="rm-legend-ops">箱に乗せる: 繋がりだけ残す ・ クリック: 固定（Esc で外す）・ ダブルクリック: 開く / 中へ<br>線をクリック: 右の一覧をその組に絞る ・ Ctrl+ホイール: 間隔</div>`;
+  overlay.appendChild(legend);
+  const legendBtn = overlay.querySelector('#rm-graph-legend-btn');
+  const setLegend = on => {
+    legend.style.display = on ? '' : 'none';
+    legendBtn.classList.toggle('on', on);
+    try { localStorage.setItem('rm-graph-legend', on ? '1' : '0'); } catch (_) {}
+  };
+  legendBtn.onclick = () => setLegend(legend.style.display === 'none');
+  legend.querySelector('#rm-graph-legend-close').onclick = () => setLegend(false);
+  // 初回は出しておく（色の意味は説明なしでは分からない）。閉じたらそれを覚える
+  setLegend(localStorage.getItem('rm-graph-legend') !== '0');
   if (_rmGraphPin && names.includes(_rmGraphPin)) rmGraphFocus(svg, _rmGraphPin); else _rmGraphPin = null;
   rmGraphPinLabel(_rmGraphPin);
   if (scroll) { const b = overlay.querySelector('#rm-graph-body'); b.scrollLeft = scroll[0]; b.scrollTop = scroll[1]; }
