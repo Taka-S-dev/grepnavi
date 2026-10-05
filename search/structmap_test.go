@@ -585,8 +585,8 @@ func TestStructEdgeSymbolsFocusFaces(t *testing.T) {
 	if got := member("core", "core/init.c", "core/other.c"); !slices.Equal(got, []string{"core_other"}) {
 		t.Errorf("internal = %v, want [core_other]", got)
 	}
-	// 外へ: core → util.c（from はモジュール自身）
-	if got := member("core", "core", "util.c"); !slices.Equal(got, []string{"util_log"}) {
+	// 外へ: core/init.c → util.c（from は中のファイル。入口と同じく 1 段深い）
+	if got := member("core", "core/init.c", "util.c"); !slices.Equal(got, []string{"util_log"}) {
 		t.Errorf("outgoing = %v, want [util_log]", got)
 	}
 	// 別のエッジのシンボルが混ざらない
@@ -796,5 +796,18 @@ func TestFocusFileLevel(t *testing.T) {
 	// 残りのシンボルも同じ畳み方で引ける
 	if p := edgeSymbolPairsAt(tt, "crypto", "crypto/x509/vfy.c", "crypto/x509/cmp.c", true); len(p) != 1 || p[0][0] != "x509_cmp" {
 		t.Errorf("edge symbols = %v", p)
+	}
+}
+
+// 外へ の参照は、中のどのファイルから出ているかを持つ。まとまり全体で畳むと、
+// 1 つのファイルが外の何を使っているかを絞り込めない。
+func TestFocusOutgoingKeepsSourceFile(t *testing.T) {
+	f := focusFrom(tablesForTest(), "core")
+	got := map[string]int{}
+	for _, e := range f.Outgoing {
+		got[e.From+"->"+e.To] = e.Count
+	}
+	if got["core/init.c->net"] != 1 || got["core/init.c->util.c"] != 1 || len(got) != 2 {
+		t.Errorf("outgoing = %v, want core/init.c → net と core/init.c → util.c", got)
 	}
 }

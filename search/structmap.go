@@ -393,7 +393,9 @@ func focusFromAt(t *structTables, module string, fileLevel bool) *StructFocus {
 			accumulate(incoming, structGroup(p.src, depth), inside(p.def), e, p.def)
 			openFiles[p.def] = true
 		case sin:
-			accumulate(outgoing, module, structGroup(p.def, depth), e, p.def)
+			// 出口も「中のどこから出るか」を 1 段深くまで持つ（入口と対称）。
+			// まとまり全体で畳むと、あるファイルが外の何を使っているかが引けない
+			accumulate(outgoing, inside(p.src), structGroup(p.def, depth), e, p.def)
 		}
 	}
 	files := 0
@@ -558,7 +560,7 @@ func edgeSymbolPairsAt(t *structTables, focus, from, to string, fileLevel bool) 
 			case din:
 				return structGroup(src, depth) == from && inside(def) == to
 			case sin:
-				return from == module && structGroup(def, depth) == to
+				return inside(src) == from && structGroup(def, depth) == to
 			}
 			return false
 		}

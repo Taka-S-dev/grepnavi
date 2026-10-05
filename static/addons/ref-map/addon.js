@@ -565,9 +565,9 @@ function rmRenderFocus(m) {
         ['other', active[0] === 'in' ? '呼び出し元ごと' : '呼び出し先ごと', active[0] === 'in'
           ? '使っている外のまとまりごとに束ねる: 誰に使われているか（関数の呼び出しのほか、グローバル変数の読み書きも含む）'
           : '使っている先の、外のまとまりごとに束ねる: 何に頼っているか（関数の呼び出しのほか、グローバル変数の読み書きも含む）'],
-        ['entry', active[0] === 'in' ? '呼び出し先ごと' : 'まとめない', active[0] === 'in'
+        ['entry', active[0] === 'in' ? '呼び出し先ごと' : '呼び出し元ごと', active[0] === 'in'
           ? '使われているこの中のファイルごとに束ねる: 外への窓口がどこか'
-          : '束ねず、使っている先を 1 行ずつ'],
+          : '使っているこの中のファイルごとに束ねる: どのファイルが外に頼っているか'],
       ]) {
         const b = document.createElement('button');
         b.className = 'rm-tab' + (key === _rmGroupBy ? ' active' : '');
@@ -584,26 +584,9 @@ function rmRenderFocus(m) {
     if (active[0] !== 'mid' && _rmGroupBy === 'other' && active[4].length) {
       rmGroupedByOther(secEl, active[0], active[4], { hl: must, forceOpen: !!filtering });
     } else if (active[0] === 'out' && active[4].length) {
-      // 外へ は from が全行このまとまり自身。行ごとに自分の名前を繰り返さず、
-      // 他の面と同じ文の形にする（「X を使っている」の逆で「X が使っている」）。
-      const total = active[4].reduce((n, e) => n + e.count, 0);
-      const head = document.createElement('div');
-      head.className = 'rm-group';
-      const nm = document.createElement('span');
-      nm.className = 'rm-name rm-mod';
-      nm.textContent = _rmFocus + '/';
-      nm.style.cursor = 'default'; // 今いる場所なので押しても行き先が無い
-      head.appendChild(nm);
-      const phrase = document.createElement('span');
-      phrase.className = 'rm-group-phrase';
-      phrase.textContent = ` が使っている ${active[4].length} か所（参照 ${total}）`;
-      phrase.title = '参照 = 参照の組数（シンボル × 参照元ファイル）';
-      head.appendChild(phrase);
-      secEl.appendChild(head);
-      const inner = document.createElement('div');
-      inner.className = 'rm-group-body';
-      secEl.appendChild(inner);
-      rmEdgeRows(inner, active[4], e => `${e.count}`, { hl: must, hideFrom: true });
+      // 外へ を中のファイルごとに束ねる（外から の「呼び出し先ごと」の逆）:
+      // どのファイルが外に頼っているか
+      rmGroupedRows(secEl, active[4], { hl: must, by: 'from' });
     } else if (active[4].length) rmGroupedRows(secEl, active[4], { hl: must, forceOpen: !!filtering });
     // 見本が切れている行は、シンボル名での絞り込みが取りこぼしうる。
     // 黙って落とすと「無い」と読まれるので、絞り込み中だけ件数で断る。
@@ -957,6 +940,7 @@ function rmDrawGraph(m) {
       rmGraphPinLabel(_rmGraphPin, _rmGraphPin && {
         inner: edges.filter(e => e.from === n || e.to === n).length,
         outside: inCount.get(n) || 0,
+        out: m.outgoing.filter(e => e.from === n).reduce((a, e) => a + e.count, 0),
       });
     };
     g.ondblclick = () => {
@@ -1035,7 +1019,7 @@ function rmGraphPinLabel(name, counts) {
   el.textContent = '';
   if (!name) return;
   // 図の線は内部だけなので、外からの数を並べて「線 = 内部」と読めるようにする
-  const detail = counts ? `（内部の線 ${counts.inner} · 外から ${counts.outside}）` : '';
+  const detail = counts ? `（内部の線 ${counts.inner} · 外から ${counts.outside} · 外へ ${counts.out}）` : '';
   el.appendChild(document.createTextNode(`固定: ${rmLeaf(name)}${detail} `));
   const off = document.createElement('button');
   off.className = 'rm-graph-zoom';
@@ -1156,7 +1140,8 @@ function rmGroupedByOther(sec, face, edges, opts) {
     // 付けず、シンボルの見本を見出しの下にそのまま出す。開いても同じ名前が
     // もう一度出るだけの束にしない
     const side = e => (face === 'in' ? e.from : e.to);
-    const leaf = rows.length === 1 && side(rows[0]) === other;
+    // 外へ は行が「中のどのファイルから」を言うので、1 行でも省かない
+    const leaf = face === 'in' && rows.length === 1 && side(rows[0]) === other;
     // 絞り込み中は開いて始める（一致した行が畳まれて見えないのを防ぐ）が、
     // 自分で畳んだものはそのまま畳んでおく
     const open = leaf || (forceOpen ? !_rmClosed.has(key) : _rmOpened.has(key));
@@ -1191,8 +1176,9 @@ function rmGroupedByOther(sec, face, edges, opts) {
       const sameAsHead = side(e) === other;
       rmEdgeRows(inner, [e], x => `${x.count}`, {
         hl,
-        hideFrom: face === 'out' || sameAsHead,
-        // 外へ で相手がファイルそのもの（crypto/mem.c）なら、行き先も見出しと同じ
+        // 見出しと同じ名前は繰り返さない。外から は行に入口（中のファイル）を、
+        // 外へ は行に出どころ（中のファイル）を残す
+        hideFrom: face === 'in' && sameAsHead,
         hideTo: face === 'out' && sameAsHead,
         chipsOnly: leaf,
       });
@@ -1202,21 +1188,24 @@ function rmGroupedByOther(sec, face, edges, opts) {
 
 function rmGroupedRows(sec, edges, opts) {
   const hl = (opts && opts.hl) || [];
+  // by: 'from' は参照元で束ねる（外へ を中のファイルごとに）。既定は行き先
+  const byFrom = !!(opts && opts.by === 'from');
   const groups = new Map();
   for (const e of edges) {
-    if (!groups.has(e.to)) groups.set(e.to, []);
-    groups.get(e.to).push(e);
+    const k = byFrom ? e.from : e.to;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(e);
   }
   if (groups.size === edges.length) {
     rmEdgeRows(sec, edges, e => `${e.count}`, { hl });
     return;
   }
   const order = [...groups.entries()]
-    .map(([to, rows]) => [to, rows, rows.reduce((n, e) => n + e.count, 0)])
+    .map(([name, rows]) => [name, rows, rows.reduce((n, e) => n + e.count, 0)])
     .sort((a, b) => b[2] - a[2] || a[0].localeCompare(b[0]));
 
-  for (const [to, rows, total] of order) {
-    const key = rmGroupKey(to);
+  for (const [name, rows, total] of order) {
+    const key = rmGroupKey(name);
     // 絞り込み中も開いて始めるだけで、自分で畳んだものは畳んだまま
     const open = !_rmClosed.has(key);
     const head = document.createElement('div');
@@ -1226,15 +1215,15 @@ function rmGroupedRows(sec, edges, opts) {
     caret.className = 'rm-group-caret';
     caret.textContent = open ? '▾' : '▸';
     head.appendChild(caret);
-    head.appendChild(rmName(to, hl));
+    head.appendChild(rmName(name, hl));
     // 見出しは文で完結させる（「X を使っている 15 か所」）。この木は呼び出し
     // ツリーの習慣（親が呼ぶ側）と逆に、親が参照される側なので、矢印 →
     // 見出しの ← → 説明文と3回注釈を試してどれも逆に読まれた。注釈が要る
-    // 見せ方をやめ、一方向にしか読めない語順にする。束は常に行き先で作る
-    //（外へ タブは from が自分自身で束が全部1行になり、フラットへ落ちる）。
+    // 見せ方をやめ、一方向にしか読めない語順にする。束は行き先で作る。
+    // 外へ を中のファイルごとに束ねるときだけ参照元で作り、助詞を「が」にする。
     const phrase = document.createElement('span');
     phrase.className = 'rm-group-phrase';
-    phrase.textContent = ` を使っている ${rows.length} か所（参照 ${total}）`;
+    phrase.textContent = (byFrom ? ' が使っている ' : ' を使っている ') + `${rows.length} か所（参照 ${total}）`;
     phrase.title = '参照 = 参照の組数（シンボル × 参照元ファイル）';
     head.appendChild(phrase);
     // 見出しの余白を押すと開閉。名前は元どおり（まとまりなら降りる、
@@ -1251,7 +1240,7 @@ function rmGroupedRows(sec, edges, opts) {
     const inner = document.createElement('div');
     inner.className = 'rm-group-body';
     sec.appendChild(inner);
-    rmEdgeRows(inner, rows, e => `${e.count}`, { hl, hideTo: true });
+    rmEdgeRows(inner, rows, e => `${e.count}`, byFrom ? { hl, hideFrom: true } : { hl, hideTo: true });
   }
 }
 
