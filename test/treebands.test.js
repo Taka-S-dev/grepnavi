@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { nodeDir, bandLabel, splitNodeLabel, adjacentDistinctBands, locationText, layerGraph } = require('../static/js/utils.js');
+const { nodeDir, bandLabel, splitNodeLabel, adjacentDistinctBands, locationText, layerGraph, parseLocation } = require('../static/js/utils.js');
 
 const ROOT = 'C:\\Users\\t\\work\\C\\openssl';
 
@@ -126,4 +126,31 @@ test('layerGraph sinksLast - 使われるだけのノードは最後の列に揃
   assert.equal(g.col.get('util.c'), g.col.get('base.c'));
   assert.equal(g.col.get('base.c'), g.cols.length - 1);
   assert.ok(g.cols.every(c => c.length > 0), '空の列を残さない');
+});
+
+// Ctrl+P に貼る「場所」は書き手ごとに形が違う。パスと行に分けられ、行の無い
+// 入力は行 0（先頭）で、ファイル名の検索語に行の文字を混ぜない。
+test('parseLocation - いろいろな書き方の行番号を切り離す', () => {
+  for (const [text, path, line] of [
+    ['ssl/ssl_lib.c:1034', 'ssl/ssl_lib.c', 1034],
+    ['ssl/ssl_lib.c:1034:5', 'ssl/ssl_lib.c', 1034],
+    ['ssl/ssl_lib.c:1026-1030', 'ssl/ssl_lib.c', 1026],
+    ['aaa/bbb/ddd.c l76', 'aaa/bbb/ddd.c', 76],
+    ['aaa/bbb/ddd.c L76', 'aaa/bbb/ddd.c', 76],
+    ['aaa/bbb/ddd.c line 76', 'aaa/bbb/ddd.c', 76],
+    ['aaa/bbb/ddd.c(76)', 'aaa/bbb/ddd.c', 76],
+    ['aaa/bbb/ddd.c#L76', 'aaa/bbb/ddd.c', 76],
+    ['aaa/bbb/ddd.c 76行', 'aaa/bbb/ddd.c', 76],
+    ['aaa/bbb/ddd.c の 76 行目', 'aaa/bbb/ddd.c', 76],
+    ['`ssl/ssl_lib.c:1034`', 'ssl/ssl_lib.c', 1034],
+    ['[ssl_lib.c:42](ssl/ssl_lib.c#L42)', 'ssl_lib.c:42](ssl/ssl_lib.c', 42], // Markdown のリンクは行だけ取れればよい（残りはファジー検索に当たる）
+    ['C:/Users/t/work/C/openssl/ssl/ssl_lib.c:1034', 'C:/Users/t/work/C/openssl/ssl/ssl_lib.c', 1034],
+    ['ssl/ssl_lib.c', 'ssl/ssl_lib.c', 0],
+    ['ssl lib', 'ssl lib', 0],
+    ['s3_lib.c', 's3_lib.c', 0],
+    ['sha256', 'sha256', 0],
+    ['', '', 0],
+  ]) {
+    assert.deepEqual(parseLocation(text), { path, line }, text);
+  }
 });

@@ -1912,7 +1912,7 @@ async function openFzf(mode = 'file') {
   id('fzf-input').value = '';
   id('fzf-input').placeholder = mode === 'symbol'
     ? 'シンボル名を入力… (例: recipe save)'
-    : 'ファイル名を入力… (#始まりでシンボル検索)';
+    : 'ファイル名を入力… (#始まりでシンボル検索、a/b.c:76 のように行も付けられる)';
   setTimeout(() => id('fzf-input').focus(), 30);
   // ファイル一覧は初回だけ取りに行く。大きいツリーでは数秒かかるので、箱を先に
   // 出して待っている間を見せる（取り終わるまで何も出ないと、押せていないように見える）
@@ -2408,7 +2408,17 @@ function fzfRender(query) {
   if(symQuery !== null) { fzfRenderSymbols(symQuery); return; }
   const list = id('fzf-list');
   if(!fzfFiles) return; // 一覧を取りに行っている最中（openFzf が取り終えてから描く）
+  // `a/b.c:76` のような貼り付けは、行をファイル名の検索語から外して、開くときに使う
+  const loc = parseLocation(query);
+  fzfLine = loc.line;
+  query = loc.path;
   fzfFiltered = fzfFilter(fzfFiles, query, 100);
+  // 絶対パスや、ルート名を付けたパス（openssl/ssl/x.c）はそのままでは当たらない。
+  // 先頭の区切りを 1 段ずつ落として、当たるところまで短くする
+  for (let q = query.replace(/\\/g, '/'); !fzfFiltered.length && q.includes('/'); ) {
+    q = q.slice(q.indexOf('/') + 1);
+    if (q) { fzfFiltered = fzfFilter(fzfFiles, q, 100); query = q; }
+  }
   id('fzf-count').textContent = `${fzfFiltered.length} / ${fzfFiles.length}`;
   fzfSelIdx = 0;
   list.innerHTML = '';
@@ -2420,7 +2430,7 @@ function fzfRender(query) {
     div.className = 'fzf-item' + (i === 0 ? ' fzf-sel' : '');
     div.innerHTML = `<span class="fzf-name">${fzfHighlight(name, query)}</span>`
                   + (dir ? `<span class="fzf-dir">${fzfHighlight(dir+'/', query)}</span>` : '');
-    div.onclick = () => fzfOpen(f);
+    div.onclick = () => fzfOpen(f, fzfLine);
     list.appendChild(div);
   });
   fzfSchedulePreview();
@@ -2575,7 +2585,7 @@ async function fzfActivate(idx) {
     return;
   }
   if(fzfFiltered[idx]) {
-    await fzfOpen(fzfFiltered[idx]);
+    await fzfOpen(fzfFiltered[idx], fzfLine);
     focusEditorAfterJump();
   }
 }
@@ -2626,7 +2636,7 @@ function fzfPreviewTarget() {
   const rel = fzfFiltered[fzfSelIdx];
   const root = (graph && graph.root_dir) || '';
   if(!rel || !root) return null;
-  return { file: root.replace(/\\/g, '/').replace(/\/$/, '') + '/' + rel, line: 1, top: true };
+  return { file: root.replace(/\\/g, '/').replace(/\/$/, '') + '/' + rel, line: fzfLine || 1, top: !fzfLine };
 }
 
 // 呼び先の行は、選ぶとその関数の定義へ飛ぶ。見せるのも定義のほうにする
@@ -2715,12 +2725,13 @@ function initFzfPreview() {
 }
 if(typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', initFzfPreview);
 
-async function fzfOpen(relPath) {
+let fzfLine = 0; // 入力の末尾に書かれた行（無ければ 0 = 先頭）
+async function fzfOpen(relPath, line) {
   closeFzf();
   const r = await fetch('/api/root');
   const d = await r.json();
   const abs = (d.root || '').replace(/\\/g,'/').replace(/\/$/, '') + '/' + relPath;
-  await openPeek(abs, 1);
+  await openPeek(abs, line || 1);
 }
 
 // ===== ナビゲーション履歴 =====

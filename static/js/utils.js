@@ -258,6 +258,22 @@ function locationText(file, startLine, endLine) {
   return endLine > startLine ? `${p}:${startLine}-${endLine}` : `${p}:${startLine}`;
 }
 
+// parseLocation は貼り付けた「場所」の文字列をパスと行に分ける。AI の回答や
+// ツールの出力に出る形をそのまま Ctrl+P に貼れるようにするためで、行の書き方は
+// 揃っていない: `a/b.c:76`、`a/b.c:76:3`、`a/b.c:76-80`、`a/b.c l76`、`a/b.c(76)`、
+// `a/b.c#L76`、`a/b.c 76行`、`a/b.c の 76 行目`。囲んでいる引用符・バッククォート・
+// 括弧は落とす。行が無ければ line は 0
+function parseLocation(text) {
+  let s = (text || '').trim().replace(/^[`'"<(\[]+|[`'"'>)\],.;]+$/g, '');
+  let line = 0;
+  const m = s.match(/(?:\s*(?::|#L|#|\(|\s+l|\s+line\s*|\s*の\s*|\s+(?=\d+\s*行))\s*(\d+)(?:\s*(?:行目?|\)|[:\-–]\d+)*)\s*)$/i);
+  if (m && m.index > 0) {
+    line = parseInt(m[1], 10);
+    s = s.slice(0, m.index);
+  }
+  return { path: s.trim().replace(/[`'"]+$/, ''), line };
+}
+
 // ===== 待っている間の表示 =====
 // setBusy は el の中身を「回る印 + text」にする。
 function setBusy(el, text) {
@@ -487,7 +503,7 @@ function layerGraph(edges, opts) {
   return { cols: packed, col, back: [...back].map(k => k.split('\u0000')) };
 }
 
-if (typeof module !== "undefined") module.exports = { shortPath, labelFrom, foreignRootName, nodeDir, bandLabel, splitNodeLabel, previewLines, startsInsideBlockComment, cIdentRanges, adjacentDistinctBands, previewSide, tileRects, locationText, layerGraph };
+if (typeof module !== "undefined") module.exports = { shortPath, labelFrom, foreignRootName, nodeDir, bandLabel, splitNodeLabel, previewLines, startsInsideBlockComment, cIdentRanges, adjacentDistinctBands, previewSide, tileRects, locationText, layerGraph, parseLocation };
 
 function extractSym(text) {
   const m = text.match(/\b([a-zA-Z_][a-zA-Z0-9_]{2,})\b/);
