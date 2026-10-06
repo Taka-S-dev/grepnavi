@@ -361,6 +361,8 @@
 .rm-graph-node-pin .rm-graph-ext { display: block; }
 .rm-graph-ext path { stroke: #e8c45a; stroke-width: 2; stroke-dasharray: 4 3; fill: none; }
 .rm-graph-ext text { fill: #e8c45a; font: 11px sans-serif; }
+/* 箱の rect の規則（枠線・固定時の白枠）に負けないよう、箱の中の板として指定する */
+.rm-graph-node .rm-graph-ext-bg, .rm-graph-node-pin .rm-graph-ext-bg { fill: #1e1e1e; fill-opacity: .9; stroke: none; rx: 3; }
 .rm-graph-node-pin .rm-graph-ext { cursor: pointer; }
 .rm-graph-node-pin .rm-graph-ext:hover text { text-decoration: underline; }
 .rm-graph-zoom.on { background: #0e4f7a; border-color: #1c7ec0; color: #fff; }

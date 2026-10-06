@@ -877,15 +877,17 @@ function rmDrawGraph(m) {
       if (path.classList.contains('rm-graph-edge-sel')) {
         path.classList.remove('rm-graph-edge-sel');
         path.setAttribute('marker-end', path.dataset.marker);
+        rmGraphUnraise(svg, path);
         if (_rmFilter === _rmFilterByArrow) { _rmFilter = _rmFilterByArrow = ''; _rmArrowPair = null; rmRerender(); }
         rmGraphRefresh();
         return;
       }
-      svg.querySelectorAll('.rm-graph-edge-sel').forEach(p => { p.classList.remove('rm-graph-edge-sel'); p.setAttribute('marker-end', p.dataset.marker); });
+      svg.querySelectorAll('.rm-graph-edge-sel').forEach(p => { p.classList.remove('rm-graph-edge-sel'); p.setAttribute('marker-end', p.dataset.marker); rmGraphUnraise(svg, p); });
       path.classList.add('rm-graph-edge-sel');
       // 矢じりは線の色を継がない（marker の fill は固定）ので、黄色のものに差し替える
       path.setAttribute('marker-end', 'url(#rm-arrow-sel)');
-      svg.appendChild(path); // 手前に出す（他の線の下に隠れない。帯はノードの下のまま）
+      // 他の線より手前、箱より奥に出す（線の下に隠れず、固定した箱のラベルは隠さない）
+      svg.insertBefore(path, svg.querySelector('.rm-graph-node'));
       // 側のパネルだけをこの組に絞る。この絞り込みは図には効かせない —
       // 線を選ぶたびに図全体が薄くなり、固定を外しても戻らないように見える
       _rmTab = 'mid'; _rmFilter = _rmFilterByArrow = rmLeaf(e.from) + ' ' + rmLeaf(e.to);
@@ -943,16 +945,24 @@ function rmDrawGraph(m) {
     const outN = m.outgoing.filter(e => e.from === n).reduce((a, e) => a + e.count, 0);
     const inLabel = `外から ${inN}（${others(m.incoming.filter(e => e.to === n), e => e.from)}）`;
     const outLabel = `外へ ${outN}（${others(m.outgoing.filter(e => e.from === n), e => e.to)}）`;
-    const ext = (inN ? (vertical
+    // 横に出すと図の外にはみ出て読めない所（左端の箱の 外から、右端の箱の 外へ）では、
+    // 矢じりだけ横に残して文字は箱の上 / 下に置く。文字幅は 1 文字 7px の見積もり
+    const inFits = x(n) - 38 - inLabel.length * 7 >= 0;
+    const outFits = x(n) + W + 38 + outLabel.length * 7 <= width;
+    const ext = (inN ? (vertical && inFits
       ? `<g class="rm-graph-ext" data-face="in"><title>外からの参照を右の一覧で見る</title><path d="M-34,${H / 2} L-4,${H / 2}" marker-end="url(#rm-arrow-ext)"/><text x="-38" y="${H / 2 + 4}" text-anchor="end">${inLabel}</text></g>`
+      : vertical
+      ? `<g class="rm-graph-ext" data-face="in"><title>外からの参照を右の一覧で見る</title><path d="M-22,${H / 2} L-4,${H / 2}" marker-end="url(#rm-arrow-ext)"/><text x="0" y="-5">${inLabel}</text></g>`
       : `<g class="rm-graph-ext" data-face="in"><title>外からの参照を右の一覧で見る</title><path d="M${W / 2},-30 L${W / 2},-4" marker-end="url(#rm-arrow-ext)"/><text x="${W / 2 + 6}" y="-18">${inLabel}</text></g>`) : '')
-      + (outN ? (vertical
+      + (outN ? (vertical && outFits
       ? `<g class="rm-graph-ext" data-face="out"><title>外への参照を右の一覧で見る</title><path d="M${W + 4},${H / 2} L${W + 34},${H / 2}" marker-end="url(#rm-arrow-ext)"/><text x="${W + 38}" y="${H / 2 + 4}">${outLabel}</text></g>`
+      : vertical
+      ? `<g class="rm-graph-ext" data-face="out"><title>外への参照を右の一覧で見る</title><path d="M${W + 4},${H / 2} L${W + 22},${H / 2}" marker-end="url(#rm-arrow-ext)"/><text x="${W}" y="${H + 13}" text-anchor="end">${outLabel}</text></g>`
       : `<g class="rm-graph-ext" data-face="out"><title>外への参照を右の一覧で見る</title><path d="M${W / 2},${H + 4} L${W / 2},${H + 30}" marker-end="url(#rm-arrow-ext)"/><text x="${W / 2 + 6}" y="${H + 24}">${outLabel}</text></g>`) : '');
     g.innerHTML = `<rect width="${W}" height="${H}" rx="4"/>
       ${dirBar(n)}<text x="${_rmFileLevel ? 12 : 8}" y="15" class="rm-graph-label">${rmEsc(nodeLabel(n))}${rmIsFile(n) ? '' : '/'}</text>
       <text x="${W - 6}" y="15" text-anchor="end" class="rm-graph-role">${roles.map(r => `<tspan class="${ROLE_CLASS[r] || ''}">${rmEsc(r)}</tspan>`).join('・')}${inN ? ` ${inN}` : ''}</text>
-      <text x="8" y="31" class="rm-graph-sym">${rmEsc(sym.join(', '))}</text>${ext}`;
+      <text x="8" y="31" class="rm-graph-sym">${rmEsc(rmGraphFit(sym.join(', '), W - 16))}</text>${ext}`;
     const t = document.createElementNS(svgNS, 'title');
     t.textContent = n + (inN ? `\n外から ${inN}` : '') + (roles.length ? `\n${roles.join('・')}` : '')
       + (sym.length ? `\n外から使われる例: ${sym.join(', ')}` : '') + (rmIsFile(n) ? '\nクリックで開く' : '\nクリックで降りる');
@@ -964,6 +974,8 @@ function rmDrawGraph(m) {
     // 切り替わると、固定したことより開いたことに目が行って、固定に気付けない
     g.onclick = () => {
       _rmGraphPin = _rmGraphPin === n ? null : n;
+      // 固定した箱は手前に出す。ラベルが隣の箱にかかっても、その箱の下に隠れない
+      if (_rmGraphPin) { svg.appendChild(g); rmGraphExtPlates(g); }
       rmGraphFocus(svg, _rmGraphPin);
       rmGraphPinLabel(_rmGraphPin);
       // 固定したファイルに「外から」を絞る: 図は内部しか描かないので、外から
@@ -986,11 +998,11 @@ function rmDrawGraph(m) {
       x.onclick = ev => { ev.stopPropagation(); _rmTab = x.dataset.face; rmRerender(); };
       x.ondblclick = ev => ev.stopPropagation();
     });
+    svg.appendChild(g);
     g.ondblclick = () => {
       if (rmIsFile(n)) { if (typeof openPeek === 'function' && _rmRoot) openPeek(_rmRoot.replace(/\\/g, '/') + '/' + n, 1); }
       else rmLoad(n); // 図は閉じない: 開いている図は移動先のまとまりに描き直される
     };
-    svg.appendChild(g);
   }
   // 細い線を隠す
   const minIn = overlay.querySelector('#rm-graph-min input');
@@ -1107,6 +1119,35 @@ function rmGraphFocus(svg, name) {
     g.classList.toggle('rm-graph-node-on', (!!name || !!filtering) && (g.dataset.name === name || near.has(g.dataset.name)));
     g.classList.toggle('rm-graph-node-pin', !!name && g.dataset.name === name);
   });
+}
+
+// 選択を外した線を、他の線と同じ奥行きに戻す。手前のままだと、固定した箱の
+// ラベルや他の線の上を通り続ける
+function rmGraphUnraise(svg, path) {
+  const firstHit = svg.querySelector('.rm-graph-hit');
+  if (firstHit) svg.insertBefore(path, firstHit);
+}
+
+// 箱の中の関数名の行を箱の幅に収める（10px の等幅で 1 文字 6px）。はみ出させると
+// 隣の箱や、固定した箱の 外へ のラベルの下を通って読めなくなる。全文は吹き出しにある
+function rmGraphFit(text, px) {
+  const max = Math.floor(px / 6);
+  return text.length <= max ? text : text.slice(0, Math.max(0, max - 1)) + '…';
+}
+
+// 固定した箱の 外から / 外へ のラベルの下に、地の色の板を敷く。線の束や、隣の
+// 箱からはみ出した関数名の上に乗ることがあり、板が無いと読めない。幅は文字の
+// 実寸から取るので、ラベルが表示された（固定した）後に呼ぶ
+function rmGraphExtPlates(g) {
+  for (const t of g.querySelectorAll('.rm-graph-ext text')) {
+    if (t.previousElementSibling && t.previousElementSibling.classList.contains('rm-graph-ext-bg')) continue;
+    const b = t.getBBox();
+    const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    r.setAttribute('x', b.x - 3); r.setAttribute('y', b.y - 1);
+    r.setAttribute('width', b.width + 6); r.setAttribute('height', b.height + 2);
+    r.setAttribute('class', 'rm-graph-ext-bg');
+    t.parentNode.insertBefore(r, t);
+  }
 }
 
 // ポインタに一番近い線。帯（当たり判定）は 12px の幅があり、並んで走る線では
