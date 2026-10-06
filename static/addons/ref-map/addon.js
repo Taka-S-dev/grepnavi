@@ -933,12 +933,22 @@ function rmDrawGraph(m) {
     // 固定したときだけ、まとまりの外から来る点線の矢印と相手を添える。これが無いと
     // 内部の線の束が「外から入ってきている」ように読める
     // 相手はまとまりごとに合計して多い順（apps/ の 46 ファイルが 1 件ずつ並ばないように）
-    const byOther = new Map();
-    for (const e of m.incoming) if (e.to === n) { const k = e.other || e.from; byOther.set(k, (byOther.get(k) || 0) + e.count); }
-    const outsiders = [...byOther.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k.split('/').pop() + (rmIsFile(k) ? '' : '/'));
-    const ext = inN ? (vertical
-      ? `<g class="rm-graph-ext"><path d="M-34,${H / 2} L-4,${H / 2}" marker-end="url(#rm-arrow-ext)"/><text x="-38" y="${H / 2 + 4}" text-anchor="end">外から ${inN}（${rmEsc([...new Set(outsiders)].slice(0, 3).join(' '))}）</text></g>`
-      : `<g class="rm-graph-ext"><path d="M${W / 2},-30 L${W / 2},-4" marker-end="url(#rm-arrow-ext)"/><text x="${W / 2 + 6}" y="-18">外から ${inN}（${rmEsc([...new Set(outsiders)].slice(0, 3).join(' '))}）</text></g>`) : '';
+    // 外へ も同じ形で反対側に出す。どちらもクリックで右の一覧のその面へ
+    const others = (list, side) => {
+      const byOther = new Map();
+      for (const e of list) { const k = e.other || side(e); byOther.set(k, (byOther.get(k) || 0) + e.count); }
+      const names = [...byOther.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k.split('/').pop() + (rmIsFile(k) ? '' : '/'));
+      return rmEsc([...new Set(names)].slice(0, 3).join(' '));
+    };
+    const outN = m.outgoing.filter(e => e.from === n).reduce((a, e) => a + e.count, 0);
+    const inLabel = `外から ${inN}（${others(m.incoming.filter(e => e.to === n), e => e.from)}）`;
+    const outLabel = `外へ ${outN}（${others(m.outgoing.filter(e => e.from === n), e => e.to)}）`;
+    const ext = (inN ? (vertical
+      ? `<g class="rm-graph-ext" data-face="in"><title>外からの参照を右の一覧で見る</title><path d="M-34,${H / 2} L-4,${H / 2}" marker-end="url(#rm-arrow-ext)"/><text x="-38" y="${H / 2 + 4}" text-anchor="end">${inLabel}</text></g>`
+      : `<g class="rm-graph-ext" data-face="in"><title>外からの参照を右の一覧で見る</title><path d="M${W / 2},-30 L${W / 2},-4" marker-end="url(#rm-arrow-ext)"/><text x="${W / 2 + 6}" y="-18">${inLabel}</text></g>`) : '')
+      + (outN ? (vertical
+      ? `<g class="rm-graph-ext" data-face="out"><title>外への参照を右の一覧で見る</title><path d="M${W + 4},${H / 2} L${W + 34},${H / 2}" marker-end="url(#rm-arrow-ext)"/><text x="${W + 38}" y="${H / 2 + 4}">${outLabel}</text></g>`
+      : `<g class="rm-graph-ext" data-face="out"><title>外への参照を右の一覧で見る</title><path d="M${W / 2},${H + 4} L${W / 2},${H + 30}" marker-end="url(#rm-arrow-ext)"/><text x="${W / 2 + 6}" y="${H + 24}">${outLabel}</text></g>`) : '');
     g.innerHTML = `<rect width="${W}" height="${H}" rx="4"/>
       ${dirBar(n)}<text x="${_rmFileLevel ? 12 : 8}" y="15" class="rm-graph-label">${rmEsc(nodeLabel(n))}${rmIsFile(n) ? '' : '/'}</text>
       <text x="${W - 6}" y="15" text-anchor="end" class="rm-graph-role">${roles.map(r => `<tspan class="${ROLE_CLASS[r] || ''}">${rmEsc(r)}</tspan>`).join('・')}${inN ? ` ${inN}` : ''}</text>
@@ -971,6 +981,11 @@ function rmDrawGraph(m) {
         out: m.outgoing.filter(e => e.from === n).reduce((a, e) => a + e.count, 0),
       });
     };
+    // 点線の矢印（外から / 外へ）は、右の一覧をその面に切り替える。固定は触らない
+    g.querySelectorAll('.rm-graph-ext').forEach(x => {
+      x.onclick = ev => { ev.stopPropagation(); _rmTab = x.dataset.face; rmRerender(); };
+      x.ondblclick = ev => ev.stopPropagation();
+    });
     g.ondblclick = () => {
       if (rmIsFile(n)) { if (typeof openPeek === 'function' && _rmRoot) openPeek(_rmRoot.replace(/\\/g, '/') + '/' + n, 1); }
       else rmLoad(n); // 図は閉じない: 開いている図は移動先のまとまりに描き直される
@@ -1011,7 +1026,7 @@ function rmDrawGraph(m) {
     <div class="rm-legend-h">線（まとまりの中の参照だけ）</div>
     <div class="rm-legend-row">${line('')}<span>使う側 → 使われる側。太いほど参照が多い</span></div>
     <div class="rm-legend-row">${line('rm-graph-edge-back')}<span>戻る参照（相互参照 = 絡まり）</span></div>
-    <div class="rm-legend-row"><svg width="46" height="14" class="rm-graph-ext" style="display:block"><path d="M2,7 L40,7"/></svg><span>外からの参照（固定したノードにだけ出る）</span></div>
+    <div class="rm-legend-row"><svg width="46" height="14" class="rm-graph-ext" style="display:block"><path d="M2,7 L40,7"/></svg><span>外から / 外への参照（固定したノードにだけ出る。クリックで右の一覧のその面へ）</span></div>
     <div class="rm-legend-h">操作</div>
     <div class="rm-legend-ops">箱に乗せる: 繋がりだけ残す ・ クリック: 固定（Esc で外す）・ ダブルクリック: 開く / 中へ<br>線をクリック: 右の一覧をその組に絞る（もう一度で戻す）・ Ctrl+ホイール: 間隔</div>`;
   overlay.appendChild(legend);

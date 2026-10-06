@@ -311,6 +311,8 @@
 #rm-graph-close { background: none; border: none; color: #aaa; font-size: 16px; cursor: pointer; flex-shrink: 0; }
 #rm-graph-close:hover { color: #fff; }
 #rm-graph-body { flex: 1; min-height: 0; overflow: auto; }
+/* 固定したノードの「外へ」のラベルは最後の列の右にはみ出す。図の幅で切らない */
+#rm-graph-body svg { overflow: visible; }
 .rm-graph-edge { fill: none; stroke: #8ab4f8; stroke-opacity: .5; cursor: pointer; }
 .rm-graph-edge:hover { stroke-opacity: 1; }
 .rm-graph-edge-back { stroke: #e5484d; stroke-opacity: .8; }
@@ -359,6 +361,8 @@
 .rm-graph-node-pin .rm-graph-ext { display: block; }
 .rm-graph-ext path { stroke: #e8c45a; stroke-width: 2; stroke-dasharray: 4 3; fill: none; }
 .rm-graph-ext text { fill: #e8c45a; font: 11px sans-serif; }
+.rm-graph-node-pin .rm-graph-ext { cursor: pointer; }
+.rm-graph-node-pin .rm-graph-ext:hover text { text-decoration: underline; }
 .rm-graph-zoom.on { background: #0e4f7a; border-color: #1c7ec0; color: #fff; }
 .rm-graph-dirbar { stroke: none !important; }
 /* 役割。位置（最初の層 = 起点 / 最後の層 = 土台）に加えて、色でも見分ける */
