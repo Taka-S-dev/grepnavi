@@ -803,6 +803,7 @@ function rmDrawGraph(m) {
   svg.innerHTML = `<defs>
     <marker id="rm-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#8ab4f8"/></marker>
     <marker id="rm-arrow-ext" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#e8c45a"/></marker>
+    <marker id="rm-arrow-sel" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#f0c040"/></marker>
     <marker id="rm-arrow-back" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#e5484d"/></marker>
   </defs>`;
   // 流れの両端に見出し。位置（最初の層 / 最後の層）が何を意味するかを図の中に書く
@@ -861,7 +862,8 @@ function rmDrawGraph(m) {
     path.dataset.from = e.from; path.dataset.to = e.to; path.dataset.count = e.count;
     path.dataset.hay = rmEdgeHaystack(e);
     path.setAttribute('stroke-width', (1 + 5 * Math.sqrt(e.count / maxCount)).toFixed(1));
-    path.setAttribute('marker-end', backEdge ? 'url(#rm-arrow-back)' : 'url(#rm-arrow)');
+    path.dataset.marker = backEdge ? 'url(#rm-arrow-back)' : 'url(#rm-arrow)';
+    path.setAttribute('marker-end', path.dataset.marker);
     const title = document.createElementNS(svgNS, 'title');
     title.textContent = `${e.from} → ${e.to}: ${e.count}\n` + (e.symbols || []).join(', ') + (e.syms_capped ? ' …' : '');
     path.appendChild(title);
@@ -871,8 +873,18 @@ function rmDrawGraph(m) {
     path.onclick = () => {
       // 薄くしてある線（固定・絞り込みの外）は背景。線そのものを押しても選ばない
       if (svg.classList.contains('rm-graph-focus') && !path.classList.contains('rm-graph-edge-on')) return;
-      svg.querySelectorAll('.rm-graph-edge-sel').forEach(p => p.classList.remove('rm-graph-edge-sel'));
+      // 選んである線をもう一度: 選択を外し、絞り込みも戻す（手で書き換えた絞り込みは残す）
+      if (path.classList.contains('rm-graph-edge-sel')) {
+        path.classList.remove('rm-graph-edge-sel');
+        path.setAttribute('marker-end', path.dataset.marker);
+        if (_rmFilter === _rmFilterByArrow) { _rmFilter = _rmFilterByArrow = ''; _rmArrowPair = null; rmRerender(); }
+        rmGraphRefresh();
+        return;
+      }
+      svg.querySelectorAll('.rm-graph-edge-sel').forEach(p => { p.classList.remove('rm-graph-edge-sel'); p.setAttribute('marker-end', p.dataset.marker); });
       path.classList.add('rm-graph-edge-sel');
+      // 矢じりは線の色を継がない（marker の fill は固定）ので、黄色のものに差し替える
+      path.setAttribute('marker-end', 'url(#rm-arrow-sel)');
       svg.appendChild(path); // 手前に出す（他の線の下に隠れない。帯はノードの下のまま）
       // 側のパネルだけをこの組に絞る。この絞り込みは図には効かせない —
       // 線を選ぶたびに図全体が薄くなり、固定を外しても戻らないように見える
@@ -1001,7 +1013,7 @@ function rmDrawGraph(m) {
     <div class="rm-legend-row">${line('rm-graph-edge-back')}<span>戻る参照（相互参照 = 絡まり）</span></div>
     <div class="rm-legend-row"><svg width="46" height="14" class="rm-graph-ext" style="display:block"><path d="M2,7 L40,7"/></svg><span>外からの参照（固定したノードにだけ出る）</span></div>
     <div class="rm-legend-h">操作</div>
-    <div class="rm-legend-ops">箱に乗せる: 繋がりだけ残す ・ クリック: 固定（Esc で外す）・ ダブルクリック: 開く / 中へ<br>線をクリック: 右の一覧をその組に絞る ・ Ctrl+ホイール: 間隔</div>`;
+    <div class="rm-legend-ops">箱に乗せる: 繋がりだけ残す ・ クリック: 固定（Esc で外す）・ ダブルクリック: 開く / 中へ<br>線をクリック: 右の一覧をその組に絞る（もう一度で戻す）・ Ctrl+ホイール: 間隔</div>`;
   overlay.appendChild(legend);
   const legendBtn = overlay.querySelector('#rm-graph-legend-btn');
   const setLegend = on => {
