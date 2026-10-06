@@ -762,7 +762,7 @@ function rmDrawGraph(m) {
   }
   const overlay = document.createElement('div');
   overlay.id = 'rm-graph';
-  overlay.innerHTML = `<div id="rm-graph-head"><span class="rm-name rm-mod">${rmEsc(m.module)}/</span>
+  overlay.innerHTML = `<div id="rm-graph-head"><span id="rm-graph-path" class="rm-name rm-mod"></span>
     <span class="rm-hint">内部の参照 ${edges.length} 本 · ${vertical ? '上から下' : '左から右'}へ「使う側 → 使われる側」</span>
     <span id="rm-graph-pin"></span>
     <span id="rm-graph-spacer"></span>
@@ -1026,6 +1026,16 @@ function rmDrawGraph(m) {
   // 初回は出しておく（色の意味は説明なしでは分からない）。閉じたらそれを覚える
   setLegend(localStorage.getItem('rm-graph-legend') !== '0');
   if (_rmGraphPin && names.includes(_rmGraphPin)) rmGraphFocus(svg, _rmGraphPin); else _rmGraphPin = null;
+  // 見出しのパスは段ごとに押せる（親のまとまりへ上がる。図は開いたまま描き直される）
+  const pathEl = overlay.querySelector('#rm-graph-path');
+  const segs = m.module.split('/');
+  segs.forEach((seg, i) => {
+    const s = document.createElement('span');
+    s.textContent = seg + '/';
+    const p = segs.slice(0, i + 1).join('/');
+    if (p !== m.module) { s.className = 'rm-crumb'; s.title = p + '/ へ上がる'; s.onclick = () => rmLoad(p); }
+    pathEl.appendChild(s);
+  });
   rmGraphPinLabel(_rmGraphPin);
   if (scroll) { const b = overlay.querySelector('#rm-graph-body'); b.scrollLeft = scroll[0]; b.scrollTop = scroll[1]; }
   // ツリーの区画を図に明け渡す（閉じたら戻す）
