@@ -319,7 +319,7 @@
 .rm-graph-back { color: #e5484d; }
 .rm-graph-node { cursor: pointer; }
 .rm-graph-node rect { fill: #2d2d30; stroke: #5a5a5a; }
-.rm-graph-node:hover rect { stroke: #8ab4f8; }
+.rm-graph-node:hover rect:not(.rm-graph-ext-bg) { stroke: #8ab4f8; }
 .rm-graph-dir rect { stroke: #c9a227; }
 /* 開いているファイル */
 .rm-graph-cur rect { stroke: #f0c040; stroke-width: 2; fill: #3a3520; }
@@ -340,12 +340,15 @@
 .rm-graph-focus .rm-graph-edge:not(.rm-graph-edge-on) { opacity: .08; stroke-width: 1px; marker-end: none; }
 .rm-graph-focus .rm-graph-edge-on { stroke-opacity: 1; }
 .rm-graph-focus .rm-graph-node:not(.rm-graph-node-on) { opacity: .3; }
-.rm-graph-node-pin rect { stroke: #8ab4f8; stroke-width: 2; }
+/* 固定の枠は白。青は線の色と同じで、線の束の中では枠が線に紛れる */
+/* 乗せているときの青（:hover の規則のほうが強い）にも負けないよう、:hover も含めて書く。
+   クリックした直後はポインタが箱の上にあるので、これが無いと固定しても青いまま */
+.rm-graph-node-pin rect:not(.rm-graph-ext-bg), .rm-graph-node.rm-graph-node-pin:hover rect:not(.rm-graph-ext-bg) { stroke: #f2f2f2; stroke-width: 2; }
 .rm-graph-edge-thin { display: none; }
 #rm-graph-min { display: flex; align-items: center; gap: 4px; color: #888; font-size: 11px; flex-shrink: 0; }
 #rm-graph-min input { width: 70px; }
 #rm-graph-min span { min-width: 1.5em; }
-#rm-graph-pin { color: #8ab4f8; font-size: 11px; white-space: nowrap; flex-shrink: 0; }
+#rm-graph-pin { color: #f2f2f2; font-size: 11px; white-space: nowrap; flex-shrink: 0; }
 /* 畳まれた行き先の中の、ファイルの見出し（チップの前に置く） */
 .rm-chip-file { color: #9cdcfe; font: 11px Consolas, "Courier New", monospace; margin: 0 2px 0 6px; cursor: pointer; }
 .rm-chip-file:first-child { margin-left: 0; }
