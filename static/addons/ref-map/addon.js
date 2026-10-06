@@ -525,7 +525,11 @@ function rmRenderFocus(m) {
 
   const render = () => {
     const { must, not } = rmFilterTerms();
+    // 線のクリックで入った絞り込みは、文字ではなくその組そのもので当てる。
+    // 名前の部分一致だと、別の組の見本（ssl3_digest_cached_records の record）が混ざる
+    const pair = _rmFilter === _rmFilterByArrow && _rmArrowPair;
     const hit = e => {
+      if (pair) return e.from === pair.from && e.to === pair.to;
       const hay = rmEdgeHaystack(e);
       return must.every(t => hay.includes(t)) && !not.some(t => hay.includes(t));
     };
@@ -865,12 +869,17 @@ function rmDrawGraph(m) {
     // 図は閉じない: 矢印を次々にクリックして把握していく使い方を止めないため。
     // 選んだ矢印に印を付け、側のパネルの「内部」をその組に絞り込む
     path.onclick = () => {
+      // 薄くしてある線（固定・絞り込みの外）は背景。線そのものを押しても選ばない
+      if (svg.classList.contains('rm-graph-focus') && !path.classList.contains('rm-graph-edge-on')) return;
       svg.querySelectorAll('.rm-graph-edge-sel').forEach(p => p.classList.remove('rm-graph-edge-sel'));
       path.classList.add('rm-graph-edge-sel');
       svg.appendChild(path); // 手前に出す（他の線の下に隠れない。帯はノードの下のまま）
       // 側のパネルだけをこの組に絞る。この絞り込みは図には効かせない —
       // 線を選ぶたびに図全体が薄くなり、固定を外しても戻らないように見える
-      _rmTab = 'mid'; _rmFilter = _rmFilterByArrow = rmLeaf(e.from) + ' ' + rmLeaf(e.to); rmRerender();
+      _rmTab = 'mid'; _rmFilter = _rmFilterByArrow = rmLeaf(e.from) + ' ' + rmLeaf(e.to);
+      _rmArrowPair = { from: e.from, to: e.to };
+      rmRerender();
+      rmGraphRefresh();
     };
     svg.appendChild(path);
     // 当たり判定だけの太い透明な帯。見た目の線は 1〜6px で狙いにくい
@@ -878,11 +887,17 @@ function rmDrawGraph(m) {
     hit.setAttribute('d', d);
     hit.setAttribute('class', 'rm-graph-hit');
     hit.appendChild(title.cloneNode(true));
-    hit.onclick = () => path.onclick();
-    hit.onmouseenter = () => path.classList.add('rm-graph-edge-hover');
-    hit.onmouseleave = () => path.classList.remove('rm-graph-edge-hover');
+    // 帯は 12px あるので、束になった線では何本も重なる。どの帯が受けても、
+    // 見えている線のうちポインタに一番近いものを選ぶ（下の rmNearestEdge）
+    hit.onclick = ev => { const p = rmNearestEdge(svg, ev); if (p) p.onclick(); };
+    hit.onmouseleave = () => svg.querySelectorAll('.rm-graph-edge-hover').forEach(p => p.classList.remove('rm-graph-edge-hover'));
     svg.appendChild(hit);
   }
+  let hoverTick = 0;
+  svg.addEventListener('mousemove', ev => {
+    if (hoverTick) return;
+    hoverTick = requestAnimationFrame(() => { hoverTick = 0; rmGraphHover(svg, ev); });
+  });
   for (const n of names) {
     const g = document.createElementNS(svgNS, 'g');
     const rolesOfN = idle.has(n) ? [] : roleOf(n);
@@ -935,6 +950,7 @@ function rmDrawGraph(m) {
         // 外から使われていないファイルなら、内部の面を開く（0 件の面を見せない）
         _rmTab = m.incoming.some(e => e.to === n) ? 'in' : 'mid';
         _rmFilter = _rmFilterByArrow = rmLeaf(n);
+        _rmArrowPair = null;
       } else if (_rmFilter === _rmFilterByArrow) { _rmFilter = _rmFilterByArrow = ''; }
       rmRerender();
       rmGraphPinLabel(_rmGraphPin, _rmGraphPin && {
@@ -1013,6 +1029,7 @@ function rmDrawGraph(m) {
 
 let _rmGraphPin = null; // 固定して見ているノード
 let _rmFilterByArrow = ''; // 線のクリックで入れた絞り込み（図には効かせない）
+let _rmArrowPair = null;   // その線の組。絞り込みの文字が書き換えられるまで、この組だけを出す
 function rmGraphPinLabel(name, counts) {
   const el = document.getElementById('rm-graph-pin');
   if (!el) return;
@@ -1043,7 +1060,9 @@ function rmGraphFocus(svg, name) {
   svg.querySelectorAll('.rm-graph-edge').forEach(p => {
     const touches = !name || p.dataset.from === name || p.dataset.to === name;
     const matches = !filtering || hitHay(p.dataset.hay || '');
-    const on = (!!name || !!filtering) && touches && matches;
+    // 選んだ線（黄色）は、固定したノードに絡まなくても薄くしない。薄くすると
+    // クリックしたのに色が変わらないように見える
+    const on = ((!!name || !!filtering) && touches && matches) || p.classList.contains('rm-graph-edge-sel');
     p.classList.toggle('rm-graph-edge-on', on);
     if (on) { near.add(p.dataset.from); near.add(p.dataset.to); }
   });
@@ -1051,6 +1070,40 @@ function rmGraphFocus(svg, name) {
     g.classList.toggle('rm-graph-node-on', (!!name || !!filtering) && (g.dataset.name === name || near.has(g.dataset.name)));
     g.classList.toggle('rm-graph-node-pin', !!name && g.dataset.name === name);
   });
+}
+
+// ポインタに一番近い線。帯（当たり判定）は 12px の幅があり、並んで走る線では
+// 何本も重なって、クリックした線とは別の線が反応していた。線を等間隔に
+// サンプルして距離を測り、14px 以内で最も近いものを返す
+function rmNearestEdge(svg, ev) {
+  const pt = svg.createSVGPoint();
+  pt.x = ev.clientX; pt.y = ev.clientY;
+  const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+  let best = null, bestD = 14;
+  // ノードを固定している（か絞り込んでいる）間、薄くした線は背景。押せると、
+  // 固定したノードの線を狙ったつもりが、下を通る薄い線を選んでしまう
+  const dimmed = svg.classList.contains('rm-graph-focus');
+  for (const path of svg.querySelectorAll('.rm-graph-edge')) {
+    if (path.classList.contains('rm-graph-edge-thin')) continue; // 隠した線は選べない
+    if (dimmed && !path.classList.contains('rm-graph-edge-on')) continue;
+    const box = path.getBBox();
+    if (p.x < box.x - 14 || p.x > box.x + box.width + 14 || p.y < box.y - 14 || p.y > box.y + box.height + 14) continue;
+    const len = path.getTotalLength();
+    const step = Math.max(4, len / 300);
+    for (let l = 0; l <= len; l += step) {
+      const q = path.getPointAtLength(l);
+      const d = Math.hypot(q.x - p.x, q.y - p.y);
+      if (d < bestD) { bestD = d; best = path; }
+    }
+  }
+  return best;
+}
+
+// 乗せている線を濃くする。帯ではなく一番近い線に付けるので、クリックで選ばれる線と一致する
+function rmGraphHover(svg, ev) {
+  const near = ev.target.classList.contains('rm-graph-hit') ? rmNearestEdge(svg, ev) : null;
+  svg.querySelectorAll('.rm-graph-edge-hover').forEach(p => { if (p !== near) p.classList.remove('rm-graph-edge-hover'); });
+  if (near) near.classList.add('rm-graph-edge-hover');
 }
 
 // 絞り込みが変わったら、開いている図にも当て直す
