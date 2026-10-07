@@ -3193,8 +3193,7 @@ async function openPeek(file, line, {permanent = false} = {}) {
       const oldModel = tabs[previewIdx2].model;
       tabs[previewIdx2] = errTab;
       await switchTab(previewIdx2);
-      // 並行 openPeek で先に dispose 済みになっていることがあるため二重 dispose を避ける
-      if(oldModel !== errModel && !oldModel?.isDisposed?.()) oldModel.dispose();
+      if(oldModel !== errModel) releaseTabModel(oldModel);
     } else {
       tabs.push(errTab);
       await switchTab(tabs.length - 1);
@@ -3218,9 +3217,8 @@ async function openPeek(file, line, {permanent = false} = {}) {
     const oldModel = tabs[previewIdx].model;
     tabs[previewIdx] = tab;
     await switchTab(previewIdx);
-    // switchTab で新モデルをセットした後に dispose する。
-    // 並行 openPeek で先に dispose 済みになっていることがあるため二重 dispose を避ける
-    if(oldModel !== tab.model && !oldModel?.isDisposed?.()) oldModel.dispose();
+    // switchTab で新モデルをセットした後に手放す（別の画面が使っていれば残る）
+    if(oldModel !== tab.model) releaseTabModel(oldModel);
   } else {
     tabs.push(tab);
     await switchTab(tabs.length - 1);
@@ -3604,8 +3602,8 @@ function reapplyEditorDecorations(tab) {
 
 function closeTab(idx) {
   if(idx < 0 || idx >= tabs.length) return;
-  tabs[idx].model.dispose();
-  tabs.splice(idx, 1);
+  const [closed] = tabs.splice(idx, 1);
+  releaseTabModel(closed.model);
   if(!tabs.length) { stopFilePolling(); id('peek').classList.remove('visible'); activeTabIdx = -1; hideFileErrorOverlay(); renderTabs(); return; }
   const next = Math.min(idx, tabs.length - 1);
   activeTabIdx = -1;
@@ -3614,16 +3612,17 @@ function closeTab(idx) {
 
 function closeTabsToRight(idx) {
   for(let i = tabs.length - 1; i > idx; i--) {
-    tabs[i].model.dispose();
-    tabs.splice(i, 1);
+    const [closed] = tabs.splice(i, 1);
+    releaseTabModel(closed.model);
   }
   if(activeTabIdx > idx) { activeTabIdx = -1; switchTab(idx); } else renderTabs();
 }
 
 function closeOtherTabs(idx) {
   const keep = tabs[idx];
-  tabs.forEach((t, i) => { if(i !== idx) t.model.dispose(); });
+  const closed = tabs.filter((t, i) => i !== idx);
   tabs = [keep];
+  closed.forEach(t => releaseTabModel(t.model));
   activeTabIdx = -1;
   switchTab(0);
 }
@@ -3707,8 +3706,9 @@ function renderTabs() {
 
 function closePeek() {
   id('peek').classList.remove('visible');
-  tabs.forEach(t => t.model.dispose());
+  const closed = tabs;
   tabs = []; activeTabIdx = -1;
+  closed.forEach(t => releaseTabModel(t.model));
   renderTabs();
   if(typeof updateTitle === 'function') updateTitle();
 }

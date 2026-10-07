@@ -739,8 +739,7 @@ function closeAllTabsForSwitch() {
   if (typeof monacoEditor !== 'undefined' && monacoEditor) {
     try { monacoEditor.setModel(null); } catch(_) {}
   }
-  tabs.forEach(t => { try { t.model?.dispose(); } catch(_) {} });
-  tabs = []; activeTabIdx = -1;
+  resetScreens();
   renderTabs();
   if (typeof stopFilePolling === 'function') stopFilePolling();
   id('peek')?.classList.remove('visible');
