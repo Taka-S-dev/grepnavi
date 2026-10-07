@@ -45,6 +45,8 @@
   <div class="boot-label">準備中…</div>
   <div id="boot-steps"></div>
 </div>
+<!-- 画面バー: 検索・ツリー・エディタ・側パネルをまとめた「画面」の切り替え（Neovim のタブページ） -->
+<div id="screen-bar"><span id="screen-bar-label" title="画面: 検索・ノードツリー・開いているファイル・側パネルの組を切り替える（Neovim のタブページ）">画面</span><div id="screen-tabs"></div></div>
 <div id="workspace">
   <!-- 左列: 検索UI（上）+ 結果（中）+ 詳細（下） -->
   <div id="pane-left">
@@ -619,6 +621,8 @@
         <div class="help-row"><kbd>Alt+F</kbd><span>確認中の一覧を開き直す（並び順そのまま、いま何件目かを色で表示）。<kbd>F3</kbd> で送っている途中に見失ったら</span></div>
         <div class="help-row"><kbd>Alt+V</kbd><span>移動の履歴を一覧表示（いまいる場所をハイライト。開いたまま <kbd>Z</kbd> / <kbd>X</kbd> で1段ずつ動き、クリックでその場所へ飛べます）</span></div>
         <div class="help-row"><kbd>Alt+Z</kbd> / <kbd>Alt+X</kbd> / <kbd>Alt+←</kbd> / <kbd>Alt+→</kbd><span>閲覧履歴を1段だけ前後に移動（戻る / 進む）。続けて動かすときは <kbd>Alt+V</kbd> の一覧から</span></div>
+        <div class="help-row"><kbd>Alt+S</kbd><span>画面ピッカー（画面を一覧から選んで移る。Alt+番号が他のソフトに取られている環境向け。「+」で新しい画面）</span></div>
+        <div class="help-row"><kbd>Alt+1</kbd><span>画面 1〜9 に切り替え（Alt+番号。次の番号を押すと新しい画面。画面ごとに検索の条件と結果・見ているノードツリー・開いているファイルと位置・側パネル・参照マップが別。一番上の「+」でも増やせ、番号の右クリックで閉じる）</span></div>
         <div class="help-row"><kbd>Alt+Y</kbd><span>ジャンプスタックのパネルを開く / 閉じる（定義・参照へ飛んで潜っている段の一覧。クリックで移動、ダブルクリックでそこまで畳む）</span></div>
         <div class="help-row"><kbd>Alt+T</kbd> / <kbd>Ctrl+T</kbd><span>ジャンプ元へ戻る（Ctrl+T はデスクトップ版向け。ブラウザでは新規タブに取られて届かない）。定義・参照・シンボルで飛ぶ前の場所まで、途中を飛ばして一気に戻る（もう一度押すとその前のジャンプ元へ）</span></div>
         <div class="help-row"><kbd>Alt+N</kbd><span>メモを追加 / 編集（選択中なら範囲メモ、未選択なら行メモ）</span></div>

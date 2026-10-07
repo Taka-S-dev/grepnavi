@@ -128,6 +128,34 @@ function openRefMap(focus) {
 }
 window.openRefMap = openRefMap;
 
+// 画面（screens.js）が参照マップの見え方を保存・復元する口。パネルの開閉と場所、
+// 面、絞り込み、束ね方、図（開いているか・ファイル単位か・固定したノード）
+window.refMapScreenState = () => ({
+  open: document.getElementById('rm-sidebar').classList.contains('open'),
+  focus: _rmFocus, tab: _rmTab, filter: _rmFilter, groupBy: _rmGroupBy,
+  graph: !!document.getElementById('rm-graph'), fileLevel: _rmFileLevel, pin: _rmGraphPin,
+});
+window.refMapRestore = async (s) => {
+  if (document.getElementById('rm-graph')) rmCloseGraph();
+  if (!s || !s.open) { closeRefMap(); return; }
+  _rmFileLevel = !!s.fileLevel;
+  document.getElementById('rm-sidebar').classList.add('open');
+  await rmLoad(s.focus, { fromHistory: true });
+  _rmTab = s.tab || 'in'; _rmFilter = s.filter || ''; _rmGroupBy = s.groupBy || 'other';
+  rmRerender();
+  if (s.graph && _rmData && _rmData.map && _rmData.map.internal) {
+    rmOpenGraph(_rmData.map);
+    if (s.pin) {
+      // 図は直下の一覧を取ってから描くことがある（非同期）。箱が出るまで待ってから固定し直す
+      for (let i = 0; i < 40 && !document.querySelector('#rm-graph .rm-graph-node'); i++) await new Promise(r => setTimeout(r, 50));
+      const node = [...document.querySelectorAll('#rm-graph .rm-graph-node')].find(g => g.dataset.name === s.pin);
+      // 図を閉じても固定の変数は残るので、クリックが「外す」側に倒れないよう先に空にする
+      _rmGraphPin = null;
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    }
+  }
+};
+
 function closeRefMap() {
   document.getElementById('rm-sidebar').classList.remove('open');
 }

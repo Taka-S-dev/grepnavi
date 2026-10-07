@@ -251,6 +251,31 @@ input[type=checkbox]{cursor:pointer;margin-right:2px}
   background:#252526;border-bottom:1px solid #333;
   scrollbar-width:none;
 }
+/* 画面バー: 一番上の細い帯。画面は作業場全体（検索・ツリー・エディタ・側パネル）の組 */
+#screen-bar{display:flex;align-items:stretch;flex-shrink:0;height:24px;background:#252526;border-bottom:1px solid #333;overflow-x:auto;scrollbar-width:none}
+#screen-bar::-webkit-scrollbar{display:none}
+#screen-bar-label{display:flex;align-items:center;padding:0 8px;font-size:11px;color:#666;border-right:1px solid #333;flex-shrink:0}
+#screen-tabs{display:flex;align-items:stretch;min-width:0}
+.screen-tab{display:flex;align-items:center;gap:3px;padding:0 8px;font-size:11px;color:#8a8a8a;cursor:pointer;user-select:none;white-space:nowrap;border-bottom:2px solid transparent}
+.screen-tab:hover{color:#ccc;background:#2d2d2d}
+/* 色はツリータブと同じ系統（白 + 青い下線）。黄色は目を引きすぎて視線が取られる */
+.screen-tab.active{color:#fff;background:#1e1e1e;border-bottom-color:#007acc}
+.screen-tab-num{min-width:1em;text-align:center}
+#screen-ctx-menu{display:none;position:fixed;z-index:var(--z-context-menu);background:#2d2d2d;border:1px solid #555;border-radius:3px;box-shadow:0 4px 12px rgba(0,0,0,.5);padding:3px 0;min-width:160px;font-size:12px}
+#screen-ctx-menu.open{display:block}
+/* 画面ピッカー: Ctrl+P の箱と同じ見た目 */
+#screen-picker{display:none;position:fixed;inset:0;z-index:var(--z-modal);background:rgba(0,0,0,0.5);align-items:flex-start;justify-content:center;padding-top:80px}
+#screen-picker.open{display:flex}
+#screen-picker-box{background:#1e1e1e;border:1px solid #555;border-radius:6px;width:520px;max-width:90vw;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.6)}
+#screen-picker-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid #333}
+#screen-picker-input{flex:1;background:transparent;border:none;color:#ccc;font:14px Consolas,monospace;outline:none}
+#screen-picker-hint{font-size:10px;color:#555;white-space:nowrap}
+#screen-picker-list{overflow-y:auto;max-height:360px}
+#screen-picker .fzf-name{min-width:1.5em;text-align:center}
+/* いまの画面は番号の色で示す（文字で「いまここ」と書かない） */
+#screen-picker .fzf-name.screen-picker-cur{color:#4fc1ff}
+.screen-tab-add{color:#666;padding:0 9px}
+.screen-tab-add:hover{color:#ccc}
 #peek-tabs::-webkit-scrollbar{display:none}
 .ptab{
   display:flex;align-items:center;gap:5px;
@@ -1496,6 +1521,10 @@ button:disabled:hover{background:#3c3c3c}
 body.frameless{--titlebar-h:30px}
 body.frameless #titlebar{display:flex;height:var(--titlebar-h);flex-shrink:0;background:#1e1e1e;border-bottom:1px solid #333;user-select:none}
 .tb-drag{flex:1;height:100%;min-width:24px}
+/* 画面タブはタイトルバーに同居させ、画面バーの行は使わない */
+body.frameless #screen-bar{display:none}
+body.frameless #screen-tabs{height:100%;margin-left:6px;border-left:1px solid #333;padding-left:4px}
+body.frameless .screen-tab{font-size:12px}
 /* 左端: プロジェクト選択 + ノード数。VSCode のメニューバーの位置づけなので、
    箱型ボタンではなくフラットな項目（ホバーで面が出る）として塗る */
 #tb-center{display:flex;align-items:center;height:100%;font-size:11px;color:#999;min-width:0}

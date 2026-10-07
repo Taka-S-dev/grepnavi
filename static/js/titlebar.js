@@ -30,6 +30,9 @@
   viewBtn.id = 'btn-view-menu';
   viewBtn.textContent = '表示';
   document.getElementById('tb-center').appendChild(viewBtn);
+  // 画面タブはメニューの右、タイトルバーの空きに置く（1 行まるごと使わない）。
+  // 画面バー自体は CSS で畳む。描画は id で引くので、移しても生きている
+  bar.insertBefore(document.getElementById('screen-tabs'), bar.querySelector('.tb-drag'));
   const viewMenu = document.createElement('div');
   viewMenu.id = 'view-menu';
   document.body.appendChild(viewMenu);
