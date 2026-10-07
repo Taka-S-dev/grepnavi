@@ -1912,7 +1912,7 @@ async function openFzf(mode = 'file') {
   id('fzf-input').value = '';
   id('fzf-input').placeholder = mode === 'symbol'
     ? 'シンボル名を入力… (例: recipe save)'
-    : 'ファイル名を入力… (#始まりでシンボル検索、a/b.c:76 のように行も付けられる)';
+    : 'ファイル名を入力… (空なら開いているタブ、@始まりで開いているタブだけ、#始まりでシンボル検索、a/b.c:76 で行も)';
   setTimeout(() => id('fzf-input').focus(), 30);
   // ファイル一覧は初回だけ取りに行く。大きいツリーでは数秒かかるので、箱を先に
   // 出して待っている間を見せる（取り終わるまで何も出ないと、押せていないように見える）
@@ -2412,29 +2412,63 @@ function fzfRender(query) {
   const loc = parseLocation(query);
   fzfLine = loc.line;
   query = loc.path;
-  fzfFiltered = fzfFilter(fzfFiles, query, 100);
-  // 絶対パスや、ルート名を付けたパス（openssl/ssl/x.c）はそのままでは当たらない。
-  // 先頭の区切りを 1 段ずつ落として、当たるところまで短くする
-  for (let q = query.replace(/\\/g, '/'); !fzfFiltered.length && q.includes('/'); ) {
-    q = q.slice(q.indexOf('/') + 1);
-    if (q) { fzfFiltered = fzfFilter(fzfFiles, q, 100); query = q; }
+  // 開いているタブ（全画面ぶん）は、何も打っていなければそれだけを、打っていれば
+  // 一致したものを先頭に出す。VS Code の Ctrl+P と同じで、「開いているタブへ飛ぶ」に
+  // 別のキーを覚えなくて済む
+  const root = (graph && graph.root_dir) || '';
+  _fzfOpenTabs = new Map();
+  if (typeof openTabsForPicker === 'function') for (const t of openTabsForPicker(root)) if (!_fzfOpenTabs.has(t.rel)) _fzfOpenTabs.set(t.rel, t);
+  // `@` から打つと開いているタブだけ（Neovim の :Telescope buffers）。全体の候補が
+  // 多いツリーで、開いているものの中から選びたいとき
+  const tabsOnly = query.startsWith('@');
+  if (tabsOnly) query = query.slice(1).trim();
+  if (tabsOnly) {
+    fzfFiltered = query ? fzfFilter([..._fzfOpenTabs.keys()], query, 100) : [..._fzfOpenTabs.keys()];
+  } else if (!query) {
+    fzfFiltered = [..._fzfOpenTabs.keys()];
+  } else {
+    fzfFiltered = fzfFilter(fzfFiles, query, 100);
+    // 絶対パスや、ルート名を付けたパス（openssl/ssl/x.c）はそのままでは当たらない。
+    // 先頭の区切りを 1 段ずつ落として、当たるところまで短くする
+    for (let q = query.replace(/\\/g, '/'); !fzfFiltered.length && q.includes('/'); ) {
+      q = q.slice(q.indexOf('/') + 1);
+      if (q) { fzfFiltered = fzfFilter(fzfFiles, q, 100); query = q; }
+    }
+    fzfFiltered = [...fzfFiltered.filter(f => _fzfOpenTabs.has(f)), ...fzfFiltered.filter(f => !_fzfOpenTabs.has(f))];
   }
-  id('fzf-count').textContent = `${fzfFiltered.length} / ${fzfFiles.length}`;
+  id('fzf-count').textContent = (query && !tabsOnly) ? `${fzfFiltered.length} / ${fzfFiles.length}` : `開いているタブ ${fzfFiltered.length}` + (tabsOnly && query ? ` / ${_fzfOpenTabs.size}` : '');
   fzfSelIdx = 0;
   list.innerHTML = '';
+  if (!fzfFiltered.length && (!query || tabsOnly)) list.innerHTML = tabsOnly && query ? '<div class="fzf-empty">一致する開いているタブがありません（@ を消すと全体から探します）</div>' : '<div class="fzf-empty">開いているタブはありません。ファイル名を打つと全体から探します</div>';
+  // 開いているタブと全体の候補の境目に見出しを置く。右端の印だけでは、絞ったときに
+  // どこまでが開いているものか目で追えない。見出しは .fzf-item ではないので ↑↓ は飛ばす
+  const sep = text => { const d = document.createElement('div'); d.className = 'fzf-sep'; d.textContent = text; list.appendChild(d); };
+  const nOpen = fzfFiltered.filter(f => _fzfOpenTabs.has(f)).length;
+  if (fzfFiltered.length) sep(nOpen ? '開いているタブ' : 'ファイル');
   fzfFiltered.forEach((f, i) => {
+    if (query && !tabsOnly && nOpen && i === nOpen) sep('ファイル');
     const parts = f.replace(/\\/g, '/').split('/');
     const name = parts.pop();
     const dir  = parts.join('/');
     const div = document.createElement('div');
-    div.className = 'fzf-item' + (i === 0 ? ' fzf-sel' : '');
+    div.className = 'fzf-item' + (i === 0 ? ' fzf-sel' : '') + (_fzfOpenTabs.has(f) ? ' fzf-open' : '');
     div.innerHTML = `<span class="fzf-name">${fzfHighlight(name, query)}</span>`
                   + (dir ? `<span class="fzf-dir">${fzfHighlight(dir+'/', query)}</span>` : '');
+    const t = _fzfOpenTabs.get(f);
+    if (t) {
+      // 開いているタブの印。別の画面のものは番号で言う（選ぶとその画面へ移る）
+      const tag = document.createElement('span');
+      tag.className = 'fzf-tag';
+      tag.textContent = t.screen === currentScreenIndex() ? (t.active ? '表示中' : '開いている') : `画面 ${t.screen + 1}`;
+      div.appendChild(tag);
+    }
     div.onclick = () => fzfOpen(f, fzfLine);
     list.appendChild(div);
   });
   fzfSchedulePreview();
 }
+
+let _fzfOpenTabs = new Map(); // Ctrl+P の一覧にある、開いているタブ（相対パス → {file, screen}）
 
 // fzfSymbolPattern はユーザー入力を /api/symbol-search の正規表現に変換する。
 // スペース区切りトークンを正規表現エスケープして `.*` で順序付き連結:
@@ -2728,6 +2762,11 @@ if(typeof document !== 'undefined') document.addEventListener('DOMContentLoaded'
 let fzfLine = 0; // 入力の末尾に書かれた行（無ければ 0 = 先頭）
 async function fzfOpen(relPath, line) {
   closeFzf();
+  // 開いているタブならそこへ（別の画面なら画面ごと移る）。行の指定があれば開き直す
+  const t = _fzfOpenTabs.get(relPath);
+  if (t && !line && typeof goToOpenTab === 'function') {
+    if (await goToOpenTab(t)) return;
+  }
   const r = await fetch('/api/root');
   const d = await r.json();
   const abs = (d.root || '').replace(/\\/g,'/').replace(/\/$/, '') + '/' + relPath;

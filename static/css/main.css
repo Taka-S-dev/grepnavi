@@ -849,6 +849,14 @@ body.frameless #tree-tab-actions,body.frameless #tree-toolbar{display:none}
 .fzf-item:hover,.fzf-item.fzf-sel{background:#094771;color:#fff}
 .fzf-item .fzf-name{color:#fff;flex-shrink:0}
 .fzf-item .fzf-dir{color:#666;overflow:hidden;text-overflow:ellipsis;font-size:11px}
+.fzf-item .fzf-tag{margin-left:auto;font-size:10px;color:#4fc1ff;border:1px solid #2a4a5e;border-radius:3px;padding:0 5px;flex-shrink:0}
+/* 開いているタブの行: 左に水色の縦線、名前も水色。見出し（.fzf-sep）で境目を切る */
+.fzf-item.fzf-open{border-left:3px solid #4fc1ff;padding-left:11px;background:rgba(79,193,255,.06)}
+.fzf-item.fzf-open .fzf-name{color:#9cdcfe}
+/* 選んだ行の帯は薄い地より優先する（同じ強さの規則なので後に書く） */
+.fzf-item.fzf-open.fzf-sel,.fzf-item.fzf-open:hover{background:#094771}
+.fzf-item.fzf-open.fzf-sel .fzf-name,.fzf-item.fzf-open:hover .fzf-name{color:#fff}
+.fzf-sep{padding:4px 14px 2px;font-size:10px;color:#777;letter-spacing:.05em;background:#232323;border-bottom:1px solid #2e2e2e}
 .fzf-item .fzf-hl{color:#f0c040}
 /* シンボル検索モード: kind バッジ (f=func, d=define, t=typedef, ...) と空状態メッセージ */
 .fzf-kind{flex-shrink:0;width:16px;height:16px;line-height:16px;text-align:center;border-radius:3px;font-size:10px;font-family:Consolas,monospace;background:#333;color:#999}

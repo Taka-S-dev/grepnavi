@@ -257,6 +257,29 @@ function _showScreenMenu(i, x, y) {
   menu.classList.add('open');
 }
 
+// 開いているタブを全画面ぶん、Ctrl+P の並び順で返す: いまの画面のアクティブ →
+// いまの画面の残り → 他の画面（番号順）。root からの相対パスで引けるようにする
+function openTabsForPicker(root) {
+  const r = (root || '').replace(/\\/g, '/').replace(/\/$/, '');
+  const rel = f => { const x = f.replace(/\\/g, '/'); return r && x.startsWith(r + '/') ? x.slice(r.length + 1) : x; };
+  const out = [];
+  const push = (list, active, screen) => {
+    const order = active >= 0 && active < list.length ? [list[active], ...list.filter((_, k) => k !== active)] : list;
+    for (const t of order) if (!t.error) out.push({ rel: rel(t.file), file: t.file, screen, active: t === list[active] });
+  };
+  push(tabs, activeTabIdx, _screenIdx);
+  _screens.forEach((s, i) => { if (i !== _screenIdx) push(s.tabs, s.activeTabIdx, i); });
+  return out;
+}
+
+// Ctrl+P で選ばれた開いているタブへ移る（別の画面なら画面ごと）
+async function goToOpenTab(entry) {
+  if (entry.screen !== _screenIdx) await switchScreen(entry.screen);
+  const i = tabs.findIndex(t => t.file === entry.file);
+  if (i >= 0) await switchTab(i);
+  return i >= 0;
+}
+
 // ===== 画面ピッカー（Alt+S） =====
 // Ctrl+P と同じ箱に画面を並べ、打って絞り、Enter で移る。Alt+番号が OS や他の
 // ソフトに取られている環境でも、キーだけで画面を行き来できるようにする
