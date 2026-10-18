@@ -78,6 +78,11 @@ body{font:13px/1.4 'Consolas','Courier New',monospace;background:#1e1e1e;color:#
 #bar-sub.open{display:flex}
 #q-wrap{flex:1;display:flex;align-items:center;background:#3c3c3c;border:1px solid #555;border-radius:3px;padding:0 4px;min-width:0}
 #q-wrap:focus-within{border-color:#007acc}
+/* 検索操作のキーボードフォーカス。内側の輪郭でレイアウトを変えない。 */
+#search-panel button:focus-visible,
+#pane-search button:focus-visible,
+#filter-input:focus-visible,
+#glob:focus-visible{outline:2px solid #75beff;outline-offset:-2px}
 #q{flex:1;border:none;background:transparent;color:#ccc;padding:4px 4px;font:inherit;outline:none;min-width:0;font-size:13px}
 .srch-btn{background:none;border:none;color:#858585;cursor:pointer;font-size:11px;padding:2px 4px;border-radius:2px;line-height:1;white-space:nowrap;font-family:Consolas,monospace}
 .srch-btn:hover{color:#ccc;background:#505050}
@@ -431,11 +436,11 @@ body.insmove-active .monaco-editor,body.insmove-active .monaco-editor .view-line
   font-size:11px;color:#ccc;
 }
 #filter-help.open{display:block}
-.fh-section{padding:5px 12px 2px;font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.5px}
+.fh-section{padding:5px 12px 2px;font-size:11px;font-weight:600;color:#bbb}
 .fh-section:not(:first-child){border-top:1px solid #3a3a3a;margin-top:3px;padding-top:6px}
 .fh-row{padding:3px 12px;display:flex;justify-content:space-between;align-items:center;gap:12px;white-space:nowrap}
 .fh-row code{background:#1e1e1e;color:#9cdcfe;padding:1px 5px;border-radius:2px;font-family:Consolas,monospace;font-size:11px}
-.fh-row span{color:#aaa;font-size:10px}
+.fh-row span{color:#bbb;font-size:11px}
 #btn-group-view.on{background:#094771;color:#fff;border-color:#007acc}
 #btn-fn-sep.on{background:#1d3d36;color:#4ec9b0;border-color:#4ec9b0}
 #filter-input{flex:1;background:#3c3c3c;border:1px solid #555;color:#ccc;font-size:11px;padding:2px 6px;border-radius:3px;outline:none;font-family:Consolas,monospace}
@@ -462,8 +467,7 @@ body.insmove-active .monaco-editor,body.insmove-active .monaco-editor .view-line
 .rg-toggle{color:#888;font-size:10px;width:14px;height:100%;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;border-radius:2px}
 .rg-toggle:hover{color:#ccc;background:#ffffff18}
 .rg-fname{color:#569cd6;font-size:12px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rg-fcount{color:#666;font-size:10px;flex-shrink:0}
-.rg-fcount{color:#666;font-size:10px;flex-shrink:0}
+.rg-fcount{color:#aaa;font-size:11px;font-variant-numeric:tabular-nums;flex-shrink:0}
 .rg-enc-badge{font-size:9px;color:#e0b060;background:rgba(224,176,96,0.15);border:1px solid rgba(224,176,96,0.4);border-radius:2px;padding:0 4px;flex-shrink:0;cursor:help;font-family:Consolas,monospace}
 /* 検索 0件時の理由ヒント (glob が無マッチ / regex 構文を literal 検索した等) */
 .search-hint{margin:10px;padding:8px 10px;font-size:11px;line-height:1.6;color:#c2a76d;background:rgba(194,167,109,0.08);border:1px solid rgba(194,167,109,0.3);border-radius:4px;word-break:break-word}
@@ -1103,7 +1107,7 @@ body.frameless #tree-tab-actions,body.frameless #tree-toolbar{display:none}
 .stab:hover{background:#2a2d2e;color:#ddd}
 .stab.active{background:#0d3a5c;color:#ccc}
 .stab-lbl{flex:1;overflow:hidden;text-overflow:ellipsis;font-family:Consolas,monospace}
-.stab-cnt{font-size:10px;color:#555;flex-shrink:0;min-width:36px;text-align:right}
+.stab-cnt{font-size:10px;color:#aaa;flex-shrink:0;min-width:36px;text-align:right}
 .stab.active .stab-cnt{color:#7ab}
 .stab-close{flex-shrink:0;color:#444;font-size:13px;padding:0 3px;border-radius:2px;line-height:1}
 .stab-close:hover{color:#e04;background:rgba(200,0,0,0.15)}
