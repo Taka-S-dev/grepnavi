@@ -30,6 +30,15 @@ const appIconResourceID = 1
 // OpenWindow は url を埋め込み WebView2 で開き、閉じられるまでブロックする。
 // WebView2 はメインスレッドでメッセージループを回すため、メインスレッドから呼ぶこと。
 func OpenWindow(url string) error {
+	// HWND作成前に指定し、Windowsによる96 DPI画像の引き伸ばしを防ぐ。
+	// 既にmanifest/互換設定で指定済みの場合は、その設定を尊重する。
+	setDPI := user32.NewProc("SetProcessDpiAwarenessContext")
+	if err := setDPI.Find(); err == nil {
+		const perMonitorAwareV2 = ^uintptr(3) // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 (-4)
+		if ok, _, err := setDPI.Call(perMonitorAwareV2); ok == 0 && err != syscall.Errno(5) {
+			slog.Warn("could not enable per-monitor DPI awareness", "err", err)
+		}
+	}
 	opts := webview.WebViewOptions{
 		Debug: false,
 		WindowOptions: webview.WindowOptions{
@@ -136,9 +145,17 @@ func framelessWndProc(hwnd, msg, wp uintptr, r *winRect) uintptr {
 	const (
 		wmNCCalcSize    = 0x0083
 		wmGetMinMaxInfo = 0x0024
+		wmDPIChanged    = 0x02E0
 	)
 	lp := uintptr(unsafe.Pointer(r))
 	switch {
+	case msg == wmDPIChanged && r != nil:
+		// DPIの異なるモニタへ移した場合はWindows推奨の位置・サイズを使う。
+		// WM_SIZEは元のWndProcへ流れ、WebView2の描画領域も更新される。
+		const swpNoZOrderNoActivate = 0x0004 | 0x0010
+		procSetWindowPos.Call(hwnd, 0, uintptr(r.left), uintptr(r.top),
+			uintptr(r.right-r.left), uintptr(r.bottom-r.top), swpNoZOrderNoActivate)
+		return 0
 	case msg == wmNCCalcSize && wp != 0 && r != nil:
 		if z, _, _ := procIsZoomed.Call(hwnd); z != 0 {
 			return 0 // 最大化中: 窓全体をクライアントにする（枠の分の隙間を作らない）
