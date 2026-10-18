@@ -9,7 +9,10 @@
 <script src="/js/vendor/jszip.min.js"></script>
 <script src="/js/vendor/pptxgen.bundle.js"></script>
 <script>
-  var require = {paths: {'vs': '/js/vendor/monaco-editor'}};
+  var require = {
+    paths: {'vs': '/js/vendor/monaco-editor'},
+    'vs/nls': {availableLanguages: {'*': 'ja'}}
+  };
 </script>
 <script src="/js/vendor/monaco-editor/loader.js"></script>
 <link rel="icon" href="/favicon.ico" sizes="any">
