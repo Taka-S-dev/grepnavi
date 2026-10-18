@@ -1,6 +1,9 @@
 /* ===== z-index 階層 =====
    z-index は必ず var(--z-*) を介して指定する。新しい階層はここに追加してから使う。 */
 :root {
+  /* 操作UIとコードの書体を分離。OS標準フォントのみでオフラインでも表示する。 */
+  --font-ui: 'Segoe UI', 'Yu Gothic UI', Meiryo, system-ui, sans-serif;
+  --font-code: Consolas, 'Courier New', monospace;
   --z-content:         1;     /* peek-placeholder 等、コンテンツ最背面 */
   --z-overlay:        10;     /* drop markers, tree-toolbar 等の位置決め */
   --z-overlay-high:   20;     /* indent-guide */
@@ -127,7 +130,7 @@ body{font:13px/1.4 'Consolas','Courier New',monospace;background:#1e1e1e;color:#
 #sb-help:hover{color:#ddd;background:rgba(255,255,255,0.1);border-radius:2px}
 #enc-btn.active{color:#fff;background:rgba(255,200,0,0.25);border-radius:2px}
 .bar-field{display:flex;flex-direction:column;gap:2px}
-.bar-field-label{font-size:10px;color:#858585;padding-left:2px}
+.bar-field-label{font-family:var(--font-ui);font-size:11px;color:#aaa;padding-left:2px}
 #dir-wrap{position:relative;display:flex;align-items:center;background:#3c3c3c;border:1px solid #555;border-radius:3px;padding:0 4px;gap:2px}
 #dir-wrap:focus-within{border-color:#007acc}
 #root-label{color:#888;font-size:10px;white-space:nowrap;max-width:120px;overflow:hidden;text-overflow:ellipsis;flex-shrink:0}
@@ -622,7 +625,7 @@ body.insmove-active .monaco-editor,body.insmove-active .monaco-editor .view-line
 .badge-swatch.sel{outline:2px solid #fff;outline-offset:1px}
 .badge-swatch:hover{opacity:0.8}
 .node-memo-dot{font-size:12px;color:#888;align-self:center;flex-shrink:0}
-.node-memo-inline{font-size:11px;color:#6a9955;font-style:italic;background:transparent;border-left:2px solid #3a5c30;padding:1px 6px 1px 8px;margin:0 0 3px 28px;white-space:pre-wrap;word-break:break-word;line-height:1.4;opacity:0.85}
+.node-memo-inline{font-family:var(--font-ui);font-size:12px;color:#a3be91;font-style:normal;background:transparent;border-left:2px solid #3a5c30;padding:3px 8px;margin:0 0 4px 28px;white-space:pre-wrap;word-break:break-word;line-height:1.6}
 
 /* ツリー接続線 */
 .children{
@@ -1574,3 +1577,29 @@ body.frameless #memo-list-panel{top:var(--titlebar-h);height:auto;bottom:0}
    ことが一目で分かるよう薄字・イタリックにし、デバッグ行の色（紫）の縦線を添える。 */
 .insert-ghost{opacity:.55;font-style:italic;color:#c9a0dc;pointer-events:none;white-space:pre;background:rgba(160,100,220,.07);box-shadow:inset 2px 0 0 rgba(160,100,220,.55)}
 .insert-ghost-line{white-space:pre;overflow:hidden;text-overflow:ellipsis}
+
+/* ===== 操作UIのタイポグラフィ =====
+   body/Monaco/コード行の継承元は変更しない。
+   高さに依存するツリーのツールバーや仮想リストの行間も維持する。 */
+#btn-s, #btn-stop, #btn-search-stack, #btn-search-hist,
+#search-hdr, #filter-help, #tree-hdr, #tree-toolbar,
+#tree-tab-actions, #project-menu, #sb-help,
+#tb-center, .help-group-title, .help-group-note, .help-row span {
+  font-family:var(--font-ui);
+}
+#tree-toolbar button, #tree-tab-actions button {
+  font-family:var(--font-ui);
+}
+#sh-title, #tree-title {
+  color:#ccc;
+  font-weight:600;
+}
+.tmemo-text {
+  font-family:var(--font-ui);
+  font-size:12px;
+  color:#c0c0c0;
+}
+/* ファイル名・保存先・構文例はUI内でも等幅にする。 */
+#project-name, #pmenu-status-path, .fh-row code, .help-row kbd {
+  font-family:var(--font-code);
+}
