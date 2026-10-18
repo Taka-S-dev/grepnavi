@@ -939,8 +939,18 @@ async function renderGraph() {
     renderGraph();
   };
 
-  toolbar.append(btnShrink, btnExpand, btnColor, btnMemo, btnPng, btnDrawio);
+  const btnFit = document.createElement("button");
+  btnFit.textContent = "全体を表示";
+  btnFit.style.cssText = btnExpand.style.cssText;
+  btnFit.title = "ノードの配置を変えず、全体が収まる倍率に調整";
+  toolbar.style.flexWrap = "wrap";
+  toolbar.style.maxWidth = "calc(100% - 16px)";
+  toolbar.append(btnFit, btnShrink, btnExpand, btnColor, btnMemo, btnPng, btnDrawio);
   container.appendChild(toolbar);
+  const legend = document.createElement("div");
+  legend.textContent = "実線: ノード間の関係　／　橙の破線: 処理順（ルートの並び順による自動線を含む）";
+  legend.style.cssText = "position:absolute;bottom:6px;left:8px;right:8px;color:#aaa;background:#1e1e1ee6;font:11px var(--font-ui);padding:4px 6px;pointer-events:none;z-index:var(--z-overlay)";
+  container.appendChild(legend);
 
   const W = container.offsetWidth || 800;
   const H = container.offsetHeight || 600;
@@ -949,7 +959,7 @@ async function renderGraph() {
     return;
   }
   const NW = 180;
-  const NH = () => 48;
+  const NH = () => 64;
   const SN_LINE_H = 16;
   const SN_MAX_LINES = 6;
   function memoLines(d) {
@@ -972,12 +982,11 @@ async function renderGraph() {
     .attr("height", H)
     .style("display", "block");
   const root = svg.append("g");
-  svg.call(
-    d3
+  const zoom = d3
       .zoom()
-      .scaleExtent([0.15, 4])
-      .on("zoom", (e) => root.attr("transform", e.transform)),
-  );
+      .scaleExtent([0.01, 4])
+      .on("zoom", (e) => root.attr("transform", e.transform));
+  svg.call(zoom);
   svg.on("click", () => {
     graphSel.clear();
     refreshGraphSel();
@@ -1302,26 +1311,41 @@ async function renderGraph() {
     .attr("stroke", (d) => NODE_COLORS[Math.min(depths[d.id] || 0, 4)])
     .attr("stroke-width", 1.5);
 
-  node
-    .append("text")
-    .text((d) => trunc(d.label || (d.match?.text || "").trim() || "", 22))
-    .attr("text-anchor", "middle")
-    .attr("y", -8)
-    .attr("font-size", "11px")
-    .attr("fill", "#e0e0e0")
-    .attr("font-weight", "bold");
-
-  node
-    .append("text")
-    .text(
-      (d) =>
-        shortPath(d.match?.file || "") +
-        (d.match?.line ? ":" + d.match.line : ""),
-    )
-    .attr("text-anchor", "middle")
-    .attr("y", 9)
-    .attr("font-size", "10px")
-    .attr("fill", "#778");
+  // 描いた SVG の文字幅を実測して、日本語でも英字でもラベルを箱の中に収める
+  node.each(function (d) {
+    const g = d3.select(this);
+    const fullLabel = d.label || (d.match?.text || "").trim() || "";
+    const fullPath = (d.match?.file || "") + (d.match?.line ? ":" + d.match.line : "");
+    g.append("title").text(fullLabel + "\n" + fullPath);
+    const text = g.append("text").attr("text-anchor", "middle")
+      .attr("fill", "#e0e0e0").style("font", "11px Consolas, monospace");
+    const chars = Array.from(fullLabel.replace(/\s+/g, " "));
+    for (let line = 0; line < 2 && chars.length; line++) {
+      const span = text.append("tspan").attr("x", 0).attr("y", -14 + line * 15);
+      let value = "";
+      while (chars.length) {
+        const candidate = value + chars[0];
+        span.text(candidate);
+        if (span.node().getComputedTextLength() > NW - 20) break;
+        value = candidate; chars.shift();
+      }
+      if (line === 1 && chars.length) {
+        span.text(value + "…");
+        while (value && span.node().getComputedTextLength() > NW - 20) {
+          value = Array.from(value).slice(0, -1).join("");
+          span.text(value + "…");
+        }
+      } else span.text(value);
+    }
+    const pathText = g.append("text").attr("text-anchor", "middle")
+      .attr("y", 21).attr("fill", "#a0a0ad").style("font", "10px Consolas, monospace");
+    let path = fullPath;
+    pathText.text(path);
+    while (path && pathText.node().getComputedTextLength() > NW - 20) {
+      path = Array.from(path).slice(1).join("");
+      pathText.text("…" + path);
+    }
+  });
 
   node.each(function (d) {
     const ml = memoLines(d);
@@ -1388,6 +1412,19 @@ async function renderGraph() {
         return s && t ? (s.gy + t.gy) / 2 : 0;
       });
   }
+  function fitGraph() {
+    const bounds = root.node().getBBox();
+    const top = toolbar.offsetHeight + 20;
+    const bottom = legend.offsetHeight + 20;
+    const width = Math.max(1, W - 40);
+    const height = Math.max(1, H - top - bottom);
+    const k = Math.max(0.01, Math.min(1, width / Math.max(1, bounds.width), height / Math.max(1, bounds.height)));
+    svg.call(zoom.transform, d3.zoomIdentity
+      .translate(W / 2 - k * (bounds.x + bounds.width / 2),
+        top + height / 2 - k * (bounds.y + bounds.height / 2)).scale(k));
+  }
+  btnFit.onclick = fitGraph;
+  fitGraph();
   btnExpand.onclick = () => scaleNodes(1.2);
   btnShrink.onclick = () => scaleNodes(1 / 1.2);
 }
