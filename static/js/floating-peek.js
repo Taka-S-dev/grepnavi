@@ -703,16 +703,16 @@ function initFloatingPeek(getHoverCtx) {
         addItem('codicon-call-outgoing', calleeMenuLabel(), () => openCalleePicker(), 'c');
       }
       if(typeof openAssignPicker === 'function') {
-        addItem('codicon-edit', 'この語への代入', () => openAssignPicker(word), 'w', w);
+        addItem('codicon-edit', '代入箇所を検索', () => openAssignPicker(word), 'w', w);
       }
-      addItem('codicon-file-code',   'その場で定義を見る', () => _showFloatingDef(word), 'e', w);
-      addItem('codicon-search',      'grep',           () => grepSearchWord(word), 'g', w);
+      addItem('codicon-file-code',   '定義をプレビュー', () => _showFloatingDef(word), 'e', w);
+      addItem('codicon-search',      'テキストを検索',           () => grepSearchWord(word), 'g', w);
       if(typeof window.openCallTree === 'function') {
         addItem('codicon-list-tree', callTreeMenuLabel(), () => openCallTreeFor(word), 'u',
                 calleeRange(monacoEditor?.getSelection()) ? undefined : w);
       }
       if(typeof window.openStateMachine === 'function') {
-        addItem('codicon-git-merge', 'この語に何が入るか', () => window.openStateMachine(word), 's', w);
+        addItem('codicon-git-merge', '状態遷移ビューを表示', () => window.openStateMachine(word), 's', w);
       }
       if(typeof navBack === 'function' && typeof navForward === 'function') {
         addSep();
@@ -728,9 +728,9 @@ function initFloatingPeek(getHoverCtx) {
         // 連続して動かしたいときは一覧側（V）に入る。Z / X は1段だけ
         if(typeof openHistoryPicker === 'function') {
           if(typeof openRefStepList === 'function') {
-          addItem('codicon-list-ordered', '確認中の一覧', () => openRefStepList(), 'f');
+          addItem('codicon-list-ordered', '巡回中の結果一覧', () => openRefStepList(), 'f');
         }
-        addItem('codicon-history', '移動の履歴', () => openHistoryPicker(), 'v',
+        addItem('codicon-history', '移動履歴', () => openHistoryPicker(), 'v',
                   {disabled: !Array.isArray(navHistory) || navHistory.length < 2});
         }
       }
@@ -748,15 +748,15 @@ function initFloatingPeek(getHoverCtx) {
       addItem('codicon-call-outgoing', calleeMenuLabel(), () => openCalleePicker(), 'c');
     }
     if(typeof openAssignPicker === 'function') {
-      addItem('codicon-edit', 'この語への代入', () => openAssignPicker(word), 'w');
+      addItem('codicon-edit', '代入箇所を検索', () => openAssignPicker(word), 'w');
     }
-    addItem('codicon-file-code',   'その場で定義を見る',  () => _showFloatingDef(word), 'e');
-    addItem('codicon-search',      'grep',               () => grepSearchWord(word), 'g');
+    addItem('codicon-file-code',   '定義をプレビュー',  () => _showFloatingDef(word), 'e');
+    addItem('codicon-search',      'テキストを検索',               () => grepSearchWord(word), 'g');
     if(typeof window.openCallTree === 'function') {
       addItem('codicon-list-tree', callTreeMenuLabel(), () => openCallTreeFor(word), 'u');
     }
     if(typeof window.openStateMachine === 'function') {
-      addItem('codicon-git-merge', 'この語に何が入るか',  () => window.openStateMachine(word), 's');
+      addItem('codicon-git-merge', '状態遷移ビューを表示',  () => window.openStateMachine(word), 's');
     }
 
     // この語に印を付ける・書き留める
@@ -770,7 +770,7 @@ function initFloatingPeek(getHoverCtx) {
         ? {id: genId(), file: hoverHit.file, line: hoverHit.line, text: word}
         : {id: genId(), file: '', line: 0, text: word};
       const nodeLabel = hoverHit ? shortPath(hoverHit.file) + ':' + hoverHit.line : word;
-      addItem('codicon-add', 'ノードに追加: ' + nodeLabel, () => addToGraph(match, '', 'ref', word));
+      addItem('codicon-add', '調査ツリーに追加: ' + nodeLabel, () => addToGraph(match, '', 'ref', word));
     }
     if(hoverHit) {
       addItem('codicon-link-external', '行を開く: ' + shortPath(hoverHit.file) + ':' + hoverHit.line,
@@ -782,7 +782,7 @@ function initFloatingPeek(getHoverCtx) {
     // 導線はこのメニューに置く（マクロ名は電卓側で索引解決される）
     if (typeof showRadixCalc === 'function') {
       addSep();
-      addItem('codicon-symbol-numeric', '基数変換電卓', () => showRadixCalc(word), 'x');
+      addItem('codicon-symbol-numeric', '基数変換ツール', () => showRadixCalc(word), 'x');
     }
 
     _mountWordCtxMenu();

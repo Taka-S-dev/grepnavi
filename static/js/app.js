@@ -440,7 +440,7 @@ addEventListener('DOMContentLoaded', async () => {
     };
   }
   document.addEventListener('keydown', e => {
-    // Alt+N はエディタの「メモを追加/編集」が持つ（Alt+P も同様に Shift 付きへ）
+    // Alt+N はエディタの「メモを追加／編集」が持つ（Alt+P も同様に Shift 付きへ）
     if(e.altKey && e.shiftKey && e.key.toLowerCase() === 'n') { e.preventDefault(); id('btn-tree-memo')?.click(); }
   });
 

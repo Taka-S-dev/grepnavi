@@ -1523,9 +1523,9 @@ async function ensureEditor() {
     }
   });
 
-  // Alt+N → メモを追加/編集（選択中なら範囲メモ、未選択なら行メモ）
+  // Alt+N → メモを追加／編集（選択中なら範囲メモ、未選択なら行メモ）
   monacoEditor.addAction({
-    id: 'grepnavi-line-memo', label: 'メモを追加/編集',
+    id: 'grepnavi-line-memo', label: 'メモを追加／編集',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyN],
     contextMenuGroupId: '2_mark',
     contextMenuOrder: 4,
@@ -1553,9 +1553,9 @@ async function ensureEditor() {
     }
   });
 
-  // 右クリック → 基数変換電卓（選択中の式、無ければカーソル位置の数値を初期値に）
+  // 右クリック → 基数変換ツール（選択中の式、無ければカーソル位置の数値を初期値に）
   monacoEditor.addAction({
-    id: 'grepnavi-radix-calc', label: '基数変換電卓',
+    id: 'grepnavi-radix-calc', label: '基数変換ツール',
     contextMenuGroupId: '4_tool',
     contextMenuOrder: 1,
     run: ed => {
@@ -1583,7 +1583,7 @@ async function ensureEditor() {
     id: 'grepnavi-open-external', label: '外部エディタで開く',
     contextMenuGroupId: '4_tool',
     contextMenuOrder: 2,
-    // Alt+E は移動系（その場で定義を見る）に譲った
+    // Alt+E は移動系（定義をプレビュー）に譲った
     keybindings: [monaco.KeyMod.Alt | monaco.KeyMod.Shift | monaco.KeyCode.KeyE],
     run: ed => {
       const tab = tabs[activeTabIdx];
@@ -1649,14 +1649,14 @@ async function ensureEditor() {
   // Alt+C → いまカーソルがいる関数の呼び先（読み進める途中で何度も要るので、
   // コールツリーのサイドバーを開かずに一覧から選べるようにする）
   monacoEditor.addAction({
-    id: 'grepnavi-callees', label: 'いまいる関数の呼び先',
+    id: 'grepnavi-callees', label: '現在の関数の呼び出し先',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyC],
     run: () => openCalleePicker()
   });
 
   // Alt+W → その語へ書き込んでいる場所（write）。参照一覧だと読み出しに埋もれる
   monacoEditor.addAction({
-    id: 'grepnavi-assignments', label: 'この語への代入',
+    id: 'grepnavi-assignments', label: '代入箇所を検索',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyW],
     run: ed => {
       const sel = ed.getSelection();
@@ -1670,7 +1670,7 @@ async function ensureEditor() {
 
   // Alt+F → 送っている一覧を開き直す（並び順そのまま・現在地に色）
   monacoEditor.addAction({
-    id: 'grepnavi-step-list', label: '確認中の一覧',
+    id: 'grepnavi-step-list', label: '巡回中の結果一覧',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyF],
     run: () => openRefStepList()
   });
@@ -1678,14 +1678,14 @@ async function ensureEditor() {
   // Alt+V → 通ってきた場所の一覧（Z / X の連打で探すより速い）。
   // 移動系の Z X C の隣に置いて、指の位置で覚えられるようにする
   monacoEditor.addAction({
-    id: 'grepnavi-history', label: '移動の履歴',
+    id: 'grepnavi-history', label: '移動履歴',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyV],
     run: () => openHistoryPicker()
   });
 
-  // 右クリック → grep 検索（カーソル単語）
+  // 右クリック → テキストを検索（カーソル単語）
   monacoEditor.addAction({
-    id: 'grepnavi-grep-word', label: 'grep 検索',
+    id: 'grepnavi-grep-word', label: 'テキストを検索',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyG],
     run: ed => {
       const sel = ed.getSelection();
@@ -1698,9 +1698,9 @@ async function ensureEditor() {
   });
 
 
-  // 右クリック → コールツリーで検索
+  // 右クリック → コールツリーを表示
   monacoEditor.addAction({
-    id: 'grepnavi-calltree', label: 'コールツリーで検索',
+    id: 'grepnavi-calltree', label: 'コールツリーを表示',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyU],
     run: ed => {
       const sel = ed.getSelection();
@@ -1714,7 +1714,7 @@ async function ensureEditor() {
 
   // 右クリック → Floating Peek
   monacoEditor.addAction({
-    id: 'grepnavi-float-def', label: 'その場で定義を見る',
+    id: 'grepnavi-float-def', label: '定義をプレビュー',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyE],
     run: ed => {
       const sel = ed.getSelection();
@@ -1757,7 +1757,7 @@ async function ensureEditor() {
 
   // Alt+H / 右クリック → 単語ハイライト固定/解除
   monacoEditor.addAction({
-    id: 'grepnavi-pin-highlight', label: '単語ハイライトを固定/解除',
+    id: 'grepnavi-pin-highlight', label: '単語のハイライトを固定／解除',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyH],
     contextMenuGroupId: '2_mark',
     contextMenuOrder: 1,
@@ -1775,7 +1775,7 @@ async function ensureEditor() {
 
   // Alt+Shift+G → 選択行をノードに追加（Alt+G は移動系の grep に譲った）
   monacoEditor.addAction({
-    id: 'grepnavi-add-node', label: 'ノードに追加',
+    id: 'grepnavi-add-node', label: '調査ツリーに追加',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyMod.Shift | monaco.KeyCode.KeyG],
     contextMenuGroupId: '2_mark',
     contextMenuOrder: 6,
@@ -1832,7 +1832,7 @@ async function ensureEditor() {
   monacoEditor.addAction({
     id: 'grepnavi-range-memo-delete', label: '選択範囲のメモを削除',
     keybindings: [monaco.KeyCode.Delete],
-    // 選択が無いと何も消せない項目。常時出していると「メモを追加/編集」の
+    // 選択が無いと何も消せない項目。常時出していると「メモを追加／編集」の
     // 真隣に Delete の破壊操作が並ぶ
     precondition: 'editorHasSelection',
     contextMenuGroupId: '2_mark',
@@ -1868,7 +1868,7 @@ async function ensureEditor() {
   });
 
   monacoEditor.addAction({
-    id: 'grepnavi-snapshot', label: 'コードスナップショットを開く',
+    id: 'grepnavi-snapshot', label: 'コードスナップショットを作成',
     contextMenuGroupId: '4_tool',
     contextMenuOrder: 4,
     run: ed => exportSelectionSnapshot(ed), // → editor-snapshot.js
@@ -2170,11 +2170,11 @@ function openCallTreeFor(word) {
 }
 
 function callTreeMenuLabel() {
-  return calleeRange(monacoEditor?.getSelection()) ? '選択範囲のコールツリー' : 'コールツリー';
+  return calleeRange(monacoEditor?.getSelection()) ? '選択範囲のコールツリーを表示' : 'コールツリーを表示';
 }
 
 function calleeMenuLabel() {
-  return calleeRange(monacoEditor?.getSelection()) ? '選択範囲の呼び先' : 'いまいる関数の呼び先';
+  return calleeRange(monacoEditor?.getSelection()) ? '選択範囲の呼び出し先' : '現在の関数の呼び出し先';
 }
 
 async function openCalleePicker() {
@@ -2543,7 +2543,7 @@ function setRefStepList(rows, idx) {
   _refStep = rows && rows.length > 1 ? { rows: rows.slice(), idx } : null;
 }
 
-// clearRefStepList は grep 検索が新しい結果を出したときに呼ぶ。
+// clearRefStepList はテキスト検索が新しい結果を出したときに呼ぶ。
 // F3 の送り先が古い参照一覧のままだと、検索したのに別のものが送られる。
 function clearRefStepList() { _refStep = null; }
 
@@ -2555,7 +2555,7 @@ function clearRefStepList() { _refStep = null; }
 // 関数から決まるため。送っている途中で別ファイルへ移っていると、
 // 引き直したら別の関数の呼び先になってしまう。
 function openRefStepList() {
-  if(!_refStep) { flashAtCursor('送っている一覧がありません', 'warn'); return; }
+  if(!_refStep) { flashAtCursor('巡回中の結果一覧はありません', 'warn'); return; }
   fzfMode = 'ref';
   fzfRefWord = ''; // 入力しても引き直さない（並びを保つため手元で絞る）
   fzfRefs = _refStep.rows;
@@ -2565,7 +2565,7 @@ function openRefStepList() {
   fzfRefsFiltered = [];
   id('fzf-overlay').classList.add('open');
   id('fzf-input').value = '';
-  id('fzf-input').placeholder = '確認中の一覧（並び順そのまま。色付きが現在地）';
+  id('fzf-input').placeholder = '巡回中の結果一覧（並び順そのまま。色付きが現在地）';
   anchorFzfBox(takePickerAnchor());
   fzfRenderRefs('');
   reanchorFzfBox();
@@ -3048,7 +3048,7 @@ let _histPanel = null;
 let _histKeyHandler = null;
 
 function openHistoryPicker() {
-  if(navHistory.length < 2) { flashAtCursor('移動の履歴がまだありません'); return; }
+  if(navHistory.length < 2) { flashAtCursor('移動履歴がまだありません'); return; }
   closeHistoryPicker();
 
   const panel = document.createElement('div');
@@ -3056,7 +3056,7 @@ function openHistoryPicker() {
 
   const hdr = document.createElement('div');
   hdr.className = 'hist-hdr';
-  hdr.textContent = `移動の履歴  ${navIndex + 1} / ${navHistory.length}`;
+  hdr.textContent = `移動履歴  ${navIndex + 1} / ${navHistory.length}`;
   panel.appendChild(hdr);
 
   const list = document.createElement('div');
@@ -3113,7 +3113,7 @@ function closeHistoryPicker() {
 function renderHistoryPicker() {
   if(!_histPanel) return;
   _histPanel.querySelector('.hist-hdr').textContent =
-    `移動の履歴  ${navIndex + 1} / ${navHistory.length}`;
+    `移動履歴  ${navIndex + 1} / ${navHistory.length}`;
   const list = _histPanel.querySelector('.hist-list');
   list.innerHTML = '';
   navHistory.forEach((h, i) => {
@@ -3760,7 +3760,7 @@ function buildDefinitionParams(word, dir, glob, caseSensitive) {
   return p;
 }
 
-// ===== grep 検索（検索欄に表示） =====
+// ===== テキストを検索（検索欄に表示） =====
 async function grepSearchWord(word) {
   if(!word || word.length < 2) return;
   id('tab-search')?.click();
