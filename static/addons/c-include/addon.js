@@ -37,12 +37,16 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.id = 'btn-include-graph';
     btn.title = '#inc — インクルード依存グラフ (#include の依存関係を D3.js で可視化)';
     btn.textContent = '#inc';
+    btn.dataset.menuPanel = 'include-overlay';
     btn.dataset.menuLabel = 'インクルード依存グラフ';
     addonBar.appendChild(btn);
   }
 
   // イベント登録
-  document.getElementById('btn-include-graph').onclick    = openIncludeGraph;
+  document.getElementById('btn-include-graph').onclick = () => {
+    if (id('include-overlay').classList.contains('open')) closeIncludeGraph();
+    else openIncludeGraph();
+  };
   // オーバーレイ内のキー操作がメインアプリに漏れないようにする
   document.getElementById('include-overlay').addEventListener('keydown', e => e.stopPropagation());
   // Monaco のアクティブファイルが変わったら include-start も追従させる

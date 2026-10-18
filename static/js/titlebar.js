@@ -3,6 +3,82 @@
 // バインドしたときだけ動く。ブラウザで開いたときはバインドが無い = OS の枠があるので
 // バーごと出さない。サーバに聞かずに済ませるための、バインド有無による自己判定。
 (function () {
+
+  function appendTreeViewItems(menu, close) {
+      const toggles = [
+        { id: 'btn-node-sub', label: 'パス表示', hint: 'Alt+Shift+P', on: b => b.classList.contains('on') },
+        { id: 'btn-tree-memo', label: 'メモ表示', hint: 'Alt+Shift+N', on: b => b.classList.contains('on') },
+        { id: 'btn-tree-bands', label: 'ディレクトリで色分け', hint: '', on: b => b.classList.contains('on') },
+        { id: 'btn-tree-linememos', label: '行メモ表示', hint: '', on: b => b.classList.contains('on') },
+        { id: 'btn-view', label: 'グラフ表示 (D3)', hint: '', on: b => b.textContent === 'ツリー' },
+      ];
+      for (const t of toggles) {
+        const b = document.getElementById(t.id);
+        if (!b) continue;
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.setAttribute('role', 'menuitemcheckbox');
+        item.setAttribute('aria-checked', String(t.on(b)));
+        item.className = 'pmenu-item';
+        const left = document.createElement('span');
+        const tick = document.createElement('span');
+        tick.className = 'pmenu-tick';
+        tick.textContent = t.on(b) ? '✓' : '';
+        left.appendChild(tick);
+        left.appendChild(document.createTextNode(t.label));
+        item.appendChild(left);
+        if (t.hint) {
+          const hint = document.createElement('span');
+          hint.className = 'pmenu-hint';
+          hint.textContent = t.hint;
+          item.appendChild(hint);
+        }
+        item.onclick = () => { close(); b.click(); };
+        menu.appendChild(item);
+      }
+
+  }
+  const treeMenuBtn = document.getElementById('btn-tree-menu');
+  const treeMenu = document.createElement('div');
+  treeMenu.id = 'tree-view-menu';
+  treeMenu.setAttribute('role', 'menu');
+  treeMenu.setAttribute('aria-label', treeMenuBtn.getAttribute('aria-label'));
+  document.body.appendChild(treeMenu);
+  function closeTreeMenu(restoreFocus = false) {
+    treeMenu.classList.remove('open');
+    treeMenuBtn.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) treeMenuBtn.focus();
+  }
+  treeMenuBtn.onclick = e => {
+    e.stopPropagation();
+    if (treeMenu.classList.contains('open')) { closeTreeMenu(); return; }
+    document.getElementById('view-menu')?.classList.remove('open');
+    document.getElementById('project-menu')?.classList.remove('open');
+    treeMenu.replaceChildren();
+    appendTreeViewItems(treeMenu, () => closeTreeMenu(true));
+    treeMenu.classList.add('open');
+    treeMenuBtn.setAttribute('aria-expanded', 'true');
+    const r = treeMenuBtn.getBoundingClientRect();
+    treeMenu.style.left = Math.max(8, Math.min(r.right - treeMenu.offsetWidth, window.innerWidth - treeMenu.offsetWidth - 8)) + 'px';
+    treeMenu.style.top = Math.max(8, Math.min(r.bottom + 4, window.innerHeight - treeMenu.offsetHeight - 8)) + 'px';
+    treeMenu.querySelector('button')?.focus();
+  };
+  treeMenu.addEventListener('keydown', e => {
+    const items = [...treeMenu.querySelectorAll('button')];
+    const index = items.indexOf(document.activeElement);
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeTreeMenu(true); }
+    else if (e.key === 'Tab') closeTreeMenu(true);
+    else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) {
+      e.preventDefault();
+      const next = e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1
+        : (index + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+      items[next]?.focus();
+    }
+  });
+  document.addEventListener('click', e => {
+    if (!treeMenu.contains(e.target) && !treeMenuBtn.contains(e.target)) closeTreeMenu();
+  }, true);
+  window.addEventListener('resize', () => closeTreeMenu());
   if (typeof window.grepnaviWinDrag !== 'function') return;
   document.body.classList.add('frameless');
   const bar = document.getElementById('titlebar');
@@ -53,43 +129,24 @@
       heading('ノードツリー');
       // ツリーの描き方の切り替え。チェックは隠したボタンの現在状態から毎回読む
       // （btn-view のラベルは「切り替え先」を出すので、'ツリー' 表示中 = グラフ表示中）
-      const toggles = [
-        { id: 'btn-node-sub', label: 'パス表示', hint: 'Alt+Shift+P', on: b => b.classList.contains('on') },
-        { id: 'btn-tree-memo', label: 'メモ表示', hint: 'Alt+Shift+N', on: b => b.classList.contains('on') },
-        { id: 'btn-tree-bands', label: 'ディレクトリで色分け', hint: '', on: b => b.classList.contains('on') },
-        { id: 'btn-tree-linememos', label: '行メモ表示', hint: '', on: b => b.classList.contains('on') },
-        { id: 'btn-view', label: 'グラフ表示 (D3)', hint: '', on: b => b.textContent === 'ツリー' },
-      ];
-      for (const t of toggles) {
-        const b = document.getElementById(t.id);
-        if (!b) continue;
-        const item = document.createElement('div');
-        item.className = 'pmenu-item';
-        const left = document.createElement('span');
-        const tick = document.createElement('span');
-        tick.className = 'pmenu-tick';
-        tick.textContent = t.on(b) ? '✓' : '';
-        left.appendChild(tick);
-        left.appendChild(document.createTextNode(t.label));
-        item.appendChild(left);
-        if (t.hint) {
-          const hint = document.createElement('span');
-          hint.className = 'pmenu-hint';
-          hint.textContent = t.hint;
-          item.appendChild(hint);
-        }
-        item.onclick = () => { viewMenu.classList.remove('open'); b.click(); };
-        viewMenu.appendChild(item);
-      }
+      appendTreeViewItems(viewMenu, () => viewMenu.classList.remove('open'));
       const sep = document.createElement('div');
       sep.className = 'pmenu-separator';
       viewMenu.appendChild(sep);
-      heading('ビューを開く');
+      heading('ビューの表示');
       for (const b of document.querySelectorAll('#addon-buttons button')) {
-        const item = document.createElement('div');
+        const item = document.createElement('button');
+        item.type = 'button';
         item.className = 'pmenu-item';
+        const panel = document.getElementById(b.dataset.menuPanel || '');
+        const visible = !!panel?.classList.contains('open');
+        item.setAttribute('role', 'menuitemcheckbox');
+        item.setAttribute('aria-checked', String(visible));
         const label = document.createElement('span');
-        label.textContent = b.dataset.menuLabel || b.textContent;
+        const tick = document.createElement('span');
+        tick.className = 'pmenu-tick';
+        tick.textContent = visible ? '✓' : '';
+        label.append(tick, document.createTextNode(b.dataset.menuLabel || b.textContent));
         item.appendChild(label);
         if (b.dataset.menuHint) {
           const hint = document.createElement('span');

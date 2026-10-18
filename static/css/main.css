@@ -768,8 +768,13 @@ textarea{width:100%;background:#111;border:1px solid #444;color:#ddd;padding:4px
 .pmenu-tick{display:inline-block;width:16px;color:#4fc1ff}
 /* デスクトップ窓ではツリー描画の切り替えは「表示」メニュー、消去はタブ右クリックへ */
 body.frameless #tree-tab-actions,body.frameless #tree-toolbar{display:none}
-#view-menu{display:none;position:fixed;z-index:var(--z-dropdown);background:#2d2d2d;border:1px solid #555;border-radius:3px;min-width:200px;box-shadow:0 4px 12px rgba(0,0,0,0.5);padding:3px 0}
-#project-menu.open,#view-menu.open{display:block}
+#view-menu,#tree-view-menu{display:none;position:fixed;z-index:var(--z-dropdown);background:#2d2d2d;border:1px solid #555;border-radius:3px;min-width:200px;max-height:calc(100vh - 16px);overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,0.5);padding:3px 0}
+#project-menu.open,#view-menu.open,#tree-view-menu.open{display:block}
+#btn-tree-menu{margin-left:auto;flex-shrink:0;background:transparent;color:#bbb;font-size:18px;line-height:1;padding:3px 8px}
+#btn-tree-menu:hover,#btn-tree-menu[aria-expanded=true]{background:#3c3c3c;color:#fff}
+#tree-view-menu button.pmenu-item,#view-menu button.pmenu-item{width:100%;background:transparent;border:0;border-radius:0;text-align:left;font-family:var(--font-ui);gap:24px}
+#tree-view-menu button.pmenu-item:hover,#tree-view-menu button.pmenu-item:focus-visible,#view-menu button.pmenu-item:hover,#view-menu button.pmenu-item:focus-visible{background:#094771;color:#fff;outline:1px solid #75beff;outline-offset:-1px}
+#btn-tree-menu:focus-visible{outline:2px solid #75beff;outline-offset:-2px}
 /* ホバーで右に開く子メニュー（VSCode の「最近使用した項目を開く」型） */
 .pmenu-sub-parent{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .pmenu-sub-arrow{font-size:10px;opacity:.55}

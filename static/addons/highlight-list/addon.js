@@ -30,6 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.id = 'btn-highlight-list';
     btn.className = 'sec';
     btn.textContent = 'hl';
+    btn.dataset.menuPanel = 'hll-sidebar';
     btn.dataset.menuLabel = 'ハイライト一覧';
     btn.dataset.menuHint = 'Alt+Shift+H';
     btn.title = 'hl — ハイライト一覧 (追跡ハイライトの出現箇所を開いているタブから一覧)  Alt+Shift+H';

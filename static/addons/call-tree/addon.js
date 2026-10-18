@@ -51,6 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.id = 'btn-call-tree';
     btn.className = 'sec';
     btn.textContent = 'ct';
+    btn.dataset.menuPanel = 'ct-sidebar';
     btn.dataset.menuLabel = 'コールツリー';
     btn.dataset.menuHint = 'Ctrl+Shift+T';
     btn.title = 'ct — Call Tree (関数の callers / callees をツリー表示)  Ctrl+Shift+T';

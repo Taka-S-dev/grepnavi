@@ -33,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.id = 'btn-jump-stack';
     btn.className = 'sec';
     btn.textContent = 'stk';
+    btn.dataset.menuPanel = 'jst-sidebar';
     btn.dataset.menuLabel = 'ジャンプスタック';
     btn.dataset.menuHint = 'Alt+Y';
     btn.title = 'stk — Jump Stack (定義・参照へ飛んで潜っている段の一覧)  Alt+Y';

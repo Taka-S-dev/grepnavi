@@ -39,6 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.id = 'btn-ref-map';
     btn.className = 'sec';
     btn.textContent = 'map';
+    btn.dataset.menuPanel = 'rm-sidebar';
     btn.dataset.menuLabel = '参照マップ';
     btn.title = 'map — 参照マップ (どこがどこを参照しているか)';
     addonBar.appendChild(btn);
