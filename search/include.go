@@ -158,7 +158,7 @@ func BuildIncludeGraph(ctx context.Context, dir, glob string) (*IncludeGraph, er
 
 	args := []string{"--json"}
 	for _, g := range strings.FieldsFunc(glob, func(r rune) bool { return r == ' ' || r == ',' }) {
-		args = append(args, "--glob", strings.TrimSpace(g))
+		args = append(args, "--iglob", strings.TrimSpace(g))
 	}
 	// "..." と <...> の両方をマッチ
 	args = append(args, "--", `#\s*include\s*(?:"[^"]+"|<[^>]+>)`, dir)
@@ -388,7 +388,7 @@ func GetIncludedBy(absFile, root, glob string) ([]IncludeNode, error) {
 	pattern := `#\s*include\s*(?:"` + quotedBase + `"|<[^>]*` + quotedBase + `>)`
 	args := []string{"--json", "--no-heading"}
 	for _, g := range strings.FieldsFunc(glob, func(r rune) bool { return r == ' ' || r == ',' }) {
-		args = append(args, "--glob", strings.TrimSpace(g))
+		args = append(args, "--iglob", strings.TrimSpace(g))
 	}
 	args = append(args, "--", pattern, root)
 

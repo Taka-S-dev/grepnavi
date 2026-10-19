@@ -120,8 +120,10 @@ func buildArgs(opts Options) []string {
 			}
 		}
 	}
+	// 含めるファイルは大文字小文字を区別しない。Windows と macOS のファイル
+	// システムが区別しないので、`*.c` で `FOO.C` が外れると見落としに気づけない
 	for _, g := range splitGlobs(opts.FileGlob) {
-		args = append(args, "--glob", g)
+		args = append(args, "--iglob", g)
 	}
 	// プロジェクト設定の除外。--glob より後ろに置く。rg は後勝ちなので、
 	// 検索ごとの絞り込みで「対象外」の宣言を覆せないようにする
@@ -155,7 +157,7 @@ func GlobMatchesAnyFile(ctx context.Context, dir, glob string) bool {
 
 	args := []string{"--files"}
 	for _, g := range splitGlobs(glob) {
-		args = append(args, "--glob", g)
+		args = append(args, "--iglob", g)
 	}
 	args = append(args, dir)
 	cmd := proc.CommandContext(ctx, "rg", args...)

@@ -374,7 +374,7 @@ func (h *Handler) handleFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	args := []string{"--files"}
 	for _, g := range strings.FieldsFunc(glob, func(r rune) bool { return r == ',' || r == ' ' }) {
-		args = append(args, "--glob", g)
+		args = append(args, "--iglob", g) // 検索の「含めるファイル」と同じく大文字小文字を区別しない
 	}
 	args = append(args, search.RgIgnoreArgs()...)
 	args = append(args, root)

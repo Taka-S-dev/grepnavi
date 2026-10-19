@@ -57,7 +57,7 @@ func TestBuildArgsUserGlobOverridesIndexExclusion(t *testing.T) {
 	}
 	args := buildArgs(Options{Pattern: "foo", Dir: dir, FileGlob: "tags"})
 	excl := argsIndex(args, "--glob", "!tags")
-	user := argsIndex(args, "--glob", "tags")
+	user := argsIndex(args, "--iglob", "tags")
 	if excl < 0 || user < 0 {
 		t.Fatalf("expected both globs present, args: %v", args)
 	}
