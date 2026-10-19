@@ -1581,8 +1581,8 @@ async function ensureEditor() {
 
   monacoEditor.addAction({
     id: 'grepnavi-open-external', label: '外部エディタで開く',
-    contextMenuGroupId: '4_tool',
-    contextMenuOrder: 2,
+    // 右クリックには出さない: エディタの上のボタンと Alt+Shift+E で足り、
+    // 常時出る項目の枠（12 件）は字下げの縦線に使う
     // Alt+E は移動系（定義をプレビュー）に譲った
     keybindings: [monaco.KeyMod.Alt | monaco.KeyMod.Shift | monaco.KeyCode.KeyE],
     run: ed => {
@@ -1742,11 +1742,13 @@ async function ensureEditor() {
     }
   });
 
-  // Alt+K → カーソルのある字下げ段に縦線を付ける/消す。右クリックメニューは
-  // 常時 12 件の上限に達しているのでキーだけにし、ヘルプに載せる。
+  // Alt+K / 右クリック → カーソルのある字下げ段に縦線を付ける/消す。
+  // 全部消すほうはキーだけ（メニューに並べると押し間違えやすい）
   monacoEditor.addAction({
-    id: 'grepnavi-toggle-ruler', label: '字下げの縦線を付ける/消す',
+    id: 'grepnavi-toggle-ruler', label: '字下げの縦線を付ける／消す',
     keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyK],
+    contextMenuGroupId: '2_mark',
+    contextMenuOrder: 7,
     run: ed => toggleIndentRuler(ed),
   });
   monacoEditor.addAction({
