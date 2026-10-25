@@ -2746,6 +2746,11 @@ function _fzfPreviewEditorEnsure(host) {
   // そのまま当てられる。マクロ一覧はモデルの URI のパスから引くので、専用モデルの URI も
   // 実ファイルのパスにしてある（_fzfPreviewModelFor）
   if (typeof initEditorC === 'function') initEditorC(_fzfPreviewEditor, monaco);
+  // プレビューをクリックしてフォーカスがこちらにあるときも Esc で閉じる（入力欄と同じ）。
+  // Monaco のコマンドと DOM の両方で受ける: Monaco が別のコマンド（補完の取り消し等）に
+  // 渡した場合でも、箱の側で拾えるように
+  _fzfPreviewEditor.addCommand(monaco.KeyCode.Escape, () => closeFzf());
+  host.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); closeFzf(); } }, true);
   // 行をダブルクリックしたらそこを開く。シングルクリックは残す: 読み取り専用でも
   // 範囲選択とコピーはできるので、1 回で飛ぶとそれができない
   _fzfPreviewEditor.onMouseDown(ev => {
