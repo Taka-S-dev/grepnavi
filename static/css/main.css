@@ -855,7 +855,9 @@ body.frameless #tree-tab-actions,body.frameless #tree-toolbar{display:none}
 #fzf-overlay.with-preview #fzf-split:hover,#fzf-overlay.with-preview #fzf-split.active{background:#007acc}
 #fzf-overlay.with-preview #fzf-preview{display:flex;flex-direction:column;flex:1 1 0;min-width:0;border-left:1px solid #333}
 #fzf-preview .fp-head{flex:none;padding:4px 10px;color:#9aa0a6;font-size:11px;background:#252526;border-bottom:1px solid #333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#fzf-preview .np-code{flex:1 1 0;min-height:0}
+#fzf-preview .fp-editor{flex:1 1 0;min-height:0}
+.fzf-preview-hit{background:rgba(255,200,0,.14)}
+.fzf-preview-hit-gutter{background:#e8c45a;width:3px !important;margin-left:2px}
 #fzf-preview .fp-empty{padding:14px;color:#666;font-size:11px}
 @media (max-width:900px){
   #fzf-overlay.with-preview #fzf-main{flex-direction:column;height:78vh}

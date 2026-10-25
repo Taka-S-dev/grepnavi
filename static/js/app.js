@@ -262,6 +262,14 @@ addEventListener('DOMContentLoaded', async () => {
     if(e.key === 'Enter')      { fzfActivate(fzfSelIdx); }
     if(e.key === 'Escape')     { closeFzf(); }
     if((e.ctrlKey || e.metaKey) && e.key === '/') { e.preventDefault(); fzfSetPreview(!_fzfPreviewOn); }
+    // プレビューを入力欄から離れずに送る（Telescope の C-u / C-d に当たる）
+    if(e.key === 'PageDown' || e.key === 'PageUp') {
+      const ed = typeof _fzfPreviewEditor !== 'undefined' && _fzfPreviewEditor;
+      if(ed && ed.getDomNode()?.isConnected) {
+        e.preventDefault();
+        ed.setScrollTop(ed.getScrollTop() + (e.key === 'PageDown' ? 1 : -1) * ed.getLayoutInfo().height * 0.8);
+      }
+    }
     // 代入一覧から一段深い見方へ。同じ問い（どこで書き換えているか）に
     // 一覧とパネルの2つの答えがあると、どちらを開くか決められない。
     // 速い方を既定にして、値まで見たいときだけ深い方へ渡す

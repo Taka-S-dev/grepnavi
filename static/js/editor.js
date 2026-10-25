@@ -2713,39 +2713,112 @@ function fzfSchedulePreview() {
   _fzfPreviewTimer = setTimeout(fzfUpdatePreview, _FZF_PREVIEW_DELAY_MS);
 }
 
+// プレビューは読み取り専用の Monaco をもう 1 つ置き、ファイル全体を載せる。
+// 切り出した行を色付けした HTML で出していた頃は、範囲（前後 N 行）を決める必要が
+// あり、色付けもエディタとは別経路で再実装していた。エディタに載せれば範囲は無く、
+// 色も表示も本物と同じになる。見えている範囲しか描かないので、長いファイルでも軽い。
+// モデルは、開いているタブのものがあればそれを共有し、無ければプレビュー専用の
+// ものをファイルごとに作り直す（同時に 1 つ。候補を眺めただけでタブ用のモデルを増やさない）
+let _fzfPreviewEditor = null;
+let _fzfPreviewModel = null;   // 専用モデル（開いていないファイルの中身を差し替えて使う）
+let _fzfPreviewFile = '';      // 専用モデルに入っているファイル
+let _fzfPreviewDecos = [];
+// 枠を作り直すときはエディタも捨てる。捨てずに作り直すと、見えない Monaco が増え続ける
+function _fzfPreviewEditorDrop() {
+  if (_fzfPreviewEditor) { try { _fzfPreviewEditor.dispose(); } catch (_) {} }
+  _fzfPreviewEditor = null; _fzfPreviewDecos = [];
+}
+function _fzfPreviewEditorEnsure(host) {
+  if (_fzfPreviewEditor && _fzfPreviewEditor.getDomNode()?.isConnected) return _fzfPreviewEditor;
+  _fzfPreviewEditorDrop();
+  _fzfPreviewEditor = monaco.editor.create(host, {
+    value: '', language: 'plaintext', readOnly: true,
+    theme: typeof monacoEditor !== 'undefined' && monacoEditor ? undefined : 'vs-dark',
+    minimap: { enabled: false }, scrollBeyondLastLine: false,
+    fontSize: parseInt(localStorage.getItem('grepnavi-font-size')) || 12,
+    lineNumbers: 'on', lineNumbersMinChars: 4, wordWrap: 'off',
+    contextmenu: false, automaticLayout: true, renderLineHighlight: 'none',
+    occurrencesHighlight: 'off', selectionHighlight: false,
+    scrollbar: { alwaysConsumeMouseWheel: false },
+    fixedOverflowWidgets: true,
+  });
+  // 本体と同じ C の重ね色（マクロ・関数呼び出し・static 変数）。エディタ単位の仕組みなので
+  // そのまま当てられる。マクロ一覧はモデルの URI のパスから引くので、専用モデルの URI も
+  // 実ファイルのパスにしてある（_fzfPreviewModelFor）
+  if (typeof initEditorC === 'function') initEditorC(_fzfPreviewEditor, monaco);
+  // 行をダブルクリックしたらそこを開く。シングルクリックは残す: 読み取り専用でも
+  // 範囲選択とコピーはできるので、1 回で飛ぶとそれができない
+  _fzfPreviewEditor.onMouseDown(ev => {
+    if ((ev.event?.detail || 0) < 2) return;
+    const file = _fzfPreviewEditor._grepnaviFile;
+    const ln = ev.target?.position?.lineNumber;
+    if (!file || !ln) return;
+    closeFzf();
+    if (fzfMode === 'ref' || _fzfSymbolQuery(id('fzf-input').value) !== null) navMarkOrigin();
+    openPeek(file, ln).then(focusEditorAfterJump);
+  });
+  return _fzfPreviewEditor;
+}
+
+// file のモデル。開いているタブ（どの画面でも）のものがあれば共有し、無ければ
+// 専用モデルに中身を入れる。同じファイルなら取りに行かない
+async function _fzfPreviewModelFor(file) {
+  const norm = f => (f || '').replace(/\\/g, '/');
+  const same = t => norm(t.file) === norm(file);
+  const list = [...tabs, ...(typeof _screens !== 'undefined' ? _screens.flatMap(s => s.tabs) : [])];
+  const tab = list.find(t => same(t) && t.model && !t.model.isDisposed?.() && !t.error);
+  if (tab) return tab.model;
+  if (_fzfPreviewModel && !_fzfPreviewModel.isDisposed?.() && _fzfPreviewFile === norm(file)) return _fzfPreviewModel;
+  const r = await fetch('/api/file?' + new URLSearchParams({ file }));
+  if (!r.ok) return null;
+  const text = await r.text();
+  const lang = detectLang(file) || 'plaintext';
+  // ファイルごとに作り直す（URI にパスを持たせるため）。前のものはエディタに
+  // 新しいモデルを載せてから捨てる（fzfUpdatePreview）
+  _fzfPreviewOldModel = _fzfPreviewModel;
+  _fzfPreviewModel = monaco.editor.createModel(text, lang, monaco.Uri.from({ scheme: 'grepnavi-preview', path: norm(file) }));
+  _fzfPreviewFile = norm(file);
+  return _fzfPreviewModel;
+}
+let _fzfPreviewOldModel = null;
+
 async function fzfUpdatePreview() {
   const pv = id('fzf-preview');
   if(!pv || !_fzfPreviewOn) return;
   const seq = ++_fzfPreviewSeq;
   const t = fzfPreviewTarget();
-  if(!t) { pv.innerHTML = '<div class="fp-empty">選んだ行の前後がここに出ます</div>'; return; }
-  // すぐ取れるときは前の内容を残したまま差し替える。待たされたときだけ印を出す
-  const busyT = setTimeout(() => {
-    if(seq === _fzfPreviewSeq) pv.innerHTML = '<div class="fp-empty"><span class="gn-spinner"></span>読み込み中…</div>';
-  }, 250);
+  if(!t) { _fzfPreviewEditorDrop(); pv.innerHTML = '<div class="fp-empty">選んだ行の前後がここに出ます</div>'; return; }
   let file = t.file, line = t.line, label = '';
   if(t.callee) {
     const d = await calleeDefLocation(t.callee);
-    if(seq !== _fzfPreviewSeq) { clearTimeout(busyT); return; }
+    if(seq !== _fzfPreviewSeq) return;
     if(d) { file = d.file; line = d.line; label = '定義  '; }
     else label = '呼び出し行（定義は見つかりません）  ';
   }
-  const code = await loadCodePreview(file, line, t.top ? 40 : 30, { noMatch: !!t.top });
-  clearTimeout(busyT);
+  if (typeof loadMonaco === 'function') await loadMonaco();
+  const model = await _fzfPreviewModelFor(file);
   if(seq !== _fzfPreviewSeq) return;
-  if(!code) { pv.innerHTML = '<div class="fp-empty">プレビューを取得できませんでした</div>'; return; }
-  pv.innerHTML = `<div class="fp-head">${esc(label + shortPath(file))}${t.top ? '' : ':' + line}</div>`
-    + `<div class="np-code"><div class="np-lines">${code.html}</div></div>`;
-  const box = pv.querySelector('.np-code');
-  code.apply(box);
-  box.onclick = async e => {
-    const ln = e.target.closest('.np-line');
-    if(!ln) return;
-    closeFzf();
-    if(fzfMode === 'ref' || _fzfSymbolQuery(id('fzf-input').value) !== null) navMarkOrigin();
-    await openPeek(file, Number(ln.dataset.line));
-    focusEditorAfterJump();
-  };
+  if(!model) { _fzfPreviewEditorDrop(); pv.innerHTML = '<div class="fp-empty">プレビューを取得できませんでした</div>'; return; }
+  // 枠は作り直さない（エディタを毎回作ると遅い）。見出しだけ差し替える
+  let head = pv.querySelector('.fp-head'), host = pv.querySelector('.fp-editor');
+  if (!head || !host) {
+    _fzfPreviewEditorDrop();
+    pv.innerHTML = '<div class="fp-head"></div><div class="fp-editor"></div>';
+    head = pv.querySelector('.fp-head'); host = pv.querySelector('.fp-editor');
+  }
+  head.textContent = label + shortPath(file) + (t.top ? '' : ':' + line);
+  const ed = _fzfPreviewEditorEnsure(host);
+  ed._grepnaviFile = file;
+  if (ed.getModel() !== model) ed.setModel(model);
+  if (_fzfPreviewOldModel && _fzfPreviewOldModel !== model && !_fzfPreviewOldModel.isDisposed?.()) { try { _fzfPreviewOldModel.dispose(); } catch (_) {} }
+  _fzfPreviewOldModel = null;
+  const ln = t.top ? 1 : Math.max(1, Math.min(line, model.getLineCount()));
+  _fzfPreviewDecos = ed.deltaDecorations(_fzfPreviewDecos, t.top ? [] : [{
+    range: new monaco.Range(ln, 1, ln, 1),
+    options: { isWholeLine: true, className: 'fzf-preview-hit', linesDecorationsClassName: 'fzf-preview-hit-gutter' },
+  }]);
+  if (t.top) ed.revealLine(1); else ed.revealLineInCenter(ln);
+  ed.setPosition({ lineNumber: ln, column: 1 });
 }
 
 function fzfSetPreview(on) {
