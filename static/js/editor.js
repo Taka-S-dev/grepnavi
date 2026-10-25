@@ -2742,9 +2742,50 @@ function fzfSetPreview(on) {
   if(_fzfPreviewOn) fzfUpdatePreview();
 }
 
+// 一覧とプレビューの比率。長いパスの多いツリーでは一覧を広く、短い名前ばかりなら
+// プレビューを広く、と相手で最適が変わるので固定値にしない。覚えておく
+const FZF_SPLIT_DEFAULT = 42;
+function fzfApplySplit(pct) {
+  id('fzf-overlay').style.setProperty('--fzf-list-pct', pct + '%');
+}
+function initFzfSplit() {
+  const split = id('fzf-split');
+  if(!split) return;
+  let saved = 0;
+  try { saved = parseFloat(localStorage.getItem('grepnavi-picker-split')) || 0; } catch (_) {}
+  if(saved) fzfApplySplit(saved);
+  split.onmousedown = e => {
+    e.preventDefault();
+    const main = id('fzf-main').getBoundingClientRect();
+    let pct = saved || FZF_SPLIT_DEFAULT;
+    split.classList.add('active');
+    const move = ev => {
+      pct = Math.round(Math.min(80, Math.max(20, (ev.clientX - main.left) / main.width * 100)));
+      fzfApplySplit(pct);
+    };
+    const up = () => {
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+      split.classList.remove('active');
+      saved = pct;
+      try { localStorage.setItem('grepnavi-picker-split', String(pct)); } catch (_) {}
+      id('fzf-input').focus();
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  };
+  split.ondblclick = () => {
+    saved = 0;
+    id('fzf-overlay').style.removeProperty('--fzf-list-pct');
+    try { localStorage.removeItem('grepnavi-picker-split'); } catch (_) {}
+    id('fzf-input').focus();
+  };
+}
+
 function initFzfPreview() {
   id('fzf-overlay').classList.toggle('with-preview', _fzfPreviewOn);
   id('fzf-preview-toggle').onclick = () => { fzfSetPreview(!_fzfPreviewOn); id('fzf-input').focus(); };
+  initFzfSplit();
   // マウスで行をなぞったら、その行を選択にしてプレビューも追従させる。
   // 強調されている行と、横に見えているコードが食い違わないようにする。
   id('fzf-list').addEventListener('mousemove', e => {

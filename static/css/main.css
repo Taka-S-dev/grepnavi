@@ -848,7 +848,11 @@ body.frameless #tree-tab-actions,body.frameless #tree-toolbar{display:none}
 #fzf-overlay.with-preview:not(.anchored){align-items:center;padding-top:0}
 #fzf-overlay.with-preview #fzf-box{width:min(1500px,92vw);max-width:none}
 #fzf-overlay.with-preview #fzf-main{height:min(74vh,900px)}
-#fzf-overlay.with-preview #fzf-list{flex:0 0 42%;max-height:none}
+#fzf-overlay.with-preview #fzf-list{flex:0 0 var(--fzf-list-pct,42%);max-height:none}
+/* 一覧とプレビューの境目。ドラッグで比率を変える（editor.js initFzfPreview）。幅は細いので当たりを広げる */
+#fzf-split{display:none}
+#fzf-overlay.with-preview #fzf-split{display:block;flex:0 0 6px;margin:0 -2px;cursor:col-resize;background:transparent;z-index:1}
+#fzf-overlay.with-preview #fzf-split:hover,#fzf-overlay.with-preview #fzf-split.active{background:#007acc}
 #fzf-overlay.with-preview #fzf-preview{display:flex;flex-direction:column;flex:1 1 0;min-width:0;border-left:1px solid #333}
 #fzf-preview .fp-head{flex:none;padding:4px 10px;color:#9aa0a6;font-size:11px;background:#252526;border-bottom:1px solid #333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #fzf-preview .np-code{flex:1 1 0;min-height:0}
@@ -857,6 +861,7 @@ body.frameless #tree-tab-actions,body.frameless #tree-toolbar{display:none}
   #fzf-overlay.with-preview #fzf-main{flex-direction:column;height:78vh}
   #fzf-overlay.with-preview #fzf-list{flex:0 0 45%}
   #fzf-overlay.with-preview #fzf-preview{border-left:none;border-top:1px solid #333}
+  #fzf-overlay.with-preview #fzf-split{display:none}
 }
 .fzf-item{padding:5px 14px;font-size:12px;color:#aaa;cursor:pointer;display:flex;align-items:baseline;gap:6px;white-space:nowrap;overflow:hidden}
 .fzf-item:hover,.fzf-item.fzf-sel{background:#094771;color:#fff}
