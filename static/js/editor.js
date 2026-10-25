@@ -2886,19 +2886,8 @@ function initFzfPreview() {
   id('fzf-preview-toggle').onclick = () => { fzfSetPreview(!_fzfPreviewOn); id('fzf-input').focus(); };
   id('fzf-max-toggle').onclick = () => { fzfSetMax(!_fzfMax); id('fzf-input').focus(); };
   initFzfSplit();
-  // マウスで行をなぞったら、その行を選択にしてプレビューも追従させる。
-  // 強調されている行と、横に見えているコードが食い違わないようにする。
-  id('fzf-list').addEventListener('mousemove', e => {
-    const row = e.target.closest('.fzf-item');
-    if(!row) return;
-    const items = [...id('fzf-list').querySelectorAll('.fzf-item')];
-    const idx = items.indexOf(row);
-    if(idx < 0 || idx === fzfSelIdx) return;
-    items[fzfSelIdx]?.classList.remove('fzf-sel');
-    fzfSelIdx = idx;
-    row.classList.add('fzf-sel');
-    fzfSchedulePreview();
-  });
+  // マウスで行をなぞっても選択は動かさない。なぞっただけでプレビューが切り替わると、
+  // ポインタを横切らせるたびに見ていたコードが入れ替わる。選ぶのはクリックか ↑↓
 }
 if(typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', initFzfPreview);
 
