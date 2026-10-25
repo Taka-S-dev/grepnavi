@@ -2293,13 +2293,13 @@ function fzfRenderRefs(query) {
     div.appendChild(name);
     div.appendChild(loc);
     div.appendChild(code);
-    div.onclick = async () => {
+    fzfRowClicks(div, i, async () => {
       setRefStepList(fzfRefsFiltered, i);
       closeFzf();
       if(ref.callee) await jumpToDefinition(ref.callee);
       else { navMarkOrigin(); await openPeek(ref.file, ref.line); }
       focusEditorAfterJump();
-    };
+    });
     list.appendChild(div);
   });
   // 現在地があればそこを選択に、無ければ先頭を選ぶ
@@ -2404,6 +2404,20 @@ function _fzfSymbolQuery(query) {
   return null;
 }
 
+// 一覧の行のマウス操作。クリックは選ぶだけ（プレビューが追従）、ダブルクリックで開く。
+// クリックで開くと、プレビューで確かめようとして押した行にそのまま飛んでしまう
+function fzfRowClicks(div, i, open) {
+  div.onclick = () => {
+    const items = [...id('fzf-list').querySelectorAll('.fzf-item')];
+    items[fzfSelIdx]?.classList.remove('fzf-sel');
+    fzfSelIdx = i;
+    div.classList.add('fzf-sel');
+    fzfSchedulePreview();
+    id('fzf-input').focus();
+  };
+  div.ondblclick = open;
+}
+
 function fzfRender(query) {
   if(fzfMode === 'ref') { fzfRenderRefs(query); return; }
   const symQuery = _fzfSymbolQuery(query);
@@ -2464,7 +2478,7 @@ function fzfRender(query) {
       tag.textContent = t.screen === currentScreenIndex() ? (t.active ? '表示中' : '開いている') : `画面 ${t.screen + 1}`;
       div.appendChild(tag);
     }
-    div.onclick = () => fzfOpen(f, fzfLine);
+    fzfRowClicks(div, i, () => fzfOpen(f, fzfLine));
     list.appendChild(div);
   });
   fzfSchedulePreview();
@@ -2524,7 +2538,7 @@ function fzfRenderSymbols(query) {
                       + `<span class="fzf-name">${fzfHighlight(s.name || s.text || '', query)}</span>`
                       + `<span class="fzf-dir">${esc(rel)}:${s.line}</span>`;
         // Enter (fzfActivate) と同じく、飛ぶ1件だけ索引のずれを補正してから開く
-        div.onclick = async () => { closeFzf(); navMarkOrigin(); openPeek(s.file, await healedSymbolLine(s)); };
+        fzfRowClicks(div, i, async () => { closeFzf(); navMarkOrigin(); openPeek(s.file, await healedSymbolLine(s)); });
         list.appendChild(div);
       });
       fzfSchedulePreview();
