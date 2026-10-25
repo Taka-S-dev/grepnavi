@@ -2869,9 +2869,22 @@ function initFzfSplit() {
   };
 }
 
+// 最大化。窓いっぱいに広げる。次回も覚えておく（広く使う人は毎回広く使う）
+let _fzfMax = false;
+try { _fzfMax = localStorage.getItem('grepnavi-picker-max') === '1'; } catch (_) {}
+function fzfSetMax(on) {
+  _fzfMax = !!on;
+  try { localStorage.setItem('grepnavi-picker-max', on ? '1' : '0'); } catch (_) {}
+  id('fzf-overlay').classList.toggle('maximized', _fzfMax);
+  reanchorFzfBox();
+  if(_fzfPreviewOn) fzfUpdatePreview(); // 高さが変わったので選んだ行を中央に置き直す
+}
+
 function initFzfPreview() {
   id('fzf-overlay').classList.toggle('with-preview', _fzfPreviewOn);
+  id('fzf-overlay').classList.toggle('maximized', _fzfMax);
   id('fzf-preview-toggle').onclick = () => { fzfSetPreview(!_fzfPreviewOn); id('fzf-input').focus(); };
+  id('fzf-max-toggle').onclick = () => { fzfSetMax(!_fzfMax); id('fzf-input').focus(); };
   initFzfSplit();
   // マウスで行をなぞったら、その行を選択にしてプレビューも追従させる。
   // 強調されている行と、横に見えているコードが食い違わないようにする。

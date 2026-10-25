@@ -262,6 +262,8 @@ addEventListener('DOMContentLoaded', async () => {
     if(e.key === 'Enter')      { fzfActivate(fzfSelIdx); }
     if(e.key === 'Escape')     { closeFzf(); }
     if((e.ctrlKey || e.metaKey) && e.key === '/') { e.preventDefault(); fzfSetPreview(!_fzfPreviewOn); }
+    // 入力欄の中なので、エディタの Alt+M（メモ表示）とは衝突しない
+    if(e.altKey && !e.shiftKey && (e.key === 'm' || e.key === 'M')) { e.preventDefault(); fzfSetMax(!_fzfMax); }
     // プレビューを入力欄から離れずに送る（Telescope の C-u / C-d に当たる）
     if(e.key === 'PageDown' || e.key === 'PageUp') {
       const ed = typeof _fzfPreviewEditor !== 'undefined' && _fzfPreviewEditor;

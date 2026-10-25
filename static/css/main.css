@@ -844,6 +844,14 @@ body.frameless #tree-tab-actions,body.frameless #tree-toolbar{display:none}
 #fzf-preview-toggle{background:none;border:none;color:#777;cursor:pointer;padding:0 2px;font-size:14px;display:flex;align-items:center}
 #fzf-preview-toggle:hover{color:#ccc}
 #fzf-overlay.with-preview #fzf-preview-toggle{color:#4fc1ff}
+#fzf-max-toggle{background:none;border:none;color:#777;cursor:pointer;padding:0 2px;font-size:14px;display:flex;align-items:center}
+#fzf-max-toggle:hover{color:#ccc}
+#fzf-overlay.maximized #fzf-max-toggle{color:#4fc1ff}
+/* 最大化: 窓いっぱいに広げる（Alt+M）。プレビュー無しのときは幅だけ広げても意味が無いので縦も伸ばす */
+#fzf-overlay.maximized:not(.anchored){align-items:stretch;padding:8px}
+#fzf-overlay.maximized:not(.anchored) #fzf-box{width:auto;max-width:none;flex:1;height:calc(100vh - 16px)}
+#fzf-overlay.maximized:not(.anchored) #fzf-main{height:auto;flex:1;min-height:0}
+#fzf-overlay.maximized:not(.anchored) #fzf-list{max-height:none}
 /* 縦も中央。上端からの余白で決めると、箱の高さとの差のぶん上に寄る */
 #fzf-overlay.with-preview:not(.anchored){align-items:center;padding-top:0}
 #fzf-overlay.with-preview #fzf-box{width:min(1500px,92vw);max-width:none}
