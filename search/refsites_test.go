@@ -477,3 +477,65 @@ func TestFindRefSitesEmptyFilterResultDoesNotFallBackToRg(t *testing.T) {
 		t.Errorf("filter matches nothing, got %+v", sites)
 	}
 }
+
+// 絞り込みの語は囲む関数名にも当たる。一覧の左の列に見えている名前で絞れないと、
+// 「read で 0 件」のように列と答えが食い違う（SSL3_RT_ALERT の参照で実際に
+// 起きた: 一致していたのは dtls1_read_bytes という関数名だけだった）。
+// 索引経路は解決前に関数名を知らないので、肯定の語は解決後に掛け直す必要がある。
+func TestFindRefSitesFilterMatchesEnclosingFunc(t *testing.T) {
+	dir := writeRefFixture(t)
+	// 絞る語は tbl（関数ポインタ表の変数名）。パスにも行にも出てこないので、
+	// 囲む名前で絞れたことだけが残る理由になる。user は Windows の一時フォルダ
+	// （C:/Users/…）のパスに当たるので使えない
+	check := func(name string, q RefQuery) {
+		t.Helper()
+		q.Word, q.Root, q.Limit, q.Filter = "helper", dir, 100, "tbl"
+		sites, _, _, err := FindRefSites(context.Background(), q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(sites) != 1 || sites[0].Func != "tbl" {
+			t.Fatalf("%s: filter by enclosing name: got %+v, want only the row inside tbl", name, sites)
+		}
+		q.Filter = "-tbl"
+		rest, _, _, err := FindRefSites(context.Background(), q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rest) == 0 {
+			t.Fatalf("%s: -tbl removed everything", name)
+		}
+		for _, s := range rest {
+			if s.Func == "tbl" {
+				t.Errorf("%s: -tbl kept the row inside tbl: %+v", name, s)
+			}
+		}
+	}
+	check("rg", RefQuery{NoIndex: true})
+	if _, err := exec.LookPath("gtags"); err != nil {
+		return
+	}
+	if err := GtagsBuildIndex(context.Background(), dir); err != nil || !GtagsAvailable(dir) {
+		return
+	}
+	check("gtags", RefQuery{})
+}
+
+// 予算で切る前に、字面で当たる行を前へ出す。これが無いと、肯定の語を解決後に
+// 掛けるようにした時点で、予算の外にある「行の字面で当たる参照」が落ちる
+// （openssl の ret を read で絞ると、全件に届いていた 92 件が予算内の分だけになる）。
+func TestSureMatchesFirstKeepsTextMatchesAheadOfBudget(t *testing.T) {
+	hits := []DefHit{
+		{File: "a.c", Line: 1, Text: "x = f(1);"},
+		{File: "a.c", Line: 2, Text: "read(f);"},
+		{File: "b.c", Line: 3, Text: "y = f(2);"},
+		{File: "read_dir/c.c", Line: 4, Text: "f(3);"},
+	}
+	got := sureMatchesFirst(hits, parseRefFilter("read"))
+	if len(got) != 4 || got[0].Line != 2 || got[1].Line != 4 || got[2].Line != 1 || got[3].Line != 3 {
+		t.Fatalf("want text/path matches first in original order, then the rest: %+v", got)
+	}
+	if same := sureMatchesFirst(hits, nil); len(same) != 4 || same[0].Line != 1 {
+		t.Fatalf("no filter must keep the order: %+v", same)
+	}
+}

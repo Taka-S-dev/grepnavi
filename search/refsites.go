@@ -26,6 +26,7 @@ type RefQuery struct {
 	Limit int
 	// Filter は絞り込み条件。空白区切りで AND、先頭の - は除外、
 	// path: / file: はパスだけに掛かる（grep の絞り込みバーと同じ語彙）。
+	// それ以外の語はパス・囲む関数名・ソース行のどれかに当たれば一致。
 	Filter string
 	// CallersOnly は呼び出し元一覧用。囲む関数が要る＆関数ごとに1件へまとめる。
 	CallersOnly bool
@@ -69,6 +70,13 @@ func FindRefSites(ctx context.Context, q RefQuery) ([]CallSite, string, bool, er
 			// 読む処理なので、後ろに置くと索引が返した全件ぶん働いてしまう。
 			// 先に掛ければ、絞り込みは索引が返した全件に届く（手元だけで絞ると
 			// 取ってこなかった範囲は出てこない）。
+			// ただし解決前に分かるのはパスと行の字面だけで、囲む関数名はまだ
+			// 無い。肯定の語は関数名にだけ当たることがある（SSL3_RT_ALERT の
+			// 参照を read で絞って dtls1_read_bytes の行を残したい）ので、
+			// 解決前に落とせるのは除外語と path: だけ。肯定の語は解決後に
+			// 関数名を含めて掛け直す。予算で切る前に、パスか行で既に当たって
+			// いる行を前へ出す: 関数名でしか当たらない行は予算の内側でしか
+			// 見つからないが、字面で当たる行は索引の全件に届いたままになる
 			hits = filterRawRefs(hits, q.Scope, q.Glob, nil)
 			// 絞り込みで 0 件になったら、それが答え。索引は語の参照を全量返して
 			// いるので、rg へ落としても同じ 0 件のために全木を読み直すだけ
@@ -76,7 +84,8 @@ func FindRefSites(ctx context.Context, q RefQuery) ([]CallSite, string, bool, er
 			// 入力欄は 1 打ごとに問い合わせるので、打ち間違い 1 回でそうなる）
 			terms := parseRefFilter(q.Filter)
 			narrowed := len(terms) > 0 && len(hits) > 0
-			hits = filterRawRefs(hits, "", "", terms)
+			hits = filterRawRefs(hits, "", "", preResolveTerms(terms))
+			hits = sureMatchesFirst(hits, terms)
 			// 代入だけに絞るのも予算で切る前に済ませる。切ってから絞ると、
 			// 先頭が読み出しで埋まっている語で「0 件・打ち切りあり」が返る
 			// （openssl の hand_state で実際に起きた。代入は数百件あるのに、
@@ -111,6 +120,9 @@ func FindRefSites(ctx context.Context, q RefQuery) ([]CallSite, string, bool, er
 			}
 			if q.Timing != nil {
 				q.Timing.ResolveMS = time.Since(t1).Milliseconds()
+			}
+			if len(terms) > 0 {
+				sites = keepMatchingSites(sites, terms)
 			}
 			MarkIndirectCalls(sites, q.Word)
 			MarkAssignments(sites, q.Word)
@@ -322,6 +334,48 @@ next:
 
 // matchesTerms は1件が絞り込み条件を満たすかを返す。
 // 上限で切る前に1件ずつ判定するため、一覧まとめてではなく1件単位で持つ。
+// preResolveTerms は解決前（囲む関数名が分かる前）に掛けてよい条件だけを返す。
+// 除外語はパスか行に当たった時点で落として構わない（関数名に当たっても
+// 落とすので答えは変わらない）。path: はパスにしか掛からない。肯定の語は
+// 関数名にだけ当たる行を落としてしまうので、ここでは掛けない。
+func preResolveTerms(terms []refTerm) []refTerm {
+	var out []refTerm
+	for _, t := range terms {
+		if t.neg || t.pathOnly {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// sureMatchesFirst は、パスと行の字面だけで全条件を満たす行を前に並べる
+// （順序はそれぞれの中で保つ）。残りは囲む関数名が分かってから決まる行。
+func sureMatchesFirst(hits []DefHit, terms []refTerm) []DefHit {
+	if len(terms) == 0 {
+		return hits
+	}
+	sure := hits[:0:0]
+	var maybe []DefHit
+	for _, h := range hits {
+		if len(filterRawRefs([]DefHit{h}, "", "", terms)) == 1 {
+			sure = append(sure, h)
+		} else {
+			maybe = append(maybe, h)
+		}
+	}
+	return append(sure, maybe...)
+}
+
+func keepMatchingSites(sites []CallSite, terms []refTerm) []CallSite {
+	out := sites[:0:0]
+	for _, s := range sites {
+		if matchesTerms(s, terms) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 func matchesTerms(s CallSite, terms []refTerm) bool {
 	path := strings.ToLower(filepath.ToSlash(filepath.Clean(s.File)))
 	all := path + " " + strings.ToLower(s.Func) + " " + strings.ToLower(s.Text)
