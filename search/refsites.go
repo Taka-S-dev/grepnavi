@@ -69,7 +69,14 @@ func FindRefSites(ctx context.Context, q RefQuery) ([]CallSite, string, bool, er
 			// 読む処理なので、後ろに置くと索引が返した全件ぶん働いてしまう。
 			// 先に掛ければ、絞り込みは索引が返した全件に届く（手元だけで絞ると
 			// 取ってこなかった範囲は出てこない）。
-			hits = filterRawRefs(hits, q.Scope, q.Glob, parseRefFilter(q.Filter))
+			hits = filterRawRefs(hits, q.Scope, q.Glob, nil)
+			// 絞り込みで 0 件になったら、それが答え。索引は語の参照を全量返して
+			// いるので、rg へ落としても同じ 0 件のために全木を読み直すだけ
+			// （openssl の SSL_free を一致しない語で絞ると 65 秒待たされた。
+			// 入力欄は 1 打ごとに問い合わせるので、打ち間違い 1 回でそうなる）
+			terms := parseRefFilter(q.Filter)
+			narrowed := len(terms) > 0 && len(hits) > 0
+			hits = filterRawRefs(hits, "", "", terms)
 			// 代入だけに絞るのも予算で切る前に済ませる。切ってから絞ると、
 			// 先頭が読み出しで埋まっている語で「0 件・打ち切りあり」が返る
 			// （openssl の hand_state で実際に起きた。代入は数百件あるのに、
@@ -111,10 +118,11 @@ func FindRefSites(ctx context.Context, q RefQuery) ([]CallSite, string, bool, er
 			// 呼び出し元は 0 件でも索引の答えとして返す（0 件 = 呼び出し元
 			// なし）。参照一覧は従来どおり rg へ落ちる — 索引対象外の
 			// ファイル種別からの参照がありえるのは、任意の行を拾う参照の側。
-			// 「書き込みだけ」も降格しない: 索引の参照の中に代入の形が無いのが
-			// 答えで、rg で全木を読み直しても同じ 0 件が返るだけ（openssl の
-			// ssl_read で実測: 索引 10ms に対し rg の再走査は cold 118 秒）。
-			if len(sites) > 0 || q.CallersOnly || q.AssignOnly {
+			// 「書き込みだけ」と「絞り込みで 0 件」も降格しない: 索引の参照の中に
+			// 代入の形・一致する行が無いのが答えで、rg で全木を読み直しても同じ
+			// 0 件が返るだけ（openssl の ssl_read で実測: 索引 10ms に対し rg の
+			// 再走査は cold 118 秒）。
+			if len(sites) > 0 || q.CallersOnly || q.AssignOnly || narrowed {
 				sites, truncated := capSites(sites, q.Limit)
 				return sites, "gtags", truncated || cut, nil
 			}

@@ -448,3 +448,32 @@ func TestFindRefSitesAssignOnlyDoesNotFallBackToRg(t *testing.T) {
 		t.Errorf("helper is never assigned, got %+v", sites)
 	}
 }
+
+// 絞り込みで索引の参照が 0 件になったとき、rg へ落ちて全木を読み直してはいけない。
+// 索引は語の参照を全量返しているので、rg が同じ条件で見つけるものは無い。
+// 入力欄は 1 打ごとに問い合わせるので、打ち間違い 1 回で全木走査（openssl の
+// SSL_free で 65 秒）が走り、一覧が「検索中…」のまま絞り込めないように見える。
+func TestFindRefSitesEmptyFilterResultDoesNotFallBackToRg(t *testing.T) {
+	if _, err := exec.LookPath("gtags"); err != nil {
+		t.Skip("gtags なし")
+	}
+	dir := writeRefFixture(t)
+	if err := GtagsBuildIndex(context.Background(), dir); err != nil {
+		t.Skipf("gtags の作成に失敗: %v", err)
+	}
+	if !GtagsAvailable(dir) {
+		t.Skip("索引を認識できない")
+	}
+	sites, engine, _, err := FindRefSites(context.Background(), RefQuery{
+		Word: "helper", Root: dir, Filter: "no_such_word_anywhere", Limit: 100,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if engine != "gtags" {
+		t.Errorf("engine = %q, want gtags (a filter that matches nothing is the answer, not a reason to rescan)", engine)
+	}
+	if len(sites) != 0 {
+		t.Errorf("filter matches nothing, got %+v", sites)
+	}
+}

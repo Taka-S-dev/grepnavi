@@ -2113,7 +2113,10 @@ async function openRefPicker(word, assignOnly, filter) {
     ? ' / Alt+S で何が入るか' : '';
   id('fzf-input').placeholder = (assignOnly ? `${word} への代入` : `${word} の参照`)
     + ` を絞り込む（空白で AND / -語 で除外 / path:… でパスだけ${deeper}）`;
-  fzfShowLoading(assignOnly ? '代入を検索しています…' : '参照を検索しています…');
+  // 絞り込みでの再問い合わせでは、手元で絞った一覧を出したまま件数欄だけ回す。
+  // 一覧を消して「検索中…」にすると、打つたびに結果が消えて絞れていないように見える
+  if(filter === undefined) fzfShowLoading(assignOnly ? '代入を検索しています…' : '参照を検索しています…');
+  else id('fzf-count').innerHTML = '<span class="fzf-spinner"></span>' + esc(id('fzf-count').textContent);
   // 絞り込みでの再問い合わせでは、位置と入力欄とフォーカスをそのままにする
   if(filter === undefined) {
     anchorFzfBox(takePickerAnchor());
@@ -2249,7 +2252,9 @@ function fzfRenderRefs(query) {
     + ` [${fzfRefs._engine || ''}]`;
   list.innerHTML = '';
   if(!fzfRefsFiltered.length) {
-    list.innerHTML = `<div class="fzf-empty">${fzfRefs.length ? '絞り込みに一致しません' : '参照が見つかりませんでした'}</div>`;
+    // 絞り込みはサーバでも掛かるので、返ってきた 0 件は「絞り込みに一致しない」であって
+    // 「参照が無い」ではない。入力欄に語があるかで言い分ける
+    list.innerHTML = `<div class="fzf-empty">${(fzfRefs.length || q) ? '絞り込みに一致しません' : '参照が見つかりませんでした'}</div>`;
     fzfSchedulePreview();
     return;
   }
